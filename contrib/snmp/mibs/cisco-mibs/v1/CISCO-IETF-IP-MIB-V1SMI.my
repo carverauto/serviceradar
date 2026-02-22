@@ -1,0 +1,1161 @@
+-- MIB file created 23-Jul-2002 15:28:17, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-IP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-IP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    PhysAddress, TruthValue, TimeStamp, RowPointer
+            FROM SNMPv2-TC-v1
+    InetAddress, InetAddressType, InetAddressPrefixLength
+            FROM INET-ADDRESS-MIB
+    InterfaceIndex, InterfaceIndexOrZero, ifIndex
+            FROM IF-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoIetfIpMIB OBJECT IDENTIFIER ::= { ciscoExperiment 86 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200203040000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--            Cisco Systems
+--             Customer Service
+--    
+--     Postal: 170 West Tasman Drive
+--             San Jose, CA 95134
+--             USA
+--    
+--     Phone: +1 800 553-NETS
+--    
+--     Email: cs-ipv6@cisco.com
+--  Descr
+--    The MIB module for managing IP and ICMP implementations,
+--     but excluding the management of IP routes.
+--  RevDate
+--    200203040000Z
+--  RevDescr
+--    The initial version of this MIB module.
+
+ciscoIetfIpMIBObjects OBJECT IDENTIFIER ::= { ciscoIetfIpMIB 1 }
+cIp             OBJECT IDENTIFIER ::= { ciscoIetfIpMIBObjects 1 }
+cIpv6           OBJECT IDENTIFIER ::= { ciscoIetfIpMIBObjects 2 }
+cIcmp           OBJECT IDENTIFIER ::= { ciscoIetfIpMIBObjects 3 }
+ciscoIpMIBConformance OBJECT IDENTIFIER ::= { ciscoIetfIpMIB 2 }
+ciscoIpMIBCompliances OBJECT IDENTIFIER ::= { ciscoIpMIBConformance 1 }
+ciscoIpMIBGroups OBJECT IDENTIFIER ::= { ciscoIpMIBConformance 2 }
+
+Ipv6AddrIfIdentifier ::= OCTET STRING(SIZE(0..8))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    2x:
+--  Status
+--    mandatory
+--  Descr
+--    This data type is used to model IPv6 address
+--     interface identifiers. This is a binary string
+--     of up to 8 octets in network byte-order.
+
+ScopeId ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A Scope Identifier identifies an instance of a specific
+--     scope.
+--    
+--     The scope identifier MUST disambiguate identical address
+--     values. For link-local addresses, the scope identifier
+--     will typically be the interface index (ifIndex as
+--     defined in the IF-MIB) of the interface on which the
+--     address is configured.
+--    
+--     The scope identifier may contain the special value 0
+--     which refers to the default scope. The default scope
+--     may be used in cases where the valid scope identifier
+--     is not known (e.g., a management application needs to
+--     write a site-local InetAddressIPv6 address without
+--     knowing the site identifier value). The default scope
+--     SHOULD NOT be used as an easy way out in cases where
+--     the scope identifier for a non-global IPv6 address is
+--     known.
+
+cIpv6Forwarding OBJECT-TYPE
+    SYNTAX INTEGER {
+        forwarding(1),
+        notForwarding(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The indication of whether this entity is acting as an
+         IPv6 router in respect to the forwarding of datagrams
+         received by, but not addressed to, this entity.  IPv6
+         routers forward datagrams.  IPv6 hosts do not (except
+         those source-routed via the host)."
+    ::= { cIpv6 1 }
+
+cIpv6DefaultHopLimit OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The default value inserted into the Hop Limit field of
+         the IPv6 header of datagrams originated at this entity,
+         whenever a Hop Limit value is not supplied by the
+         transport layer protocol."
+    ::= { cIpv6 2 }
+
+cIpv6InterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIpv6InterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table containing per-interface IPv6-specific
+         information."
+    ::= { cIpv6 3 }
+
+cIpv6InterfaceEntry OBJECT-TYPE
+    SYNTAX CIpv6InterfaceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing IPv6-specific information for a given
+         interface."
+    INDEX { cIpv6InterfaceIfIndex }
+    ::= { cIpv6InterfaceTable 1 }
+
+CIpv6InterfaceEntry ::= SEQUENCE {
+    cIpv6InterfaceIfIndex InterfaceIndex,
+    cIpv6InterfaceEffectiveMtu Gauge,
+    cIpv6InterfaceReasmMaxSize Gauge,
+    cIpv6InterfaceIdentifier Ipv6AddrIfIdentifier,
+    cIpv6InterfaceIdentifierLength INTEGER,
+    cIpv6InterfacePhysicalAddress PhysAddress
+    }
+
+cIpv6InterfaceIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The interface for which this row contains IPv6-specific
+         information."
+    ::= { cIpv6InterfaceEntry 1 }
+
+cIpv6InterfaceEffectiveMtu OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The size of the largest IPv6 packet which can be
+         sent/received on the interface, specified in octets."
+    ::= { cIpv6InterfaceEntry 2 }
+
+cIpv6InterfaceReasmMaxSize OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The size of the largest IPv6 datagram which this entity
+         can re-assemble from incoming IPv6 fragmented datagrams
+         received on this interface."
+    ::= { cIpv6InterfaceEntry 3 }
+
+cIpv6InterfaceIdentifier OBJECT-TYPE
+    SYNTAX Ipv6AddrIfIdentifier
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Interface Identifier for this interface that is (at
+         least) unique on the link this interface is attached to.
+         The Interface Identifier is combined with an address
+         prefix to form an interface address. 
+        
+         By default, the Interface Identifier is autoconfigured
+         according to the rules of the link type this interface is
+         attached to."
+    ::= { cIpv6InterfaceEntry 4 }
+
+cIpv6InterfaceIdentifierLength OBJECT-TYPE
+    SYNTAX INTEGER(0..64)
+--  Units
+--    bits
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The length of the Interface Identifier in bits."
+    ::= { cIpv6InterfaceEntry 5 }
+
+cIpv6InterfacePhysicalAddress OBJECT-TYPE
+    SYNTAX PhysAddress
+--    Rsyntax OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The interface's physical address. For example, for an
+         IPv6 interface attached to an 802.x link, this object
+         normally contains a MAC address. Note that in some
+         cases this address may differ from the address of the
+         interface's protocol sub-layer.  The interface's
+         media-specific MIB must define the bit and byte
+         ordering and the format of the value of this object.
+         For interfaces which do not have such an address
+         (e.g., a serial line), this object should contain
+         an octet string of zero length."
+    ::= { cIpv6InterfaceEntry 6 }
+
+cIpAddressPfxTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIpAddressPfxEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Inet prefix table."
+    ::= { cIp 1 }
+
+cIpAddressPfxEntry OBJECT-TYPE
+    SYNTAX CIpAddressPfxEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Inet prefix entry."
+    INDEX { cIpAddressPfxIfIndex, cIpAddressPfxType, cIpAddressPfxPfx, cIpAddressPfxLength }
+    ::= { cIpAddressPfxTable 1 }
+
+CIpAddressPfxEntry ::= SEQUENCE {
+    cIpAddressPfxIfIndex InterfaceIndex,
+    cIpAddressPfxType InetAddressType,
+    cIpAddressPfxPfx InetAddress,
+    cIpAddressPfxLength InetAddressPrefixLength,
+    cIpAddressPfxOrigin INTEGER,
+    cIpAddressPfxOnLinkFlag TruthValue,
+    cIpAddressPfxAutonomousFlag TruthValue,
+    cIpAddressPfxAdvPfdLifetime Gauge,
+    cIpAddressPfxAdvValidLifetime Gauge
+    }
+
+cIpAddressPfxIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The interface on which this prefix is configured."
+    ::= { cIpAddressPfxEntry 1 }
+
+cIpAddressPfxType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The address type of cIpAddressPfxPfx.  Only IPv4 and IPv6
+         addresses are expected."
+    ::= { cIpAddressPfxEntry 2 }
+
+cIpAddressPfxPfx OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(0..36))
+--    Rsyntax OCTET STRING(SIZE(0..36))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The address prefix.  Bits after cIpAddressPfxLength
+         must be zero."
+    ::= { cIpAddressPfxEntry 3 }
+
+cIpAddressPfxLength OBJECT-TYPE
+    SYNTAX InetAddressPrefixLength
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The prefix length associated with this prefix."
+    ::= { cIpAddressPfxEntry 4 }
+
+cIpAddressPfxOrigin OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        manual(2),
+        wellknown(3),
+        dhcp(4),
+        routeradv(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The origin of this prefix.  manual(2) indicates a prefix
+         that was manually configured.  wellknown(3) indicates a
+         well-known prefix, e.g. 169.254/16 for IPv4
+         autoconfiguration or fe80::/10 for IPv6 link-local
+         addresses.  dhcp(4) indicates a prefix that was assigned
+         by a DHCP server.  routeradv(5) indicates a prefix
+         learned from a router advertisement."
+    ::= { cIpAddressPfxEntry 5 }
+
+cIpAddressPfxOnLinkFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object has the value 'true(1)', if this prefix
+         can be used  for on-link determination and the value
+         'false(2)' otherwise."
+    ::= { cIpAddressPfxEntry 6 }
+
+cIpAddressPfxAutonomousFlag OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Autonomous address configuration flag. When true(1),
+         indicates that this prefix can be used for autonomous
+         address configuration (i.e. can be used to form a local
+         interface address).  If false(2), it is not used to
+         autoconfigure a local interface address."
+    ::= { cIpAddressPfxEntry 7 }
+
+cIpAddressPfxAdvPfdLifetime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The length of time in seconds that this prefix will
+         remain preferred, i.e. time until deprecation.  A
+         value of 4,294,967,295 represents infinity.
+        
+         The address generated from a deprecated prefix should no
+         longer be used as a source address in new communications,
+         but packets received on such an interface are processed
+         as expected."
+    ::= { cIpAddressPfxEntry 8 }
+
+cIpAddressPfxAdvValidLifetime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The length of time in seconds that this prefix will
+         remain valid, i.e. time until invalidation.  A value of
+         4,294,967,295 represents infinity.
+        
+         The address generated from an invalidated prefix should
+         not appear as the destination or source address of a
+         packet."
+    ::= { cIpAddressPfxEntry 9 }
+
+cIpAddressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIpAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Inet address table."
+    ::= { cIp 2 }
+
+cIpAddressEntry OBJECT-TYPE
+    SYNTAX CIpAddressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Inet addr entry."
+    INDEX { cIpAddressAddrType, cIpAddressAddr }
+    ::= { cIpAddressTable 1 }
+
+CIpAddressEntry ::= SEQUENCE {
+    cIpAddressAddrType InetAddressType,
+    cIpAddressAddr InetAddress,
+    cIpAddressIfIndex InterfaceIndex,
+    cIpAddressType INTEGER,
+    cIpAddressPrefix RowPointer,
+    cIpAddressOrigin INTEGER,
+    cIpAddressStatus INTEGER
+    }
+
+cIpAddressAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The address type of cIpAddressAddr."
+    ::= { cIpAddressEntry 1 }
+
+cIpAddressAddr OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(0..36))
+--    Rsyntax OCTET STRING(SIZE(0..36))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address to which this entry's addressing
+         information pertains."
+    ::= { cIpAddressEntry 2 }
+
+cIpAddressIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The index value which uniquely identifies the interface
+         to which this entry is applicable.  The interface
+         identified by a particular value of this index is the
+         same interface as identified by the same value of the
+         IF-MIB's ifIndex."
+    ::= { cIpAddressEntry 3 }
+
+cIpAddressType OBJECT-TYPE
+    SYNTAX INTEGER {
+        unicast(1),
+        anycast(2),
+        broadcast(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of address.  broadcast(3) is not a valid value
+         for IPv6 addresses."
+    ::= { cIpAddressEntry 4 }
+
+cIpAddressPrefix OBJECT-TYPE
+    SYNTAX RowPointer
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A pointer to the row in the prefix table to which this
+         address belongs.  May be { 0 0 } if there is no such
+         row."
+    ::= { cIpAddressEntry 5 }
+
+cIpAddressOrigin OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        manual(2),
+        wellknown(3),
+        dhcp(4),
+        linklayer(5),
+        random(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The origin of the address.  manual(2) indicates that the
+         address was manually configured.  wellknown(3) indicates
+         an address constructed from a well-known value, e.g. an
+         IANA-assigned anycast address.  dhcp(4) indicates an
+         address that was assigned to this system by a DHCP
+         server.  linklayer(5) indicates an address created by
+         IPv6 stateless autoconfiguration.  random(6) indicates
+         an address chosen by random, e.g. an IPv4 address within
+         169.254/16, or an RFC 3041 privacy address."
+    ::= { cIpAddressEntry 6 }
+
+cIpAddressStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        preferred(1),
+        deprecated(2),
+        invalid(3),
+        inaccessible(4),
+        unknown(5),
+        tentative(6),
+        duplicate(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Address status.  The preferred(1) state indicates that
+         this is a valid address that can appear as the
+         destination or source address of a packet. The
+         deprecated(2) state indicates that this is a valid but
+         deprecated address that should no longer be used as a
+         source address in new communications, but packets
+         addressed to such an address are processed as expected.
+         The invalid(3) state indicates that this is not valid
+         address which should not appear as the destination or
+         source address of a packet. The inaccessible(4) state
+         indicates that the address is not accessible because
+         the interface to which this address is assigned is not
+         operational. The tentative(6) state indicates the
+         uniqueness of the address on the link is being verified.
+         The duplicate(7) state indicates the address has been
+         determined to be non-unique on the link and so must not
+         be used.
+        
+         In the absence of other information, an IPv4 address is
+         always preferred(1)."
+    ::= { cIpAddressEntry 7 }
+
+cInetNetToMediaTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CInetNetToMediaEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP Address Translation table used for mapping from IP
+         addresses to physical addresses.
+        
+         The Address Translation tables contain the IP address to
+         'physical' address equivalences.  Some interfaces do not
+         use translation tables for determining address
+         equivalences (e.g., DDN-X.25 has an algorithmic method);
+         if all interfaces are of this type, then the Address
+         Translation table is empty, i.e., has zero entries."
+    ::= { cIp 3 }
+
+cInetNetToMediaEntry OBJECT-TYPE
+    SYNTAX CInetNetToMediaEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains one IP address to `physical' address
+         equivalence."
+    INDEX { ifIndex, cInetNetToMediaNetAddressType, cInetNetToMediaNetAddress }
+    ::= { cInetNetToMediaTable 1 }
+
+CInetNetToMediaEntry ::= SEQUENCE {
+    cInetNetToMediaNetAddressType InetAddressType,
+    cInetNetToMediaNetAddress InetAddress,
+    cInetNetToMediaPhysAddress PhysAddress,
+    cInetNetToMediaLastUpdated TimeStamp,
+    cInetNetToMediaType INTEGER,
+    cInetNetToMediaState INTEGER
+    }
+
+cInetNetToMediaNetAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of cInetNetToMediaNetAddress."
+    ::= { cInetNetToMediaEntry 1 }
+
+cInetNetToMediaNetAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(0..36))
+--    Rsyntax OCTET STRING(SIZE(0..36))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP Address corresponding to the media-dependent
+         `physical' address."
+    ::= { cInetNetToMediaEntry 2 }
+
+cInetNetToMediaPhysAddress OBJECT-TYPE
+    SYNTAX PhysAddress
+--    Rsyntax OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The media-dependent `physical' address."
+    ::= { cInetNetToMediaEntry 3 }
+
+cInetNetToMediaLastUpdated OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime at the time this entry was last
+         updated.  If this entry was updated prior to the last re-
+         initialization of the local network management subsystem,
+         then this object contains a zero value."
+    ::= { cInetNetToMediaEntry 4 }
+
+cInetNetToMediaType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        invalid(2),
+        dynamic(3),
+        static(4),
+        local(5)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of mapping.
+        
+         Setting this object to the value invalid(2) has the
+         effect of invalidating the corresponding entry in the
+         cInetNetToMediaTable.  That is, it effectively
+         disassociates the interface identified with said entry
+         from the mapping identified with said entry.  It is an
+         implementation-specific matter as to whether the agent
+         removes an invalidated entry from the table. 
+         Accordingly, management stations must be prepared to
+         receive tabular information from agents that corresponds
+         to entries not currently in use.  Proper interpretation
+         of such entries requires examination of the relevant
+         cInetNetToMediaType object.
+        
+         The 'dynamic(3)' type indicates that the IP address to
+         physical addresses mapping has been dynamically resolved
+         using e.g. IPv4 ARP or the IPv6 Neighbor Discovery
+         protocol.
+        
+         The 'static(4)' type indicates that the mapping has been
+         statically configured.  The 'local(5)' type indicates
+         that the mapping is provided for an entity's own
+         interface address."
+    ::= { cInetNetToMediaEntry 5 }
+
+cInetNetToMediaState OBJECT-TYPE
+    SYNTAX INTEGER {
+        reachable(1),
+        stale(2),
+        delay(3),
+        probe(4),
+        invalid(5),
+        unknown(6),
+        incomplete(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Neighbor Unreachability Detection [3] state for the
+         interface when the address mapping in this entry is used.
+         If Neighbor Unreachability Detection is not in use (e.g.
+         for IPv4), this object is always unknown(6)."
+    REFERENCE
+        "RFC2461"
+    ::= { cInetNetToMediaEntry 6 }
+
+cIpv6ScopeIdTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CIpv6ScopeIdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table used to describe IPv6 unicast and multicast
+         scope zones."
+    ::= { cIp 4 }
+
+cIpv6ScopeIdEntry OBJECT-TYPE
+    SYNTAX CIpv6ScopeIdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the list of scope identifiers on a
+         given interface."
+    INDEX { cIpv6ScopeIdIfIndex }
+    ::= { cIpv6ScopeIdTable 1 }
+
+CIpv6ScopeIdEntry ::= SEQUENCE {
+    cIpv6ScopeIdIfIndex InterfaceIndex,
+    cIpv6ScopeIdLinkLocal ScopeId,
+    cIpv6ScopeIdSubnetLocal ScopeId,
+    cIpv6ScopeIdAdminLocal ScopeId,
+    cIpv6ScopeIdSiteLocal ScopeId,
+    cIpv6ScopeId6 ScopeId,
+    cIpv6ScopeId7 ScopeId,
+    cIpv6ScopeIdOrganizationLocal ScopeId,
+    cIpv6ScopeId9 ScopeId,
+    cIpv6ScopeIdA ScopeId,
+    cIpv6ScopeIdB ScopeId,
+    cIpv6ScopeIdC ScopeId,
+    cIpv6ScopeIdD ScopeId
+    }
+
+cIpv6ScopeIdIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The interface to which these scopes belong."
+    ::= { cIpv6ScopeIdEntry 1 }
+
+cIpv6ScopeIdLinkLocal OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for the link-local scope on this
+         interface."
+    ::= { cIpv6ScopeIdEntry 2 }
+
+cIpv6ScopeIdSubnetLocal OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for the subnet-local scope on this
+         interface."
+    ::= { cIpv6ScopeIdEntry 3 }
+
+cIpv6ScopeIdAdminLocal OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for the admin-local scope on this
+         interface."
+    ::= { cIpv6ScopeIdEntry 4 }
+
+cIpv6ScopeIdSiteLocal OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for the site-local scope on this
+         interface."
+    ::= { cIpv6ScopeIdEntry 5 }
+
+cIpv6ScopeId6 OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for scope 6 on this interface."
+    ::= { cIpv6ScopeIdEntry 6 }
+
+cIpv6ScopeId7 OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for scope 7 on this interface."
+    ::= { cIpv6ScopeIdEntry 7 }
+
+cIpv6ScopeIdOrganizationLocal OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for the orgainzation-local scope on
+         this interface."
+    ::= { cIpv6ScopeIdEntry 8 }
+
+cIpv6ScopeId9 OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for scope 9 on this interface."
+    ::= { cIpv6ScopeIdEntry 9 }
+
+cIpv6ScopeIdA OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for scope A on this interface."
+    ::= { cIpv6ScopeIdEntry 10 }
+
+cIpv6ScopeIdB OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for scope B on this interface."
+    ::= { cIpv6ScopeIdEntry 11 }
+
+cIpv6ScopeIdC OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for scope C on this interface."
+    ::= { cIpv6ScopeIdEntry 12 }
+
+cIpv6ScopeIdD OBJECT-TYPE
+    SYNTAX ScopeId
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Scope Identifier for scope D on this interface."
+    ::= { cIpv6ScopeIdEntry 13 }
+
+cInetIcmpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CInetIcmpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table of generic ICMP counters.  These counters may
+         be kept per-interface and/or system-wide."
+    ::= { cIcmp 1 }
+
+cInetIcmpEntry OBJECT-TYPE
+    SYNTAX CInetIcmpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row in the inetIcmpTable.
+        
+         A row with an inetIcmpIfIndex value of zero indicates a
+         system-wide value; a row with a non-zero inetIcmpIfIndex
+         indicates an interface-specific value.  A system may
+         provide both system-wide and interface-specific values,
+         in which case it is important to note that the
+         system-wide value may not be equal to the sum of the
+         interface-specific value across all interfaces due to
+         e.g. dynamic interface creation/deletion."
+    INDEX { cInetIcmpAFType, cInetIcmpIfIndex }
+    ::= { cInetIcmpTable 1 }
+
+CInetIcmpEntry ::= SEQUENCE {
+    cInetIcmpAFType InetAddressType,
+    cInetIcmpIfIndex InterfaceIndexOrZero,
+    cInetIcmpInMsgs Counter,
+    cInetIcmpInErrors Counter,
+    cInetIcmpOutMsgs Counter,
+    cInetIcmpOutErrors Counter
+    }
+
+cInetIcmpAFType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address family of the statistics."
+    ::= { cInetIcmpEntry 1 }
+
+cInetIcmpIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The ifindex of the interface, or zero for system-wide
+         stats."
+    ::= { cInetIcmpEntry 2 }
+
+cInetIcmpInMsgs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of ICMP messages which the entity
+         received. Note that this counter includes all those
+         counted by cInetIcmpInErrors."
+    ::= { cInetIcmpEntry 3 }
+
+cInetIcmpInErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of ICMP messages which the entity received but
+         determined as having ICMP-specific errors (bad ICMP
+         checksums, bad length, etc.)."
+    ::= { cInetIcmpEntry 4 }
+
+cInetIcmpOutMsgs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of ICMP messages which the entity
+         received. Note that this counter includes all those
+         counted by inetIcmpOutErrors."
+    ::= { cInetIcmpEntry 5 }
+
+cInetIcmpOutErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of ICMP messages which this entity did not
+         send due to problems discovered within ICMP such as a
+         lack of buffers.  This value should not include errors
+         discovered  outside the ICMP layer such as the inability
+         of IP to route the resultant datagram.  In some
+         implementations there may be no types of error which
+         contribute to this counter's value."
+    ::= { cInetIcmpEntry 6 }
+
+cInetIcmpMsgTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CInetIcmpMsgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table of per-message ICMP counters.  These counters
+         may be kept per-interface and/or system-wide."
+    ::= { cIcmp 2 }
+
+cInetIcmpMsgEntry OBJECT-TYPE
+    SYNTAX CInetIcmpMsgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row in the inetIcmpMsgTable.
+        
+         A row with an inetIcmpMsgIfIndex value of zero indicates
+         a system-wide value; a row with a non-zero
+         cInetIcmpMsgIfIndex indicates an interface-specific
+         value.  A system may provide both system-wide and
+         interface-specific values, in which case it is important
+         to note that the system-wide value may not be equal to
+         the sum of the interface-specific values across all
+         interfaces due to e.g. dynamic interface
+         creation/deletion.
+        
+         If the system keeps track of individual ICMP code values
+         (e.g.  destination unreachable, code administratively
+         prohibited), it creates several rows for each
+         inetIcmpMsgType, each with an appropriate value of
+         cInetIcmpMsgCode.  A row with the special value of
+         cInetIcmpMsgCode, 256, counts all packets with type
+         cInetIcmpMsgType that aren't counted in rows with a value
+         of cInetIcmpMsgCode other than 256."
+    INDEX { cInetIcmpMsgAFType, cInetIcmpMsgIfIndex, cInetIcmpMsgType, cInetIcmpMsgCode }
+    ::= { cInetIcmpMsgTable 1 }
+
+CInetIcmpMsgEntry ::= SEQUENCE {
+    cInetIcmpMsgAFType InetAddressType,
+    cInetIcmpMsgIfIndex InterfaceIndexOrZero,
+    cInetIcmpMsgType INTEGER,
+    cInetIcmpMsgCode INTEGER,
+    cInetIcmpMsgInPkts Counter,
+    cInetIcmpMsgOutPkts Counter
+    }
+
+cInetIcmpMsgAFType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address family of the statistics."
+    ::= { cInetIcmpMsgEntry 1 }
+
+cInetIcmpMsgIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The ifindex of the interface, or zero for system-wide
+        stats."
+    ::= { cInetIcmpMsgEntry 2 }
+
+cInetIcmpMsgType OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The ICMP type field of the message type being counted by
+         this row."
+    ::= { cInetIcmpMsgEntry 3 }
+
+cInetIcmpMsgCode OBJECT-TYPE
+    SYNTAX INTEGER(0..256)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The ICMP code field of the message type being counted by
+         this row, or the special value 256 if no specific ICMP
+         code is counted by this row."
+    ::= { cInetIcmpMsgEntry 4 }
+
+cInetIcmpMsgInPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of input packets for this AF, ifindex, type,
+         code."
+    ::= { cInetIcmpMsgEntry 5 }
+
+cInetIcmpMsgOutPkts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of output packets for this AF, ifindex, type,
+         code."
+    ::= { cInetIcmpMsgEntry 6 }
+
+ciscoIpAddressPfxGroup OBJECT IDENTIFIER ::= { ciscoIpMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The ip version independent address prefix group of entries
+--     providing for basic management of IP prefixes.
+--  objects
+--    cIpAddressPfxOrigin, cIpAddressPfxOnLinkFlag, 
+--    cIpAddressPfxAutonomousFlag, cIpAddressPfxAdvPfdLifetime, 
+--    cIpAddressPfxAdvValidLifetime
+
+ciscoIpAddressGroup OBJECT IDENTIFIER ::= { ciscoIpMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The ip version independent address group of entries
+--     providing for basic management of IP addresses.
+--  objects
+--    cIpAddressIfIndex, cIpAddressType, cIpAddressPrefix, 
+--    cIpAddressOrigin, cIpAddressStatus
+
+ciscoInetNetToMediaGroup OBJECT IDENTIFIER ::= { ciscoIpMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The group of entries providing IP address to physical
+--     address mapping.
+--  objects
+--    cInetNetToMediaPhysAddress, cInetNetToMediaLastUpdated, 
+--    cInetNetToMediaType, cInetNetToMediaState
+
+ciscoInetIcmpGroup OBJECT IDENTIFIER ::= { ciscoIpMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The group of entries providing version independent
+--     per-interface ICMP specific counters.
+--  objects
+--    cInetIcmpInMsgs, cInetIcmpInErrors, cInetIcmpOutMsgs, 
+--    cInetIcmpOutErrors
+
+ciscoInetIcmpMsgGroup OBJECT IDENTIFIER ::= { ciscoIpMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The group of entries providing version independent
+--     per-interface ICMP msg type specific counters.
+--  objects
+--    cInetIcmpMsgInPkts, cInetIcmpMsgOutPkts
+
+ciscoIpv6GeneralGroup OBJECT IDENTIFIER ::= { ciscoIpMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The IPv6 group of objects providing for basic
+--     management of IPv6 entities.
+--  objects
+--    cIpv6Forwarding, cIpv6DefaultHopLimit
+
+ciscoIpv6InterfaceGroup OBJECT IDENTIFIER ::= { ciscoIpMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The IPv6 group of objects providing IPv6 interface
+--     specific statistics.
+--  objects
+--    cIpv6InterfaceEffectiveMtu, cIpv6InterfaceReasmMaxSize, 
+--    cIpv6InterfaceIdentifier, cIpv6InterfaceIdentifierLength, 
+--    cIpv6InterfacePhysicalAddress
+
+ciscoIpv6ScopeGroup OBJECT IDENTIFIER ::= { ciscoIpMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The group of objects for managing IPv6 scope zones.
+--  objects
+--    cIpv6ScopeIdLinkLocal, cIpv6ScopeIdSubnetLocal, 
+--    cIpv6ScopeIdAdminLocal, cIpv6ScopeIdSiteLocal, cIpv6ScopeId6, 
+--    cIpv6ScopeId7, cIpv6ScopeIdOrganizationLocal, cIpv6ScopeId9, 
+--    cIpv6ScopeIdA, cIpv6ScopeIdB, cIpv6ScopeIdC, cIpv6ScopeIdD
+
+ciscoIpMIBCompliance OBJECT IDENTIFIER ::= { ciscoIpMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for systems which implement
+--     IPv6 OR IPv4.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoIpAddressPfxGroup
+--   MandGroup
+--    ciscoIpAddressGroup
+--   MandGroup
+--    ciscoInetNetToMediaGroup
+--   MandGroup
+--    ciscoInetIcmpGroup
+--   MandGroup
+--    ciscoInetIcmpMsgGroup
+--   OptGroup
+--    ciscoIpv6GeneralGroup
+--   OptGroup
+--    ciscoIpv6InterfaceGroup
+--   OptGroup
+--    ciscoIpv6ScopeGroup
+
+
+END
+

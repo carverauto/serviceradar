@@ -1,0 +1,134 @@
+-- MIB created 9/10/96 15:50:31, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-ATM-ADDR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ATM-ADDR-MIB.my"
+
+IMPORTS
+    OBJECT-TYPE
+            FROM RFC-1212
+    RowStatus
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    ciscoExperiment
+            FROM CISCO-SMI;
+
+ciscoAtmAddrMIB OBJECT IDENTIFIER ::= { ciscoExperiment 12 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9605060000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-atm@cisco.com
+--  Descr
+--    ATM address MIB
+--  RevDate
+--    9605060000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoAtmAddrMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmAddrMIB 1 }
+ciscoAtmIfAdminAddrMIBConformance OBJECT IDENTIFIER ::= { ciscoAtmAddrMIB 3 }
+ciscoAtmIfAdminAddrMIBCompliances OBJECT IDENTIFIER ::= { ciscoAtmIfAdminAddrMIBConformance 1 }
+ciscoAtmIfAdminAddrMIBGroups OBJECT IDENTIFIER ::= { ciscoAtmIfAdminAddrMIBConformance 2 }
+
+AtmAddr ::= OCTET STRING(SIZE(0 | 8 | 13 | 20))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The ATM address used by the network entity.  The
+--    address types are: no address (0 octets), E.164 (8
+--    octets), network prefix (13 octets), and NSAP (20
+--    octets).  Note: The E.164 address is encoded in
+--    BCD format.
+
+ciscoAtmIfAdminAddrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CiscoAtmIfAdminAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains an address list on a per interface
+        basis.  This table only applies to switches or networks
+        and only for interfaces that have more than one address
+        assigned."
+    ::= { ciscoAtmAddrMIBObjects 1 }
+
+ciscoAtmIfAdminAddrEntry OBJECT-TYPE
+    SYNTAX CiscoAtmIfAdminAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the CiscoAtmIfAdminAddrTable."
+    INDEX { ifIndex, ciscoAtmIfAdminAddrAddress }
+    ::= { ciscoAtmIfAdminAddrTable 1 }
+
+CiscoAtmIfAdminAddrEntry ::= SEQUENCE {
+    ciscoAtmIfAdminAddrAddress AtmAddr,
+    ciscoAtmIfAdminAddrRowStatus RowStatus
+    }
+
+ciscoAtmIfAdminAddrAddress OBJECT-TYPE
+    SYNTAX AtmAddr
+--    Rsyntax OCTET STRING(SIZE(0 | 8 | 13 | 20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A valid address for a given switch or network
+         interface."
+    ::= { ciscoAtmIfAdminAddrEntry 1 }
+
+ciscoAtmIfAdminAddrRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create and delete rows in the
+        atmIfAdminAddrTable."
+    ::= { ciscoAtmIfAdminAddrEntry 2 }
+
+ciscoAtmIfAdminAddrMIBGroup OBJECT IDENTIFIER ::= { ciscoAtmIfAdminAddrMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This object is used to create and delete rows in the
+--     atmIfAdminAddrTable.
+--  objects
+--    ciscoAtmIfAdminAddrRowStatus
+
+ciscoAtmIfAdminAddrMIBCompliance OBJECT IDENTIFIER ::= { ciscoAtmIfAdminAddrMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the Cisco ATM address
+--     group.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoAtmIfAdminAddrMIBGroup
+
+
+END
+

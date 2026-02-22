@@ -1,0 +1,627 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-PROC-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- PROC management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-PROC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsProcStatAdminState
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsProcObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        PROC management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 40 }
+
+cucsProcDoerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsProcDoerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS proc:Doer managed object table"
+    ::= { cucsProcObjects 1 }
+
+cucsProcDoerEntry OBJECT-TYPE
+    SYNTAX           CucsProcDoerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsProcDoerTable table."
+    INDEX { cucsProcDoerInstanceId }
+    ::= { cucsProcDoerTable 1 }
+
+CucsProcDoerEntry ::= SEQUENCE {
+    cucsProcDoerInstanceId                                           CucsManagedObjectId,
+    cucsProcDoerDn                                                   CucsManagedObjectDn,
+    cucsProcDoerRn                                                   SnmpAdminString,
+    cucsProcDoerId                                                   Gauge32,
+    cucsProcDoerName                                                 SnmpAdminString
+}
+
+cucsProcDoerInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsProcDoerEntry 1 }
+
+cucsProcDoerDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Doer:dn managed object property"
+    ::= { cucsProcDoerEntry 2 }
+
+cucsProcDoerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Doer:rn managed object property"
+    ::= { cucsProcDoerEntry 3 }
+
+cucsProcDoerId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Doer:id managed object property"
+    ::= { cucsProcDoerEntry 4 }
+
+cucsProcDoerName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Doer:name managed object property"
+    ::= { cucsProcDoerEntry 5 }
+
+cucsProcManagerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsProcManagerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS proc:Manager managed object table"
+    ::= { cucsProcObjects 2 }
+
+cucsProcManagerEntry OBJECT-TYPE
+    SYNTAX           CucsProcManagerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsProcManagerTable table."
+    INDEX { cucsProcManagerInstanceId }
+    ::= { cucsProcManagerTable 1 }
+
+CucsProcManagerEntry ::= SEQUENCE {
+    cucsProcManagerInstanceId                                        CucsManagedObjectId,
+    cucsProcManagerDn                                                CucsManagedObjectDn,
+    cucsProcManagerRn                                                SnmpAdminString
+}
+
+cucsProcManagerInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsProcManagerEntry 1 }
+
+cucsProcManagerDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Manager:dn managed object property"
+    ::= { cucsProcManagerEntry 2 }
+
+cucsProcManagerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Manager:rn managed object property"
+    ::= { cucsProcManagerEntry 3 }
+
+cucsProcPrtTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsProcPrtEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS proc:Prt managed object table"
+    ::= { cucsProcObjects 3 }
+
+cucsProcPrtEntry OBJECT-TYPE
+    SYNTAX           CucsProcPrtEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsProcPrtTable table."
+    INDEX { cucsProcPrtInstanceId }
+    ::= { cucsProcPrtTable 1 }
+
+CucsProcPrtEntry ::= SEQUENCE {
+    cucsProcPrtInstanceId                                            CucsManagedObjectId,
+    cucsProcPrtDn                                                    CucsManagedObjectDn,
+    cucsProcPrtRn                                                    SnmpAdminString,
+    cucsProcPrtId                                                    Gauge32,
+    cucsProcPrtName                                                  SnmpAdminString
+}
+
+cucsProcPrtInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsProcPrtEntry 1 }
+
+cucsProcPrtDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Prt:dn managed object property"
+    ::= { cucsProcPrtEntry 2 }
+
+cucsProcPrtRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Prt:rn managed object property"
+    ::= { cucsProcPrtEntry 3 }
+
+cucsProcPrtId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Prt:id managed object property"
+    ::= { cucsProcPrtEntry 4 }
+
+cucsProcPrtName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Prt:name managed object property"
+    ::= { cucsProcPrtEntry 5 }
+
+cucsProcPrtCountsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsProcPrtCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS proc:PrtCounts managed object table"
+    ::= { cucsProcObjects 4 }
+
+cucsProcPrtCountsEntry OBJECT-TYPE
+    SYNTAX           CucsProcPrtCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsProcPrtCountsTable table."
+    INDEX { cucsProcPrtCountsInstanceId }
+    ::= { cucsProcPrtCountsTable 1 }
+
+CucsProcPrtCountsEntry ::= SEQUENCE {
+    cucsProcPrtCountsInstanceId                                      CucsManagedObjectId,
+    cucsProcPrtCountsDn                                              CucsManagedObjectDn,
+    cucsProcPrtCountsRn                                              SnmpAdminString,
+    cucsProcPrtCountsDbtxs                                           Gauge32,
+    cucsProcPrtCountsTotal                                           Gauge32,
+    cucsProcPrtCountsCachenospc                                      Gauge32,
+    cucsProcPrtCountsLargetxs                                        Gauge32,
+    cucsProcPrtCountsPersistTime                                     Unsigned64
+}
+
+cucsProcPrtCountsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsProcPrtCountsEntry 1 }
+
+cucsProcPrtCountsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:PrtCounts:dn managed object property"
+    ::= { cucsProcPrtCountsEntry 2 }
+
+cucsProcPrtCountsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:PrtCounts:rn managed object property"
+    ::= { cucsProcPrtCountsEntry 3 }
+
+cucsProcPrtCountsDbtxs OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:PrtCounts:dbtxs managed object property"
+    ::= { cucsProcPrtCountsEntry 4 }
+
+cucsProcPrtCountsTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:PrtCounts:total managed object property"
+    ::= { cucsProcPrtCountsEntry 5 }
+
+cucsProcPrtCountsCachenospc OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:PrtCounts:cachenospc managed object property"
+    ::= { cucsProcPrtCountsEntry 6 }
+
+cucsProcPrtCountsLargetxs OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:PrtCounts:largetxs managed object property"
+    ::= { cucsProcPrtCountsEntry 7 }
+
+cucsProcPrtCountsPersistTime OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:PrtCounts:persistTime managed object property"
+    ::= { cucsProcPrtCountsEntry 8 }
+
+cucsProcStimulusCountsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsProcStimulusCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS proc:StimulusCounts managed object table"
+    ::= { cucsProcObjects 5 }
+
+cucsProcStimulusCountsEntry OBJECT-TYPE
+    SYNTAX           CucsProcStimulusCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsProcStimulusCountsTable table."
+    INDEX { cucsProcStimulusCountsInstanceId }
+    ::= { cucsProcStimulusCountsTable 1 }
+
+CucsProcStimulusCountsEntry ::= SEQUENCE {
+    cucsProcStimulusCountsInstanceId                                 CucsManagedObjectId,
+    cucsProcStimulusCountsDn                                         CucsManagedObjectDn,
+    cucsProcStimulusCountsRn                                         SnmpAdminString,
+    cucsProcStimulusCountsBulked                                     Gauge32,
+    cucsProcStimulusCountsFailed                                     Gauge32,
+    cucsProcStimulusCountsRetried                                    Gauge32,
+    cucsProcStimulusCountsSingleton                                  Gauge32,
+    cucsProcStimulusCountsSuccessfull                                Gauge32,
+    cucsProcStimulusCountsTotal                                      Gauge32,
+    cucsProcStimulusCountsAdminState                                 CucsProcStatAdminState
+}
+
+cucsProcStimulusCountsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsProcStimulusCountsEntry 1 }
+
+cucsProcStimulusCountsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:StimulusCounts:dn managed object property"
+    ::= { cucsProcStimulusCountsEntry 2 }
+
+cucsProcStimulusCountsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:StimulusCounts:rn managed object property"
+    ::= { cucsProcStimulusCountsEntry 3 }
+
+cucsProcStimulusCountsBulked OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:StimulusCounts:bulked managed object property"
+    ::= { cucsProcStimulusCountsEntry 4 }
+
+cucsProcStimulusCountsFailed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:StimulusCounts:failed managed object property"
+    ::= { cucsProcStimulusCountsEntry 5 }
+
+cucsProcStimulusCountsRetried OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:StimulusCounts:retried managed object property"
+    ::= { cucsProcStimulusCountsEntry 6 }
+
+cucsProcStimulusCountsSingleton OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:StimulusCounts:singleton managed object property"
+    ::= { cucsProcStimulusCountsEntry 7 }
+
+cucsProcStimulusCountsSuccessfull OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:StimulusCounts:successfull managed
+        object property"
+    ::= { cucsProcStimulusCountsEntry 8 }
+
+cucsProcStimulusCountsTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:StimulusCounts:total managed object property"
+    ::= { cucsProcStimulusCountsEntry 9 }
+
+cucsProcStimulusCountsAdminState OBJECT-TYPE
+    SYNTAX       CucsProcStatAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:StimulusCounts:adminState managed object property"
+    ::= { cucsProcStimulusCountsEntry 10 }
+
+cucsProcSvcTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsProcSvcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS proc:Svc managed object table"
+    ::= { cucsProcObjects 7 }
+
+cucsProcSvcEntry OBJECT-TYPE
+    SYNTAX           CucsProcSvcEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsProcSvcTable table."
+    INDEX { cucsProcSvcInstanceId }
+    ::= { cucsProcSvcTable 1 }
+
+CucsProcSvcEntry ::= SEQUENCE {
+    cucsProcSvcInstanceId                                            CucsManagedObjectId,
+    cucsProcSvcDn                                                    CucsManagedObjectDn,
+    cucsProcSvcRn                                                    SnmpAdminString,
+    cucsProcSvcId                                                    Gauge32,
+    cucsProcSvcName                                                  SnmpAdminString
+}
+
+cucsProcSvcInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsProcSvcEntry 1 }
+
+cucsProcSvcDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Svc:dn managed object property"
+    ::= { cucsProcSvcEntry 2 }
+
+cucsProcSvcRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Svc:rn managed object property"
+    ::= { cucsProcSvcEntry 3 }
+
+cucsProcSvcId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Svc:id managed object property"
+    ::= { cucsProcSvcEntry 4 }
+
+cucsProcSvcName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:Svc:name managed object property"
+    ::= { cucsProcSvcEntry 5 }
+
+cucsProcTxCountsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsProcTxCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS proc:TxCounts managed object table"
+    ::= { cucsProcObjects 6 }
+
+cucsProcTxCountsEntry OBJECT-TYPE
+    SYNTAX           CucsProcTxCountsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsProcTxCountsTable table."
+    INDEX { cucsProcTxCountsInstanceId }
+    ::= { cucsProcTxCountsTable 1 }
+
+CucsProcTxCountsEntry ::= SEQUENCE {
+    cucsProcTxCountsInstanceId                                       CucsManagedObjectId,
+    cucsProcTxCountsDn                                               CucsManagedObjectDn,
+    cucsProcTxCountsRn                                               SnmpAdminString,
+    cucsProcTxCountsBulked                                           Gauge32,
+    cucsProcTxCountsFailed                                           Gauge32,
+    cucsProcTxCountsRetried                                          Gauge32,
+    cucsProcTxCountsSingleton                                        Gauge32,
+    cucsProcTxCountsSuccessfull                                      Gauge32,
+    cucsProcTxCountsTotal                                            Gauge32,
+    cucsProcTxCountsAdminState                                       CucsProcStatAdminState
+}
+
+cucsProcTxCountsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsProcTxCountsEntry 1 }
+
+cucsProcTxCountsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:TxCounts:dn managed object property"
+    ::= { cucsProcTxCountsEntry 2 }
+
+cucsProcTxCountsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:TxCounts:rn managed object property"
+    ::= { cucsProcTxCountsEntry 3 }
+
+cucsProcTxCountsBulked OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:TxCounts:bulked managed object property"
+    ::= { cucsProcTxCountsEntry 4 }
+
+cucsProcTxCountsFailed OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:TxCounts:failed managed object property"
+    ::= { cucsProcTxCountsEntry 5 }
+
+cucsProcTxCountsRetried OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:TxCounts:retried managed object property"
+    ::= { cucsProcTxCountsEntry 6 }
+
+cucsProcTxCountsSingleton OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:TxCounts:singleton managed object property"
+    ::= { cucsProcTxCountsEntry 7 }
+
+cucsProcTxCountsSuccessfull OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:TxCounts:successfull managed object property"
+    ::= { cucsProcTxCountsEntry 8 }
+
+cucsProcTxCountsTotal OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:TxCounts:total managed object property"
+    ::= { cucsProcTxCountsEntry 9 }
+
+cucsProcTxCountsAdminState OBJECT-TYPE
+    SYNTAX       CucsProcStatAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS proc:TxCounts:adminState managed object property"
+    ::= { cucsProcTxCountsEntry 10 }
+
+END

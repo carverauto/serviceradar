@@ -1,0 +1,134 @@
+-- *****************************************************************
+-- NTP-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-NTP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InetAddress FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200NtpMib MODULE-IDENTITY
+    LAST-UPDATED "201405210000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of NTP"
+    REVISION    "201405210000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 57 }
+
+
+me1200NtpMibObjects OBJECT IDENTIFIER
+    ::= { me1200NtpMib 1 }
+
+me1200NtpConfig OBJECT IDENTIFIER
+    ::= { me1200NtpMibObjects 2 }
+
+me1200NtpConfigGlobals OBJECT IDENTIFIER
+    ::= { me1200NtpConfig 1 }
+
+me1200NtpConfigGlobalsMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global config mode of NTP. true(1) is to enable NTP function in the
+         system and false(2) is to disable it."
+    ::= { me1200NtpConfigGlobals 1 }
+
+me1200NtpConfigServerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200NtpConfigServerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of NTP server."
+    ::= { me1200NtpConfig 2 }
+
+me1200NtpConfigServerEntry OBJECT-TYPE
+    SYNTAX      ME1200NtpConfigServerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each server has a set of parameters."
+    INDEX       { me1200NtpConfigServerIndex }
+    ::= { me1200NtpConfigServerTable 1 }
+
+ME1200NtpConfigServerEntry ::= SEQUENCE {
+    me1200NtpConfigServerIndex    Integer32,
+    me1200NtpConfigServerAddress      ME1200InetAddress
+}
+
+me1200NtpConfigServerIndex OBJECT-TYPE
+    SYNTAX      Integer32 (1..5)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The index of NTP servers."
+    ::= { me1200NtpConfigServerEntry 1 }
+
+me1200NtpConfigServerAddress OBJECT-TYPE
+    SYNTAX      ME1200InetAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Internet address of a NTP server."
+    ::= { me1200NtpConfigServerEntry 2 }
+
+me1200NtpMibConformance OBJECT IDENTIFIER
+    ::= { me1200NtpMib 2 }
+
+me1200NtpMibCompliances OBJECT IDENTIFIER
+    ::= { me1200NtpMibConformance 1 }
+
+me1200NtpMibGroups OBJECT IDENTIFIER
+    ::= { me1200NtpMibConformance 2 }
+
+me1200NtpConfigGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200NtpConfigGlobalsMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200NtpMibGroups 1 }
+
+me1200NtpConfigServerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200NtpConfigServerAddress }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200NtpMibGroups 2 }
+
+me1200NtpMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200NtpConfigGlobalsInfoGroup, 
+                  me1200NtpConfigServerTableInfoGroup }
+
+    ::= { me1200NtpMibCompliances 1 }
+
+END

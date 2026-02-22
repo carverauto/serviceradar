@@ -1,0 +1,873 @@
+-- *********************************************************************
+-- CISCO-MGC-MIB.my: Mib for MGC and MGC Group configuration.
+--
+-- April 2003, Yizhong Shen
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-MGC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Unsigned32                     FROM SNMPv2-SMI
+    RowStatus,
+    TruthValue,
+    TEXTUAL-CONVENTION             FROM SNMPv2-TC
+    cmgwIndex,
+    cmgwSignalProtocolIndex        FROM CISCO-MEDIA-GATEWAY-MIB
+    MODULE-COMPLIANCE, 
+    OBJECT-GROUP                   FROM SNMPv2-CONF
+    InetAddress,
+    InetAddressType                FROM INET-ADDRESS-MIB
+    SnmpAdminString                FROM SNMP-FRAMEWORK-MIB
+    CiscoPort                      FROM CISCO-TC
+    ciscoMgmt                      FROM CISCO-SMI;
+   
+ciscoMgcMIB  MODULE-IDENTITY
+	LAST-UPDATED	"200304180000Z"
+	ORGANIZATION	"Cisco Systems, Inc."
+	CONTACT-INFO
+		"	Cisco Systems
+			Customer Service
+
+		Postal: 170 W Tasman Drive
+			San Jose, CA 95134
+			USA
+
+			Tel: +1 800 553-NETS
+
+		E-mail: cs-voice-gateway@cisco.com"
+
+	DESCRIPTION
+		"This MIB is used to support MGC(call agent) and 
+                 MGC Group configuration. 
+                 The MGC or MGC group configuration is performed 
+                 under a specific gateway(cmgwIndex).
+
+                 The call agent is an external element (outside
+                 of gateway) with call control intelligence
+                 to control call connection in gateway.
+                 The protocols used for communication between voice 
+                 gateway and call agent included SGCP, MGCP, ...
+
+                 Multiple IP addresses can be associated with one 
+                 call agent.
+                
+                 An MGC group is a logical grouping of several MGCs
+                 into one group.
+
+                 MGC redundancy is used to support multi call agent
+                 for one gateway. With MGC redundancy, a voice 
+                 gateway can send gateway-initiated-commands to the 
+                 next MGC in the MGC group if it fails to receive 
+                 response from any IP address(es) associated to the 
+                 current MGC. 
+
+                 To use MGC redundancy in gateway:
+                 
+                 Step 1: add individual entry (in any order) for
+
+                   profile   
+                   MGC 
+   
+                 Step 2: make association between the entries 
+  
+                 1   IP with MGC            
+                 2   MGC with MGC group   
+      
+                 1/2 protocol with MGC group 
+
+                 3   MGC group with profile   
+                     or
+                     MGC group with gateway
+
+                  Only if a MGC group at least is associated with 
+                  one profile or gateway, then the MGC group can be 
+                  used, otherwise the MGC group is useless.
+
+                  To delete the following entries, it is needed to 
+                  do de-association first:
+
+                    profile   
+                    MGC      
+
+                  When do de-association, the order is opposite to that
+                  of association.                 
+                "
+	REVISION	"200304180000Z"                                 
+        DESCRIPTION     "Initial version of the MIB"
+                         
+ 	::= { ciscoMgmt 321 }
+
+cMgcMibNotifications   OBJECT IDENTIFIER ::= { ciscoMgcMIB 0 }
+cMgcMibObjects         OBJECT IDENTIFIER ::= { ciscoMgcMIB 1 }       
+cMgcConfig	       OBJECT IDENTIFIER ::= { cMgcMibObjects 1 }
+cMgcGroupConfig	       OBJECT IDENTIFIER ::= { cMgcMibObjects 2 } 
+
+-- *********************************************************************
+-- TEXTUAL CONVENTIONS USED IN THIS MIB
+-- *********************************************************************
+ 
+CMgcGroupIndex ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d"
+    STATUS	 current
+    DESCRIPTION
+       "A unique value, greater than zero which is used to identify
+        index of MGC group." 
+    SYNTAX  Integer32 (1..12) 	
+
+CMgcGroupIndexOrZero ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d"
+    STATUS	 current
+    DESCRIPTION
+       "This textual convention is used to indicate association between
+        profile or gateway and MGC group.
+        The value, greater than zero which is used to identify index of
+        MGC group (same as CMgcGroupIndex) which is associated with 
+        profile or gateway. The mapping between MGC group and profile
+        or gateway is 1 to N.
+        The value, equal to zero which means there is no association 
+        between profile or gateway and MGC group." 
+    SYNTAX  Integer32 (0..12)
+
+-- ---------------------------------------------------------------------
+-- cMgcConfigTable
+-- ---------------------------------------------------------------------
+
+cMgcConfigTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CMgcConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+	"This table is used for configuring MGC related parameters."
+    ::= { cMgcConfig 1 }
+ 
+cMgcConfigEntry    OBJECT-TYPE
+    SYNTAX  CMgcConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "Each entry represents a call agent(MGC).
+         
+         Each entry in this table should have a unique domain name 
+         representing a call agent.
+
+         Adding/deleting entry in this table is controlled by 
+         'cMediaGwDomainNameConfigTable' of CISCO-MEDIA-GATEWAY-MIB:
+
+         1. Entry creation
+            An entry in this table is created when its associated entry 
+            in the 'cMediaGwDomainNameConfigTable' is created with the 
+            value  of 'mgc(3)' in the cmgwConfigDomainNameEntity object.
+
+            The 'cmgwConfigDomainName' of the associated entry in the 
+            'cMediaGwDomainNameConfigTable' will be taken as 
+            'cMgcDomainName' of the new entry.
+
+         2. Entry deletion
+            An entry of this table is deleted when its associated entry 
+            in 'cMediaGwDomainNameConfigTable' is deleted.
+	"
+    INDEX { cmgwIndex, cMgcIndex }
+    ::= { cMgcConfigTable 1 }
+ 
+CMgcConfigEntry ::=
+    SEQUENCE{
+              cMgcIndex            Integer32,
+              cMgcDomainName       SnmpAdminString,
+              cMgcNumMgcGroups     Integer32,
+              cMgcNumIP            Integer32,
+              cMgcResolution       INTEGER
+             }
+
+cMgcIndex     OBJECT-TYPE
+    SYNTAX  Integer32(1..32)
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "A unique index to identify each MGC which will 
+         communicate with this media gateway.
+        "
+    ::= {cMgcConfigEntry  1}
+
+cMgcDomainName    OBJECT-TYPE
+    SYNTAX        SnmpAdminString ( SIZE (0..64) )
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This object contains the same name as the one in the
+         'cMgcDomainName object' of the associated entry in
+         'cMediaGwDomainNameConfigTable'. 
+        "
+    ::= {cMgcConfigEntry  2}
+
+
+cMgcNumMgcGroups     OBJECT-TYPE
+    SYNTAX     Integer32 (0..65535)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This object is used to indicate number of MGC group with 
+         which this MGC associated.
+         The value zero means this MGC is not associated 
+         with any MGC Group.
+
+         If this value greater than zero, then the MGC entry
+         can not be deleted.   
+        "
+    ::= {cMgcConfigEntry  3}
+
+cMgcNumIP     OBJECT-TYPE
+    SYNTAX     Integer32 (0..65535)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This object is used to indicate number of IP addresses are 
+         associated with this MGC.
+
+         The value zero means there is no IP address associated with
+         this MGC.
+
+         The MGC can not be deleted if the value of this object is 
+         non-zero and cMgcResolution is configured to 
+         'internalOnly'.    
+        "
+    ::= {cMgcConfigEntry  4}
+
+cMgcResolution     OBJECT-TYPE
+    SYNTAX        INTEGER{
+                         internalOnly(1),
+                         externalOnly(2)
+                  } 
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object determines the kind of resolution to 
+         be applied for this MGC.
+
+          'internalOnly' means that the gateway will not try to 
+               resolve the IP address for this domain name using 
+               external DNS name server.
+
+         'externalOnly' means the IP address for this domain name 
+               will be resolved externally using DNS name server.
+
+         The request to change from 'internalOnly' to 'externalOnly'
+         will be rejected if the DNS name server is not available
+         for gateway.
+
+         The IP addresses related to the same MGC should have the
+         same cMgcResolution. The value of the MGC associated objects 
+         in the cMgcIpConfigTable can not be modified by NMS if the 
+         value of cMgcResolution for the MGC is 'externalOnly'.
+
+         The following are the behavior of changing the value of this 
+         object.
+
+         [1] changing the value from  'externalOnly' to 'internalOnly'
+
+         1) precondition
+             MGC is not associated with any MGC group
+             (value of cMgcNumMgcGroups is zero).
+
+         2) behavior
+             If the value of this object is changed successfully,
+             all existing IP addresses in cMgcIpConfigTable that are 
+             associated to the MGC will be removed automatically.
+             Note that MGW can't communicate with MGC if NMS does not 
+             add static IP address into cMgcIpConfigTable for the MGC.
+
+         [2] changing the value from  'internalOnly' to 'externalOnly'
+
+         1) precondition
+             All MGC associated statically configured IP addresses 
+             must be removed from cMgcIpConfigTable by NMS before  
+             setting 'externalOnly' value to this object. 
+             An inconsistentValue error is generated for setting
+             'externalOnly' value if the MGC associated IP addresses 
+              are not removed.
+         2) behavior
+             After successfully setting 'externalOnly' value to this 
+             object, the MGC domain name will be resolved by MGW  
+             software using external DNS name server and the resulting 
+             IP addresses will be added to cMgcIpConfigTable 
+             automatically.
+        "
+    DEFVAL { internalOnly }
+    ::= {cMgcConfigEntry  5}
+
+-- ------------------------------------------------------------------------
+-- cMgcIpConfigTable
+-- ------------------------------------------------------------------------
+
+cMgcIpConfigTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CMgcIpConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+	"This table contains MGC related IP addresses.
+         MGC index(cMgcIndex) is a part of index of this table,
+         so IP address in this table is automatically
+         associated with the MGC.
+
+         Multiple IP addresses can be associated with the same 
+         MGC. 
+
+         Under the same MGC (cMgcIndex is same)             
+           all IP addresses are equivalent.
+           all IP addresses will share the same domain name:
+           'cMgcDomainName' in cMgcConfigTable.     
+        "
+    ::= { cMgcConfig 2 }
+
+ 
+cMgcIpConfigEntry    OBJECT-TYPE
+    SYNTAX  CMgcIpConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "Each entry represents an IP address which is associated 
+         with the MGC(cMgcIndex).
+         When cMgcResolution is configured to 'externalOnly', user
+         cannot add/delete/modify any entry.
+	"
+    INDEX { cmgwIndex, cMgcIndex, cMgcIpIndex }
+    ::= { cMgcIpConfigTable 1 }
+ 
+
+CMgcIpConfigEntry ::=
+    SEQUENCE{
+              cMgcIpIndex         Integer32,
+              cMgcIpAddressType   InetAddressType,
+              cMgcIpAddress       InetAddress,
+              cMgcIpPreference    Integer32,
+              cMgcIpRowStatus     RowStatus
+             }
+
+cMgcIpIndex     OBJECT-TYPE
+    SYNTAX        Integer32 (1..8)
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "A unique index to identify the address of a specific 
+         MGC. The MGC is represented by cMgcIndex.
+        "
+    ::= {cMgcIpConfigEntry  1}
+
+cMgcIpAddressType    OBJECT-TYPE
+    SYNTAX        InetAddressType
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "This object is the IP address type for cMgcIpAddress."
+    DEFVAL { ipv4 }
+    ::= {cMgcIpConfigEntry  2}
+
+cMgcIpAddress     OBJECT-TYPE
+    SYNTAX        InetAddress
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "This object represents the configured IP address.
+         After adding the entry, this object can not be modified. 
+        "
+    ::= {cMgcIpConfigEntry  3}
+
+cMgcIpPreference     OBJECT-TYPE
+    SYNTAX        Integer32 (1..8)
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "This object represents preference of the cMgcIpAddress 
+         in the given MGC.
+         The lower the number the higher the preference. i.e. 1
+         will have higher preference than 2. 
+         IF more than one IP have the same preference, gateway will 
+         select them one by one.
+        "
+    DEFVAL { 1 }
+    ::= {cMgcIpConfigEntry  4}
+
+
+cMgcIpRowStatus     OBJECT-TYPE
+    SYNTAX        RowStatus
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "This object is used to create/modify/delete entry. 
+
+         In order to delete an entry, following conditions need to be 
+         met: 
+             1. The MGC to which this IP address is being added,  
+                should be existing.
+             2. The MGC's resolution (cMgcResolution) should be 
+                'internal only'.
+             3. the mandatory object is cMgcIpAddress
+
+             After the IP address added to the MGC
+             the related 'cMgcNumIP' in MGC table will be incremented 
+             by 1. 
+
+         In order to delete an entry, following conditions need to be 
+         met:
+             1. The MGC's resolution (cMgcResolution) should be 
+                'internal only'.
+             2. The IP address should not be the only one in the MGC
+                while the MGC is associated with MGC group.
+                This means if the value of 'cMgcNumIP' is equal to 1 
+                and the value of 'cMgcNumMgcGroups' is non-zero, 
+                this IP address is the only one associated with the MGC
+                and it is possible that this IP address is also the  
+                only one associated with MGC group. Therefore this 
+                IP address can not be deleted.
+
+             After deleting the IP address from the MGC the related 
+             'cMgcNumIP' in MGC table will be decremented by 1.
+        "
+    ::= {cMgcIpConfigEntry  5}
+
+-- ---------------------------------------------------------------------
+-- cMgcGrpParamTable
+-- ---------------------------------------------------------------------
+
+cMgcGrpParamTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CMgcGrpParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+	"This table containing information about MGC group related
+         profile/protocol association and parameters."
+    ::= { cMgcGroupConfig 1 }
+ 
+cMgcGrpParamEntry    OBJECT-TYPE
+    SYNTAX  CMgcGrpParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "Entry of cMgcGrpParamTable.
+         Each entry includes the information shared by a group of MGC"
+
+    INDEX {cmgwIndex, cMgcGrpIndex }
+    ::= { cMgcGrpParamTable 1 }
+ 
+
+CMgcGrpParamEntry ::=
+    SEQUENCE{
+              cMgcGrpIndex              CMgcGroupIndex,
+              cMgcGrpNumMgc             Integer32,
+              cMgcGrpAssociationInfo    Unsigned32,
+              cMgcGrpNumProtocol        Integer32,
+              cMgcGrpStateChangeNtfy    TruthValue
+            }
+
+cMgcGrpIndex     OBJECT-TYPE
+    SYNTAX        CMgcGroupIndex
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "A unique index to identify a MGC group.
+        "
+    ::= {cMgcGrpParamEntry  1}
+
+cMgcGrpNumMgc     OBJECT-TYPE
+    SYNTAX        Integer32 (0..128)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This object is used to indicate number of MGCs
+         to be associated with this MGC Group.
+
+         The value zero means there is no MGC in the MGC Group.
+         
+         When the entry create, this value is set to 0.
+
+         Adding/deleting MGC to/from MGC group is through 
+         cMgcGrpTable.
+         After a MGC added/deleted to/from this MGC group,
+         the value of this object will be incremented/decremented 
+         by 1.
+   
+         If the value of this object is zero, it is not allowed to 
+         associate this MGC group with any profile or gateway.
+        "
+    ::= {cMgcGrpParamEntry  2}
+
+cMgcGrpAssociationInfo     OBJECT-TYPE
+    SYNTAX        Unsigned32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This object indicates the association between MGC group
+         and profile/gateway with bitmap format.
+
+         It is 1:N mapping, e.g., each profile or gateway can only 
+         have one MGC group, but one MGC group can be associated 
+         with multi profile and gateway.
+
+         The possible bit positions used in the bitmap are listed as 
+         follows:
+
+         Bit   profile/gateway      value
+         ---------------------------------------------------------------
+
+         0    profile 1      0: the MGC group is not associated with it
+			     1: the MGC group is associated with it
+
+	 1    profile 2      0: the MGC group is not associated with it
+			     1: the MGC group is associated with it
+
+	 2    profile 3      0: the MGC group is not associated with it
+			     1: the MGC group is associated with it
+
+	 3     profile 4     0: the MGC group is not associated with it
+			     1: the MGC group is associated with it
+	 ...
+         ...
+
+	 30   profile 31     0: the MGC group is not associated with it
+			     1: the MGC group is associated with it
+
+         31   gateway        0: the MGC group is not associated with it
+				    
+			     1: the MGC group is associated with it
+             
+         The value zero means the MGC Group is not associated with 
+         any profile or gateway.
+        "
+    ::= {cMgcGrpParamEntry  3}
+
+cMgcGrpNumProtocol     OBJECT-TYPE
+    SYNTAX        Integer32 (0..128)
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This object is used to indicate number of protocols
+         associated with this MGC group.
+
+         The value zero means there is no protocol associated with 
+         this MGC group.
+         
+         When the entry create, this object is set to 0.
+
+         The association between protocol and MGC group is configured 
+         via cMgcGrpProtocolTable.
+         After a protocol is associated/de-associated with this 
+         MGC group, this object will be incremented/decremented 
+         by 1.
+   
+         If this object is zero, it is not allowed to associate
+         the MGC group with any profile or gateway.
+        "
+    ::= {cMgcGrpParamEntry  4}
+
+
+cMgcGrpStateChangeNtfy     OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object enables or disables sending gateway state 
+         change notifications to call agent.
+        "
+    DEFVAL { true }
+    ::= {cMgcGrpParamEntry  5}
+
+-- ------------------------------------------------------------------------
+-- cMgcGrpTable
+-- ------------------------------------------------------------------------
+
+cMgcGrpTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CMgcGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+	"This table represents the association of MGCs and MGC group.
+         Each MGC group consists of one or more MGCs and each MGC can  
+         belong to one or more MGC groups. 
+         Therefore it is an N to N mapping.        
+        "
+    ::= { cMgcGroupConfig 2 }
+ 
+cMgcGrpEntry    OBJECT-TYPE
+    SYNTAX  CMgcGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "The entry is represented an association of a MGC with a MGC 
+         group.
+	"
+    INDEX { cmgwIndex, cMgcGrpIndex, cMgcIndex }
+    ::= { cMgcGrpTable 1 }
+ 
+
+CMgcGrpEntry ::=
+    SEQUENCE{
+              cMgcGrpMgcPreference        Integer32,
+              cMgcGrpMgcUdpPort           CiscoPort,
+              cMgcGrpRowStatus            RowStatus
+            }
+
+cMgcGrpMgcPreference     OBJECT-TYPE
+    SYNTAX        Integer32(1..12)
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The preference of the MGC in the MGC group.        
+         The lower the number the higher the preference. i.e. 1 will 
+         have higher preference than 2."
+    DEFVAL { 1 }
+    ::= { cMgcGrpEntry  1 }
+
+
+cMgcGrpMgcUdpPort     OBJECT-TYPE
+    SYNTAX        CiscoPort
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The UDP port of the MGC in the MGC group. 
+         The zero means there is no specific UDP port, the UDP port
+         in the protocol table will be used.     
+        "
+    DEFVAL { 0 }
+    ::= { cMgcGrpEntry  2 }
+
+
+cMgcGrpRowStatus     OBJECT-TYPE
+    SYNTAX        RowStatus
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "This object is used to create a new row or modify
+         or delete an existing row in this table.
+
+         In order to add an MGC to a MGC group, the following 
+         conditions need to be met:
+         1. the MGC and the MGC group should be existing
+         2. at least one IP address is associated with the MGC if 
+            the MGC is configured for internal resolution.
+
+         After the MGC added to the MGC group, the related 
+           cMgcGrpNumMgc will be incremented by 1.
+           cMgcNumMgcGroups will be incremented by 1.
+
+         In order to delete an MGC from MGC group, the following 
+         conditions need to be met:
+         The MGC is not the only MGC associated with the MGC
+         group if the MGC group is associated with gateway or
+         one or more profiles.
+
+         After the MGC added to the MGC group, the related 
+           cMgcGrpNumMgc will be decremented by 1.
+           cMgcNumMgcGroups will be decremented by 1.          
+        "
+    ::= { cMgcGrpEntry  3 }
+
+
+-- ------------------------------------------------------------------------
+-- cMgcGrpProtocolTable
+-- ------------------------------------------------------------------------
+
+cMgcGrpProtocolTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CMgcGrpProtocolEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+	"cMgcGrpProtocolTable is used to add protocol to MGC group.
+         This table is designed to support multi protocol for MGC 
+         group. 
+
+         The MGC group to protocol is N to N mapping.
+
+        "
+    ::= { cMgcGroupConfig 3 }
+ 
+cMgcGrpProtocolEntry    OBJECT-TYPE
+    SYNTAX  CMgcGrpProtocolEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+        "Entry of cMgcGrpProtocolTable.
+	"
+    INDEX { cmgwIndex, cMgcGrpIndex, cmgwSignalProtocolIndex }
+    ::= { cMgcGrpProtocolTable 1 }
+ 
+
+CMgcGrpProtocolEntry ::=
+    SEQUENCE{
+              cMgcGrpProtocolPreference      Integer32,
+              cMgcGrpProtocolRowStatus       RowStatus
+            }
+
+cMgcGrpProtocolPreference  OBJECT-TYPE
+    SYNTAX        Integer32(1..8)
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The preference of the Protocol in the MGC group.        
+         The lower the number the higher the preference. i.e. 1 will 
+         have higher preference than 2.  
+
+         When gateway does not know which protocol is used by a call 
+         agent the preference is used to make the decision. 
+
+         But if gateway knows which protocol used by a call agent, 
+         gateway will use that protocol (as long as the protocol is 
+         added to the MGC group, irrespective of the preference) to 
+         communicate with the call agent.
+
+         For example:
+             when gateway return a call agent message, gateway 
+             will use the protocol which used by the call agent to 
+             send the message. 
+        "
+    DEFVAL { 1 }
+    ::= { cMgcGrpProtocolEntry  1 }
+
+
+cMgcGrpProtocolRowStatus  OBJECT-TYPE
+    SYNTAX        RowStatus
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "This object is used to create a new row or modify
+         or delete an existing row in this table.
+
+         In order to add a protocol to MGC group, the following
+         condition need to be met: 
+
+         Both the protocol and the MGC group should be existing
+
+         After the protocol added to the MGC group, the related 
+         cMgcGrpNumProtocol will be incremented by 1.
+
+         In order to delete a protocol from MGC group, the following
+         condition need to be met:
+
+         The protocol to be deleted should not be the only one in the
+         MGC group when the MGC group is used by a gateway or a 
+         profile.
+         This means if the value of cMgcGrpNumProtocol is equal to 1 
+         and the value of cMgcGrpAssociationInfo is non-zero, this 
+         protocol is the only one associated with the MGC group which 
+         is still in use by gateways or some profiles. Therefore this 
+         protocol can not be deleted.
+
+         After the protocol deleted from the MGC group, the related 
+         cMgcGrpNumProtocol will be decremented by 1.
+        "
+    ::= { cMgcGrpProtocolEntry  2 }
+
+-- ---------------------------------------------------------------------
+-- conformance information
+-- ---------------------------------------------------------------------
+
+cMgcMIBConformance
+		OBJECT IDENTIFIER ::= { ciscoMgcMIB 2 }
+cMgcMIBCompliances
+		OBJECT IDENTIFIER ::= { cMgcMIBConformance 1 }
+cMgcMIBGroups
+		OBJECT IDENTIFIER ::= { cMgcMIBConformance 2 }
+
+-- compliance statements
+
+cMgcMIBCompliance MODULE-COMPLIANCE
+     STATUS current
+     DESCRIPTION
+        "Compliance statement for CISCO-MGC-MIB."
+     MODULE -- this module
+     MANDATORY-GROUPS { 
+                       cMgcMIBGroup,
+                       cMgcIpMIBGroup,
+                       cMgcGrpParamGroup,
+                       cMgcGrpGroup,
+                       cMgcGrpProtocolGroup                     
+                     } 
+
+      OBJECT  cMgcIpAddressType
+      DESCRIPTION
+       "An implementation is only required to support IPv4
+        addresses."
+
+      OBJECT  cMgcIpAddress
+      SYNTAX  InetAddress (SIZE(4))
+      DESCRIPTION
+       "An implementation is only required to support IPv4
+        addresses."
+
+     ::= { cMgcMIBCompliances 1 }
+
+-- units of conformance
+
+cMgcMIBGroup  OBJECT-GROUP
+    OBJECTS {
+             cMgcDomainName,
+             cMgcNumMgcGroups,
+             cMgcNumIP,
+             cMgcResolution
+             }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing per MGC basis
+         configuration information."
+    ::= { cMgcMIBGroups 1}
+
+cMgcIpMIBGroup  OBJECT-GROUP
+    OBJECTS {
+             cMgcIpAddress,
+             cMgcIpAddressType,
+             cMgcIpPreference,
+             cMgcIpRowStatus
+            }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing IP (in MGC)
+         configuration information."
+    ::= { cMgcMIBGroups 2}
+
+
+cMgcGrpParamGroup  OBJECT-GROUP
+    OBJECTS {
+             cMgcGrpNumMgc,
+             cMgcGrpAssociationInfo,
+             cMgcGrpNumProtocol,
+             cMgcGrpStateChangeNtfy
+            }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing per MGC group
+         configuration information."
+    ::= { cMgcMIBGroups 3}
+
+
+cMgcGrpGroup  OBJECT-GROUP
+    OBJECTS {
+             cMgcGrpMgcPreference,
+             cMgcGrpMgcUdpPort,
+             cMgcGrpRowStatus
+            }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing MGC (in MGC group)
+         configuration information.
+        "
+    ::= { cMgcMIBGroups 4}
+
+cMgcGrpProtocolGroup  OBJECT-GROUP
+    OBJECTS {
+             cMgcGrpProtocolPreference,
+             cMgcGrpProtocolRowStatus
+            }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing Protocol (in MGC 
+         group) configuration information."
+    ::= { cMgcMIBGroups 5}
+
+END
+
+       

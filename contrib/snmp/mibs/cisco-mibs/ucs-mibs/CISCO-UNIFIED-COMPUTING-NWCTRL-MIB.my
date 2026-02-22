@@ -1,0 +1,223 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-NWCTRL-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- NWCTRL management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-NWCTRL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsNwctrlAdminState,
+    CucsNwctrlLinkFailAction,
+    CucsNwctrlRegistrationMode,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsNwctrlObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        NWCTRL management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 33 }
+
+cucsNwctrlDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsNwctrlDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition managed object table"
+    ::= { cucsNwctrlObjects 1 }
+
+cucsNwctrlDefinitionEntry OBJECT-TYPE
+    SYNTAX           CucsNwctrlDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsNwctrlDefinitionTable table."
+    INDEX { cucsNwctrlDefinitionInstanceId }
+    ::= { cucsNwctrlDefinitionTable 1 }
+
+CucsNwctrlDefinitionEntry ::= SEQUENCE {
+    cucsNwctrlDefinitionInstanceId                                   CucsManagedObjectId,
+    cucsNwctrlDefinitionDn                                           CucsManagedObjectDn,
+    cucsNwctrlDefinitionRn                                           SnmpAdminString,
+    cucsNwctrlDefinitionCdp                                          CucsNwctrlAdminState,
+    cucsNwctrlDefinitionDescr                                        SnmpAdminString,
+    cucsNwctrlDefinitionIntId                                        SnmpAdminString,
+    cucsNwctrlDefinitionName                                         SnmpAdminString,
+    cucsNwctrlDefinitionUplinkFailAction                             CucsNwctrlLinkFailAction,
+    cucsNwctrlDefinitionMacRegisterMode                              CucsNwctrlRegistrationMode,
+    cucsNwctrlDefinitionPolicyLevel                                  Gauge32,
+    cucsNwctrlDefinitionPolicyOwner                                  CucsPolicyPolicyOwner,
+    cucsNwctrlDefinitionPropAcl                                      Unsigned64,
+    cucsNwctrlDefinitionLldpReceive                                  CucsNwctrlAdminState,
+    cucsNwctrlDefinitionLldpTransmit                                 CucsNwctrlAdminState
+}
+
+cucsNwctrlDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsNwctrlDefinitionEntry 1 }
+
+cucsNwctrlDefinitionDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:dn managed object property"
+    ::= { cucsNwctrlDefinitionEntry 2 }
+
+cucsNwctrlDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:rn managed object property"
+    ::= { cucsNwctrlDefinitionEntry 3 }
+
+cucsNwctrlDefinitionCdp OBJECT-TYPE
+    SYNTAX       CucsNwctrlAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:cdp managed object property"
+    ::= { cucsNwctrlDefinitionEntry 4 }
+
+cucsNwctrlDefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:descr managed object property"
+    ::= { cucsNwctrlDefinitionEntry 5 }
+
+cucsNwctrlDefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:intId managed object property"
+    ::= { cucsNwctrlDefinitionEntry 6 }
+
+cucsNwctrlDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:name managed object property"
+    ::= { cucsNwctrlDefinitionEntry 7 }
+
+cucsNwctrlDefinitionUplinkFailAction OBJECT-TYPE
+    SYNTAX       CucsNwctrlLinkFailAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:uplinkFailAction managed
+        object property"
+    ::= { cucsNwctrlDefinitionEntry 8 }
+
+cucsNwctrlDefinitionMacRegisterMode OBJECT-TYPE
+    SYNTAX       CucsNwctrlRegistrationMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:macRegisterMode managed
+        object property"
+    ::= { cucsNwctrlDefinitionEntry 9 }
+
+cucsNwctrlDefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:policyLevel managed object property"
+    ::= { cucsNwctrlDefinitionEntry 10 }
+
+cucsNwctrlDefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:policyOwner managed object property"
+    ::= { cucsNwctrlDefinitionEntry 11 }
+
+cucsNwctrlDefinitionPropAcl OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:propAcl managed object property"
+    ::= { cucsNwctrlDefinitionEntry 12 }
+
+cucsNwctrlDefinitionLldpReceive OBJECT-TYPE
+    SYNTAX       CucsNwctrlAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:lldpReceive managed object property"
+    ::= { cucsNwctrlDefinitionEntry 13 }
+
+cucsNwctrlDefinitionLldpTransmit OBJECT-TYPE
+    SYNTAX       CucsNwctrlAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS nwctrl:Definition:lldpTransmit managed object property"
+    ::= { cucsNwctrlDefinitionEntry 14 }
+
+END

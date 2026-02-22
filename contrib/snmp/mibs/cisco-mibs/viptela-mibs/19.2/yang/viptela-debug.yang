@@ -1,0 +1,3034 @@
+module viptela-debug {
+  namespace "http://viptela.com/debug";
+  prefix viptela-debug;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+    prefix tailf;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import viptela-system {
+    prefix viptela-system;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines the data model for debug operations";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-04-22 {
+    description
+      "Release version: 16.1.1";
+  }
+  revision 2016-03-15 {
+    description
+      "Release version: 16.1";
+  }
+  revision 2016-01-30 {
+    description
+      "Release version: 15.4.3";
+  }
+  revision 2015-12-28 {
+    description
+      "Release version: 15.4.1";
+  }
+  revision 2015-12-01 {
+    description
+      "Release version: 15.4.0";
+  }
+  revision 2015-10-31 {
+    description
+      "Release version: 15.3.5";
+  }
+  revision 2015-09-27 {
+    description
+      "Release version: 15.3.3";
+  }
+  revision 2015-09-01 {
+    description
+      "Release version: 15.3.1";
+  }
+  revision 2015-07-01 {
+    description
+      "Release version: 15.3";
+  }
+  revision 2015-06-01 {
+    description
+      "Release version: 15.2.8";
+  }
+  revision 2015-05-01 {
+    description
+      "Release version: 15.2";
+  }
+  revision 2015-02-01 {
+    description
+      "Release version: 15.1";
+  }
+  revision 2014-12-01 {
+    description
+      "Release version: 14.3";
+  }
+  revision 2014-07-01 {
+    description
+      "Release version: 14.2";
+  }
+  revision 2013-02-12 {
+    description
+      "Initial revision";
+  }
+
+  container debug {
+    description "Debugging commands ";
+    container omp {
+      description "Debug OMP";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (/viptela-system:system/viptela-system:personality = 'vsmart')";
+      viptela:action "events" {
+        description "Debug OMP events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "ipcs" {
+        description "Debug OMP IPCs";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "policy" {
+        description "Debug OMP policy";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "cxp" {
+        description "Debug OMP cloudexpress";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "best-path" {
+        description "Debug OMP best-path calculation";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug OMP packets";
+        input {
+          leaf direction {
+            description "Packet direction";
+            type viptela:debug-packet-dir-enum;
+          }
+          leaf peer-address {
+            description "IPv4 address of peer";
+            type inet:ipv4-address;
+          }
+          leaf packet-type {
+            description "Packet type";
+            type viptela:debug-omp-packet-type;
+          }
+        }
+      }
+    }
+    container bgp {
+      description "Debug BGP";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "events" {
+        description "Debug BGP events";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "fsm" {
+        description "Debug BGP finite-state machine";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "ipcs" {
+        description "Debug BGP IPCs";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug BGP packets";
+        input {
+          leaf direction {
+            description "IPCs direction";
+            type viptela:debug-packet-dir-enum;
+          }
+          leaf packet-type {
+            description "IPCs type";
+            type viptela:debug-bgp-packet-type;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+    }
+    container rtm {
+      description "Debug RTM";
+      viptela:action "events" {
+        description "Debug RTM events";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "ipc" {
+        description "Debug RTM IPC events";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "next-hop" {
+        description "Debug RTM next-hop events";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "rib" {
+        description "Debug RTM RIB events";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug RTM packets";
+        input {
+          leaf direction {
+            description "Packet direction";
+            type viptela:debug-packet-dir-enum;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+    }
+    container ospf {
+      description "Debug OSPF";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "events" {
+        description "Debug OSPF events";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "ism" {
+        description "Debug OSPF interface-state machine";
+        input {
+          leaf ism-type {
+            description "ISM debugging";
+            type viptela:debug-ospf-type;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "nsm" {
+        description "Debug OSPF neighbor-state machine";
+        input {
+          leaf nsm-type {
+            description "NSM debugging";
+            type viptela:debug-ospf-type;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "ipcs" {
+        description "Debug OSPF IPCs";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "nssa" {
+        description "Debug OSPF NSSAs";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "lsa" {
+        description "Debug OSPF link-state advertisements";
+        input {
+          leaf lsa-type {
+            description "LSA type";
+            type viptela:debug-ospf-lsa_type;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug OSPF packets";
+        input {
+          leaf direction {
+            description "Packet direction";
+            type viptela:debug-packet-dir-enum;
+          }
+          leaf packet-type {
+            description "Packet type";
+            type viptela:debug-ospf-packet-type;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+    }
+    container tcpd {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      description "Debug tcpd";
+      viptela:action "all" {
+        description "Debug tcpd";
+        input {
+          leaf level {
+            type viptela:tcpd-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container ftm {
+      description "Debug forwarding table manager";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "fib" {
+        description "Debug FTM FIB";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+        }
+      }
+      viptela:action "rtm-events" {
+        description "Debug FTM RTM events";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+        }
+      }
+      viptela:action "ttm-events" {
+        description "Debug FTM TTM events";
+      }
+      viptela:action "interface" {
+        description "Debug FTM interface";
+      }
+      viptela:action "next-hop" {
+        description "Debug FTM next-hop module";
+      }
+      viptela:action "service-gre" {
+        description "Debug FTM service side gre module";
+      }
+      viptela:action "tcpopt" {
+        description "Debug FTM tcpopt changes";
+      }
+      viptela:action "arp" {
+        description "Debug FTM ARP";
+        input {
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+          }
+        }
+      }
+      viptela:action "neigh" {
+        description "Debug FTM IPv6 Neighbor Discovery";
+      }
+      viptela:action "config" {
+        description "Debug FTM configuration";
+      }
+      viptela:action "ipsec" {
+        description "Debug FTM IPsec";
+      }
+      viptela:action "bfd" {
+        description "Debug FTM BFD";
+      }
+      viptela:action "filter" {
+        description "Debug FTM filter";
+      }
+      viptela:action "nat" {
+        description "Debug FTM NAT";
+      }
+      viptela:action "dot1x" {
+        description "Debug FTM 802.1x events";
+      }
+      viptela:action "dot1x-fsm" {
+        description "Debug 802.1x internal finite state machine";
+      }
+      viptela:action "flow" {
+        description "Debug FTM Flow";
+      }
+      viptela:action "dpi" {
+        description "Debug FTM DPI";
+      }
+      viptela:action "mcast" {
+        description "Debug FTM Mcast";
+      }
+      viptela:action "pppoe" {
+        description "Debug FTM pppoe";
+      }
+      viptela:action "zbf" {
+        description "Debug FTM ZBF";
+      }
+      viptela:action "fec" {
+        description "Debug FTM fec/pkt-dup module";
+      }
+      viptela:action "params" {
+        description "Debug FTM Parameters";
+        input {
+          leaf local-system-ip {
+            description "Local System IP address";
+            type inet:ip-address;
+          }
+          leaf remote-system-ip {
+            description "Remote System IP address";
+            type inet:ip-address;
+          }
+          leaf local-color {
+            description "Local Color";
+            type viptela:color-enum;
+          }
+          leaf remote-color {
+            description "Remote Color";
+            type viptela:color-enum;
+          }
+          leaf proto {
+            description "Encap Protocol";
+            type viptela:encap-enum;
+          }
+        }
+      }
+      viptela:action "all" {
+        description "Debug FTM";
+      }
+      viptela:action "mcast-group-add-with-a-leaf" {
+        description "Debug add multicast group entry with one leaf";
+        input {
+          leaf group-address {
+            description "Multicast group address";
+            type uint32;
+            mandatory true;
+          }
+          leaf source-address {
+            description "Multicast source address";
+            type uint32;
+            mandatory true;
+          }
+          leaf iifindex {
+            description "Incoming interface index";
+            type uint16;
+            mandatory false;
+          }
+          leaf iif-system-ip {
+            description "Incoming tunnel system IP address";
+            type uint32;
+            mandatory false;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+          leaf leaf-ifindex {
+            description "Leaf interface index";
+            type uint16;
+            mandatory false;
+          }
+          leaf leaf-system-ip {
+            description "Leaf system IP address";
+            type uint32;
+            mandatory false;
+          }
+        }
+      }
+      viptela:action "mcast-group-add" {
+        description "Debug add multicast group entry";
+        input {
+          leaf group-address {
+            description "Multicast group address";
+            type uint32;
+            mandatory true;
+          }
+          leaf source-address {
+            description "Multicast source address";
+            type uint32;
+            mandatory true;
+          }
+          leaf iifindex {
+            description "Incoming interface index";
+            type uint16;
+            mandatory false;
+          }
+          leaf iif-system-ip {
+            description "Incoming tunnel system IP";
+            type uint32;
+            mandatory false;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "mcast-group-del" {
+        description "Debug delete multicast group entry";
+        input {
+          leaf group-address {
+            description "Multicast group address";
+            type uint32;
+            mandatory true;
+          }
+          leaf source-address {
+            description "Multicast source address";
+            type uint32;
+            mandatory true;
+          }
+          leaf iifindex {
+            description "Incoming interface index";
+            type uint16;
+            mandatory false;
+          }
+          leaf iif-system-ip {
+            description "Incoming tunnel system IP address";
+            type uint32;
+            mandatory false;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "mcast-leaf-interface-add" {
+        description "Debug add multicast leaf entry";
+        input {
+          leaf group-address {
+            description "Multicast group address";
+            type uint32;
+            mandatory true;
+          }
+          leaf source-address {
+            description "Multicast source address";
+            type uint32;
+            mandatory true;
+          }
+          leaf iifindex {
+            description "Incoming interface index";
+            type uint16;
+            mandatory false;
+          }
+          leaf iif-system-ip {
+            description "Incoming tunnel system IP address";
+            type uint32;
+            mandatory false;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+          leaf leaf-ifindex {
+            description "Leaf interface index";
+            type uint16;
+            mandatory false;
+          }
+          leaf leaf-system-ip {
+            description "Leaf system IP address";
+            type uint32;
+            mandatory false;
+          }
+        }
+      }
+      viptela:action "mcast-leaf-interface-del" {
+        description "Debug delete multicast leaf entry";
+        input {
+          leaf group-address {
+            description "Multicast group address";
+            type uint32;
+            mandatory true;
+          }
+          leaf source-address {
+            description "Multicast source address";
+            type uint32;
+            mandatory true;
+          }
+          leaf iifindex {
+            description "Incoming interface index";
+            type uint16;
+            mandatory false;
+          }
+          leaf iif-system-ip {
+            description "Incoming tunnel system IP address";
+            type uint32;
+            mandatory false;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+          leaf leaf-ifindex {
+            description "Leaf interface index";
+            type uint16;
+            mandatory false;
+          }
+          leaf leaf-system-ip {
+            description "Leaf system IP address";
+            type uint32;
+            mandatory false;
+          }
+        }
+      }
+      viptela:action "mcast-flush-db" {
+        description "Flush the multicast database";
+      }
+      viptela:action "input_ip_packet" {
+        description "Generates an IP packet and input on an interface";
+        input {
+          leaf ifname {
+            description "Interface name: ge0/<0-..> OR ge0/<0-..>.vlanid";
+            type string {
+              length "1..32";
+            }
+            mandatory true;
+          }
+          leaf sip {
+            description "source IPv4 address for pkt";
+            type inet:ipv4-address;
+            mandatory true;
+          }
+          leaf dip {
+            description "destination IPv4 address for pkt";
+            type inet:ipv4-address;
+            mandatory true;
+          }
+        }
+      }
+    }
+    container binos {
+      description "Debug binos";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and
+         (/viptela-system:system/viptela-system:device-model != 'vedge-100-M' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-1000' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-100-WM' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-100-M2' and 
+         /viptela-system:system/viptela-system:device-model != 'vedge-1000' and 
+         /viptela-system:system/viptela-system:device-model != 'vedge-2000' and 
+         /viptela-system:system/viptela-system:device-model != 'vedge-100' and 
+         /viptela-system:system/viptela-system:device-model != 'vedge-100-W2' and 
+         /viptela-system:system/viptela-system:device-model != 'vedge-100-B' and 
+         /viptela-system:system/viptela-system:device-model != 'vedge-cloud' and 
+         /viptela-system:system/viptela-system:device-model != 'vedge-sim'   and
+         /viptela-system:system/viptela-system:device-model != 'vedge-ISR1100-4G' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-ISR1100-4GLTE' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-ISR1100-6G')";
+      viptela:action "ftm" {
+        description "Debug FTM binos";
+      }
+      viptela:action "fnf" {
+        description "Debug FTM fnf";
+      }
+    }
+    container fp {
+      description "Debug fp";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "dpi" {
+        description "Debug dpi in fp";
+      }
+    }
+    container fpm {
+      description "Debug forwarding policy manager";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "config" {
+        description "Debug FPM configuration";
+      }
+      viptela:action "ttm" {
+        description "Debug FPM TTM events";
+      }
+      viptela:action "dpi" {
+        description "Debug FPM DPI events";
+      }
+      viptela:action "policy" {
+        description "Debug FPM Policy programming events";
+      }
+      viptela:action "all" {
+        description "Debug FPM";
+      }
+    }
+    container cfgmgr {
+      description "Debug config manager";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "interface" {
+        description "Set promiscuous mode on the interface";
+        input {
+          leaf ifname {
+            description "Interface name: ge0/<0-..> OR ge0/<0-..>.vlanid";
+            type string {
+              length "1..32";
+            }
+            mandatory true;
+          }
+          leaf promiscuous {
+            description "Enable/Disable promiscuous mode on interface";
+            type enumeration {
+              enum "disable" {
+                value 0;
+              }
+              enum "enable" {
+                value 1;
+              }
+            }
+            mandatory true;
+          }
+        }
+      }
+    }
+    container chmgr {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      description "Debug chassis manager";
+      viptela:action "all" {
+        description "Debug chassis manager";
+      }
+    }
+    container sysmgr {
+      description "Debug system manager";
+      viptela:action "all" {
+        description "Debug system manager";
+        input {
+          leaf level {
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container vdaemon {
+      description "Debug vdaemon";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (/viptela-system:system/viptela-system:personality = 'vsmart') or
+         (/viptela-system:system/viptela-system:personality = 'vmanage')";
+      viptela:action "events" {
+        description "Debug vdaemon events";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "misc" {
+        description "Debug miscellaneous vdaemon actions";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "confd" {
+        description "Debug vdaemon configuration";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug vdaemon packets";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "hello" {
+        description "Debug vdaemon hello packets";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "error" {
+        description "Debug error vdaemon actions";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "all" {
+        description "Debug all vdaemon actions";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container vbond {
+      description "Debug vBond";
+      when "/viptela-system:system/viptela-system:vbond/viptela-system:local";
+      viptela:action "events" {
+        description "Debug vBond events";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "misc" {
+        description "Debug miscellaneous vBond actions";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "confd" {
+        description "Debug vBond configuration";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug vBond packets";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "hello" {
+        description "Debug vBond hello packets";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "error" {
+        description "Debug error vBond actions";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "all" {
+        description "Debug all vBond actions";
+        input {
+          leaf level {
+            type viptela:vdaemon-debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container vrrp {
+      description "Debug VRRP";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "events" {
+        description "Debug VRRP events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug VRRP packets";
+        input {
+          leaf direction {
+            description "Packet direction";
+            type viptela:debug-packet-dir-enum;
+            default "both";
+          }
+          leaf packet-type {
+            description "Packet type";
+            type viptela:debug-vrrp-packet-type;
+            default "all";
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+    }
+    container dhcp-helper {
+      description "Debug DHCP helper";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "events" {
+        description "Debug DHCP helper events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug DHCP helper packets";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container dhcp-server {
+      description "Debug DHCP server";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "events" {
+        description "Debug DHCP server events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug DHCP server packets";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container dhcp-client {
+      description "Debug DHCP client";
+      viptela:action "events" {
+        description "Debug DHCP client events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug DHCP client packets";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container config-mgr {
+      description "Debug configuration manager";
+      viptela:action "events" {
+        description "Debug configuration manager events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "pppoe" {
+        description "Debug configuration manager pppoe events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "ra" {
+        description "Debug configuration manager router advertisement events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container ttm {
+      description "Debug tunnel table manager";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (/viptela-system:system/viptela-system:personality = 'vsmart')";
+      viptela:action "events" {
+        description "Debug tunnel table events";
+      }
+    }
+    container transport {
+      description "Debug transport";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (/viptela-system:system/viptela-system:personality = 'vsmart') or
+         (/viptela-system:system/viptela-system:personality = 'vmanage')";
+      viptela:action "events" {
+        description "Debug transport events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container cflowd {
+      description "Debug Cflowd";
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      viptela:action "events" {
+        description "Debug Cflowd events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "misc" {
+        description "Debug Cflowd miscellaneous";
+        input {
+          leaf level {
+            description "Debug misc";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "pkt_tx" {
+        description "Debug Cflowd pkt_tx";
+        input {
+          leaf level {
+            description "Debug pkt tx";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "ipc" {
+        description "Debug Cflowd ipc";
+        input {
+          leaf level {
+            description "Debug ipc";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "cli" {
+        description "Debug cli";
+        input {
+          leaf level {
+            description "Debug cli";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container pim {
+      description "Debug PIM";
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      viptela:action "events" {
+        description "Debug PIM events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+          leaf group-address {
+            description "Filter by multicast group";
+            type inet:ipv4-address;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "ipcs" {
+        description "Debug PIM IPCs";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+          leaf group-address {
+            description "Filter by multicast group";
+            type inet:ipv4-address;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug PIM packets";
+        input {
+          leaf direction {
+            description "Packet direction";
+            type viptela:debug-packet-dir-enum;
+          }
+          leaf peer-address {
+            description "IPv4 address of peer";
+            type inet:ipv4-address;
+          }
+          leaf packet-type {
+            description "Packet type";
+            type viptela:debug-pim-packet-type;
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+      viptela:action "auto-rp" {
+        description "Debug Auto-RP";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+          leaf vpn {
+            description "VPN ID";
+            type viptela:vpn-id;
+            mandatory true;
+          }
+        }
+      }
+    }
+    container igmp {
+      description "Debug IGMP";
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      viptela:action "events" {
+        description "Debug IGMP events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "packets" {
+        description "Debug IGMP packets";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "fsm" {
+        description "Debug IGMP fsm events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "ipc" {
+        description "Debug IGMP ipc events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "config" {
+        description "Debug IGMP config events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container snmp {
+      description "Debug SNMP";
+      viptela:action "events" {
+        description "Debug SNMP events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container netconf {
+      description "Debug NETCONF";
+      viptela:action "traces" {
+        description "Debug NETCONF traces";
+      }
+    }
+    container confd {
+      description "Debug confd";
+      viptela:action "developer-log" {
+        description "Debug confd developer log";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "snmp" {
+        description "Debug confd SNMP log";
+      }
+    }
+    container resolver {
+      description "Debug resolver";
+      viptela:action "events" {
+        description "Debug resolver events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container cellular {
+      description "Debug cellular";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+         (/viptela-system:system/viptela-system:device-model = 'vedge-100-M' or 
+         /viptela-system:system/viptela-system:device-model = 'vedge-1000' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or 
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-M2' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4G' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4GLTE' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-6G')";
+      viptela:action "events" {
+        description "Debug cellular events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+          leaf ifname {
+            description "Interface name: cellular<x>";
+            type string {
+              length "1..32";
+            }
+            default "cellular0";
+          }
+        }
+      }
+      viptela:action "config" {
+        description "Debug cellular config";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+          leaf ifname {
+            description "Interface name: cellular<x>";
+            type string {
+              length "1..32";
+            }
+            default "cellular0";
+          }
+        }
+      }
+      viptela:action "api" {
+        description "Debug cellular apis";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+          leaf ifname {
+            description "Interface name: cellular<x>";
+            type string {
+              length "1..32";
+            }
+            default "cellular0";
+          }
+        }
+      }
+      viptela:action "misc" {
+        description "Debug cellular misc";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+          leaf ifname {
+            description "Interface name: cellular<x>";
+            type string {
+              length "1..32";
+            }
+            default "cellular0";
+          }
+        }
+      }
+    }
+    container wlan {
+      description "Debug wlan";
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+         (/viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or 
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-W2')";
+      viptela:action "events" {
+        description "Debug wlan events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "config" {
+        description "Debug wlan config";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container dbgd {
+      description "Debug DBGD";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "events" {
+        description "Debug DBGD events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container container {
+      description "Debug container daemon";
+      when "(/viptela-system:system/viptela-system:personality = 'vcontainer')";
+      viptela:action "events" {
+        description "Debug container daemon events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container cloudexpress {
+      description "Debug cloudexpress";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "events" {
+        description "Debug cloudexpress events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "ttm" {
+        description "Debug cloudexpress TTM events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "rtm" {
+        description "Debug cloudexpress RTM events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "ftm" {
+        description "Debug cloudexpress FTM events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "omp" {
+        description "Debug cloudexpress OMP events";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "all" {
+        description "Debug cloudexpress all";
+        input {
+          leaf level {
+            description "Debug level";
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container aaa {
+      description "Debug AAA";
+      container login {
+        description "Debug login events";
+        viptela:action "radius" {
+          description "Debug RADIUS";
+        }
+        viptela:action "tacacs" {
+          description "Debug TACACS";
+        }
+      }
+    }
+    container iked {
+      description "Debug iked";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      viptela:action "events" {
+        description "Debug iked events";
+        input {
+          leaf level {
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "misc" {
+        description "Debug miscellaneous iked actions";
+        input {
+          leaf level {
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "confd" {
+        description "Debug iked configuration";
+        input {
+          leaf level {
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "error" {
+        description "Debug error iked actions";
+        input {
+          leaf level {
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+      viptela:action "all" {
+        description "Debug all iked actions";
+        input {
+          leaf level {
+            type viptela:debug-level-enum;
+            default "low";
+          }
+        }
+      }
+    }
+    container dca {
+      when "/viptela-system:system/viptela-system:personality = 'vmanage'";
+      description "Debug data collection agent";
+      viptela:action "all" {
+        description "Debug dca all";
+      }
+    }
+  }
+  container no {
+    description "Negate a command or set its defaults";
+    container debug {
+      description "Disable debugging";
+      container omp {
+        description "Disable OMP debugging";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') or
+           (/viptela-system:system/viptela-system:personality = 'vsmart')";
+        viptela:action "events" {
+          description "Disable debugging of OMP events";
+        }
+        viptela:action "ipcs" {
+          description "Disable debugging of OMP IPCs";
+        }
+        viptela:action "policy" {
+          description "Disable debugging of OMP policy";
+        }
+        viptela:action "packets" {
+          description "Disable debugging of OMP packets";
+        }
+        viptela:action "cxp" {
+          description "Disable debugging of OMP CXP";
+        }
+        viptela:action "best-path" {
+          description "Disable debugging of OMP best-path calculation";
+        }
+        viptela:action "all" {
+          description "Disable all OMP debugging";
+        }
+      }
+      container bgp {
+        description "Disable debugging of BGP";
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        viptela:action "events" {
+          description "Disable debugging of BGP events";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "fsm" {
+          description "Disable debugging of BGP finite-state machine";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "ipcs" {
+          description "Disable debugging of BGP IPCs";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "packets" {
+          description "Disable debugging of BGP packets";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "all" {
+          description "Disable all BGP debugging";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+      }
+      container rtm {
+        description "Disable debugging of RTM";
+        viptela:action "events" {
+          description "Disable debugging of RTM events";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "ipc" {
+          description "Disable debugging of RTM IPC events";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "next-hop" {
+          description "Disable debugging of RTM next-hop events";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "rib" {
+          description "Disable debugging of RTM RIB events";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "packets" {
+          description "Disable debugging of RTM packets";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "all" {
+          description "Disable all RTM debugging";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+      }
+      container ospf {
+        description "Disable debugging of OSPF";
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        viptela:action "events" {
+          description "Disable debugging of OSPF events";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "ism" {
+          description "Disable debugging of OSPF interface-state machine";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "nsm" {
+          description "Disable debugging of OSPF neighbor-state machine";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "nssa" {
+          description "Disable debugging of OSPF NSSAs";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "ipcs" {
+          description "Disable debugging of OSPF IPCs";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "packets" {
+          description "Disable debugging of OSPF packets";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "lsa" {
+          description "Disable debugging of OSPF LSAs";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "all" {
+          description "Disable all OSPF debugging";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+      }
+      container vrrp {
+        description "Disable debugging of VRRP";
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        viptela:action "events" {
+          description "Disable debugging of VRRP events";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "packets" {
+          description "Disable debugging of VRRP packets";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "all" {
+          description "Disable all VRRP debugging";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+      }
+      container ftm {
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        description "Disable debugging of the forwarding table manager";
+        viptela:action "all" {
+          description "Disable all debugging of the forwarding table manager";
+        }
+        viptela:action "dot1x" {
+          description "Disable debugging of 802.1x events";
+        }
+        viptela:action "dot1x-fsm" {
+          description "Disable debugging of 802.1x finite state machine";
+        }
+        viptela:action "params" {
+          description "Disable debugging of forwarding manager parameters";
+        }
+      }
+      container binos {
+        description "Disable debugging for binos";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') and
+           (/viptela-system:system/viptela-system:device-model != 'vedge-100-M' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-1000' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-100-WM' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-100-M2' and 
+           /viptela-system:system/viptela-system:device-model != 'vedge-1000' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-2000' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-100' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-100-W2' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-100-B' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-cloud' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-sim'   and
+           /viptela-system:system/viptela-system:device-model != 'vedge-ISR1100-4G' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-ISR1100-4GLTE' and
+           /viptela-system:system/viptela-system:device-model != 'vedge-ISR1100-6G')";
+        viptela:action "ftm" {
+          description "Disable debugging of forwarding manager binos";
+        }
+        viptela:action "fnf" {
+          description "Disable debugging of forwarding manager fnf";
+        }
+      }
+      container tcpd {
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        description "Disable debugging for tcpd daemon";
+        viptela:action "all" {
+          description "Disable all debugging for tcpd daemon";
+        }
+      }
+      container fp {
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        description "Disable debugging of the fp packets";
+        viptela:action "all" {
+          description "Disable debugging of the fp packets";
+        }
+      }
+      container fpm {
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        description "Disable debugging of the forwarding policy manager";
+        viptela:action "all" {
+          description "Disable debugging of the forwarding policy manager";
+        }
+      }
+      container chmgr {
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        description "Disable debugging of the chassis manager";
+        viptela:action "all" {
+          description "Disable debugging of the chassis manager";
+        }
+      }
+      container sysmgr {
+        description "Disable debugging of the system manager";
+        viptela:action "all" {
+          description "Disable debugging of the system manager";
+        }
+      }
+      container vdaemon {
+        description "Disable debugging of vdaemon";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') or
+           (/viptela-system:system/viptela-system:personality = 'vsmart') or
+           (/viptela-system:system/viptela-system:personality = 'vmanage')";
+        viptela:action "events" {
+          description "Disable debugging of vdaemon events";
+        }
+        viptela:action "misc" {
+          description "Disable debugging of miscellaneous vdaemon events";
+        }
+        viptela:action "confd" {
+          description "Disable debugging of vdaemon configuration";
+        }
+        viptela:action "packets" {
+          description "Disable debugging of vdaemon packets";
+        }
+        viptela:action "hello" {
+          description "Disable debugging of vdaemon hello packets";
+        }
+        viptela:action "error" {
+          description "Disable debugging of vdaemon error packets";
+        }
+        viptela:action "all" {
+          description "Disable all vdaemon debugging";
+        }
+      }
+      container vbond {
+        description "Disable debugging of vBond";
+        when "/viptela-system:system/viptela-system:vbond/viptela-system:local";
+        viptela:action "events" {
+          description "Disable debugging of vBond events";
+        }
+        viptela:action "misc" {
+          description "Disable debugging of miscellaneous vBond events";
+        }
+        viptela:action "confd" {
+          description "Disable debugging of vBond configuration";
+        }
+        viptela:action "packets" {
+          description "Disable debugging of vBond packets";
+        }
+        viptela:action "hello" {
+          description "Disable debugging of vBond hello packets";
+        }
+        viptela:action "error" {
+          description "Disable debugging of vBond error packets";
+        }
+        viptela:action "all" {
+          description "Disable all vBond debugging";
+        }
+      }
+      container dhcp-helper {
+        description "Disable debugging of DHCP helper";
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        viptela:action "events" {
+          description "Disable debugging of DHCP helper events";
+        }
+        viptela:action "packets" {
+          description "Disable debugging of DHCP helper packets";
+        }
+        viptela:action "all" {
+          description "Disable all DHCP help debugging";
+        }
+      }
+      container dhcp-server {
+        description "Disable debugging of DHCP server";
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        viptela:action "events" {
+          description "Disable debugging of DHCP server events";
+        }
+        viptela:action "packets" {
+          description "Disable debugging of DHCP server packets";
+        }
+        viptela:action "all" {
+          description "Disable all DHCP server debugging";
+        }
+      }
+      container dhcp-client {
+        description "Disable debugging of DHCP client";
+        viptela:action "events" {
+          description "Disable debugging of DHCP client events";
+        }
+        viptela:action "packets" {
+          description "Disable debugging of DHCP client packets";
+        }
+        viptela:action "all" {
+          description "Disable all DHCP client debugging";
+        }
+      }
+      container config-mgr {
+        description "Disable debugging of the configuration manager";
+        viptela:action "events" {
+          description "Disable debugging of configuration manager events";
+        }
+        viptela:action "pppoe" {
+          description "Disable debugging of configuration manager events";
+        }
+        viptela:action "ra" {
+          description "Disable debugging of configuration manager events";
+        }
+        viptela:action "all" {
+          description "Disable all configuration manager debugging";
+        }
+      }
+      container ttm {
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') or
+           (/viptela-system:system/viptela-system:personality = 'vsmart')";
+        description "Disable debugging of the tunnel table manager";
+        viptela:action "events" {
+          description "Disable debugging of TTM events";
+        }
+      }
+      container transport {
+        description "Disable debugging of transport";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') or
+           (/viptela-system:system/viptela-system:personality = 'vsmart') or
+           (/viptela-system:system/viptela-system:personality = 'vmanage')";
+        viptela:action "events" {
+          description "Disable debugging of transport events";
+        }
+      }
+      container cflowd {
+        description "Disable debugging of Cflowd";
+        when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+        viptela:action "events" {
+          description "Disable debugging cflowd events";
+        }
+        viptela:action "misc" {
+          description "Disable debugging cflowd miscellaneous";
+        }
+        viptela:action "pkt_tx" {
+          description "Disable debugging cflowd pkt tx";
+        }
+        viptela:action "cli" {
+          description "Disable debugging cflowd cli";
+        }
+        viptela:action "ipc" {
+          description "Disable debugging cflowd ipc";
+        }
+        viptela:action "all" {
+          description "Disable all Cflowd debugging";
+        }
+      }
+      container pim {
+        description "Disable debugging of PIM";
+        when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+        viptela:action "events" {
+          description "Disable debugging of PIM events";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "ipcs" {
+          description "Disable debugging of PIM IPCs";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "packets" {
+          description "Disable debugging of PIM packets";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "auto-rp" {
+          description "Disable debugging of Auto-RP";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+        viptela:action "all" {
+          description "Disable all PIM debugging";
+          input {
+            leaf vpn {
+              description "VPN ID";
+              type viptela:vpn-id;
+            }
+          }
+        }
+      }
+      container igmp {
+        description "Disable debugging of IGMP";
+        when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+        viptela:action "events" {
+          description "Disable debugging of IGMP events";
+        }
+        viptela:action "packets" {
+          description "Disable debugging of IGMP packets";
+        }
+        viptela:action "fsm" {
+          description "Disable debugging of IGMP fsm events";
+        }
+        viptela:action "ipc" {
+          description "Disable debugging of IGMP ipc events";
+        }
+        viptela:action "config" {
+          description "Disable debugging of IGMP config events";
+        }
+        viptela:action "all" {
+          description "Disable all IGMP debugging";
+        }
+      }
+      container snmp {
+        description "Disable debugging of the SNMP";
+        viptela:action "events" {
+          description "Disable debugging of SNMP events";
+        }
+      }
+      container netconf {
+        description "Disable debugging of NETCONF";
+        viptela:action "traces" {
+          description "Disable debugging NETCONF traces";
+        }
+      }
+      container confd {
+        description "Disable debugging of confd";
+        viptela:action "developer-log" {
+          description "Disable debugging confd developer log";
+        }
+        viptela:action "snmp" {
+          description "Disable debugging confd SNMP log";
+        }
+        viptela:action "all" {
+          description "Disable all confd debugging";
+        }
+      }
+      viptela:action "all" {
+        description "Disable debuging for all daemons";
+      }
+      container resolver {
+        description "Disable debugging of resolver daemon";
+        viptela:action "events" {
+          description "Disable debugging of Resolver daemon events";
+        }
+      }
+      container cellular {
+        description "Disable debugging of cellular";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+           (/viptela-system:system/viptela-system:device-model = 'vedge-1000' or
+           /viptela-system:system/viptela-system:device-model = 'vedge-100-M' or 
+           /viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or 
+           /viptela-system:system/viptela-system:device-model = 'vedge-100-M2' or
+           /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4G' or
+           /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4GLTE' or
+           /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-6G')";
+        viptela:action "events" {
+          description "Disable debugging of cellular events";
+          input {
+            leaf ifname {
+              description "Interface name: cellular<x>";
+              type string {
+                length "1..32";
+              }
+              default "cellular0";
+            }
+          }
+        }
+        viptela:action "config" {
+          description "Disable debugging of cellular config";
+          input {
+            leaf ifname {
+              description "Interface name: cellular<x>";
+              type string {
+                length "1..32";
+              }
+              default "cellular0";
+            }
+          }
+        }
+        viptela:action "api" {
+          description "Disable debugging of cellular apis";
+          input {
+            leaf ifname {
+              description "Interface name: cellular<x>";
+              type string {
+                length "1..32";
+              }
+              default "cellular0";
+            }
+          }
+        }
+        viptela:action "misc" {
+          description "Disable debugging of cellular misc";
+          input {
+            leaf ifname {
+              description "Interface name: cellular<x>";
+              type string {
+                length "1..32";
+              }
+              default "cellular0";
+            }
+          }
+        }
+        viptela:action "all" {
+          description "Disable all cellular debugging";
+          input {
+            leaf ifname {
+              description "Interface name: cellular<x>";
+              type string {
+                length "1..32";
+              }
+              default "cellular0";
+            }
+          }
+        }
+      }
+      container wlan {
+        description "Disable debugging of wlan";
+        when
+          "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+           (/viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or 
+           /viptela-system:system/viptela-system:device-model = 'vedge-100-W2')";
+        viptela:action "events" {
+          description "Disable debugging of wlan events";
+        }
+        viptela:action "config" {
+          description "Disable debugging of wlan config";
+        }
+        viptela:action "all" {
+          description "Disable all wlan debugging";
+        }
+      }
+      container dbgd {
+        description "Disable debugging of DBGD";
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        viptela:action "events" {
+          description "Disable debugging of DBGD events";
+        }
+        viptela:action "all" {
+          description "Disable all DBGD debugging";
+        }
+      }
+      container container {
+        description "Disable debugging of container daemon";
+        when "(/viptela-system:system/viptela-system:personality = 'vcontainer')";
+        viptela:action "events" {
+          description "Disable debugging of container daemon events";
+        }
+      }
+      container cloudexpress {
+        description "Disable debugging of cloudexpress daemon";
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        viptela:action "events" {
+          description "Disable debugging of cloudexpress daemon events";
+        }
+        viptela:action "ttm" {
+          description "Disable debugging of cloudexpress TTM events";
+        }
+        viptela:action "omp" {
+          description "Disable debugging of cloudexpress OMP events";
+        }
+        viptela:action "ftm" {
+          description "Disable debugging of cloudexpress FTM events";
+        }
+        viptela:action "rtm" {
+          description "Disable debugging of cloudexpress RTM events";
+        }
+        viptela:action "all" {
+          description "Disable debugging of cloudexpress";
+        }
+      }
+      container aaa {
+        description "Disable AAA debugging";
+        container login {
+          description "Disable login events debugging";
+          viptela:action "radius" {
+            description "Disable RADIUS debugging";
+          }
+          viptela:action "tacacs" {
+            description "Disable TACACS debugging";
+          }
+          viptela:action "all" {
+            description "Disable all login events debugging";
+          }
+        }
+      }
+      container iked {
+        description "Disable debugging of iked";
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        viptela:action "events" {
+          description "Disable debugging of iked events";
+        }
+        viptela:action "misc" {
+          description "Disable debugging of miscellaneous iked events";
+        }
+        viptela:action "confd" {
+          description "Disable debugging of iked configuration";
+        }
+        viptela:action "error" {
+          description "Disable debugging of iked error packets";
+        }
+        viptela:action "all" {
+          description "Disable all iked debugging";
+        }
+      }
+      container dca {
+        when "/viptela-system:system/viptela-system:personality = 'vmanage'";
+        description "Debug data collection agent";
+        viptela:action "all" {
+          description "Disable debug dca all";
+        }
+      }
+    }
+  }
+  container debugs {
+    description "Debugging information";
+    config false;
+    container omp {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (/viptela-system:system/viptela-system:personality = 'vsmart')";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf ipcs {
+        type viptela:debug-level-enum;
+      }
+      leaf policy {
+        type viptela:debug-level-enum;
+      }
+      container packets {
+        leaf direction {
+          type viptela:debug-packet-dir-enum;
+        }
+        leaf peer {
+          type inet:ipv4-address;
+        }
+        leaf type {
+          type viptela:debug-omp-packet-type;
+        }
+      }
+      leaf best-path {
+        type viptela:debug-level-enum;
+      }
+      leaf cxp {
+        type viptela:debug-level-enum;
+      }
+    }
+    container bgp {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      list vpn {
+        key "vpn-id";
+        leaf vpn-id {
+          type viptela:vpn-id;
+        }
+        leaf events {
+          type boolean;
+        }
+        leaf fsm {
+          type boolean;
+        }
+        leaf ipcs {
+          type boolean;
+        }
+        container packets {
+          leaf direction {
+            type viptela:debug-packet-dir-enum;
+          }
+          leaf type {
+            type viptela:debug-bgp-packet-type;
+          }
+        }
+      }
+    }
+    container rtm {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      list vpn {
+        key "vpn-id";
+        leaf vpn-id {
+          type viptela:vpn-id;
+        }
+        leaf events {
+          type boolean;
+        }
+        leaf ipc {
+          type boolean;
+        }
+        leaf nht {
+          type boolean;
+        }
+        leaf rib {
+          type boolean;
+        }
+        container packets {
+          leaf direction {
+            type viptela:debug-packet-dir-enum;
+          }
+        }
+      }
+    }
+    container ospf {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      list vpn {
+        key "vpn-id";
+        leaf vpn-id {
+          type viptela:vpn-id;
+        }
+        leaf events {
+          type boolean;
+        }
+        leaf ipcs {
+          type boolean;
+        }
+        leaf nssa {
+          type boolean;
+        }
+        container ism {
+          leaf ism-enabled {
+            type boolean;
+          }
+          leaf ism-type {
+            type viptela:debug-ospf-type;
+          }
+        }
+        container nsm {
+          leaf nsm-enabled {
+            type boolean;
+          }
+          leaf nsm-type {
+            type viptela:debug-ospf-type;
+          }
+        }
+        container lsa {
+          leaf lsa-enabled {
+            type boolean;
+          }
+          leaf lsa-type {
+            type viptela:debug-ospf-lsa_type;
+          }
+        }
+        container packets {
+          leaf direction {
+            type viptela:debug-packet-dir-enum;
+          }
+          leaf type {
+            type viptela:debug-ospf-packet-type;
+          }
+        }
+      }
+    }
+    container chmgr {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      leaf all {
+        type empty;
+      }
+    }
+    container sysmgr {
+      leaf all {
+        type viptela:debug-level-enum;
+      }
+    }
+    container tcpd {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      leaf all {
+        type viptela:tcpd-debug-level-enum;
+      }
+    }
+    container ftm {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      leaf fib {
+        type empty;
+      }
+      leaf rtm-events {
+        type empty;
+      }
+      leaf ttm-events {
+        type empty;
+      }
+      leaf interface {
+        type empty;
+      }
+      leaf next-hop {
+        type empty;
+      }
+      leaf arp {
+        type empty;
+      }
+      leaf tcpopt {
+        type empty;
+      }
+      leaf neigh {
+        type empty;
+      }
+      leaf config {
+        type empty;
+      }
+      leaf ipsec {
+        type empty;
+      }
+      leaf bfd {
+        type empty;
+      }
+      leaf filter {
+        type empty;
+      }
+      leaf nat {
+        type empty;
+      }
+      leaf dot1x {
+        type empty;
+      }
+      leaf dot1x-fsm {
+        type empty;
+      }
+      leaf flow {
+        type empty;
+      }
+      leaf dpi {
+        type empty;
+      }
+      leaf mcast {
+        type empty;
+      }
+      leaf pppoe {
+        type empty;
+      }
+      leaf service-gre {
+        type empty;
+      }
+      leaf fec {
+        type empty;
+      }
+      leaf pkt-dup {
+        type empty;
+      }
+      leaf params {
+        type empty;
+      }
+      leaf all {
+        type empty;
+      }
+      container paramfilter {
+        leaf local-system-ip {
+          type inet:ip-address;
+        }
+        leaf remote-system-ip {
+          type inet:ip-address;
+        }
+        leaf local-color {
+          type viptela:color-enum;
+        }
+        leaf remote-color {
+          type viptela:color-enum;
+        }
+        leaf proto {
+          type viptela:encap-enum;
+        }
+      }
+      leaf zbf {
+        type empty;
+      }
+    }
+    container binos {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and
+         (/viptela-system:system/viptela-system:device-model != 'vedge-100-M' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-1000' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-100-WM' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-100-M2' and 
+         /viptela-system:system/viptela-system:device-model != 'vedge-1000' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-2000' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-100' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-100-W2' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-100-B' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-cloud' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-sim'  and
+         /viptela-system:system/viptela-system:device-model != 'vedge-ISR1100-4G' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-ISR1100-4GLTE' and
+         /viptela-system:system/viptela-system:device-model != 'vedge-ISR1100-6G')";
+      leaf ftm {
+        type empty;
+      }
+      leaf fnf {
+        type empty;
+      }
+    }
+    container fp {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      leaf dpi {
+        type empty;
+      }
+      leaf all {
+        type empty;
+      }
+    }
+    container fpm {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      leaf config {
+        type empty;
+      }
+      leaf ttm {
+        type empty;
+      }
+      leaf dpi {
+        type empty;
+      }
+      leaf policy {
+        type empty;
+      }
+      leaf all {
+        type empty;
+      }
+    }
+    container vdaemon {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (/viptela-system:system/viptela-system:personality = 'vsmart') or
+         (/viptela-system:system/viptela-system:personality = 'vmanage')";
+      leaf events {
+        type viptela:vdaemon-debug-level-enum;
+      }
+      leaf misc {
+        type viptela:vdaemon-debug-level-enum;
+      }
+      leaf confd {
+        type viptela:vdaemon-debug-level-enum;
+      }
+      leaf packets {
+        type viptela:vdaemon-debug-level-enum;
+      }
+      leaf hello {
+        type viptela:vdaemon-debug-level-enum;
+      }
+      leaf error {
+        type viptela:vdaemon-debug-level-enum;
+      }
+    }
+    container vbond {
+      leaf events {
+        type viptela:vdaemon-debug-level-enum;
+      }
+      leaf misc {
+        type viptela:vdaemon-debug-level-enum;
+      }
+      leaf confd {
+        type viptela:vdaemon-debug-level-enum;
+      }
+      leaf packets {
+        type viptela:vdaemon-debug-level-enum;
+      }
+      leaf hello {
+        type viptela:vdaemon-debug-level-enum;
+      }
+      leaf error {
+        type viptela:vdaemon-debug-level-enum;
+      }
+    }
+    container vrrp {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      list vpn {
+        key "vpn-id";
+        leaf vpn-id {
+          type viptela:vpn-id;
+        }
+        leaf events {
+          type viptela:debug-level-enum;
+        }
+        container packets {
+          leaf direction {
+            type viptela:debug-packet-dir-enum;
+          }
+          leaf type {
+            type viptela:debug-vrrp-packet-type;
+          }
+        }
+      }
+    }
+    container config-mgr {
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf pppoe {
+        type viptela:debug-level-enum;
+      }
+      leaf ra {
+        type viptela:debug-level-enum;
+      }
+    }
+    container cflowd {
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf misc {
+        type viptela:debug-level-enum;
+      }
+      leaf pkt_tx {
+        type viptela:debug-level-enum;
+      }
+      leaf ipc {
+        type viptela:debug-level-enum;
+      }
+      leaf cli {
+        type viptela:debug-level-enum;
+      }
+    }
+    container ttm {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (/viptela-system:system/viptela-system:personality = 'vsmart')";
+      leaf events {
+        type empty;
+      }
+    }
+    container dhcp-client {
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf packet {
+        type viptela:debug-level-enum;
+      }
+    }
+    container dhcp-helper {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf packet {
+        type viptela:debug-level-enum;
+      }
+    }
+    container dhcp-server {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf packet {
+        type viptela:debug-level-enum;
+      }
+    }
+    container transport {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (/viptela-system:system/viptela-system:personality = 'vsmart') or
+         (/viptela-system:system/viptela-system:personality = 'vmanage')";
+      leaf admin-state {
+        type viptela:admin-state-enum;
+      }
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+    }
+    container pim {
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      list vpn {
+        key "vpn-id";
+        leaf vpn-id {
+          type viptela:vpn-id;
+        }
+        container events {
+          leaf group-address {
+            type inet:ipv4-address;
+          }
+          leaf level {
+            type viptela:debug-level-enum;
+          }
+          leaf group {
+            type inet:ipv4-address;
+          }
+        }
+        leaf ipcs {
+          type viptela:debug-level-enum;
+        }
+        leaf auto-rp {
+          type viptela:debug-level-enum;
+        }
+        container packets {
+          leaf direction {
+            type viptela:debug-packet-dir-enum;
+          }
+          leaf peer {
+            type inet:ipv4-address;
+          }
+          leaf type {
+            type viptela:debug-pim-packet-type;
+          }
+        }
+      }
+    }
+    container igmp {
+      when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf packet {
+        type viptela:debug-level-enum;
+      }
+      leaf fsm {
+        type viptela:debug-level-enum;
+      }
+      leaf ipc {
+        type viptela:debug-level-enum;
+      }
+      leaf config {
+        type viptela:debug-level-enum;
+      }
+    }
+    container resolver {
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+    }
+    container snmp {
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+    }
+    container netconf {
+      leaf traces {
+        type empty;
+      }
+    }
+    container confd {
+      leaf developer-log {
+        type viptela:debug-level-enum;
+      }
+      leaf snmp {
+        type empty;
+      }
+    }
+    container cellular {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+         (/viptela-system:system/viptela-system:device-model = 'vedge-1000' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-M' or 
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or 
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-M2' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4G' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-4GLTE' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-ISR1100-6G')";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf config {
+        type viptela:debug-level-enum;
+      }
+      leaf api {
+        type viptela:debug-level-enum;
+      }
+      leaf misc {
+        type viptela:debug-level-enum;
+      }
+    }
+    container wlan {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and 
+         (/viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or 
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-W2')";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf config {
+        type viptela:debug-level-enum;
+      }
+    }
+    container gps {
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') and
+         (/viptela-system:system/viptela-system:device-model = 'vedge-100-WM' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-M' or
+         /viptela-system:system/viptela-system:device-model = 'vedge-100-W2')";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+    }
+    container dbgd {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+    }
+    container container {
+      when "(/viptela-system:system/viptela-system:personality = 'vcontainer')";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+    }
+    container cloudexpress {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf ttm {
+        type viptela:debug-level-enum;
+      }
+      leaf omp {
+        type viptela:debug-level-enum;
+      }
+      leaf ftm {
+        type viptela:debug-level-enum;
+      }
+    }
+    container aaa {
+      container login {
+        leaf radius {
+          type empty;
+        }
+        leaf tacacs {
+          type empty;
+        }
+      }
+    }
+    container iked {
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      leaf events {
+        type viptela:debug-level-enum;
+      }
+      leaf misc {
+        type viptela:debug-level-enum;
+      }
+      leaf confd {
+        type viptela:debug-level-enum;
+      }
+      leaf error {
+        type viptela:debug-level-enum;
+      }
+    }
+  }
+}

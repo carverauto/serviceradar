@@ -1,0 +1,2295 @@
+-- MIB file created 16-May-2003 14:53:03, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ITP-SCCP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ITP-SCCP-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    CItpTcDisplayPC, CItpTcGtaAddr, CItpTcGtaDisplay, 
+    CItpTcGtaDisplayZB, CItpTcNAI, CItpTcNumberingPlan, 
+    CItpTcPointCode, CItpTcSubSystemNumber, CItpTcTranslationType, 
+    CItpTcTableLoadStatus, CItpTcXuaName
+            FROM CISCO-ITP-TC-MIB
+    cItpSpCLLICode, cItpSpDisplayName
+            FROM CISCO-ITP-SP-MIB
+    TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoItpSccpMIB OBJECT IDENTIFIER ::= { ciscoMgmt 233 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200302030000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems, Inc
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-ss7@cisco.com
+--  Descr
+--    The MIB for Signaling Connection Control Part(SCCP)
+--     messages transported over Signalling System 
+--     No. 7 (SS7) Network via Cisco IP Transfer
+--     Point.  
+--     
+--     This MIB for provides information specified
+--     in ITU Q752 Monitoring and Measurements for
+--     Signalling System No. 7(SS7) Network. 
+--    
+--     The Cisco IP Transfer Point (ITP) is a hardware 
+--     and software solution that transports SS7 traffic 
+--     using IP. Each ITP node provides function similar
+--     to SS7 signaling point.   
+--     
+--     The relevant ITU documents describing this technology
+--     is the ITU Q series, including ITU Q.700: Introduction
+--     to CCITT Signalling System No. 7 and ITU Q.701 
+--     Functional description of the message transfer part
+--     (MTP) of Signalling System No. 7.
+--    
+--     The IETF Working Group Signaling Transport (SIGTRAN)
+--     has defined MTP3 User Adaptation (M3UA) and SCCP
+--     User Adaptation (SUA) protocols. The drafts can be
+--     found at:
+--     http://www.ietf.org/html.charters/sigtran-charter.html
+--    
+--     This MIB consists of the following tables:
+--       Concerned Point Code List Table
+--       Mated Application (MAP) Table
+--       Global Title Translation (GTT) Selector Table
+--       Global Title Address (GTA) Table
+--       Application Group Table
+--       Prefix Conversion Table
+--     
+--  RevDate
+--    200302030000Z
+--  RevDescr
+--    The ability to allow multiple instances of 
+--     Signalling Points to run in the same device
+--     has introduce a new index structure.  All
+--     objects in this MIB will be deprecated and 
+--     replaced by objects in the CISCO-ITP-GSCCP-MIB.my
+--     MIB.
+--  RevDate
+--    200204020000Z
+--  RevDescr
+--    Added the following objects:
+--        cItpSccpGttAppGrNumUsed
+--        cItpSccpGttGtaTTorSSNvalue
+--    
+--     Updated the following Textual Convention:
+--        CItpSccpGttRoutingInd
+--    
+--     Updated the description for following objects:
+--        cItpSccpGttGtaTTorSSN
+--        cItpSccpGttGtaRoutingInd.
+--  RevDate
+--    200202280000Z
+--  RevDescr
+--    Added the following objects:
+--        CItpSccpGttPrefName
+--        cItpSccpPrefConfigLastChanged
+--        cItpSccpGttPrePrefConv
+--        cItpSccpGttPostPrefConv
+--        cItpSccpGttGtaAddrDispZB
+--        cItpSccpGttGtaAddrLenZB
+--        cItpSccpGttGtaAsName
+--    
+--     Added the following Tables:
+--        cItpSccpGttAppGrTable
+--        cItpSccpGttPrefTable
+--    
+--     Updated the following Textual Conventions:
+--        CItpSccpGttAppType
+--        CItpSccpGttGtaResType
+--    
+--     Deprecated the following objects:
+--        CItpSccpGttGtaAddrLen
+--        cItpSccpGttGtaAddrDisp
+--        cItpSccpGttGtaAddrLen
+--    
+--     Deprecated the following Tables:
+--        cItpSccpGttAppTable
+--  RevDate
+--    200109270000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+cItpSccpMIBNotifs OBJECT IDENTIFIER ::= { ciscoItpSccpMIB 0 }
+cItpSccpMIBObjects OBJECT IDENTIFIER ::= { ciscoItpSccpMIB 1 }
+cItpSccpConformance OBJECT IDENTIFIER ::= { ciscoItpSccpMIB 2 }
+cItpSccpScalars OBJECT IDENTIFIER ::= { cItpSccpMIBObjects 1 }
+cItpSccpGttConPc OBJECT IDENTIFIER ::= { cItpSccpMIBObjects 2 }
+cItpSccpGttMap  OBJECT IDENTIFIER ::= { cItpSccpMIBObjects 3 }
+cItpSccpGttSel  OBJECT IDENTIFIER ::= { cItpSccpMIBObjects 4 }
+cItpSccpGttGta  OBJECT IDENTIFIER ::= { cItpSccpMIBObjects 5 }
+cItpSccpGttApp  OBJECT IDENTIFIER ::= { cItpSccpMIBObjects 6 }
+cItpSccpGttAppGr OBJECT IDENTIFIER ::= { cItpSccpMIBObjects 7 }
+cItpSccpGttPref OBJECT IDENTIFIER ::= { cItpSccpMIBObjects 8 }
+cItpSccpNotifications OBJECT IDENTIFIER ::= { cItpSccpMIBNotifs 0 }
+cItpSccpMIBCompliances OBJECT IDENTIFIER ::= { cItpSccpConformance 1 }
+cItpSccpMIBGroups OBJECT IDENTIFIER ::= { cItpSccpConformance 2 }
+
+CItpSccpConPcListName ::= OCTET STRING(SIZE(0..12))
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The configured name associated with SCCP GTT
+--     Concerned Point Code list name.
+
+CItpSccpGttSelName ::= OCTET STRING(SIZE(1..12))
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The configured name associated with SCCP GTT
+--     Selector.
+
+CItpSccpGttAppName ::= OCTET STRING(SIZE(0..12))
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The configured name associated with SCCP GTT
+--     Application Group.
+
+CItpSccpGttPrefName ::= OCTET STRING(SIZE(0..12))
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The configured name associated with SCCP GTT
+--     Prefix Conversion table.
+--    
+--     This name is supported as octet string containing
+--     administrative information in human-readable form.
+--    
+--     The use of control codes should be avoided.
+--    
+--     The use of newline should be avoided.
+--    
+--     The use of leading or trailing white space should
+--     be avoided.
+
+CItpSccpGttDisplaySS ::= OCTET STRING(SIZE(1..3))
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The subsystem number in display format.
+
+CItpSccpGttAppCost ::= Gauge(1..8)
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The cost associated with an entry in SCCP GTT
+--     Application Group.
+
+CItpSccpGttAppType ::= INTEGER {
+        pc(1),
+        pcssn(2),
+        as(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The list of application types in Application Group
+--    'pc'    : The application type is a point code.
+--    'pcssn' : The application type is a point code
+--              and subsystem number (SSN).
+--    'as'    : The application type is an M3UA or SUA
+--              Application Server (AS).
+
+CItpSccpGttGtaAddrLen ::= Gauge(1..15)
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The SCCP GTT Global Title Address length.
+--    
+--     It is now deprecated because GTA address
+--     length can also be zero.
+
+CItpSccpGttGtaAddrLenZB ::= Gauge(0..15)
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The SCCP GTT Global Title Address length.
+--     For the default GTA address, the length
+--     can be zero.
+
+CItpSccpGttMapType ::= INTEGER {
+        primary(1),
+        backup(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The list of SCCP GTT Mated Application type
+--    'Primary' : The mated application is primary
+--    'Backup'  : The mated application is backup.
+
+CItpSccpGttGtaResType ::= INTEGER {
+        pc(1),
+        pcssn(2),
+        app(3),
+        as(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The list of SCCP GTT Result Type
+--    'pc'    : The GTA translates to a point code.
+--    'pcssn' : The GTA translates to a point code
+--              and optional SSN
+--    'app'   : The GTA translates to a GTT
+--              Application Group.
+--    'as'    : The GTA translates to an M3UA or
+--              SUA Application Server (AS) name.
+
+CItpSccpGttRoutingInd ::= INTEGER {
+        ri2gt(1),
+        ri2ssn(2),
+        ssnRI2gt(3),
+        ssnRI2ssn(4),
+        replTT(5),
+        riNotAppl(6),
+        riUndef(7)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The SCCP GTT Routing Indicator
+--    'ri2gt'     : Set RI to GT
+--    'ri2ssn'    : Set RI to SSN
+--    'ssnRI2ssn' : Replace SSN and set RI to GT
+--    'ssnRI2gt'  : Replace SSN and set RI to SSN
+--    'replTT'    : Replace the TT
+--    'riNotAppl' : RI is not applicable
+--    'riUndef'   : RI is undefined.
+
+CItpSccpGttMapPcStatus ::= INTEGER {
+        allowed(1),
+        prohibited(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The list of SCCP GTT Mated App point code status
+--    'Allowed'    : The mated application is allowed
+--    'Prohibited' : The mated application is prohibited.
+
+CItpSccpGttMapSsStatus ::= INTEGER {
+        allowed(1),
+        prohibited(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The list of SCCP GTT Mated App subssystem status
+--    'Allowed' : The mated application is allowed
+--    'Other'   : The mated application is prohibited.
+
+CItpSccpGttMultInd ::= INTEGER {
+        solitary(1),
+        shared(2),
+        dominant(3),
+        cost(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The list of SCCP GTT Multiplicity Indicator
+--    'Solitary' : The application is solitary
+--    'Shared'   : The application is shared
+--    'Dominant' : The application is dominant
+--    'Cost'     : The application uses cost.
+
+CItpSccpGttMapCongStatus ::= INTEGER {
+        notCong(1),
+        congLevel1(2),
+        congLevel2(3),
+        congLevel3(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The list of SCCP GTT Mated App congestion status
+--    'NotCong'    : The point code not congested
+--    'CongLevel1' : The congestion level 1
+--    'CongLevel2' : The congestion level 2
+--    'CongLevel3' : The congestion level 3.
+
+CItpSccpGttTransType ::= Gauge(0..255)
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The SCCP GTT Translation Type (TT).
+
+CItpSccpGttQOS ::= Gauge(0..255)
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The SCCP GTT Quality of Service (QOS).
+
+CItpSccpGttGlobalTitleInd ::= Gauge(0..255)
+-- TEXTUAL-CONVENTION
+--  Status
+--    deprecated
+--  Descr
+--    The SCCP GTT Global Title Indicator (GTI).
+--     The following values are generally used:
+--       No global title included (0),
+--       For ITU,  GT includes NAI only (1),
+--       For ANSI, GT includes TT, NP and encoding scheme (1),
+--       GT includes only TT (2),
+--       GT includes TT, NP and encoding scheme (3),
+--       GT includes TT, NP, encoding scheme, NAI (4),
+--       Maximum GTI (15),
+--       Invalid GTI (253),
+--       Wild    GTI (254).
+--  Refer
+--    The Global Title Indicator is defined in the
+--     International Telecommunication Union standard Q.713:
+--     Specifications of Signalling System No. 7 - Signalling
+--     Connection Control Part (SCCP) section 3.4.1 Address
+--     Indicator.
+
+cItpSccpTotalMsgs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a message is
+         handled from a local or remote subsystem(Q752/9.3)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 1 }
+
+cItpSccpLocalMsgs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a message is
+         handled from a local subsystem(Q752/9.4)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 2 }
+
+cItpSccpTotalGttMsgs OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a message
+         requiring global title translation (Q752/9.5) is handled."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 3 }
+
+cItpSccpUDTMsgsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a  
+         unitdata (UDT) message is sent (Q752/9 bis.1)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 4 }
+
+cItpSccpUDTSMsgsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a  
+         unitdata service (UDTS) message is sent 
+         (Q752/9 bis.2)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 5 }
+
+cItpSccpUDTMsgsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a unitdata
+        (UDT) message is received (Q752/9 bis.3)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 6 }
+
+cItpSccpUDTSMsgsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a unitdata 
+         service (UDTS) message is received  (Q752/9 bis.4)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 7 }
+
+cItpSccpXUDTMsgsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a extended 
+         unitdata (XUDT) message is sent (Q752/9 bis.13)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 8 }
+
+cItpSccpXUDTSMsgsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a extended 
+         unitdata service (XUDTS) message is sent 
+          (Q752/9 bis.14)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 9 }
+
+cItpSccpXUDTMsgsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a extended 
+         unitdata (XUDT) message is received (Q752/9 bis.15)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 10 }
+
+cItpSccpXUDTSMsgsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a extended 
+         unitdata service (XUDTS) message is received 
+          (Q752/9 bis.16)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 11 }
+
+cItpSccpLUDTMsgsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a long 
+         unitdata (LUDT) message is sent (Q752/9 bis.17)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 12 }
+
+cItpSccpLUDTSMsgsSent OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a long 
+         unitdata (LUDT) service message is sent 
+         (Q752/9 bis.18)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 13 }
+
+cItpSccpLUDTMsgsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a long 
+         unitdata (LUDT) message is received (Q752/9 bis.19)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 14 }
+
+cItpSccpLUDTSMsgsRcvd OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a long 
+         unitdata (LUDT) service message is received 
+         (Q752/9 bis.20)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 15 }
+
+cItpSccpCrToMtp OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a Connection
+         Request(CR) messages sent to MTP.  This count 
+         include ISDN-UP with embedded CRs (Q752/9 bis.5)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 16 }
+
+cItpSccpCrefToMtp OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a Connection
+         Refusal (CREF) message is sent to MTP (Q752/9 bis.6)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 17 }
+
+cItpSccpCrFromMtp OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a Connection
+         Reguest messages received from MTP. This count
+         inlcudes ISDN- UP with embedded CRs (Q752/9 bis.7)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 18 }
+
+cItpSccpCrefFromMtp OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a Connection
+         Refusal (CREF) message is received from
+         MTP (Q752/9 bis.8)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 19 }
+
+cItpSccpRsrToMtp OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a Reset Request
+         (RSR) message is sent to MTP (Q752/9 bis.9)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 20 }
+
+cItpSccpRsrFromMtp OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a Reset Request
+         (RSR) message is received from MTP (Q752/9 bis.10)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 21 }
+
+cItpSccpErrToMtp OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a Error Message
+         (ERR) message is sent to MTP (Q752/9 bis.11)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 22 }
+
+cItpSccpErrFromMtp OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a Error Message
+         (ERR) message is received from MTP (Q752/9 bis.12)."
+    REFERENCE
+        "ITU  Q752 Monitoring and Measurements for Signalling
+         System No. 7(SS7) Network Table 9."
+    ::= { cItpSccpScalars 23 }
+
+cItpSccpCpcConfigLastChanged OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last creation
+         or deletion of an entry in the cItpSccpGttConPcTable. 
+         If the local network management subsystem is 
+         re-initialization, then this object contains the 
+         sysUpTime at the time when this occurred. This value 
+         can be used to prevent unnecessary walks of the 
+         Concerned Point Code Table."
+    ::= { cItpSccpScalars 24 }
+
+cItpSccpMapConfigLastChanged OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last creation
+         or deletion of an entry in the cItpSccpGttMapTable. 
+         If the local network management subsystem is 
+         re-initialization, then this object contains the 
+         sysUpTime at the time when this occurred. This value 
+         can be used to prevent unnecessary walks of the 
+         Mated Application Table."
+    ::= { cItpSccpScalars 25 }
+
+cItpSccpSelConfigLastChanged OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last creation
+         or deletion of an entry in the cItpSccpGttSelTable. 
+         If the local network management subsystem is 
+         re-initialization, then this object contains the 
+         sysUpTime at the time when this occurred. This value 
+         can be used to prevent unnecessary walks of the 
+         GTT Selector Table."
+    ::= { cItpSccpScalars 26 }
+
+cItpSccpGtaConfigLastChanged OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last creation
+         or deletion of an entry in the cItpSccpGttGtaTable. 
+         If the local network management subsystem is 
+         re-initialization, then this object contains the 
+         sysUpTime at the time when this occurred. This value 
+         can be used to prevent unnecessary walks of the 
+         GTT Global Title Address Table."
+    ::= { cItpSccpScalars 27 }
+
+cItpSccpAppConfigLastChanged OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last creation
+         or deletion of an entry in the cItpSccpGttAppTable. 
+         If the local network management subsystem is 
+         re-initialization, then this object contains the 
+         sysUpTime at the time when this occurred. This value 
+         can be used to prevent unnecessary walks of the 
+         GTT Application Group Table."
+    ::= { cItpSccpScalars 28 }
+
+cItpSccpGttMapStateNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "The SP linkset notification truth value.
+        'true'  Indicates that the cItpSccpGttMapStateChange
+                notification is to be generated when the
+                state changes. That is, the notification
+                generation is enabled.
+        'false' Indicates that the cItpSccpGttMapStateChange
+                notification generation is disabled."
+    DEFVAL { false }
+    ::= { cItpSccpScalars 29 }
+
+cItpSccpPrefConfigLastChanged OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last creation
+         or deletion of an entry in the cItpSccpGttPrefTable. 
+         If the local network management subsystem is 
+         re-initialization, then this object contains the 
+         sysUpTime at the time when this occurred. This value 
+         can be used to prevent unnecessary walks of the 
+         GTT Prefix Conversion Table."
+    ::= { cItpSccpScalars 30 }
+
+cItpSccpGttConfigLoad OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last
+         load of the GTT table using file format."
+    ::= { cItpSccpScalars 31 }
+
+cItpSccpGttConfigLoadStatus OBJECT-TYPE
+    SYNTAX CItpTcTableLoadStatus
+--    Rsyntax INTEGER {
+--        loadNotRequested(1),
+--        loadInProgress(2),
+--        loadComplete(3),
+--        loadCompleteWithErrors(4),
+--        loadFailed(5)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The status of the deprecatedload or status from
+         the prior load operation."
+    ::= { cItpSccpScalars 32 }
+
+cItpSccpGttConPcTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpSccpGttConPcTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A table of concerned point codes."
+    ::= { cItpSccpGttConPc 1 }
+
+cItpSccpGttConPcTableEntry OBJECT-TYPE
+    SYNTAX CItpSccpGttConPcTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A list of concerned point codes."
+    INDEX { cItpSccpGttConPcListName, cItpSccpGttConPointCode }
+    ::= { cItpSccpGttConPcTable 1 }
+
+CItpSccpGttConPcTableEntry ::= SEQUENCE {
+    cItpSccpGttConPcListName CItpSccpConPcListName,
+    cItpSccpGttConPointCode CItpTcPointCode,
+    cItpSccpGttConPcRefCount Gauge
+    }
+
+cItpSccpGttConPcListName OBJECT-TYPE
+    SYNTAX CItpSccpConPcListName
+--    Rsyntax OCTET STRING(SIZE(0..12))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The name of the Concerned Point Code list."
+    ::= { cItpSccpGttConPcTableEntry 1 }
+
+cItpSccpGttConPointCode OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The concerned point code for SCCP GTT."
+    ::= { cItpSccpGttConPcTableEntry 2 }
+
+cItpSccpGttConPcRefCount OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The reference count for this list."
+    ::= { cItpSccpGttConPcTableEntry 3 }
+
+cItpSccpGttMapTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpSccpGttMapTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A table of SCCP GTT Mated Application (MAP) entries."
+    ::= { cItpSccpGttMap 1 }
+
+cItpSccpGttMapTableEntry OBJECT-TYPE
+    SYNTAX CItpSccpGttMapTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A list of SCCP GTT MAP attributes."
+    INDEX { cItpSccpGttMapPc, cItpSccpGttMapSsn }
+    ::= { cItpSccpGttMapTable 1 }
+
+CItpSccpGttMapTableEntry ::= SEQUENCE {
+    cItpSccpGttMapPc CItpTcPointCode,
+    cItpSccpGttMapSsn CItpTcSubSystemNumber,
+    cItpSccpGttMapDisplayPC CItpTcDisplayPC,
+    cItpSccpGttMapDisplaySS CItpSccpGttDisplaySS,
+    cItpSccpGttMapType CItpSccpGttMapType,
+    cItpSccpGttMapPcStatus CItpSccpGttMapPcStatus,
+    cItpSccpGttMapSsStatus CItpSccpGttMapSsStatus,
+    cItpSccpGttMapMultInd CItpSccpGttMultInd,
+    cItpSccpGttMapBackupPc CItpTcPointCode,
+    cItpSccpGttMapBackupSsn CItpTcSubSystemNumber,
+    cItpSccpGttMapConPcList CItpSccpConPcListName,
+    cItpSccpGttMapReRouteOnCong TruthValue,
+    cItpSccpGttMapAdjacent TruthValue,
+    cItpSccpGttMapLastSsUsed TruthValue,
+    cItpSccpGttMapUsed Counter,
+    cItpSccpGttMapAltUsed Counter,
+    cItpSccpGttMapSccpUnavail Counter,
+    cItpSccpGttMapPcUnavail Counter,
+    cItpSccpGttMapSsUnavail Counter,
+    cItpSccpGttMapPcCongested Counter,
+    cItpSccpGttMapSsCongested Counter,
+    cItpSccpGttMapMtp3Fail Counter,
+    cItpSccpGttMapRefCount Gauge,
+    cItpSccpGttMapCongStatus CItpSccpGttMapCongStatus
+    }
+
+cItpSccpGttMapPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The point code for GTT MAP entry."
+    ::= { cItpSccpGttMapTableEntry 1 }
+
+cItpSccpGttMapSsn OBJECT-TYPE
+    SYNTAX CItpTcSubSystemNumber
+--    Rsyntax Gauge(0|2..255)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The subsystem number (SSN) for GTT MAP entry."
+    ::= { cItpSccpGttMapTableEntry 2 }
+
+cItpSccpGttMapDisplayPC OBJECT-TYPE
+    SYNTAX CItpTcDisplayPC
+--    Rsyntax OCTET STRING(SIZE(1..12))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The MAP point code in display format."
+    ::= { cItpSccpGttMapTableEntry 3 }
+
+cItpSccpGttMapDisplaySS OBJECT-TYPE
+    SYNTAX CItpSccpGttDisplaySS
+--    Rsyntax OCTET STRING(SIZE(1..3))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The MAP subsystem number in display format."
+    ::= { cItpSccpGttMapTableEntry 4 }
+
+cItpSccpGttMapType OBJECT-TYPE
+    SYNTAX CItpSccpGttMapType
+--    Rsyntax INTEGER {
+--        primary(1),
+--        backup(2)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The GTT MAP subsystem type."
+    ::= { cItpSccpGttMapTableEntry 5 }
+
+cItpSccpGttMapPcStatus OBJECT-TYPE
+    SYNTAX CItpSccpGttMapPcStatus
+--    Rsyntax INTEGER {
+--        allowed(1),
+--        prohibited(2)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The GTT MAP point code status."
+    ::= { cItpSccpGttMapTableEntry 6 }
+
+cItpSccpGttMapSsStatus OBJECT-TYPE
+    SYNTAX CItpSccpGttMapSsStatus
+--    Rsyntax INTEGER {
+--        allowed(1),
+--        prohibited(2)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The GTT MAP subsystem status."
+    ::= { cItpSccpGttMapTableEntry 7 }
+
+cItpSccpGttMapMultInd OBJECT-TYPE
+    SYNTAX CItpSccpGttMultInd
+--    Rsyntax INTEGER {
+--        solitary(1),
+--        shared(2),
+--        dominant(3),
+--        cost(4)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The GTT mated application multiplicity indicator."
+    ::= { cItpSccpGttMapTableEntry 8 }
+
+cItpSccpGttMapBackupPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The backup point code for the mated Application."
+    ::= { cItpSccpGttMapTableEntry 9 }
+
+cItpSccpGttMapBackupSsn OBJECT-TYPE
+    SYNTAX CItpTcSubSystemNumber
+--    Rsyntax Gauge(0|2..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The backup subsystem number for the mated
+         Application."
+    ::= { cItpSccpGttMapTableEntry 10 }
+
+cItpSccpGttMapConPcList OBJECT-TYPE
+    SYNTAX CItpSccpConPcListName
+--    Rsyntax OCTET STRING(SIZE(0..12))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The concerned point code list for the mated
+         Application."
+    ::= { cItpSccpGttMapTableEntry 11 }
+
+cItpSccpGttMapReRouteOnCong OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The GTT Mated App re-route on congestion truth value.
+        'true'  Re-routing on congestion is enabled.
+        'false' Re-routing on congestion is disabled."
+    ::= { cItpSccpGttMapTableEntry 12 }
+
+cItpSccpGttMapAdjacent OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The GTT Mated App Point Code adjacent truth value.
+        'true'  Indicates that MAP PC is adjacent.
+        'false' Indicates that MAP PC is not adjacent."
+    ::= { cItpSccpGttMapTableEntry 13 }
+
+cItpSccpGttMapLastSsUsed OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The GTT MAP last subsystem used truth value.
+        'true'  It is the last used subsystem.
+        'false' It is not the last used subsystem."
+    ::= { cItpSccpGttMapTableEntry 14 }
+
+cItpSccpGttMapUsed OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a message is
+         routed by the GTT Mated Application."
+    ::= { cItpSccpGttMapTableEntry 15 }
+
+cItpSccpGttMapAltUsed OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    messages
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a message is
+         re-routed on congestion by the GTT Mated Application."
+    ::= { cItpSccpGttMapTableEntry 16 }
+
+cItpSccpGttMapSccpUnavail OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a SCCP
+         is unavailable at the GTT Mated Application."
+    ::= { cItpSccpGttMapTableEntry 17 }
+
+cItpSccpGttMapPcUnavail OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a point code
+         is unavailable at the GTT Mated Application."
+    ::= { cItpSccpGttMapTableEntry 18 }
+
+cItpSccpGttMapSsUnavail OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a subsystem
+         is unavailable at the GTT Mated Application."
+    ::= { cItpSccpGttMapTableEntry 19 }
+
+cItpSccpGttMapPcCongested OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a point code
+         is congested at the GTT Mated Application."
+    ::= { cItpSccpGttMapTableEntry 20 }
+
+cItpSccpGttMapSsCongested OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a subsystem
+         is congested at the GTT Mated Application."
+    ::= { cItpSccpGttMapTableEntry 21 }
+
+cItpSccpGttMapMtp3Fail OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a the MTP3
+         layer failed at the GTT Mated Application."
+    ::= { cItpSccpGttMapTableEntry 22 }
+
+cItpSccpGttMapRefCount OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The reference count for this MAP entry."
+    ::= { cItpSccpGttMapTableEntry 23 }
+
+cItpSccpGttMapCongStatus OBJECT-TYPE
+    SYNTAX CItpSccpGttMapCongStatus
+--    Rsyntax INTEGER {
+--        notCong(1),
+--        congLevel1(2),
+--        congLevel2(3),
+--        congLevel3(4)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The status of congestion level for this MAP point code."
+    ::= { cItpSccpGttMapTableEntry 24 }
+
+cItpSccpGttSelTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpSccpGttSelTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A table of SCCP GTT Selector entries."
+    ::= { cItpSccpGttSel 1 }
+
+cItpSccpGttSelTableEntry OBJECT-TYPE
+    SYNTAX CItpSccpGttSelTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A list of SCCP GTT Selector attributes."
+    INDEX { cItpSccpGttSelTT, cItpSccpGttSelNAI, cItpSccpGttSelNP, cItpSccpGttSelGTI }
+    ::= { cItpSccpGttSelTable 1 }
+
+CItpSccpGttSelTableEntry ::= SEQUENCE {
+    cItpSccpGttSelTT CItpSccpGttTransType,
+    cItpSccpGttSelNAI CItpTcNAI,
+    cItpSccpGttSelNP CItpTcNumberingPlan,
+    cItpSccpGttSelGTI CItpSccpGttGlobalTitleInd,
+    cItpSccpGttSelName CItpSccpGttSelName,
+    cItpSccpGttSelNumPerf Counter,
+    cItpSccpGttSelNotFound Counter,
+    cItpSccpGttSelQOS CItpSccpGttQOS,
+    cItpSccpGttSelRefCount Gauge,
+    cItpSccpGttPrePrefConv CItpSccpGttPrefName,
+    cItpSccpGttPostPrefConv CItpSccpGttPrefName
+    }
+
+cItpSccpGttSelTT OBJECT-TYPE
+    SYNTAX CItpSccpGttTransType
+--    Rsyntax Gauge(0..255)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Translation Type (TT) for this GTT Selector."
+    ::= { cItpSccpGttSelTableEntry 1 }
+
+cItpSccpGttSelNAI OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Nature of Address Indicator (NAI) for GTT Selector."
+    ::= { cItpSccpGttSelTableEntry 2 }
+
+cItpSccpGttSelNP OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Numbering Plan (NP) for this GTT Selector."
+    ::= { cItpSccpGttSelTableEntry 3 }
+
+cItpSccpGttSelGTI OBJECT-TYPE
+    SYNTAX CItpSccpGttGlobalTitleInd
+--    Rsyntax Gauge(0..255)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Global Title Indicator (GTI) for
+         this GTT Selector."
+    ::= { cItpSccpGttSelTableEntry 4 }
+
+cItpSccpGttSelName OBJECT-TYPE
+    SYNTAX CItpSccpGttSelName
+--    Rsyntax OCTET STRING(SIZE(1..12))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The name of the GTT selector."
+    ::= { cItpSccpGttSelTableEntry 5 }
+
+cItpSccpGttSelNumPerf OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a global title
+         translations is performed using this GTT Selector."
+    ::= { cItpSccpGttSelTableEntry 6 }
+
+cItpSccpGttSelNotFound OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This counter is incremented every time a global title
+         title translations was required and a selector was 
+         not found."
+    ::= { cItpSccpGttSelTableEntry 7 }
+
+cItpSccpGttSelQOS OBJECT-TYPE
+    SYNTAX CItpSccpGttQOS
+--    Rsyntax Gauge(0..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The SCCP GTT Selector specifies the QOS."
+    ::= { cItpSccpGttSelTableEntry 8 }
+
+cItpSccpGttSelRefCount OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The reference count for this GTT Selector."
+    ::= { cItpSccpGttSelTableEntry 9 }
+
+cItpSccpGttPrePrefConv OBJECT-TYPE
+    SYNTAX CItpSccpGttPrefName
+--    Rsyntax OCTET STRING(SIZE(0..12))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The Prefix Conversion Table is used to convert
+         GTA digits. This object specifies that the
+         conversion occurs 'before' global title
+         translation."
+    ::= { cItpSccpGttSelTableEntry 10 }
+
+cItpSccpGttPostPrefConv OBJECT-TYPE
+    SYNTAX CItpSccpGttPrefName
+--    Rsyntax OCTET STRING(SIZE(0..12))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The Prefix Conversion Table is used to convert
+         GTA digits. This object specifies that the
+         conversion occurs 'after' global title
+         translation."
+    ::= { cItpSccpGttSelTableEntry 11 }
+
+cItpSccpGttGtaTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpSccpGttGtaTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A table of SCCP Global Title Address entries."
+    ::= { cItpSccpGttGta 1 }
+
+cItpSccpGttGtaTableEntry OBJECT-TYPE
+    SYNTAX CItpSccpGttGtaTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A list of SCCP Global Title Address attributes."
+    INDEX { cItpSccpGttGtaTT, cItpSccpGttGtaNAI, cItpSccpGttGtaNP, cItpSccpGttGtaGTI, cItpSccpGttGtaAddr }
+    ::= { cItpSccpGttGtaTable 1 }
+
+CItpSccpGttGtaTableEntry ::= SEQUENCE {
+    cItpSccpGttGtaTT CItpSccpGttTransType,
+    cItpSccpGttGtaNAI CItpTcNAI,
+    cItpSccpGttGtaNP CItpTcNumberingPlan,
+    cItpSccpGttGtaGTI CItpSccpGttGlobalTitleInd,
+    cItpSccpGttGtaAddr CItpTcGtaAddr,
+    cItpSccpGttGtaAddrDisp CItpTcGtaDisplay,
+    cItpSccpGttGtaAddrLen CItpSccpGttGtaAddrLen,
+    cItpSccpGttGtaSelName CItpSccpGttSelName,
+    cItpSccpGttGtaResType CItpSccpGttGtaResType,
+    cItpSccpGttGtaResPc CItpTcPointCode,
+    cItpSccpGttGtaResMap CItpTcPointCode,
+    cItpSccpGttGtaResAppGroup CItpSccpGttAppName,
+    cItpSccpGttGtaTTorSSN CItpTcTranslationType,
+    cItpSccpGttGtaRoutingInd CItpSccpGttRoutingInd,
+    cItpSccpGttGtaQOS CItpSccpGttQOS,
+    cItpSccpGttGtaAddrDispZB CItpTcGtaDisplayZB,
+    cItpSccpGttGtaAddrLenZB CItpSccpGttGtaAddrLenZB,
+    cItpSccpGttGtaAsName CItpTcXuaName,
+    cItpSccpGttGtaTTorSSNvalue Gauge
+    }
+
+cItpSccpGttGtaTT OBJECT-TYPE
+    SYNTAX CItpSccpGttTransType
+--    Rsyntax Gauge(0..255)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Translation Type (TT) for this Global Title
+         Address."
+    ::= { cItpSccpGttGtaTableEntry 1 }
+
+cItpSccpGttGtaNAI OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Nature of Address Indicator (NAI) for Global Title
+         Address."
+    ::= { cItpSccpGttGtaTableEntry 2 }
+
+cItpSccpGttGtaNP OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Numbering Plan (NP) for this Global Title Address."
+    ::= { cItpSccpGttGtaTableEntry 3 }
+
+cItpSccpGttGtaGTI OBJECT-TYPE
+    SYNTAX CItpSccpGttGlobalTitleInd
+--    Rsyntax Gauge(0..255)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Global Title Indicator (GTI) for this
+         Global Title Address."
+    ::= { cItpSccpGttGtaTableEntry 4 }
+
+cItpSccpGttGtaAddr OBJECT-TYPE
+    SYNTAX CItpTcGtaAddr
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The Global Title Address is 8 octets
+         of the Called Party Address (CDPA)."
+    ::= { cItpSccpGttGtaTableEntry 5 }
+
+cItpSccpGttGtaAddrDisp OBJECT-TYPE
+    SYNTAX CItpTcGtaDisplay
+--    Rsyntax OCTET STRING(SIZE(1..15))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The ASCII display string of Global Title Address
+         of 15 hex digits of the Called Party Address
+         (CDPA).
+        
+         This object is deprecated so as to allow a null
+         display string for a 'default' GTA."
+    ::= { cItpSccpGttGtaTableEntry 6 }
+
+cItpSccpGttGtaAddrLen OBJECT-TYPE
+    SYNTAX CItpSccpGttGtaAddrLen
+--    Rsyntax Gauge(1..15)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The number of hex digits in the Global Title
+         Address of the Called Party Address (CDPA).
+        
+         This object is deprecated so as to allow a GTA 
+         address length equal to zero."
+    ::= { cItpSccpGttGtaTableEntry 7 }
+
+cItpSccpGttGtaSelName OBJECT-TYPE
+    SYNTAX CItpSccpGttSelName
+--    Rsyntax OCTET STRING(SIZE(1..12))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The Global Title Address selector name from
+         cItpSccpGttSelTable."
+    ::= { cItpSccpGttGtaTableEntry 8 }
+
+cItpSccpGttGtaResType OBJECT-TYPE
+    SYNTAX CItpSccpGttGtaResType
+--    Rsyntax INTEGER {
+--        pc(1),
+--        pcssn(2),
+--        app(3),
+--        as(4)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The SCCP Global Title Translation result type."
+    ::= { cItpSccpGttGtaTableEntry 9 }
+
+cItpSccpGttGtaResPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "When the GTA translates to a point code,
+         it has a valid point code and cItpSccpGttGtaResType
+         is 'pc'. Otherwise it is zero."
+    ::= { cItpSccpGttGtaTableEntry 10 }
+
+cItpSccpGttGtaResMap OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "When the GTA translates to a point code and an
+         optional ssn, it has a valid point code and
+         cItpSccpGttGtaResType is 'pcssn'. Otherwise it is zero."
+    ::= { cItpSccpGttGtaTableEntry 11 }
+
+cItpSccpGttGtaResAppGroup OBJECT-TYPE
+    SYNTAX CItpSccpGttAppName
+--    Rsyntax OCTET STRING(SIZE(0..12))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "When the GTA translates to an application group,
+         it has a valid application group name and
+         cItpSccpGttGtaResType is 'app'."
+    ::= { cItpSccpGttGtaTableEntry 12 }
+
+cItpSccpGttGtaTTorSSN OBJECT-TYPE
+    SYNTAX CItpTcTranslationType
+--    Rsyntax INTEGER {
+--        tt(1),
+--        ssn(2)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "When this object is 'tt', the object
+         cItpSccpGttGtaTTorSSNvalue specifies the SCCP GTT
+         Translation Type (TT). When this object is 'ssn',
+         the object cItpSccpGttGtaTTorSSNvalue specifies
+         the SCCP SubSystem Number (SSN)."
+    ::= { cItpSccpGttGtaTableEntry 13 }
+
+cItpSccpGttGtaRoutingInd OBJECT-TYPE
+    SYNTAX CItpSccpGttRoutingInd
+--    Rsyntax INTEGER {
+--        ri2gt(1),
+--        ri2ssn(2),
+--        ssnRI2gt(3),
+--        ssnRI2ssn(4),
+--        replTT(5),
+--        riNotAppl(6),
+--        riUndef(7)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The SCCP GTT GTA specifies the routing indicator.
+        
+         When cItpSccpGttGtaResType is 'pc' or 'pcssn',
+         this object has a valid routing indicator.
+        
+         When cItpSccpGttGtaResType is 'app' or 'as',
+         the routing indicator is not applicable."
+    ::= { cItpSccpGttGtaTableEntry 14 }
+
+cItpSccpGttGtaQOS OBJECT-TYPE
+    SYNTAX CItpSccpGttQOS
+--    Rsyntax Gauge(0..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The SCCP GTT GTA specifies the QOS."
+    ::= { cItpSccpGttGtaTableEntry 15 }
+
+cItpSccpGttGtaAddrDispZB OBJECT-TYPE
+    SYNTAX CItpTcGtaDisplayZB
+--    Rsyntax OCTET STRING(SIZE(0..15))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The ASCII display string of Global Title Address
+         of 15 hex digits of the Called Party Address
+         (CDPA). A zero length string specifies a
+         default GTA value for the selector."
+    ::= { cItpSccpGttGtaTableEntry 16 }
+
+cItpSccpGttGtaAddrLenZB OBJECT-TYPE
+    SYNTAX CItpSccpGttGtaAddrLenZB
+--    Rsyntax Gauge(0..15)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The number of hex digits in the Global Title
+         Address of the Called Party Address (CDPA).
+         For a default GTA, the address length is zero."
+    ::= { cItpSccpGttGtaTableEntry 17 }
+
+cItpSccpGttGtaAsName OBJECT-TYPE
+    SYNTAX CItpTcXuaName
+--    Rsyntax OCTET STRING(SIZE(0..12))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The Application Server (AS) name specified by the GTA.
+         It is valid only when cItpSccpGttGtaResType is 'as'.
+         Otherwise it is a zero length string."
+    ::= { cItpSccpGttGtaTableEntry 18 }
+
+cItpSccpGttGtaTTorSSNvalue OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This object specifies SCCP GTT Translation Type (TT)
+         value when cItpSccpGttGtaTTorSSN is 'tt'. 
+         It specifies SCCP SubSystem Number (SSN) value when
+         cItpSccpGttGtaTTorSSN is 'ssn'.
+         A zero value specifies that the TT or the SSN is not
+         applicable for this GTA entry."
+    ::= { cItpSccpGttGtaTableEntry 19 }
+
+cItpSccpGttAppTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpSccpGttAppTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A table of SCCP GTT Application Group Table entries."
+    ::= { cItpSccpGttApp 1 }
+
+cItpSccpGttAppTableEntry OBJECT-TYPE
+    SYNTAX CItpSccpGttAppTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A list of SCCP GTT Application Group attributes."
+    INDEX { cItpSccpGttAppName, cItpSccpGttAppCost }
+    ::= { cItpSccpGttAppTable 1 }
+
+CItpSccpGttAppTableEntry ::= SEQUENCE {
+    cItpSccpGttAppName CItpSccpGttAppName,
+    cItpSccpGttAppCost CItpSccpGttAppCost,
+    cItpSccpGttAppType CItpSccpGttAppType,
+    cItpSccpGttAppPc CItpTcPointCode,
+    cItpSccpGttAppSsn CItpTcSubSystemNumber,
+    cItpSccpGttAppRi CItpSccpGttRoutingInd,
+    cItpSccpGttAppMult CItpSccpGttMultInd,
+    cItpSccpGttAppRefCount Gauge
+    }
+
+cItpSccpGttAppName OBJECT-TYPE
+    SYNTAX CItpSccpGttAppName
+--    Rsyntax OCTET STRING(SIZE(0..12))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The GTT Application Group name."
+    ::= { cItpSccpGttAppTableEntry 1 }
+
+cItpSccpGttAppCost OBJECT-TYPE
+    SYNTAX CItpSccpGttAppCost
+--    Rsyntax Gauge(1..8)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The cost for the item in the GTT Application Group."
+    ::= { cItpSccpGttAppTableEntry 2 }
+
+cItpSccpGttAppType OBJECT-TYPE
+    SYNTAX CItpSccpGttAppType
+--    Rsyntax INTEGER {
+--        pc(1),
+--        pcssn(2),
+--        as(3)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The type of the item in the GTT Application Group."
+    ::= { cItpSccpGttAppTableEntry 3 }
+
+cItpSccpGttAppPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The point code specified by the item in the GTT
+         Application Group."
+    ::= { cItpSccpGttAppTableEntry 4 }
+
+cItpSccpGttAppSsn OBJECT-TYPE
+    SYNTAX CItpTcSubSystemNumber
+--    Rsyntax Gauge(0|2..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The subsystem number (SSN) specified by the item
+         in the GTT Application Group. It is valid only when
+         cItpSccpGttAppItemType is 'pcssn'. Otherwise it is zero."
+    ::= { cItpSccpGttAppTableEntry 5 }
+
+cItpSccpGttAppRi OBJECT-TYPE
+    SYNTAX CItpSccpGttRoutingInd
+--    Rsyntax INTEGER {
+--        ri2gt(1),
+--        ri2ssn(2),
+--        ssnRI2gt(3),
+--        ssnRI2ssn(4),
+--        replTT(5),
+--        riNotAppl(6),
+--        riUndef(7)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The routing indicator (RI) specified by the item
+         in the GTT Application Group."
+    ::= { cItpSccpGttAppTableEntry 6 }
+
+cItpSccpGttAppMult OBJECT-TYPE
+    SYNTAX CItpSccpGttMultInd
+--    Rsyntax INTEGER {
+--        solitary(1),
+--        shared(2),
+--        dominant(3),
+--        cost(4)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The multiplicity of the GTT Application Group."
+    ::= { cItpSccpGttAppTableEntry 7 }
+
+cItpSccpGttAppRefCount OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The reference count for the GTT Application Group."
+    ::= { cItpSccpGttAppTableEntry 8 }
+
+cItpSccpGttAppGrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpSccpGttAppGrTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A table of SCCP GTT Application Group Table entries."
+    ::= { cItpSccpGttAppGr 1 }
+
+cItpSccpGttAppGrTableEntry OBJECT-TYPE
+    SYNTAX CItpSccpGttAppGrTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A list of SCCP GTT Application Group attributes."
+    INDEX { cItpSccpGttAppGrName, cItpSccpGttAppGrCost, cItpSccpGttAppGrEntNum }
+    ::= { cItpSccpGttAppGrTable 1 }
+
+CItpSccpGttAppGrTableEntry ::= SEQUENCE {
+    cItpSccpGttAppGrName CItpSccpGttAppName,
+    cItpSccpGttAppGrCost CItpSccpGttAppCost,
+    cItpSccpGttAppGrEntNum Gauge,
+    cItpSccpGttAppGrType CItpSccpGttAppType,
+    cItpSccpGttAppGrPc CItpTcPointCode,
+    cItpSccpGttAppGrSsn CItpTcSubSystemNumber,
+    cItpSccpGttAppGrRi CItpSccpGttRoutingInd,
+    cItpSccpGttAppGrMult CItpSccpGttMultInd,
+    cItpSccpGttAppGrRefCount Gauge,
+    cItpSccpGttAppGrAsName CItpTcXuaName,
+    cItpSccpGttAppGrNewSsn CItpTcSubSystemNumber,
+    cItpSccpGttAppGrNumUsed Counter
+    }
+
+cItpSccpGttAppGrName OBJECT-TYPE
+    SYNTAX CItpSccpGttAppName
+--    Rsyntax OCTET STRING(SIZE(0..12))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The GTT Application Group name."
+    ::= { cItpSccpGttAppGrTableEntry 1 }
+
+cItpSccpGttAppGrCost OBJECT-TYPE
+    SYNTAX CItpSccpGttAppCost
+--    Rsyntax Gauge(1..8)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The cost for the item in the GTT Application Group."
+    ::= { cItpSccpGttAppGrTableEntry 2 }
+
+cItpSccpGttAppGrEntNum OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The entry number for the same cost for the item
+         in the GTT Application Group."
+    ::= { cItpSccpGttAppGrTableEntry 3 }
+
+cItpSccpGttAppGrType OBJECT-TYPE
+    SYNTAX CItpSccpGttAppType
+--    Rsyntax INTEGER {
+--        pc(1),
+--        pcssn(2),
+--        as(3)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The type of the item in the GTT Application Group."
+    ::= { cItpSccpGttAppGrTableEntry 4 }
+
+cItpSccpGttAppGrPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The point code specified by the item in the GTT
+         Application Group."
+    ::= { cItpSccpGttAppGrTableEntry 5 }
+
+cItpSccpGttAppGrSsn OBJECT-TYPE
+    SYNTAX CItpTcSubSystemNumber
+--    Rsyntax Gauge(0|2..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The subsystem number (SSN) specified by the item
+         in the GTT Application Group. It is valid only when
+         cItpSccpGttAppItemType is 'pcssn'. Otherwise it is zero."
+    ::= { cItpSccpGttAppGrTableEntry 6 }
+
+cItpSccpGttAppGrRi OBJECT-TYPE
+    SYNTAX CItpSccpGttRoutingInd
+--    Rsyntax INTEGER {
+--        ri2gt(1),
+--        ri2ssn(2),
+--        ssnRI2gt(3),
+--        ssnRI2ssn(4),
+--        replTT(5),
+--        riNotAppl(6),
+--        riUndef(7)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The routing indicator (RI) specified by the item
+         in the GTT Application Group."
+    ::= { cItpSccpGttAppGrTableEntry 7 }
+
+cItpSccpGttAppGrMult OBJECT-TYPE
+    SYNTAX CItpSccpGttMultInd
+--    Rsyntax INTEGER {
+--        solitary(1),
+--        shared(2),
+--        dominant(3),
+--        cost(4)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The multiplicity of the GTT Application Group."
+    ::= { cItpSccpGttAppGrTableEntry 8 }
+
+cItpSccpGttAppGrRefCount OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The reference count for the GTT Application Group."
+    ::= { cItpSccpGttAppGrTableEntry 9 }
+
+cItpSccpGttAppGrAsName OBJECT-TYPE
+    SYNTAX CItpTcXuaName
+--    Rsyntax OCTET STRING(SIZE(0..12))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The Application Server (AS) name specified by the item
+         in the GTT Application Group. It is valid only when
+         cItpSccpGttAppGrItemType is 'as'. Otherwise it
+         is a zero length string."
+    ::= { cItpSccpGttAppGrTableEntry 10 }
+
+cItpSccpGttAppGrNewSsn OBJECT-TYPE
+    SYNTAX CItpTcSubSystemNumber
+--    Rsyntax Gauge(0|2..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The new subsystem number (SSN) specified by the item
+         in the GTT Application Group. It is valid only when
+         cItpSccpGttAppGrItemType is 'as'. Otherwise it
+         is zero."
+    ::= { cItpSccpGttAppGrTableEntry 11 }
+
+cItpSccpGttAppGrNumUsed OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The number of times this item in the GTT Application
+         Group is used successfully."
+    ::= { cItpSccpGttAppGrTableEntry 12 }
+
+cItpSccpGttPrefTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CItpSccpGttPrefTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A table of SCCP GTT Prefix Conversion Table entries.
+        
+         When a packet with GTA is received, it may need
+         global title translation depending on Translation
+         Type (TT), Numbering Plan (NP), Network Address
+         Indicator (NAI) and Global Title Indicator (GTI)
+         present in the packet. To perform the translation
+         a selector (cItpSccpGttSelTable) corresponding to
+         TT, NP, NAI and GTI is used. The selector also
+         specifies prefix conversion of the GTA before (pre)
+         performing the global title translation or after
+         (post) performing the global title translation.
+        
+         A selector can specify any or both (pre and post)
+         prefix conversion tables.
+        
+         The prefix conversion involves matching of GTA digits
+         in the cItpSccpGttPrefInAddr and then replacing those
+         digits with the digits in cItpSccpGttPrefOutAddr."
+    ::= { cItpSccpGttPref 1 }
+
+cItpSccpGttPrefTableEntry OBJECT-TYPE
+    SYNTAX CItpSccpGttPrefTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A list of SCCP GTT Prefix Conversion attributes."
+    INDEX { cItpSccpGttPrefName, cItpSccpGttPrefInAddr }
+    ::= { cItpSccpGttPrefTable 1 }
+
+CItpSccpGttPrefTableEntry ::= SEQUENCE {
+    cItpSccpGttPrefName CItpSccpGttPrefName,
+    cItpSccpGttPrefInAddr CItpTcGtaAddr,
+    cItpSccpGttPrefOutAddr CItpTcGtaAddr,
+    cItpSccpGttPrefTblNAI CItpTcNAI,
+    cItpSccpGttPrefTblNP CItpTcNumberingPlan,
+    cItpSccpGttPrefItemNAI CItpTcNAI,
+    cItpSccpGttPrefItemNP CItpTcNumberingPlan
+    }
+
+cItpSccpGttPrefName OBJECT-TYPE
+    SYNTAX CItpSccpGttPrefName
+--    Rsyntax OCTET STRING(SIZE(0..12))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The GTT Prefix Conversion table name."
+    ::= { cItpSccpGttPrefTableEntry 1 }
+
+cItpSccpGttPrefInAddr OBJECT-TYPE
+    SYNTAX CItpTcGtaAddr
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "If the GTA of the Called Party Address (CDPA)
+         matches the digits in this object, then the
+         prefix conversion is performed."
+    ::= { cItpSccpGttPrefTableEntry 2 }
+
+cItpSccpGttPrefOutAddr OBJECT-TYPE
+    SYNTAX CItpTcGtaAddr
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "If the GTA of the Called Party Address (CDPA)
+         matches the digits in cItpSccpGttPrefInAddr
+         then this object is used in the prefix
+         conversion."
+    ::= { cItpSccpGttPrefTableEntry 3 }
+
+cItpSccpGttPrefTblNAI OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Nature of Address Indicator (NAI) for the Prefix
+         Conversion Table."
+    ::= { cItpSccpGttPrefTableEntry 4 }
+
+cItpSccpGttPrefTblNP OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Numbering Plan (NP) for the Prefix Conversion
+         Table."
+    ::= { cItpSccpGttPrefTableEntry 5 }
+
+cItpSccpGttPrefItemNAI OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Nature of Address Indicator (NAI) for the deprecated
+         item in this Prefix Conversion Table."
+    ::= { cItpSccpGttPrefTableEntry 6 }
+
+cItpSccpGttPrefItemNP OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "Numbering Plan (NP) for the deprecateditem in this
+         Prefix Conversion Table."
+    ::= { cItpSccpGttPrefTableEntry 7 }
+
+cItpSccpGttMapStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cItpSccpMIBNotifs
+    VARIABLES {
+        cItpSpCLLICode, cItpSpDisplayName, cItpSccpGttMapDisplayPC, 
+        cItpSccpGttMapDisplaySS, cItpSccpGttMapSsStatus }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "The notification generated when a mated
+        application subsystem changes to a new state.
+        The value of cItpSccpGttMapSsStatus indicates
+        the new state for the subsystem."
+    ::= 1
+
+cItpSccpScalarsGroup OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP main objects.
+--  objects
+--    cItpSccpTotalMsgs, cItpSccpLocalMsgs, cItpSccpTotalGttMsgs, 
+--    cItpSccpUDTMsgsSent, cItpSccpUDTSMsgsSent, 
+--    cItpSccpUDTMsgsRcvd, cItpSccpUDTSMsgsRcvd, 
+--    cItpSccpXUDTMsgsSent, cItpSccpXUDTSMsgsSent, 
+--    cItpSccpXUDTMsgsRcvd, cItpSccpXUDTSMsgsRcvd, 
+--    cItpSccpLUDTMsgsSent, cItpSccpLUDTSMsgsSent, 
+--    cItpSccpLUDTMsgsRcvd, cItpSccpLUDTSMsgsRcvd, cItpSccpCrToMtp, 
+--    cItpSccpCrefToMtp, cItpSccpCrFromMtp, cItpSccpCrefFromMtp, 
+--    cItpSccpRsrToMtp, cItpSccpRsrFromMtp, cItpSccpErrToMtp, 
+--    cItpSccpErrFromMtp, cItpSccpCpcConfigLastChanged, 
+--    cItpSccpMapConfigLastChanged, cItpSccpSelConfigLastChanged, 
+--    cItpSccpGtaConfigLastChanged, cItpSccpAppConfigLastChanged, 
+--    cItpSccpGttMapStateNotifEnabled
+
+cItpSccpGttConPcGroup OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP Concerned Point Code objects.
+--  objects
+--    cItpSccpGttConPcRefCount
+
+cItpSccpGttMapGroup OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP GTT Mated Application objects.
+--  objects
+--    cItpSccpGttMapDisplayPC, cItpSccpGttMapDisplaySS, 
+--    cItpSccpGttMapType, cItpSccpGttMapPcStatus, 
+--    cItpSccpGttMapSsStatus, cItpSccpGttMapMultInd, 
+--    cItpSccpGttMapBackupPc, cItpSccpGttMapBackupSsn, 
+--    cItpSccpGttMapConPcList, cItpSccpGttMapReRouteOnCong, 
+--    cItpSccpGttMapAdjacent, cItpSccpGttMapLastSsUsed, 
+--    cItpSccpGttMapUsed, cItpSccpGttMapAltUsed, 
+--    cItpSccpGttMapSccpUnavail, cItpSccpGttMapPcUnavail, 
+--    cItpSccpGttMapSsUnavail, cItpSccpGttMapPcCongested, 
+--    cItpSccpGttMapSsCongested, cItpSccpGttMapMtp3Fail, 
+--    cItpSccpGttMapRefCount, cItpSccpGttMapCongStatus
+
+cItpSccpGttSelGroup OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP GTT Selector objects.
+--  objects
+--    cItpSccpGttSelName, cItpSccpGttSelNumPerf, 
+--    cItpSccpGttSelNotFound, cItpSccpGttSelQOS, 
+--    cItpSccpGttSelRefCount
+
+cItpSccpGttGtaGroup OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP GTT Global Title Address objects.
+--  objects
+--    cItpSccpGttGtaAddrDisp, cItpSccpGttGtaAddrLen, 
+--    cItpSccpGttGtaSelName, cItpSccpGttGtaResType, 
+--    cItpSccpGttGtaResPc, cItpSccpGttGtaResMap, 
+--    cItpSccpGttGtaResAppGroup, cItpSccpGttGtaTTorSSN, 
+--    cItpSccpGttGtaRoutingInd, cItpSccpGttGtaQOS
+
+cItpSccpGttAppGroup OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP GTT Application Group objects.
+--  objects
+--    cItpSccpGttAppType, cItpSccpGttAppPc, cItpSccpGttAppSsn, 
+--    cItpSccpGttAppRi, cItpSccpGttAppMult, cItpSccpGttAppRefCount
+
+cItpSccpConfigStatusGroup OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Objects to provide information on configuration 
+--     status and time when changes where made to the
+--     SCCP configuration.
+--  objects
+--    cItpSccpPrefConfigLastChanged, cItpSccpGttConfigLoad, 
+--    cItpSccpGttConfigLoadStatus
+
+cItpSccpGttSelGroupRev1 OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP GTT Selector objects.
+--  objects
+--    cItpSccpGttSelName, cItpSccpGttSelNumPerf, 
+--    cItpSccpGttSelNotFound, cItpSccpGttSelQOS, 
+--    cItpSccpGttSelRefCount, cItpSccpGttPrePrefConv, 
+--    cItpSccpGttPostPrefConv
+
+cItpSccpGttGtaGroupRev1 OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP GTT Global Title Address objects.
+--  objects
+--    cItpSccpGttGtaSelName, cItpSccpGttGtaResType, 
+--    cItpSccpGttGtaResPc, cItpSccpGttGtaResMap, 
+--    cItpSccpGttGtaResAppGroup, cItpSccpGttGtaTTorSSN, 
+--    cItpSccpGttGtaRoutingInd, cItpSccpGttGtaQOS, 
+--    cItpSccpGttGtaAddrDispZB, cItpSccpGttGtaAddrLenZB, 
+--    cItpSccpGttGtaAsName
+
+cItpSccpGttAppGrGroup OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP GTT Application Group objects.
+--  objects
+--    cItpSccpGttAppGrType, cItpSccpGttAppGrPc, cItpSccpGttAppGrSsn, 
+--    cItpSccpGttAppGrRi, cItpSccpGttAppGrMult, 
+--    cItpSccpGttAppGrRefCount, cItpSccpGttAppGrAsName, 
+--    cItpSccpGttAppGrNewSsn
+
+cItpSccpGttPrefGroup OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP GTT Prefix Conversion Table objects.
+--  objects
+--    cItpSccpGttPrefOutAddr, cItpSccpGttPrefTblNAI, 
+--    cItpSccpGttPrefTblNP, cItpSccpGttPrefItemNAI, 
+--    cItpSccpGttPrefItemNP
+
+cItpSccpGttGtaGroupRev2 OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP GTT Global Title Address objects.
+--  objects
+--    cItpSccpGttGtaSelName, cItpSccpGttGtaResType, 
+--    cItpSccpGttGtaResPc, cItpSccpGttGtaResMap, 
+--    cItpSccpGttGtaResAppGroup, cItpSccpGttGtaTTorSSN, 
+--    cItpSccpGttGtaRoutingInd, cItpSccpGttGtaQOS, 
+--    cItpSccpGttGtaAddrDispZB, cItpSccpGttGtaAddrLenZB, 
+--    cItpSccpGttGtaAsName, cItpSccpGttGtaTTorSSNvalue
+
+cItpSccpGttAppGrGroupRev2 OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP GTT Application Group objects.
+--  objects
+--    cItpSccpGttAppGrType, cItpSccpGttAppGrPc, cItpSccpGttAppGrSsn, 
+--    cItpSccpGttAppGrRi, cItpSccpGttAppGrMult, 
+--    cItpSccpGttAppGrRefCount, cItpSccpGttAppGrAsName, 
+--    cItpSccpGttAppGrNewSsn, cItpSccpGttAppGrNumUsed
+
+cItpSccpNotificationsGroup OBJECT IDENTIFIER ::= { cItpSccpMIBGroups 7 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    SCCP notification objects.
+--  notifications
+--    cItpSccpGttMapStateChange
+
+cItpSccpMIBCompliance OBJECT IDENTIFIER ::= { cItpSccpMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco SP MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cItpSccpScalarsGroup
+--   MandGroup
+--    cItpSccpGttConPcGroup
+--   MandGroup
+--    cItpSccpGttMapGroup
+--   MandGroup
+--    cItpSccpGttSelGroup
+--   MandGroup
+--    cItpSccpGttGtaGroup
+--   MandGroup
+--    cItpSccpGttAppGroup
+--   MandGroup
+--    cItpSccpNotificationsGroup
+
+cItpSccpMIBComplianceRev1 OBJECT IDENTIFIER ::= { cItpSccpMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco SP MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cItpSccpScalarsGroup
+--   MandGroup
+--    cItpSccpGttConPcGroup
+--   MandGroup
+--    cItpSccpGttMapGroup
+--   MandGroup
+--    cItpSccpNotificationsGroup
+--   MandGroup
+--    cItpSccpConfigStatusGroup
+--   MandGroup
+--    cItpSccpGttSelGroupRev1
+--   MandGroup
+--    cItpSccpGttGtaGroupRev1
+--   MandGroup
+--    cItpSccpGttAppGrGroup
+--   MandGroup
+--    cItpSccpGttPrefGroup
+
+cItpSccpMIBComplianceRev2 OBJECT IDENTIFIER ::= { cItpSccpMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco SP MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cItpSccpScalarsGroup
+--   MandGroup
+--    cItpSccpGttConPcGroup
+--   MandGroup
+--    cItpSccpGttMapGroup
+--   MandGroup
+--    cItpSccpNotificationsGroup
+--   MandGroup
+--    cItpSccpConfigStatusGroup
+--   MandGroup
+--    cItpSccpGttSelGroupRev1
+--   MandGroup
+--    cItpSccpGttGtaGroupRev2
+--   MandGroup
+--    cItpSccpGttAppGrGroupRev2
+--   MandGroup
+--    cItpSccpGttPrefGroup
+
+
+END
+

@@ -1,0 +1,148 @@
+-- *****************************************************************
+-- CISCO-PORT-SECURITY-CAPABILITY.my:
+-- Cisco CISCO-PORT-SECURITY-MIB AGENT-CAPABILITIES
+--
+-- December 2003, Liwei Lue 
+--
+-- Copyright (c) 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-PORT-SECURITY-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        Integer32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoPortSecurityCapability MODULE-IDENTITY
+        LAST-UPDATED    "200507140000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com" 
+        DESCRIPTION
+                "The capabilities description of 
+                 CISCO-PORT-SECURITY-MIB."
+        REVISION        "200507140000Z"
+        DESCRIPTION
+                "Added capability statement 
+                 ciscoPSecureCapV12R0218SXFPCat6K." 
+        REVISION        "200403070000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 393 }
+
+ciscoPortSecurityC6kCapV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco CatOS 8.3(1) for Catalyst 6500."
+    STATUS              current
+    DESCRIPTION         "CISCO-PORT-SECURITY-MIB capabilities."
+
+    SUPPORTS            CISCO-PORT-SECURITY-MIB
+        INCLUDES        { cpsGlobalGroup,
+                          cpsInterfaceGroup1,
+                          cpsIfVlanSecureMacAddrGroup,
+                          cpsExtInterfaceGroup,
+                          cpsUnicastFloodingInterfaceGroup, 
+                          cpsShutdownTimeoutInterfaceGroup
+                        }
+
+        VARIATION       cpsGlobalSNMPNotifRate 
+        ACCESS          read-only
+        DESCRIPTION     "Implementation only supports read operation
+                         for this object."
+
+        VARIATION       cpsGlobalSNMPNotifControl 
+        ACCESS          read-only
+        DESCRIPTION     "Implementation only supports read operation
+                         for this object."
+
+    ::= { ciscoPortSecurityCapability 1 }
+
+ciscoPSecureCapV12R0218SXFPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS 12.2(18)SXF on Catalyst 6000/6500
+                        and Cisco 7600 series devices."
+    STATUS              current
+    DESCRIPTION         "CISCO-PORT-SECURITY-MIB capabilities."
+
+    SUPPORTS            CISCO-PORT-SECURITY-MIB
+        INCLUDES        { cpsGlobalGroup,
+                          cpsInterfaceGroup2,
+                          cpsIfVlanSecureMacAddrGroup,
+                          cpsExtInterfaceGroup,
+                          cpsNotificationGroup,
+                          cpsGlobalClearAddressGroup,
+                          cpsIfMultiVlanGroup,
+                          cpsIfVlanSecureNotificationGroup,
+                          cpsExtInterfaceGroup1
+                        }
+
+        VARIATION       cpsGlobalSNMPNotifControl 
+            SYNTAX      INTEGER { true(1) }
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this object."  
+
+        VARIATION       cpsIfMaxSecureMacAddr 
+            SYNTAX      Integer32 (1..4096)
+            DESCRIPTION "Only limited value range are supported."
+
+        VARIATION       cpsIfStaticMacAddrAgingEnable 
+            SYNTAX      INTEGER { true(1) }
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this object."  
+
+        VARIATION       cpsIfInvalidSrcRateLimitEnable 
+            ACCESS      not-implemented
+            DESCRIPTION "This object is not supported."
+ 
+        VARIATION       cpsIfInvalidSrcRateLimitValue 
+            ACCESS      not-implemented
+            DESCRIPTION "This object is not supported."
+ 
+        VARIATION       cpsGlobalClearSecureMacAddresses 
+            SYNTAX      INTEGER { done(0), 
+                                  dynamic(1)
+                                }
+            DESCRIPTION "Only limited set of enumerated values
+                         are supported."
+
+        VARIATION       cpsIfClearSecureMacAddresses 
+            SYNTAX      INTEGER { done(0), 
+                                  dynamic(1),
+                                  static(2),
+                                  sticky(3)
+                                }
+            DESCRIPTION "Only limited set of enumerated values
+                         are supported."
+
+        VARIATION       cpsIfVlanSecureMacAddrRowStatus 
+            SYNTAX      INTEGER { active(1), 
+                                  createAndGo(4),
+                                  destroy(6)
+                                }
+            DESCRIPTION "Only limited set of enumerated values
+                         are supported."
+
+        VARIATION       cpsIfMultiVlanRowStatus 
+            SYNTAX      INTEGER { active(1), 
+                                  createAndGo(4),
+                                  destroy(6)
+                                }
+            DESCRIPTION "Only limited set of enumerated values
+                         are supported."
+
+    ::= { ciscoPortSecurityCapability 2 }
+
+END

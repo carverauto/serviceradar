@@ -1,0 +1,1882 @@
+-- *****************************************************************
+-- NOVELL-NLSP-MIB.my:  Novell NLSP MIB
+--
+-- October 1994, John Wright
+--
+-- Copyright (c) 1994-1996 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+-- This MIB is virtually identical to the NLSP MIB distributed as a part
+-- of the Novell NetWare Link Services Protocol (NLSP) Specification 1.0,
+-- Novell Part Number 100-001708-002, 2nd Edition Feb '94.  All changes
+-- are syntactic in nature, and do not affect the semantics of the MIB.
+
+NOVELL-NLSP-MIB DEFINITIONS ::= BEGIN
+
+-- This MIB defines the management information for the NLSP protocol
+-- running in an IPX environment.  It provides information in addition
+-- to that contained in the IPX MIB itself.  All tables in this MIB are
+-- linked to an instance of IPX via the system instance identifier as
+-- defined in the IPX MIB.
+
+
+IMPORTS 
+   mibDoc
+	    FROM NOVELL-IPX-MIB
+   Counter
+            FROM RFC1155-SMI
+   OBJECT-TYPE
+            FROM RFC-1212
+   PhysAddress
+            FROM RFC1213-MIB;
+
+nlsp    OBJECT IDENTIFIER ::= {mibDoc 19}
+
+
+-- Groups
+
+nlspSystem        OBJECT IDENTIFIER ::= {nlsp 1}
+nlspCircuit       OBJECT IDENTIFIER ::= {nlsp 2}
+nlspForwarding    OBJECT IDENTIFIER ::= {nlsp 3}
+nlspNeighbors     OBJECT IDENTIFIER ::= {nlsp 4}
+nlspTranslation   OBJECT IDENTIFIER ::= {nlsp 5}
+nlspGraph         OBJECT IDENTIFIER ::= {nlsp 6}
+nlspLSP           OBJECT IDENTIFIER ::= {nlsp 7}
+
+
+-- Types
+
+SystemID  ::= OCTET STRING (SIZE(6))
+NLSPID    ::= OCTET STRING (SIZE(7))
+NetNumber ::= OCTET STRING (SIZE(4))
+
+
+-- System Group
+--   This group contains global information about each instance of NLSP
+--   running on one system.
+
+-- System Table
+--   This table contains an entry for each instance of NLSP running on
+--   the system.
+
+nlspSysTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPSysEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The NLSP system table."
+   ::= {nlspSystem 1}
+
+nlspSysEntry OBJECT-TYPE
+   SYNTAX      NLSPSysEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry corresponds to one instance of NLSP running
+                on the system."
+   INDEX       {nlspSysInstance}
+   ::= {nlspSysTable 1}
+
+NLSPSysEntry ::= SEQUENCE {
+                     nlspSysInstance
+                        INTEGER,
+                     nlspSysState
+                        INTEGER,
+                     nlspSysID
+                        SystemID,
+                     nlspSysMinNonBcastLSPTransInt
+                        INTEGER,
+                     nlspSysMinBcastLSPTransInt
+                        INTEGER,
+                     nlspSysMinLSPGenInt
+                        INTEGER,
+                     nlspSysMaxLSPGenInt
+                        INTEGER,
+                     nlspSysMaxLSPAge
+                        INTEGER,
+                     nlspSysBcastHelloInt
+                        INTEGER,
+                     nlspSysNonBcastHelloInt
+                        INTEGER,
+                     nlspSysDRBcastHelloInt
+                        INTEGER,
+                     nlspSysHoldTimeMultiplier
+                        INTEGER,
+                     nlspSysCompSNPInt
+                        INTEGER,
+                     nlspSysPartSNPInt
+                        INTEGER,
+                     nlspSysWaitTime
+                        INTEGER,
+                     nlspSysOrigL1LSPBufSize
+                        INTEGER,
+                     nlspSysVersion
+                        INTEGER,
+                     nlspSysCorrLSPs
+                        Counter,
+                     nlspSysL1Overloaded
+                        INTEGER,
+                     nlspSysL1DbaseOverloads
+                        Counter,
+                     nlspSysMaxSeqNums
+                        Counter,
+                     nlspSysSeqNumSkips
+                        Counter,
+                     nlspSysTransmittedLSPs
+                        Counter,
+                     nlspSysReceivedLSPs
+                        Counter,
+                     nlspSysOwnLSPPurges
+                        Counter,
+                     nlspSysVersionErrors
+                        Counter,
+                     nlspSysIncorrectPackets
+                        Counter,
+                     nlspSysNearestL2DefaultExists
+                        INTEGER,
+                     nlspSysNearestL2DefaultRouter
+                        SystemID,
+                     nlspSysResourceFailures
+                        Counter
+                    }
+                           
+nlspSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP to which this
+                corresponds.  This value links the instance of NLSP to an
+                instance of IPX running on the system  (i.e. the value
+                of nlspSysInstance should be the same as a value of
+                ipxSysInstance).  This value may be written only when
+                creating a new entry in the table."
+   ::= {nlspSysEntry 1}
+
+nlspSysState OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        off(1),
+                        nlspLevel1Router(2)
+                       }
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "Indicates the operational state of this instance of NLSP."
+   ::= {nlspSysEntry 2}
+
+nlspSysID OBJECT-TYPE
+   SYNTAX      SystemID
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The system ID for this instance of NLSP."
+   ::= {nlspSysEntry 3}
+
+nlspSysMinNonBcastLSPTransInt OBJECT-TYPE
+   SYNTAX      INTEGER (1..30)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The minimum interval, in seconds, between transmission
+                of LSPs on a non-broadcast circuit."
+   DEFVAL      { 5 }
+   ::= {nlspSysEntry 4}
+
+nlspSysMinBcastLSPTransInt OBJECT-TYPE
+   SYNTAX      INTEGER (1..30)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The minimum interval, in seconds, between transmission
+                of LSPs on a broadcast circuit."
+   DEFVAL      { 5 }
+   ::= {nlspSysEntry 5}
+
+nlspSysMinLSPGenInt OBJECT-TYPE
+   SYNTAX      INTEGER (1..30)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The minimum interval, in seconds, between the generation
+                of the same LSP."
+   DEFVAL      { 5 }
+   ::= {nlspSysEntry 6}
+
+nlspSysMaxLSPGenInt OBJECT-TYPE
+   SYNTAX      INTEGER (1..50000)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The maximum interval, in seconds, between the generation
+                of the same LSP."
+   DEFVAL      { 7200 }
+   ::= {nlspSysEntry 7}
+
+nlspSysMaxLSPAge OBJECT-TYPE
+   SYNTAX      INTEGER (1..50000)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The value, in seconds, placed in the lifetime field of
+                LSPs generated by this instance of NLSP."
+   DEFVAL      { 7500 }
+   ::= {nlspSysEntry 8}
+
+nlspSysBcastHelloInt OBJECT-TYPE
+   SYNTAX      INTEGER (1..100)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The interval, in seconds, at which NLSP Hellos will be
+                sent on a broadcast circuit, if this system is not the
+                designated router."
+   DEFVAL      { 10 }
+   ::= {nlspSysEntry 9}
+
+nlspSysNonBcastHelloInt OBJECT-TYPE
+   SYNTAX      INTEGER (1..100)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The interval, in seconds, at which NLSP Hellos will be
+                sent on a non-broadcast circuit."
+   DEFVAL      { 10 }
+   ::= {nlspSysEntry 10}
+
+nlspSysDRBcastHelloInt OBJECT-TYPE
+   SYNTAX      INTEGER (1..100)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The interval, in seconds, at which the designated
+                router sends NLSP Hellos on a broadcast circuit."
+   DEFVAL      { 3 }
+   ::= {nlspSysEntry 11}
+
+nlspSysHoldTimeMultiplier OBJECT-TYPE
+   SYNTAX      INTEGER (2..20)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The holding time multiplier used to specify the holding
+                time for NLSP neighbor entries as a function of the NLSP
+                Hello interval."
+   DEFVAL      { 5 }
+   ::= {nlspSysEntry 12}
+
+nlspSysCompSNPInt OBJECT-TYPE
+   SYNTAX      INTEGER (1..600)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The interval, in seconds, between generation of Complete
+                Sequence Number Packets by a designated router on a
+                broadcast circuit."
+   DEFVAL      { 30 }
+   ::= {nlspSysEntry 13}
+
+nlspSysPartSNPInt OBJECT-TYPE
+   SYNTAX      INTEGER (1..60)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The minimum interval, in seconds, between transmission of
+                Partial Sequence Number Packets."
+   DEFVAL      { 5 }
+   ::= {nlspSysEntry 14}
+
+nlspSysWaitTime OBJECT-TYPE
+   SYNTAX      INTEGER (1..300)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The number of seconds to delay in the waiting state 
+                before entering the on state."
+   DEFVAL      { 120 }
+   ::= {nlspSysEntry 15}
+
+nlspSysOrigL1LSPBufSize OBJECT-TYPE
+   SYNTAX      INTEGER (512..4096)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The maximum size of Level 1 LSPs originated by
+                this instance of NLSP."
+   DEFVAL      { 512 }
+   ::= {nlspSysEntry 16}
+
+nlspSysVersion OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The version number of this instance of NLSP."
+   ::= {nlspSysEntry 17}
+
+nlspSysCorrLSPs OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of corrupt LSPs detected."
+   ::= {nlspSysEntry 18}
+
+nlspSysL1Overloaded OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        no(1),
+                        yes(2)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "Indicates whether the NLSP Level 1 database is overloaded."
+   ::= {nlspSysEntry 19}
+
+nlspSysL1DbaseOverloads OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of times the NLSP Level 1 LSP database has
+                become overloaded."
+   ::= {nlspSysEntry 20}
+
+nlspSysMaxSeqNums OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of times the router has attempted to exceed
+                NLSP's maximum sequence number."
+   ::= {nlspSysEntry 21}
+
+nlspSysSeqNumSkips OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of times a sequence number skip has occurred."
+   ::= {nlspSysEntry 22}
+
+nlspSysTransmittedLSPs OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of LSPs transmitted by this system."
+   ::= {nlspSysEntry 23}
+
+nlspSysReceivedLSPs OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of LSPs received by this system."
+   ::= {nlspSysEntry 24}
+
+nlspSysOwnLSPPurges OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of times a zero-aged copy of the router's own
+                LSP has been received from some other node."
+   ::= {nlspSysEntry 25}
+
+nlspSysVersionErrors OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of times that a received NLSP packet was
+                rejected because its version number was invalid."
+   ::= {nlspSysEntry 26}
+
+nlspSysIncorrectPackets OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of times that an incorrectly formatted NLSP
+                packet was received."
+   ::= {nlspSysEntry 27}
+
+nlspSysNearestL2DefaultExists OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        no(1),
+                        yes(2)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "Indicates whether this instance of NLSP knows
+                of a NLSP Level 2 router that currently can reach other
+                areas using the default metric."
+   ::= {nlspSysEntry 28}
+
+nlspSysNearestL2DefaultRouter OBJECT-TYPE
+   SYNTAX      SystemID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The system ID of the nearest NLSP Level 2 router that
+                currently can reach other areas using the default
+                metric.  The value is undefined if the value of
+                nlspSysNearestL2DefaultExists is no."
+   ::= {nlspSysEntry 29}
+
+nlspSysResourceFailures OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of times this instance of the NLSP has been
+                unable to obtain needed resources (memory, etc.)"
+   ::= {nlspSysEntry 30}
+
+
+-- System Area Address Table
+--   The System Area Address table contains the area addresses configured
+--   for NLSP.
+
+nlspSysAreaTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPSysAreaEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The System Area Address table contains the area addresses
+                configured for NLSP."
+   ::= {nlspSystem 2}
+
+nlspSysAreaEntry OBJECT-TYPE
+   SYNTAX      NLSPSysAreaEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry in the table corresponds to one NLSP
+                System Area Address."
+   INDEX       {
+                nlspSysAreaSysInstance,
+                nlspSysAreaNet,
+                nlspSysAreaMask
+               }
+   ::= {nlspSysAreaTable 1}
+
+NLSPSysAreaEntry ::= SEQUENCE {
+                           nlspSysAreaSysInstance
+                              INTEGER,
+                           nlspSysAreaNet
+                              OCTET STRING,
+                           nlspSysAreaMask
+                              OCTET STRING
+                          }
+
+nlspSysAreaSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this row corresponds."
+   ::= {nlspSysAreaEntry 1}
+
+nlspSysAreaNet OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(4))
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The network address portion of the area address."
+   ::= {nlspSysAreaEntry 2}
+
+nlspSysAreaMask OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(4))
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The mask portion of the area address."
+   ::= {nlspSysAreaEntry 3}
+
+
+-- Actual Area Address Table
+--   The Actual Area Address table contains the area addresses actually
+--   used by NLSP.
+
+nlspActAreaTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPActAreaEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The Actual Area Address table contains the area addresses
+                actually used by NLSP."
+   ::= {nlspSystem 3}
+
+nlspActAreaEntry OBJECT-TYPE
+   SYNTAX      NLSPActAreaEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry in the table corresponds to one NLSP
+                Actual Area Address."
+   INDEX       {
+                nlspActAreaSysInstance,
+                nlspActAreaNet,
+                nlspActAreaMask
+               }
+   ::= {nlspActAreaTable 1}
+
+NLSPActAreaEntry ::= SEQUENCE {
+                           nlspActAreaSysInstance
+                              INTEGER,
+                           nlspActAreaNet
+                              OCTET STRING,
+                           nlspActAreaMask
+                              OCTET STRING
+                          }
+
+nlspActAreaSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this row corresponds."
+   ::= {nlspActAreaEntry 1}
+
+nlspActAreaNet OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(4))
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The network address portion of the area address."
+   ::= {nlspActAreaEntry 2}
+
+nlspActAreaMask OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(4))
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The mask portion of the area address."
+   ::= {nlspActAreaEntry 3}
+
+
+-- Circuit Group
+--   This group contains the NLSP information for each circuit known
+--   to this system.
+
+-- Circuit Table
+--   The Circuit table contains an entry containing the NLSP information 
+--   for each circuit known to the system.
+
+nlspCircTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPCircEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The Circuit table."
+   ::= {nlspCircuit 1}
+
+nlspCircEntry OBJECT-TYPE
+   SYNTAX      NLSPCircEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry corresponds to one circuit known to the
+                system."
+   INDEX       {
+                nlspCircSysInstance,
+                nlspCircIndex
+               }
+   ::= {nlspCircTable 1}
+
+NLSPCircEntry ::= SEQUENCE {
+                        nlspCircSysInstance
+                           INTEGER,
+                        nlspCircIndex
+                           INTEGER,
+                        nlspCircState
+                           INTEGER,
+                        nlspCircPace
+                           INTEGER,
+                        nlspCircHelloTimer
+                           INTEGER,
+                        nlspCircL1DefaultCost
+                           INTEGER,
+                        nlspCircL1DesRouterPriority
+                           INTEGER,
+                        nlspCircL1CircID
+                           OCTET STRING,
+                        nlspCircL1DesRouter
+                           SystemID,
+                        nlspCircLANL1DesRouterChanges
+                           Counter,
+                        nlspCircNeighChanges
+                           Counter,
+                        nlspCircRejNeighbors
+                           Counter,
+                        nlspCircOutPackets
+                           Counter,
+                        nlspCircInPackets
+                           Counter,
+                        nlspCircActualMaxPacketSize
+                           INTEGER,
+                        nlspCircPSNPsSent
+                           Counter,
+                        nlspCircPSNPsReceived
+                           Counter
+                       }
+
+nlspCircSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this entry corresponds.
+                This value may be written only when creating a new
+                entry in the table."
+   ::= {nlspCircEntry 1}
+
+nlspCircIndex OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The identifier of this circuit, unique within the
+                instance of NLSP.  This value may be written
+                only when creating a new entry in the table."
+   ::= {nlspCircEntry 2}
+
+nlspCircState OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        off(1),
+                        on(2)
+                       }
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "Indicates whether NLSP information may be sent/received
+                over this circuit."
+   DEFVAL      { on }
+   ::= {nlspCircEntry 3}
+
+nlspCircPace OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The maximum pace, in packets per second, at which NLSP
+                packets may be sent on this circuit."
+   ::= {nlspCircEntry 4}
+
+nlspCircHelloTimer OBJECT-TYPE
+   SYNTAX      INTEGER (1..100)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The interval, in seconds, between NLSP Hello packets
+                sent on this circuit."
+   DEFVAL      { 10 }
+   ::= {nlspCircEntry 5}
+
+nlspCircL1DefaultCost OBJECT-TYPE
+   SYNTAX      INTEGER (1..63)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The NLSP default cost of this circuit for Level 1
+                traffic."
+   ::= {nlspCircEntry 6}
+
+nlspCircL1DesRouterPriority OBJECT-TYPE
+   SYNTAX      INTEGER (1..127)
+   ACCESS      read-write
+   STATUS      mandatory
+   DESCRIPTION "The priority for becoming the NLSP LAN Level 1
+                Designated Router on a broadcast circuit."
+   ::= {nlspCircEntry 7}
+
+nlspCircL1CircID OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(7))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID for this circuit."
+   ::= {nlspCircEntry 8}
+
+nlspCircL1DesRouter OBJECT-TYPE
+   SYNTAX      SystemID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The system ID of the NLSP LAN Level 1 Designated Router
+                on this circuit."
+   ::= {nlspCircEntry 9}
+
+nlspCircLANL1DesRouterChanges OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of times the NLSP LAN Level 1 Designated
+                Router has changed on this circuit."
+   ::= {nlspCircEntry 10}
+
+nlspCircNeighChanges OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of times a NLSP neighbor state change has
+                occurred on this circuit."
+   ::= {nlspCircEntry 11}
+
+nlspCircRejNeighbors OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of times that a NLSP neighbor has been
+                rejected on this circuit."
+   ::= {nlspCircEntry 12}
+
+nlspCircOutPackets OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of NLSP packets sent on this circuit."
+   ::= {nlspCircEntry 13}
+
+nlspCircInPackets OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of NLSP packets received on this circuit."
+   ::= {nlspCircEntry 14}
+
+nlspCircActualMaxPacketSize OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The actual maximum packet size (including header),
+                in bytes, that has been used on this circuit."
+   ::= {nlspCircEntry 15}
+
+nlspCircPSNPsSent OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of PSNPs sent on this circuit."
+   ::= {nlspCircEntry 16}
+
+nlspCircPSNPsReceived OBJECT-TYPE
+   SYNTAX      Counter
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of PSNPs received on this circuit."
+   ::= {nlspCircEntry 17}
+
+
+-- Forwarding Group
+--   This group contains NLSP forwarding information in addition to that
+--   contained in the IPX forwarding group.
+
+-- Destination Table
+--   The Destination table contains additional NLSP forwarding 
+--   information about all destinations learned about via NLSP.
+
+nlspDestTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPDestEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The Destination table contains information about all
+                known destinations learned about via NLSP."
+   ::= {nlspForwarding 1}
+
+nlspDestEntry OBJECT-TYPE
+   SYNTAX      NLSPDestEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry corresponds to one destination."
+   INDEX       {
+                nlspDestSysInstance,
+                nlspDestNetNum
+               }
+   ::= {nlspDestTable 1}
+
+NLSPDestEntry ::= SEQUENCE {
+                        nlspDestSysInstance
+                           INTEGER,
+                        nlspDestNetNum
+                           NetNumber,
+                        nlspDestID
+                           NLSPID,
+                        nlspDestEstDelay
+                           INTEGER,
+                        nlspDestEstThroughput
+                           INTEGER,
+                        nlspDestNextHopID
+                           NLSPID,
+                        nlspDestCost
+                           INTEGER
+                       }
+
+nlspDestSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this row corresponds."
+   ::= {nlspDestEntry 1}
+
+nlspDestNetNum OBJECT-TYPE
+   SYNTAX      NetNumber
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The IPX network number of the destination."
+   ::= {nlspDestEntry 2}
+
+nlspDestID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The destination NLSP ID (6-octet system ID plus 1-octet
+                pseudo-node ID)."
+   ::= {nlspDestEntry 3}
+
+nlspDestEstDelay OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The estimated delay, in milliseconds, to reach the
+                destination."
+   ::= {nlspDestEntry 4}
+
+nlspDestEstThroughput OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The estimated throughput, in bits per second, to the
+                destination."
+   ::= {nlspDestEntry 5}
+
+nlspDestNextHopID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID (6-octet system ID plus 1-octet pseudo-node
+                ID) of the next hop."
+   ::= {nlspDestEntry 6}
+
+nlspDestCost OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The total path default cost to reach this destination."
+   ::= {nlspDestEntry 7}
+
+
+-- NLSP Neighbors Group
+--   This group contains management information for each neighboring
+--   NLSP router known to the system.
+
+-- NLSP Neighbors Table
+--   This table contains an entry for each neighboring NLSP router
+--   known to the system.
+
+nlspNeighTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPNeighEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The NLSP Neighbors table."
+   ::= {nlspNeighbors 1}
+
+nlspNeighEntry OBJECT-TYPE
+   SYNTAX      NLSPNeighEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry corresponds to one neighboring NLSP router
+                known to the system."
+   INDEX       {
+                nlspNeighSysInstance,
+                nlspNeighCircIndex,
+                nlspNeighIndex
+               }
+   ::= {nlspNeighTable 1}
+
+NLSPNeighEntry ::= SEQUENCE {
+                              nlspNeighSysInstance
+                                 INTEGER,
+                              nlspNeighCircIndex
+                                 INTEGER,
+                              nlspNeighIndex
+                                 INTEGER,
+                              nlspNeighState
+                                 INTEGER,
+                              nlspNeighNICAddress
+                                 PhysAddress,
+                              nlspNeighSysType
+                                 INTEGER,
+                              nlspNeighSysID
+                                 SystemID,
+                              nlspNeighName
+                                 OCTET STRING,
+                              nlspNeighUsage
+                                 INTEGER,
+                              nlspNeighHoldTimer
+                                 INTEGER,
+                              nlspNeighRemainingTime
+                                 INTEGER,
+                              nlspNeighPriority
+                                 INTEGER
+                             }
+
+nlspNeighSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this row corresponds."
+   ::= {nlspNeighEntry 1}
+
+nlspNeighCircIndex OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The identifier of the parent circuit of this neighbor
+                within this instance of the NLSP and IPX."
+   ::= {nlspNeighEntry 2}
+
+nlspNeighIndex OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The identifier for this NLSP neighbor entry, unique 
+                within the parent circuit."
+   ::= {nlspNeighEntry 3}
+
+nlspNeighState OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        initializing(1),
+                        up(2),
+                        failed(3),
+                        down(4)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The state of the connection to the neighboring NLSP
+                router."
+   ::= {nlspNeighEntry 4}
+
+nlspNeighNICAddress OBJECT-TYPE
+   SYNTAX      PhysAddress
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NIC Address of the neighboring NLSP router."
+   ::= {nlspNeighEntry 5}
+
+nlspNeighSysType OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        unknown(1),
+                        nlspLevel1Router(2)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The type of the neighboring NLSP router."
+   ::= {nlspNeighEntry 6}
+
+nlspNeighSysID OBJECT-TYPE
+   SYNTAX      SystemID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The neighboring NLSP router's system ID."
+   ::= {nlspNeighEntry 7}
+
+nlspNeighName OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(0..48))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The readable name for the neighboring NLSP router."
+   ::= {nlspNeighEntry 8}
+
+nlspNeighUsage OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        undefined(1),
+                        level1(2)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The usage of the connection to the neighboring NLSP
+                router."
+   ::= {nlspNeighEntry 9}
+
+nlspNeighHoldTimer OBJECT-TYPE
+   SYNTAX      INTEGER (1..65535)
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The initial holding time, in seconds, for this NLSP
+                neighbor entry as specified in the NLSP Hello packet."
+   ::= {nlspNeighEntry 10}
+
+nlspNeighRemainingTime OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The remaining time to live, in seconds, for this NLSP
+                neighbor entry."
+   ::= {nlspNeighEntry 11}
+
+nlspNeighPriority OBJECT-TYPE
+   SYNTAX      INTEGER (1..127)
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The priority of the neighboring NLSP router for
+                becoming the LAN Level 1 Designated router if the value
+                of nlspNeighSysType is nlspLevel1Router."
+   ::= {nlspNeighEntry 12}
+
+
+-- Translation Group
+--   The translation group contains tables providing mappings between
+--   network numbers, NLSP system IDs, and router names.
+
+-- NLSP ID Mapping Table
+--   This table maps NLSP system IDs to router names and IPX network
+--   numbers.
+
+nlspIDMapTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPIDMapEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "This table maps NLSP system IDs to router names and
+                IPX network numbers."
+   ::= {nlspTranslation 1}
+
+nlspIDMapEntry OBJECT-TYPE
+   SYNTAX      NLSPIDMapEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry maps one NLSP system ID to its corresponding
+                router name and IPX network number."
+   INDEX       {
+                nlspIDMapSysInstance,
+                nlspIDMapID
+               }
+   ::= {nlspIDMapTable 1}
+
+NLSPIDMapEntry ::= SEQUENCE {
+                              nlspIDMapSysInstance
+                                 INTEGER,
+                              nlspIDMapID
+                                 NLSPID,
+                              nlspIDMapServerName
+                                 OCTET STRING,
+                              nlspIDMapNetNum
+                                 NetNumber
+                             }
+
+nlspIDMapSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this row corresponds."
+   ::= {nlspIDMapEntry 1}
+
+nlspIDMapID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID (6-octet system ID plus the pseudo-node ID)."
+   ::= {nlspIDMapEntry 2}
+
+nlspIDMapServerName OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(0..48))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The readable name corresponding to this NLSP ID."
+   ::= {nlspIDMapEntry 3}
+
+nlspIDMapNetNum OBJECT-TYPE
+   SYNTAX      NetNumber
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The IPX network number corresponding to this NLSP ID."
+   ::= {nlspIDMapEntry 4}
+
+
+-- IPX Network Number Mapping Table
+--   This table maps IPX network numbers to router names and NLSP IDs.
+
+nlspNetMapTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPNetMapEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "This table maps IPX network numbers to router names
+                and NLSP IDs."
+   ::= {nlspTranslation 2}
+
+nlspNetMapEntry OBJECT-TYPE
+   SYNTAX      NLSPNetMapEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry maps one IPX network number to its
+                corresponding router name and NLSP ID."
+   INDEX       {
+                nlspNetMapSysInstance,
+                nlspNetMapNetNum
+               }
+   ::= {nlspNetMapTable 1}
+
+NLSPNetMapEntry ::= SEQUENCE {
+                           nlspNetMapSysInstance
+                              INTEGER,
+                           nlspNetMapNetNum
+                              NetNumber,
+                           nlspNetMapServerName
+                              OCTET STRING,
+                           nlspNetMapID
+                              NLSPID
+                          }
+
+nlspNetMapSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this row corresponds."
+   ::= {nlspNetMapEntry 1}
+
+nlspNetMapNetNum OBJECT-TYPE
+   SYNTAX      NetNumber
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The IPX network number."
+   ::= {nlspNetMapEntry 2}
+
+nlspNetMapServerName OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(0..48))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The router name corresponding to the IPX network number."
+   ::= {nlspNetMapEntry 3}
+
+nlspNetMapID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID corresponding to the IPX network number."
+   ::= {nlspNetMapEntry 4}
+
+
+-- Name Mapping Table
+--   This table maps router names to their corresponding IPX network 
+--   number and NLSP ID.
+
+nlspNameMapTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPNameMapEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "This table maps router names to the corresponding IPX
+                network number and NLSP ID."
+   ::= {nlspTranslation 3}
+
+nlspNameMapEntry OBJECT-TYPE
+   SYNTAX      NLSPNameMapEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry maps one router name to its corresponding
+                IPX network number and NLSP ID."
+   INDEX       {
+                nlspNameMapSysInstance,
+                nlspNameMapServerName
+               }
+   ::= {nlspNameMapTable 1}
+
+NLSPNameMapEntry ::= SEQUENCE {
+                           nlspNameMapSysInstance
+                              INTEGER,
+                           nlspNameMapServerName
+                              OCTET STRING,
+                           nlspNameMapNetNum
+                              NetNumber,
+                           nlspNameMapID
+                              NLSPID
+                          }
+
+nlspNameMapSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this row corresponds."
+   ::= {nlspNameMapEntry 1}
+
+nlspNameMapServerName OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(0..48))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The readable name for this system."
+   ::= {nlspNameMapEntry 2}
+
+nlspNameMapNetNum OBJECT-TYPE
+   SYNTAX      NetNumber
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The IPX network number corresponding to the router name."
+   ::= {nlspNameMapEntry 3}
+
+nlspNameMapID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID corresponding to the router name.  This value
+                is undefined if the value of nlspSysState is off."
+   ::= {nlspNameMapEntry 4}
+
+
+-- Graph Group
+--   The Graph group provides a representation of the network topology.
+--   The group is optional.
+
+-- Node Table
+--   The node table contains an entry for each node in the graph.
+
+nlspNodeTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPNodeEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The node table contains an entry for each node in the
+                graph."
+   ::= {nlspGraph 1}
+
+nlspNodeEntry OBJECT-TYPE
+   SYNTAX      NLSPNodeEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry corresponds to one graph node."
+   INDEX       {
+                nlspNodeSysInstance,
+                nlspNodeID
+               }
+   ::= {nlspNodeTable 1}
+
+NLSPNodeEntry ::= SEQUENCE {
+                        nlspNodeSysInstance
+                           INTEGER,
+                        nlspNodeID
+                           NLSPID,
+                        nlspNodeNetNum
+                           NetNumber,
+                        nlspNodeType
+                           INTEGER,
+                        nlspNodeEstDelay
+                           INTEGER,
+                        nlspNodeEstThroughput
+                           INTEGER,
+                        nlspNodeMaxPacketSize
+                           INTEGER,
+                        nlspNodeCost
+                           INTEGER,
+                        nlspNodeOverload
+                           INTEGER,
+                        nlspNodeReachable
+                           INTEGER
+                       }
+
+nlspNodeSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this row corresponds."
+   ::= {nlspNodeEntry 1}
+
+nlspNodeID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID for this node."
+   ::= {nlspNodeEntry 2}
+
+nlspNodeNetNum OBJECT-TYPE
+   SYNTAX      NetNumber
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The IPX network number of this node."
+   ::= {nlspNodeEntry 3}
+
+nlspNodeType OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        unknown(1),
+                        nlspLevel1Router(2),
+                        nlspLevel2Router(3),
+                        router(4),
+                        network(5)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The type of system the node represents."
+   ::= {nlspNodeEntry 4}
+
+nlspNodeEstDelay OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The estimated delay, in milliseconds, to reach the
+                destination represented by this node."
+   ::= {nlspNodeEntry 5}
+
+nlspNodeEstThroughput OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The estimated throughput, in bits per second, to the
+                destination represented by this node."
+   ::= {nlspNodeEntry 6}
+
+nlspNodeMaxPacketSize OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The maximum packet size, in bytes, that can be sent to
+                the destination represented by this node."
+   ::= {nlspNodeEntry 7}
+
+nlspNodeCost OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The cost to reach this node."
+   ::= {nlspNodeEntry 8}
+
+nlspNodeOverload OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        no(1),
+                        yes(2)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "Indicates whether this node is overloaded."
+   ::= {nlspNodeEntry 9}
+
+nlspNodeReachable OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        no(1),
+                        yes(2)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "Indicates whether the destination represented by this
+                node is reachable."
+   ::= {nlspNodeEntry 10}
+
+
+-- Link Table
+--   This table contains the entries for all of the links in the graph.
+
+nlspLinkTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPLinkEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The Link table contains entries for all of the links in
+                the graph."
+   ::= {nlspGraph 2}
+
+nlspLinkEntry OBJECT-TYPE
+   SYNTAX      NLSPLinkEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry corresponds to one link."
+   INDEX       {
+                nlspLinkSysInstance,
+                nlspLinkNLSPID,
+                nlspLinkIndex
+               }
+   ::= {nlspLinkTable 1}
+
+NLSPLinkEntry ::= SEQUENCE {
+                        nlspLinkSysInstance
+                           INTEGER,
+                        nlspLinkNLSPID
+                           NLSPID,
+                        nlspLinkIndex
+                           INTEGER,
+                        nlspLinkNeighNLSPID
+                           NLSPID,
+                        nlspLinkFromNeighCost
+                           INTEGER,
+                        nlspLinkMaxPacketSize
+                           INTEGER,
+                        nlspLinkThroughput
+                           INTEGER,
+                        nlspLinkDelay
+                           INTEGER,
+                        nlspLinkMediaType
+                           OCTET STRING,
+                        nlspLinkToNeighCost
+                           INTEGER
+                       }
+
+nlspLinkSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this row corresponds."
+   ::= {nlspLinkEntry 1}
+
+nlspLinkNLSPID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID (6-byte system ID plus 1-octet pseudo-node
+                ID) of the node to which this link belongs."
+   ::= {nlspLinkEntry 2}
+
+nlspLinkIndex OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique value identifying the link within the node."
+   ::= {nlspLinkEntry 3}
+
+nlspLinkNeighNLSPID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID (6-byte system ID plus 1-octet pseudo-node
+                ID) of the neighboring node."
+   ::= {nlspLinkEntry 4}
+
+nlspLinkFromNeighCost OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The cost to use this link to reach this node from
+                the neighboring node."
+   ::= {nlspLinkEntry 5}
+
+nlspLinkMaxPacketSize OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The maximum size, in bytes, of a packet that may be sent
+                over this link."
+   ::= {nlspLinkEntry 6}
+
+nlspLinkThroughput OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The link's maximum throughput, in bits per second."
+   ::= {nlspLinkEntry 7}
+
+nlspLinkDelay OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The delay, in milliseconds, on this link."
+   ::= {nlspLinkEntry 8}
+
+nlspLinkMediaType OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(2))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The media type of this link."
+   ::= {nlspLinkEntry 9}
+
+nlspLinkToNeighCost OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The cost to use this link to reach the neighbor from
+                this node."
+   ::= {nlspLinkEntry 10}
+
+
+-- Path Table
+--    This table allows the path(s) that a packet may take to reach a 
+--    destination to be reconstructed.  The entries in this table 
+--    represent those links that are one hop closer to the source and
+--    would be used for the minimum cost path(s) to reach the 
+--    destination.
+
+nlspPathTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPPathEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The path table."
+   ::= {nlspGraph 3}
+
+nlspPathEntry OBJECT-TYPE
+   SYNTAX      NLSPPathEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each row in this table represents a link to a node that
+                is one hop closer to the source and would be used for
+                the minimum cost path(s) to reach the destination."
+   INDEX       {
+                nlspPathSysInstance,
+                nlspPathDestNLSPID,
+                nlspPathLinkIndex
+               }
+   ::= {nlspPathTable 1}
+
+NLSPPathEntry ::= SEQUENCE {
+                        nlspPathSysInstance
+                           INTEGER,
+                        nlspPathDestNLSPID
+                           NLSPID,
+                        nlspPathLinkIndex
+                           INTEGER
+                       }
+
+nlspPathSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this row corresponds."
+   ::= {nlspPathEntry 1}
+
+nlspPathDestNLSPID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID (6-octet system ID plus 1-octet pseudo-node
+                ID) of this destination."
+   ::= {nlspPathEntry 2}
+
+nlspPathLinkIndex OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique value identifying this link within the
+                destination node."
+   ::= {nlspPathEntry 3}
+
+
+-- Graph XRoutes Table
+--   This table contains information about all of the XRoutes provided by
+--   a node in the graph.
+
+nlspGraphXRouteTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPGraphXRouteEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "This table contains the information about the XRoutes
+                associated with a node in the graph."
+   ::= {nlspGraph 4}
+
+nlspGraphXRouteEntry OBJECT-TYPE
+   SYNTAX      NLSPGraphXRouteEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry in the table contains the information for one
+                XRoute associated with the node."
+   INDEX       {
+                nlspGraphXRouteSysInstance,
+                nlspGraphXRouteNLSPID,
+                nlspGraphXRouteNetNum
+               }
+   ::= {nlspGraphXRouteTable 1}
+
+NLSPGraphXRouteEntry ::= SEQUENCE {
+                        nlspGraphXRouteSysInstance
+                           INTEGER,
+                        nlspGraphXRouteNLSPID
+                           NLSPID,
+                        nlspGraphXRouteNetNum
+                           NetNumber,
+                        nlspGraphXRouteCost
+                           INTEGER,
+                        nlspGraphXRouteHopCount
+                           INTEGER
+                       }
+               
+nlspGraphXRouteSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this entry corresponds."
+   ::= {nlspGraphXRouteEntry 1}
+
+nlspGraphXRouteNLSPID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID of the node."
+   ::= {nlspGraphXRouteEntry 2}
+
+nlspGraphXRouteNetNum OBJECT-TYPE
+   SYNTAX      NetNumber
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The IPX network number of the XRoute's destination."
+   ::= {nlspGraphXRouteEntry 3}
+
+nlspGraphXRouteCost OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The cost to reach the XRoute's destination."
+   ::= {nlspGraphXRouteEntry 4}
+
+nlspGraphXRouteHopCount OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of hops necessary to reach the XRoute's
+                destination."
+   ::= {nlspGraphXRouteEntry 5}
+
+
+-- Graph Services Table
+--   This table contains information about all of the services provided by
+--   a node in the graph.
+
+nlspGraphServTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPGraphServEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "This table contains the information about the services
+                associated with a node in the graph."
+   ::= {nlspGraph 5}
+
+nlspGraphServEntry OBJECT-TYPE
+   SYNTAX      NLSPGraphServEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry in the table contains the information for one
+                service associated with the node."
+   INDEX       {
+                nlspGraphServSysInstance,
+                nlspGraphServNLSPID,
+                nlspGraphServName,
+                nlspGraphServTypeValue
+               }
+   ::= {nlspGraphServTable 1}
+
+NLSPGraphServEntry ::= SEQUENCE {
+                        nlspGraphServSysInstance
+                           INTEGER,
+                        nlspGraphServNLSPID
+                           NLSPID,
+                        nlspGraphServName
+                           OCTET STRING,
+                        nlspGraphServTypeValue
+                           OCTET STRING,
+                        nlspGraphServType
+                           INTEGER,
+                        nlspGraphServNetNum
+                           NetNumber,
+                        nlspGraphServNode
+                           OCTET STRING,
+                        nlspGraphServSocket
+                           OCTET STRING
+                       }
+               
+nlspGraphServSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this entry corresponds."
+   ::= {nlspGraphServEntry 1}
+
+nlspGraphServNLSPID OBJECT-TYPE
+   SYNTAX      NLSPID
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The NLSP ID of the node."
+   ::= {nlspGraphServEntry 2}
+
+nlspGraphServName OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(1..48))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The service name."
+   ::= {nlspGraphServEntry 3}
+
+nlspGraphServTypeValue OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(2))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The service type's hexadecimal value."
+   ::= {nlspGraphServEntry 4}
+
+nlspGraphServType OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        unknown(1)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The service type."
+   ::= {nlspGraphServEntry 5}
+
+nlspGraphServNetNum OBJECT-TYPE
+   SYNTAX      NetNumber
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The IPX network number portion of the IPX address of
+                the service."
+   ::= {nlspGraphServEntry 6}
+
+nlspGraphServNode OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(6))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The node portion of the IPX address of the service."
+   ::= {nlspGraphServEntry 7}
+
+nlspGraphServSocket OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(2))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The socket portion of the IPX address of the service."
+   ::= {nlspGraphServEntry 8}
+
+
+-- LSP Group
+--   The LSP group provides a representation of NLSP's LSP database.  This
+--   group is optional.
+
+-- LSP Header Table
+--    The LSP header table contains summary information about each LSP 
+--    in the database as well as an OCTET STRING containing the entire
+--    LSP header.
+
+nlspLSPTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPLSPEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The LSP header table."
+   ::= {nlspLSP 1}
+
+nlspLSPEntry OBJECT-TYPE
+   SYNTAX      NLSPLSPEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry corresponds to one LSP's header."
+   INDEX       {
+                nlspLSPSysInstance,
+                nlspLSPID
+               }
+   ::= {nlspLSPTable 1}
+
+NLSPLSPEntry ::= SEQUENCE {
+                        nlspLSPSysInstance
+                           INTEGER,
+                        nlspLSPID
+                           OCTET STRING,
+                        nlspLSPLifetime
+                           INTEGER,
+                        nlspLSPSeqNum
+                           INTEGER,
+                        nlspLSPChecksum
+                           INTEGER,
+                        nlspLSPRouterType
+                           INTEGER,
+                        nlspLSPOverload
+                           INTEGER,
+                        nlspLSPHeader
+                           OCTET STRING
+                       }
+
+nlspLSPSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier for the instance of NLSP and IPX
+                (via ipxSysInstance) to which this entry corresponds."
+   ::= {nlspLSPEntry 1}
+
+nlspLSPID OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(8))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The value that uniquely identifies this LSP."
+   ::= {nlspLSPEntry 2}
+
+nlspLSPLifetime OBJECT-TYPE
+   SYNTAX      INTEGER (0..65535)
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The number of seconds prior to the expiration of the
+                LSP."
+   ::= {nlspLSPEntry 3}
+
+nlspLSPSeqNum OBJECT-TYPE
+   SYNTAX      INTEGER (0..255)
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The sequence number of the LSP."
+   ::= {nlspLSPEntry 4}
+
+nlspLSPChecksum OBJECT-TYPE
+   SYNTAX      INTEGER (0..65535)
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The checksum value of the LSP."
+   ::= {nlspLSPEntry 5}
+
+nlspLSPRouterType OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        unknown(1),
+                        nlspLevel1Router(2)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The type of the router that sent the LSP."
+   ::= {nlspLSPEntry 6}
+
+nlspLSPOverload OBJECT-TYPE
+   SYNTAX      INTEGER {
+                        no(1),
+                        yes(2)
+                       }
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "Indicates whether the sending router's LSP database is
+                overloaded."
+   ::= {nlspLSPEntry 7}
+
+nlspLSPHeader OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(27))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The complete LSP header."
+   ::= {nlspLSPEntry 8}
+
+
+-- LSP Options Table
+--    The LSP options table is used to obtain each option contained in 
+--    an LSP.
+
+nlspLSPOptTable OBJECT-TYPE
+   SYNTAX      SEQUENCE OF NLSPLSPOptEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "The LSP Options table."
+   ::= {nlspLSP 2}
+
+nlspLSPOptEntry OBJECT-TYPE
+   SYNTAX      NLSPLSPOptEntry
+   ACCESS      not-accessible
+   STATUS      mandatory
+   DESCRIPTION "Each entry corresponds to one option from an LSP."
+   INDEX       {
+                nlspLSPOptSysInstance,
+                nlspLSPOptLSPID,
+                nlspLSPOptIndex
+               }
+   ::= {nlspLSPOptTable 1}
+
+NLSPLSPOptEntry ::= SEQUENCE {
+                           nlspLSPOptSysInstance
+                              INTEGER,
+                           nlspLSPOptLSPID
+                              OCTET STRING,
+                           nlspLSPOptIndex
+                              INTEGER,
+                           nlspLSPOptCode
+                              INTEGER,
+                           nlspLSPOptLength
+                              INTEGER,
+                           nlspLSPOptValue
+                              OCTET STRING
+                          }
+
+nlspLSPOptSysInstance OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The unique identifier of the instance of NLSP and IPX
+                (via ipxSysInstance) to which this entry corresponds."
+   ::= {nlspLSPOptEntry 1}
+
+nlspLSPOptLSPID OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(8))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The value that uniquely identifies the LSP."
+   ::= {nlspLSPOptEntry 2}
+
+nlspLSPOptIndex OBJECT-TYPE
+   SYNTAX      INTEGER
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The value that uniquely identifies this option within the
+                LSP."
+   ::= {nlspLSPOptEntry 3}
+
+nlspLSPOptCode OBJECT-TYPE
+   SYNTAX      INTEGER (0..255)
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The code that identifies the type of the option."
+   ::= {nlspLSPOptEntry 4}
+
+nlspLSPOptLength OBJECT-TYPE
+   SYNTAX      INTEGER (0..255)
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The length of the option's value field."
+   ::= {nlspLSPOptEntry 5}
+
+nlspLSPOptValue OBJECT-TYPE
+   SYNTAX      OCTET STRING (SIZE(0..255))
+   ACCESS      read-only
+   STATUS      mandatory
+   DESCRIPTION "The option's value field."
+   ::= {nlspLSPOptEntry 6}
+
+END

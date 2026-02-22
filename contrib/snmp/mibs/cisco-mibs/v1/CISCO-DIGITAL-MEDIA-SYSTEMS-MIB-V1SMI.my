@@ -1,0 +1,2157 @@
+-- MIB file created 12-Sep-2011 11:28:05, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-DIGITAL-MEDIA-SYSTEMS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-DIGITAL-MEDIA-SYSTEMS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DateAndTime, MacAddress, TruthValue, RowStatus, TimeStamp
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge, Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoDigitalMediaSystemsMIB OBJECT IDENTIFIER ::= { ciscoMgmt 655 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201109070000Z
+--  OrgName
+--    Cisco Systems
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134-1700
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    E-mail: cs-dms@cisco.com
+--  Descr
+--    Acronyms and Definitions
+--    
+--    The following acronyms and terms are used in this
+--    document:
+--    
+--      DMS:   Digital Media Systems
+--    
+--      DAM:   Digital Asset Management System
+--    
+--      DMM:   Digital Media Manager Application
+--    
+--      VP :   Video Portal Application
+--    
+--      DSM:   Digital Signage Manager Application
+--    
+--      ETV:   Enterprise TV Manager Application
+--    
+--      DMP:   Cisco Digital Media Player
+--    
+--      LAN:   Local Area Network
+--    
+--      Group: A collection of DMS users grouped and
+--             managed together as a single entity for
+--             administrative convenience.
+--    
+--    
+--    Overview of the MIB
+--    
+--    This is a MIB Module for managing and monitoring the physical
+--    and logical structures in Cisco Digital Media Management
+--            System. The MIB reflects the structure as follows:
+--        * show DMS as an coherent, abstract media management system
+--        * indicate the physical inventory of DMS
+--        * indicate the media management features active (licensed)
+--          in the system.
+--        * show the streaming and storage components and their
+--          activity
+--        * elements of DMS security
+--        * external servers used by the system
+--        * events and alarms
+--    
+--    Hence, the MIB contains eight major groups of objects organized
+--    as follows:
+--     a) DMS System Group:
+--          This section models distributed DMS as a single abstract
+--          system.
+--    
+--     b) DMS Features Group:
+--          This section lists the DMS functions that this
+--          installation is licensed to perform and those that it
+--          is not.
+--    
+--     c) DMS Inventory Group:
+--          This section lists the physical elements that this
+--          installation of DMS comprises.
+--    
+--     d) Servers Group:
+--          This section models the external servers used by this
+--          installation of DMS.
+--    
+--     e) Digital Asset Management (DAM) Services Group:
+--          This section models the state and activity of various
+--          content management services that this installation of
+--          DMS is equipped with. The loose term 'content management'
+--          has been intentionally used to as to be able to
+--          accommodate more content management services in this
+--          model as they evolve.
+--    
+--     f) Security Group:
+--          This section defines the security configuration and
+--          activity of this installation of DMS.
+--    
+--     g) Fault Tolerance Group:
+--          This section models the redundancy (failover and
+--          load balancing) configuration of this installation of
+--          DMS and the associated activity.
+--    
+--     h) User Management Group:
+--          This section models the configured DMS users, groups
+--          and the associated activity.
+--    
+--     i) Events and Faults Group:
+--          This section models the events, alarms and notifications
+--          reported by this installation of DMS.
+--    
+--     j) Capacity Group:
+--          This section is planned for the future and would define
+--          the limits and capacities of functions of DMS. These
+--          include limits such as the type of media encodings that
+--          are supported, the maximum number of media players that
+--          may be managed etc.
+--    
+--     k) Resource Usage Group:
+--          This section is planned for the future and would define
+--          the current resource usage by DMS.
+--          This would include the amount of storage used by DMS,
+--          the number of encoders currently in use etc.
+--    
+--     l) Threshold group (allows definition of high water marks)
+--          This section is planned for the future and would allow
+--          the management entity to define thresholds to set high
+--          water marks on critical metrics.
+--    
+--     m) Notifications
+--          This section defines notifications to signal
+--          significant events pertaining to this installation of
+--          DMS.
+--  RevDate
+--    201109070000Z
+--  RevDescr
+--    Changed textual description for replacement field
+--    cdmsLicensedFeatureLimitRev1 to be consistent with field values.
+--    This was missed in last submitted version and caught during code
+--    review.
+--  RevDate
+--    201107290000Z
+--  RevDescr
+--    Resubmitting MIB with changes
+--  RevDate
+--    200910120000Z
+--  RevDescr
+--    Added support for High Availability (HA).
+--  RevDate
+--    200805150000Z
+--  RevDescr
+--    Initial version of this module.
+
+ciscoDmsMonitorMIBNotifs OBJECT IDENTIFIER ::= { ciscoDigitalMediaSystemsMIB 0 }
+ciscoDmsMonitorMIBObjects OBJECT IDENTIFIER ::= { ciscoDigitalMediaSystemsMIB 1 }
+ciscoDmsMonitorMIBConform OBJECT IDENTIFIER ::= { ciscoDigitalMediaSystemsMIB 2 }
+cdmsSystem      OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBObjects 1 }
+cdmsFeatures    OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBObjects 2 }
+cdmsInventory   OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBObjects 3 }
+cdmsServers     OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBObjects 4 }
+cdmsDamServices OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBObjects 5 }
+cdmsSecurity    OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBObjects 6 }
+cdmsUserGroup   OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBObjects 7 }
+cdmsEvents      OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBObjects 8 }
+cdmsNotifControl OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBObjects 13 }
+cdmsHa          OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBObjects 10 }
+cdmsFeatureSummary OBJECT IDENTIFIER ::= { cdmsFeatures 1 }
+cdmsInventoryGlobalCounters OBJECT IDENTIFIER ::= { cdmsInventory 1 }
+cdmsDamGlobalCounters OBJECT IDENTIFIER ::= { cdmsDamServices 1 }
+cdmsSecurityGlobalCounters OBJECT IDENTIFIER ::= { cdmsSecurity 1 }
+cdmsSecurityConfiguration OBJECT IDENTIFIER ::= { cdmsSecurity 2 }
+cdmsHaClusterInfo OBJECT IDENTIFIER ::= { cdmsHa 1 }
+cdmsHaClusterComposition OBJECT IDENTIFIER ::= { cdmsHa 2 }
+cdmsHaClusterStatus OBJECT IDENTIFIER ::= { cdmsHa 3 }
+cdmsHaDmmCluster OBJECT IDENTIFIER ::= { cdmsHaClusterComposition 1 }
+cdmsHaVpCluster OBJECT IDENTIFIER ::= { cdmsHaClusterComposition 2 }
+cdmsHaClusterStatusHistory OBJECT IDENTIFIER ::= { cdmsHaClusterStatus 8 }
+cdmsEventConfiguration OBJECT IDENTIFIER ::= { cdmsEvents 1 }
+cdmsEventStatistics OBJECT IDENTIFIER ::= { cdmsEvents 2 }
+ciscoDmsMonitorMIBCompliances OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBConform 1 }
+ciscoDmsMonitorMIBGroups OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBConform 2 }
+
+CDmsUserAuthenMethod ::= INTEGER {
+        none(1),
+        other(2),
+        radius(3),
+        tacacsPlus(4),
+        kerberos(5),
+        local(6),
+        ldap(7),
+        ntlm(8),
+        sdi(9)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The mechanism used to authenticate the user.
+--    
+--    radius: User authentication is performed using
+--            RADIUS protocol.
+--    
+--    tacacsPlus: Authentication is performed using TACACS+
+--                protocol.
+--    
+--    kerberos: Authentication is performed using Kerberos
+--              protocol.
+--    
+--    local: Authentication is performed using local
+--           username/password database.
+--    
+--    ldap: Authentication is performed using the
+--          Lightweight Directory Access Protocol.
+--    
+--    ntlm: Authentication is performed using the
+--          NT LAN Manager Protocol.
+--    
+--    sdi: Authentication is performed using the
+--         RSA SecurId Authentication Protocol.
+--    
+--    The value 'other' has been listed to allow for the
+--    MIB to support proprietary authentication methods
+--    not listed here.
+--    
+--    When the authentication method is 'none', authentication
+--    is disabled for all appliances of DMS except for the
+--    administrative module (DMM), which is still secured using
+--    local authentication.
+
+CDmsServerType ::= INTEGER {
+        other(1),
+        dnsServer(2),
+        ldapServer(3),
+        snmpServer(4),
+        smtpServer(5),
+        syslogServer(6),
+        aaaServer(7),
+        ntpServer(8)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of the external server used by DMS.
+
+CDmsElementType ::= INTEGER {
+        other(1),
+        encoder(2),
+        videoPortal(3),
+        mediaPlayer(4),
+        transCoder(5),
+        storageServer(6),
+        streamingServer(7),
+        dmm(8)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of the DMS inventory element.
+--    
+--    DMS supports the following inventory element types
+--    among other types: 
+--    
+--    'other': other type not represented by any other enum value
+--    
+--    'encoder': device capable of encoding video media to be
+--                               streamed to DMS endpoints
+--    
+--    'videoPortal': endpoint that delivers video to desktops
+--    
+--    'mediaPlayer': endpoint that delivers video to large LCDs
+--    
+--    'transCoder': device capable of transcoding video from one 
+--                  format to another
+--    
+--    'storageServer': device capable of storing media
+--    
+--    'streamingServer': device capable of serving media as a stream
+--    
+--    'dmm': DMS administrative node
+
+CDmsFunctionalStatus ::= INTEGER {
+        other(1),
+        initialize(2),
+        active(3),
+        shutdown(4),
+        standby(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The status of a DMS functional component.
+--    
+--    other: the component is in an unknown status.
+--    
+--    initialize: the component is in the process
+--                of starting up.
+--    
+--    active: the component is active and servicing
+--            requests.
+--    
+--    shutdown: the component is shut down or is
+--              shutting down.
+--    
+--    standby: the component is not servicing requests but is
+--             ready to do when needed.
+--    
+--    Objects of this type may be used to reboot a DMS
+--    element by setting value of the object to initialize(1).
+--    
+--    Management entity may not write values initialize(1)
+--    or active(2) onto objects of this type. Doing so
+--    would cause the managed entity to return an error
+--    condition.
+
+CDmsEmailAddress ::= OCTET STRING(SIZE(0..128))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type used to denote the email address.
+
+CDmsLicensedFeature ::= INTEGER {
+        other(1),
+        base(2),
+        deskTopVideo(3),
+        liveWebcastEnabler(4),
+        digitalSignage(5),
+        enterpriseTv(6),
+        snmpManagement(7),
+        digitalMediaPlayer(8),
+        digitalMediaPlayerAuthorPack(9),
+        digitalMedialPlayerProofOfPlayPack(10),
+        clustering(11)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The identity of a licensed features of DMS.
+--    
+--    other : a product function not covered by
+--            any of the other enumerations listed
+--            below.
+--    
+--    base : Digital Media Manager Base License.
+--    
+--    deskTopVideo : Show and Share Module.
+--    
+--    liveWebcastEnabler : Show and share Live Event Module.
+--    
+--    digitalSignage : Digital Signs Module.
+--    
+--    enterpriseTv : Cast Module.
+--    
+--    snmpManagement : SNMP Notifications Module.
+--    
+--    digitalMediaPlayer : Digital Media Player Pack.
+--    
+--    digitalMediaPlayerAuthorPack : Show and Share Content Authour Pack.
+--    
+--    digitalMedialPlayerProofOfPlayPack : Proof of Play Module.
+--    
+--    clustering : the function to configure DMS high availability.
+
+cdmsMajorVersion OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(2))
+--    Rsyntax OCTET STRING(SIZE(2))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A string which indicates the major version of
+        this managed instance of Digital Media System."
+    ::= { cdmsSystem 1 }
+
+cdmsMinorVersion OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(2))
+--    Rsyntax OCTET STRING(SIZE(2))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A string which indicates the minor version of
+        this managed instance of Digital Media System."
+    ::= { cdmsSystem 2 }
+
+cdmsPatchVersion OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(2))
+--    Rsyntax OCTET STRING(SIZE(2))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A string which indicates the patch version of
+        this managed instance of Digital Media System."
+    ::= { cdmsSystem 3 }
+
+cdmsAdministrator OBJECT-TYPE
+    SYNTAX CDmsEmailAddress
+--    Rsyntax OCTET STRING(SIZE(0..128))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The email address of the administrator of this
+        DMS system."
+    ::= { cdmsSystem 4 }
+
+cdmsLicensableFeatures OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of licensable features available
+        in this version of DMS."
+    ::= { cdmsFeatureSummary 1 }
+
+cdmsLicensedFeatures OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of licensable features licensed in
+        this installation of DMS."
+    ::= { cdmsFeatureSummary 2 }
+
+cdmsLastLicenseUpdate OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date on which the last license upgrade was
+        performed."
+    ::= { cdmsFeatureSummary 3 }
+
+cdmsLicensedFeatureTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdmsLicensedFeatureEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists all the DMS features licensed
+        by this installation of DMS."
+    ::= { cdmsFeatures 2 }
+
+cdmsLicensedFeatureEntry OBJECT-TYPE
+    SYNTAX CdmsLicensedFeatureEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the attributes of one DMS licensed
+        feature. An entry in this table is created for each licensed
+        feature detected by the system."
+    INDEX { cdmsLicensedFeature, cdmsLicensedFeatureIndex }
+    ::= { cdmsLicensedFeatureTable 1 }
+
+CdmsLicensedFeatureEntry ::= SEQUENCE {
+    cdmsLicensedFeature CDmsLicensedFeature,
+    cdmsLicensedFeatureIndex Gauge,
+    cdmsLicensedFeatureLimit Gauge,
+    cdmsLicensedFeatureDescription SnmpAdminString,
+    cdmsLicensedFeatureInstallDate DateAndTime,
+    cdmsLicensedFeatureLimitRev1 INTEGER
+    }
+
+cdmsLicensedFeature OBJECT-TYPE
+    SYNTAX CDmsLicensedFeature
+--    Rsyntax INTEGER {
+--        other(1),
+--        base(2),
+--        deskTopVideo(3),
+--        liveWebcastEnabler(4),
+--        digitalSignage(5),
+--        enterpriseTv(6),
+--        snmpManagement(7),
+--        digitalMediaPlayer(8),
+--        digitalMediaPlayerAuthorPack(9),
+--        digitalMedialPlayerProofOfPlayPack(10),
+--        clustering(11)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The identity of a DMS feature which is licensed by this
+        installation."
+    ::= { cdmsLicensedFeatureEntry 1 }
+
+cdmsLicensedFeatureIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4096)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The unique identifier of the DMS feature licensed by
+        this installation. The same feature may be licensed multiple
+        times with different limits. Hence this discriminator is
+        required."
+    ::= { cdmsLicensedFeatureEntry 2 }
+
+cdmsLicensedFeatureLimit OBJECT-TYPE
+    SYNTAX Gauge(0..2147483647)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The limit on this licensed features in terms of number
+        of elements that may be operational with this DMS feature.
+        Limits do not apply to all DMS features; where the limit
+        is inapplicable, the value of this object will be set to
+        0.
+        cdmsLicensedFeatureLimit object is superseded by cdmsLicensedFeatureLimitRev1."
+    ::= { cdmsLicensedFeatureEntry 3 }
+
+cdmsLicensedFeatureDescription OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A human readable description of this DMS feature and its
+        limits."
+    ::= { cdmsLicensedFeatureEntry 4 }
+
+cdmsLicensedFeatureInstallDate OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date on which the DMS licensed feature corresponding
+        this conceptual row was first enabled."
+    ::= { cdmsLicensedFeatureEntry 5 }
+
+cdmsLicensedFeatureLimitRev1 OBJECT-TYPE
+    SYNTAX INTEGER(-3..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The limit on this licensed features in terms of number
+        of elements that may be operational with this DMS feature.
+        Limits do not apply to all DMS features; Following are the
+        meaning of negative limits for this field
+        
+        >0 : Feature limit 
+         0 : Unlimited
+        -1 : Feature limit not supported
+        -2 : DONT CARE about feaute limit
+        -3 : DONT KNOW about feature limit"
+    ::= { cdmsLicensedFeatureEntry 6 }
+
+cdmsNumMediaIngestionDevices OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Encoders
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of media ingestion devices managed by
+        this installation of DMS."
+    ::= { cdmsInventoryGlobalCounters 1 }
+
+cdmsNumMediaPlayerDevices OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Media Players
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of media player devices managed by
+        this installation of DMS."
+    ::= { cdmsInventoryGlobalCounters 2 }
+
+cdmsNumVideoPortalDevices OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Video Portals
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of video portal devices managed by
+        this installation of DMS."
+    ::= { cdmsInventoryGlobalCounters 3 }
+
+cdmsInventoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdmsInventoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists all the inventory elements
+        currently managed by this installation of DMS."
+    ::= { cdmsInventory 2 }
+
+cdmsInventoryEntry OBJECT-TYPE
+    SYNTAX CdmsInventoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the attributes of one
+        inventory element of DMS."
+    INDEX { cdmsInventoryElementType, cdmsInventoryElementId }
+    ::= { cdmsInventoryTable 1 }
+
+CdmsInventoryEntry ::= SEQUENCE {
+    cdmsInventoryElementType CDmsElementType,
+    cdmsInventoryElementId SnmpAdminString,
+    cdmsInventoryElementMacAddress MacAddress,
+    cdmsInventoryElementAddrType InetAddressType,
+    cdmsInventoryElementAddress InetAddress,
+    cdmsInventoryElementMetadata SnmpAdminString,
+    cdmsInventoryElementState CDmsFunctionalStatus
+    }
+
+cdmsInventoryElementType OBJECT-TYPE
+    SYNTAX CDmsElementType
+--    Rsyntax INTEGER {
+--        other(1),
+--        encoder(2),
+--        videoPortal(3),
+--        mediaPlayer(4),
+--        transCoder(5),
+--        storageServer(6),
+--        streamingServer(7),
+--        dmm(8)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the DMS inventory element that this conceptual
+        row corresponds to."
+    ::= { cdmsInventoryEntry 1 }
+
+cdmsInventoryElementId OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..100))
+--    Rsyntax OCTET STRING(SIZE(1..100))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The unique identifier of the DMS inventory element that this
+        conceptual row corresponds to. For instance, in case of a
+        media player, this identifier would be the unique symbolic name
+        of the player. In case of a Video Portal instance, this would
+        be the name of the Video Portal instance."
+    ::= { cdmsInventoryEntry 2 }
+
+cdmsInventoryElementMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The MAC address of the DMS inventory element.
+        This object may not be supportable for all 
+        inventory elements. For an element where the 
+        MAC address is not available, the value of this 
+        object would be empty."
+    ::= { cdmsInventoryEntry 3 }
+
+cdmsInventoryElementAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address of the DMS inventory
+        element."
+    ::= { cdmsInventoryEntry 4 }
+
+cdmsInventoryElementAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address of the DMS inventory element.
+        The type of this address is determined by the value of
+        'cdmsInventoryElementAddrType' object."
+    ::= { cdmsInventoryEntry 5 }
+
+cdmsInventoryElementMetadata OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A meta-data string associated with this inventory element.
+        This information is interpreted by the DMS functional
+        components using inventory elements programmatically
+        within the system."
+    ::= { cdmsInventoryEntry 6 }
+
+cdmsInventoryElementState OBJECT-TYPE
+    SYNTAX CDmsFunctionalStatus
+--    Rsyntax INTEGER {
+--        other(1),
+--        initialize(2),
+--        active(3),
+--        shutdown(4),
+--        standby(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The state of the inventory element corresponding to this
+        conceptual row as seen by the DMS server.
+        
+        Set operations on this object are not supported for all
+        inventory element types. Where it is not supported,
+        the server would yield an error.
+        
+        The effect of setting this object to the value 'initializing'
+        would be to reboot the element corresponding to this
+        conceptual row, if the element type supports this operation."
+    ::= { cdmsInventoryEntry 7 }
+
+cdmsServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdmsServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists all the external servers
+        used by this installation of DMS."
+    ::= { cdmsServers 1 }
+
+cdmsServerEntry OBJECT-TYPE
+    SYNTAX CdmsServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the attributes of one
+        external server used by DMS."
+    INDEX { cdmsServerType, cdmsServerAddrType, cdmsServerAddress }
+    ::= { cdmsServerTable 1 }
+
+CdmsServerEntry ::= SEQUENCE {
+    cdmsServerType CDmsServerType,
+    cdmsServerAddrType InetAddressType,
+    cdmsServerAddress InetAddress,
+    cdmsServerState CDmsFunctionalStatus,
+    cdmsServerStatus RowStatus
+    }
+
+cdmsServerType OBJECT-TYPE
+    SYNTAX CDmsServerType
+--    Rsyntax INTEGER {
+--        other(1),
+--        dnsServer(2),
+--        ldapServer(3),
+--        snmpServer(4),
+--        smtpServer(5),
+--        syslogServer(6),
+--        aaaServer(7),
+--        ntpServer(8)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the external server corresponding to this
+        conceptual row used by DMS."
+    ::= { cdmsServerEntry 1 }
+
+cdmsServerAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address of the external server."
+    ::= { cdmsServerEntry 2 }
+
+cdmsServerAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address of the external server.
+        The type of this address is determined by the value
+        of the cdmsServerAddrType object."
+    ::= { cdmsServerEntry 3 }
+
+cdmsServerState OBJECT-TYPE
+    SYNTAX CDmsFunctionalStatus
+--    Rsyntax INTEGER {
+--        other(1),
+--        initialize(2),
+--        active(3),
+--        shutdown(4),
+--        standby(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The state of the external server."
+    ::= { cdmsServerEntry 4 }
+
+cdmsServerStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage creation, deletion
+        and modification of external servers in this table."
+    ::= { cdmsServerEntry 5 }
+
+cdmsNumContentElements OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    content elements
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of content elements in the DMS catalog."
+    ::= { cdmsDamGlobalCounters 1 }
+
+cdmsNumAuthenRequests OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    requests
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of user authentication requests processed
+        by DMS since last reboot."
+    ::= { cdmsSecurityGlobalCounters 1 }
+
+cdmsNumAuthenRequestsApproved OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    requests
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of user authentication requests
+        approved by DMS since last reboot."
+    ::= { cdmsDamGlobalCounters 2 }
+
+cdmsNumAuthenRequestsDeclined OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    requests
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of user authentication requests
+        declined by DMS since last reboot."
+    ::= { cdmsDamGlobalCounters 3 }
+
+cdmsAuthenticationMode OBJECT-TYPE
+    SYNTAX CDmsUserAuthenMethod
+--    Rsyntax INTEGER {
+--        none(1),
+--        other(2),
+--        radius(3),
+--        tacacsPlus(4),
+--        kerberos(5),
+--        local(6),
+--        ldap(7),
+--        ntlm(8),
+--        sdi(9)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The mode of authenticating users in use by DMS."
+    ::= { cdmsSecurityConfiguration 1 }
+
+cdmsHaClusterEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if high availability function is enabled
+        in this installation of DMS.
+        
+        The value 'true(1)', indicates that high availability function
+        is enabled.
+        
+        The value 'false(2)', indicates that high availability function
+        is disabled."
+    DEFVAL { false }
+    ::= { cdmsHaClusterInfo 1 }
+
+cdmsHaClusterName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This human-readable string servers as the administrative label
+        of this DMS cluster."
+    ::= { cdmsHaClusterInfo 2 }
+
+cdmsHaClusterNumTotalDmms OBJECT-TYPE
+    SYNTAX INTEGER(2..10)
+--  Units
+--    Nodes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of DMM nodes in this
+        cluster."
+    ::= { cdmsHaDmmCluster 1 }
+
+cdmsHaClusterNumActiveDmms OBJECT-TYPE
+    SYNTAX Gauge(1..10)
+--  Units
+--    Nodes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of DMM nodes in this
+        cluster which are in active state."
+    ::= { cdmsHaDmmCluster 2 }
+
+cdmsHaClusterDmmVipType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the Virtual Internet Protocol address of the DMM
+        cluster of this DMS cluster."
+    ::= { cdmsHaDmmCluster 3 }
+
+cdmsHaClusterDmmVip OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the virtual address of the DMM cluster. The type
+        of this address is determined by the value of 
+        'cdmsHaClusterDmmVipType'."
+    ::= { cdmsHaDmmCluster 4 }
+
+cdmsHaDmmClusterMemberTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdmsHaDmmClusterMemberEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the membership of the DMM cluster in this DMS
+        cluster. Each conceptual row in this table represents an
+        instance of DMM node in the DMM cluster.
+        
+        Rows in this table are created by the agent when the DMM
+                cluster is configured."
+    ::= { cdmsHaDmmCluster 5 }
+
+cdmsHaDmmClusterMemberEntry OBJECT-TYPE
+    SYNTAX CdmsHaDmmClusterMemberEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the
+        'cdmsHaDmmClusterMemberTable' describes one DMM node in the
+        membership of the DMM cluster."
+    INDEX { cdmsHaDmmClusterMemberAddrType, cdmsHaDmmClusterMemberAddress }
+    ::= { cdmsHaDmmClusterMemberTable 1 }
+
+CdmsHaDmmClusterMemberEntry ::= SEQUENCE {
+    cdmsHaDmmClusterMemberAddrType InetAddressType,
+    cdmsHaDmmClusterMemberAddress InetAddress,
+    cdmsHaDmmClusterMemberIsPrimary TruthValue,
+    cdmsHaDmmClusterMemberOperState CDmsFunctionalStatus
+    }
+
+cdmsHaDmmClusterMemberAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of the actual network address
+        of DMM node represented by the corresponding instance
+        identifier 'cdmsHaDmmClusterMemberAddress')."
+    ::= { cdmsHaDmmClusterMemberEntry 1 }
+
+cdmsHaDmmClusterMemberAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The actual network address of the DMM node corresponding to
+        this conceptual row. The type of address of an instance of this
+        object is determined by the value of the corresponding instance
+        of 'cdmsHaDmmClusterMemberAddrType'."
+    ::= { cdmsHaDmmClusterMemberEntry 2 }
+
+cdmsHaDmmClusterMemberIsPrimary OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if the DMM node corresponding to this
+        conceptual row is 'primary'.
+        
+        A node in a cluster is considered 'primary' if:
+          a) the cluster services are preferred to be implemented on
+             the node
+          b) if the node acts as a management interface to the cluster.
+        
+        Otherwise, the node is considered 'secondary'.
+        
+        The value 'true(1)', indicates that the DMM is primary.
+        
+        The value 'false(2)', indicates that the DMM is secondary."
+    ::= { cdmsHaDmmClusterMemberEntry 3 }
+
+cdmsHaDmmClusterMemberOperState OBJECT-TYPE
+    SYNTAX CDmsFunctionalStatus
+--    Rsyntax INTEGER {
+--        other(1),
+--        initialize(2),
+--        active(3),
+--        shutdown(4),
+--        standby(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational state of the DMM node
+        corresponding to this conceptual row."
+    ::= { cdmsHaDmmClusterMemberEntry 4 }
+
+cdmsHaVpClusterNumClusters OBJECT-TYPE
+    SYNTAX INTEGER(1..50)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of Video Portal Clusters
+        comprising this DMS cluster."
+    ::= { cdmsHaVpCluster 1 }
+
+cdmsHaVpClusterMemberTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdmsHaVpClusterMemberEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table serves the dual purpose of enumerating the various
+        video portal clusters in this installation as well as 
+        listing the member video portal nodes in each video portal
+        cluster. Entries in this table are created by the agent when 
+                the cluster is configured."
+    ::= { cdmsHaVpCluster 2 }
+
+cdmsHaVpClusterMemberEntry OBJECT-TYPE
+    SYNTAX CdmsHaVpClusterMemberEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the cdmsHaVpClusterMemberTable.
+        Each entry in this table represents a VP node that belongs to
+        this VP cluster.
+        
+        This table is read-only; the agent creates the
+        necessary rows when the cluster is configured and deletion of
+        rows is not permitted."
+    INDEX { cdmsHaVpClusterMemberClusterName, cdmsHaVpClusterMemberVipType, cdmsHaVpClusterMemberVip, cdmsHaVpClusterMemberAddrType, cdmsHaVpClusterMemberAddress }
+    ::= { cdmsHaVpClusterMemberTable 1 }
+
+CdmsHaVpClusterMemberEntry ::= SEQUENCE {
+    cdmsHaVpClusterMemberClusterName SnmpAdminString,
+    cdmsHaVpClusterMemberVipType InetAddressType,
+    cdmsHaVpClusterMemberVip InetAddress,
+    cdmsHaVpClusterMemberAddrType InetAddressType,
+    cdmsHaVpClusterMemberAddress InetAddress,
+    cdmsHaVpClusterMemberIsPrimary TruthValue,
+    cdmsHaVpClusterMemberOperState CDmsFunctionalStatus
+    }
+
+cdmsHaVpClusterMemberClusterName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies a human-readable administrative name of
+        the video portal cluster corresponding to this conceptual row."
+    ::= { cdmsHaVpClusterMemberEntry 1 }
+
+cdmsHaVpClusterMemberVipType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of the virtual IP address of
+        the video portal cluster represented by the corresponding 
+        instance identifier 'cdmsHaVpClusterMemberVip'."
+    ::= { cdmsHaVpClusterMemberEntry 2 }
+
+cdmsHaVpClusterMemberVip OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The virtual IP address of the video portal cluster represented
+        by this conceptual row. The type of address of an instance of
+        this object is determined by the value of the corresponding
+        instance of 'cdmHaVpClusterMemberVipType'."
+    ::= { cdmsHaVpClusterMemberEntry 3 }
+
+cdmsHaVpClusterMemberAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the actual IP address of the video
+        portal node represented by the corresponding instance 
+        identifier 'cdmsHaVpClusterMemberAddress'."
+    ::= { cdmsHaVpClusterMemberEntry 4 }
+
+cdmsHaVpClusterMemberAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The actual IP address of the video portal represented by this
+        conceptual row. The type of address of an instance of this
+        object is determined by the value of the corresponding instance
+        of 'cdmHaVpClusterMemberAddrType'."
+    ::= { cdmsHaVpClusterMemberEntry 5 }
+
+cdmsHaVpClusterMemberIsPrimary OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if the DMM node corresponding to this
+        conceptual row is 'primary'.
+        
+        A node in a cluster is considered 'primary' if:
+          a) the cluster services are preferred to be implemented on
+             the node
+          b) if the node acts as a management interface to the cluster.
+        
+        Otherwise, the node is considered 'secondary'.
+        
+        The value 'true(1)', indicates that the VP is primary.
+        
+        The value 'false(2)', indicates that the VP is secondary."
+    ::= { cdmsHaVpClusterMemberEntry 6 }
+
+cdmsHaVpClusterMemberOperState OBJECT-TYPE
+    SYNTAX CDmsFunctionalStatus
+--    Rsyntax INTEGER {
+--        other(1),
+--        initialize(2),
+--        active(3),
+--        shutdown(4),
+--        standby(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational state of the VP node
+        corresponding to this conceptual row."
+    ::= { cdmsHaVpClusterMemberEntry 7 }
+
+cdmsHaClusterLastDmmStatusChangeTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time-stamp of the most recent occurrence of the status
+        change of a DMM node in this cluster. A status change is 
+        defined as a transition in the value of the object
+        'cdmsHaDmmClusterMemberOperState'."
+    ::= { cdmsHaClusterStatus 1 }
+
+cdmsHaClusterLastDmmStatusChangeAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of the network address of the
+        DMM node which changed status most recently in this cluster
+        (represented  by the value of
+        'cdmsHaClusterLastDmmStatusChangeAddress' object). A status
+        change is defined as a transition in the value of the object
+        'cdmsHaDmmClusterMemberOperState'."
+    ::= { cdmsHaClusterStatus 2 }
+
+cdmsHaClusterLastDmmStatusChangeAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The network address of the DMM node which changed status most
+        recently in this cluster. The type of address of an instance of
+        this object is determined by the value of the corresponding
+        instance of 'cdmsHaClusterLastDmmStatusChangeAddrType' object."
+    ::= { cdmsHaClusterStatus 3 }
+
+cdmsHaClusterLastVpStatusChangeTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time-stamp of the most recent occurrence of the status
+        change of a video portal node in this cluster. A status
+        change is defined as a transition in the value of the object
+        'cdmsHaVpClusterMemberOperState'."
+    ::= { cdmsHaClusterStatus 4 }
+
+cdmsHaClusterLastVpStatusChangeCluster OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The administrative label of the video portal cluster in which
+        a video portal node changed its state most recently."
+    ::= { cdmsHaClusterStatus 5 }
+
+cdmsHaClusterLastStatusChangeVpAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of the network address of the
+        VP node which changed status most recently in this cluster
+        (represented  by the value of
+        'cdmsHaClusterLastVpStatusChangeAddress' object). A status
+        change is defined as a transition in the value of the object
+        'cdmsHaVpClusterMemberOperState'."
+    ::= { cdmsHaClusterStatus 6 }
+
+cdmsHaClusterLastVpStatusChangeVpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The network address of the video portal node which changed
+        status most recently in this cluster. The type of address of an
+        instance of this object is determined by the value of the
+        corresponding instance of
+        'cdmsHaClusterLastVpStatusChangeAddrType' object."
+    ::= { cdmsHaClusterStatus 7 }
+
+cdmsHaClusterHistoryMaxRecords OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maximum number of history records
+        pertaining to DMS Cluster history that would be maintained in
+        the table 'cdmsHaClusterHistoryTable'."
+    ::= { cdmsHaClusterStatusHistory 1 }
+
+cdmsHaClusterHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdmsHaClusterHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the chronological record of all the DMS
+        cluster events and their attributes that occurred in the
+        manager DMS cluster since the last re-initialization of this 
+        device.
+        
+        When the number of entries in this table exceeds the value of
+        object 'cdmsHaClusterHistoryMaxRecords', the older entries will
+        be purged."
+    ::= { cdmsHaClusterStatusHistory 2 }
+
+cdmsHaClusterHistoryEntry OBJECT-TYPE
+    SYNTAX CdmsHaClusterHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) contains the record of a single DMS
+        cluster event."
+    INDEX { cdmsHaClusterHistId }
+    ::= { cdmsHaClusterHistoryTable 1 }
+
+CdmsHaClusterHistoryEntry ::= SEQUENCE {
+    cdmsHaClusterHistId INTEGER,
+    cdmsHaClusterHistTimestamp TimeStamp,
+    cdmsHaClusterHistClusterName SnmpAdminString,
+    cdmsHaClusterHistNodeType CDmsElementType,
+    cdmsHaClusterHistNodeNewStatus CDmsFunctionalStatus,
+    cdmsHaClusterHistNodeAddrType InetAddressType,
+    cdmsHaClusterHistNodeAddr InetAddress
+    }
+
+cdmsHaClusterHistId OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object uniquely identifies an entry in the cluster
+        history."
+    ::= { cdmsHaClusterHistoryEntry 1 }
+
+cdmsHaClusterHistTimestamp OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the cluster event corresponding to
+        this conceptual row occurred."
+    ::= { cdmsHaClusterHistoryEntry 2 }
+
+cdmsHaClusterHistClusterName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the DMS cluster in which the cluster event
+        corresponding to this conceptual row occurred."
+    ::= { cdmsHaClusterHistoryEntry 3 }
+
+cdmsHaClusterHistNodeType OBJECT-TYPE
+    SYNTAX CDmsElementType
+--    Rsyntax INTEGER {
+--        other(1),
+--        encoder(2),
+--        videoPortal(3),
+--        mediaPlayer(4),
+--        transCoder(5),
+--        storageServer(6),
+--        streamingServer(7),
+--        dmm(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the DMS node in which the cluster event
+        corresponding to this conceptual row occurred, if this event
+        pertains to a node in the cluster. If this event does not
+        pertain to a node, the value of this column is undefined."
+    ::= { cdmsHaClusterHistoryEntry 4 }
+
+cdmsHaClusterHistNodeNewStatus OBJECT-TYPE
+    SYNTAX CDmsFunctionalStatus
+--    Rsyntax INTEGER {
+--        other(1),
+--        initialize(2),
+--        active(3),
+--        shutdown(4),
+--        standby(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "If the cluster event corresponding to this conceptual row is
+        a cluster node event, then this object identifies the new state
+        of the cluster node identified by 'cdmsHaClusterHistNodeAddr'
+        after this event."
+    ::= { cdmsHaClusterHistoryEntry 5 }
+
+cdmsHaClusterHistNodeAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of network address of the node
+        (represented by the value of the corresponding instance of 
+        'cdmsHaClusterHistNodeAddr') to which the cluster event
+        pertains."
+    ::= { cdmsHaClusterHistoryEntry 6 }
+
+cdmsHaClusterHistNodeAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The address of the node to which the cluster event
+        corresponding to this conceptual row pertains. The type of
+        address of an instance of this object is determined by the 
+                value of the corresponding instance of 
+                'cdmsHaClusterHistNodeAddrType' object."
+    ::= { cdmsHaClusterHistoryEntry 7 }
+
+cdmsNumUsers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Users
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of users who have access to this
+        installation of DMS."
+    ::= { cdmsUserGroup 1 }
+
+cdmsNumActiveDmmUsers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Users
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of users who are logged into DMS
+        administrative appliance."
+    ::= { cdmsUserGroup 2 }
+
+cdmsNumActiveVpUsers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Users
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of users who are logged into DMS
+        Video Portal appliance."
+    ::= { cdmsUserGroup 3 }
+
+cdmsLastUserLastChange OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The date and time at which the last user was added
+        or deleted."
+    ::= { cdmsUserGroup 4 }
+
+cdmsNumEvents OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Events
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of events generated by this installation
+        of DMS since last reboot."
+    ::= { cdmsEventStatistics 1 }
+
+cdmsNumEventRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Events per minute
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of events per minute generated by
+        this installation of DMS since last reboot."
+    ::= { cdmsEventStatistics 2 }
+
+cdmsNumAlarms OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Alarms
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of events of severity greater than 'warning'
+        ('alarms') generated by this installation of DMS since
+        last reboot."
+    ::= { cdmsEventStatistics 3 }
+
+cdmsNumAlarmRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Alarms per minute
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of alarms per minute generated by
+        this installation of DMS since last reboot."
+    ::= { cdmsEventStatistics 4 }
+
+cdmsNumNotifications OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    Notifications
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of notifications emitted by this installation
+        of DMS since last reboot."
+    ::= { cdmsEventStatistics 5 }
+
+cdmsNumNotificationRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Notifications per minute
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of notifications emitted per minute
+        by this installation of DMS since last reboot."
+    ::= { cdmsEventStatistics 6 }
+
+cdmsMediaPlayerRegisteredEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the administrative state of
+        sending the 'ciscoDmsMediaPlayerRegistered' notification
+        to signal the fact that a digital media player which
+        was shutdown is now operational."
+    DEFVAL { false }
+    ::= { cdmsNotifControl 1 }
+
+cdmsMediaPlayerUpEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the administrative state of
+        sending the 'ciscoDmsMediaPlayerUp' notification to signal
+        the fact that a digital media player which is registered
+        with this installation of DMS has become operational."
+    DEFVAL { false }
+    ::= { cdmsNotifControl 2 }
+
+cdmsMediaPlayerDownEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the administrative state of
+        sending the 'ciscoDmsMediaPlayerDown' notification to signal
+        the fact that a digital media player which was operational
+        and is registered with this installation of DMS is now
+        shutdown."
+    DEFVAL { false }
+    ::= { cdmsNotifControl 3 }
+
+cdmsMediaPlayerAddrTakenEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the administrative state of
+        sending the 'ciscoDmsMediaPlayerAddrTaken' notification to
+        signal the fact that the IP address assigned to a managed
+        digital media player has been acquired by another media
+        player."
+    DEFVAL { false }
+    ::= { cdmsNotifControl 4 }
+
+cdmsHaClusterNodeUpEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the administrative state of sending the
+        'ciscoDmsHaClusterNodeUp' notification to signal the fact that
+                a component in a DMS cluster has transitioned to active state."
+    DEFVAL { false }
+    ::= { cdmsNotifControl 5 }
+
+cdmsHaClusterNodeDownEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the administrative state of sending the
+        'ciscoDmsHaClusterNodeDown' notification to signal the fact 
+                that a component in a DMS cluster has transitioned to inactive
+        state."
+    DEFVAL { false }
+    ::= { cdmsNotifControl 6 }
+
+cdmsHaClusterConfigChangeEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the administrative state of sending the
+        'ciscoDmsHaClusterConfigChange' notification to signal the fact
+        that the configuration of the managed DMS cluster has changed."
+    DEFVAL { false }
+    ::= { cdmsNotifControl 7 }
+
+ciscoDmsMediaPlayerRegistered TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoDigitalMediaSystemsMIB
+    VARIABLES {
+        cdmsNumMediaPlayerDevices, cdmsInventoryElementMacAddress, 
+        cdmsInventoryElementAddrType, cdmsInventoryElementAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a media player
+        is registered into this installation of DMS."
+    ::= 1
+
+ciscoDmsMediaPlayerUp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoDigitalMediaSystemsMIB
+    VARIABLES {
+        cdmsNumMediaPlayerDevices, cdmsInventoryElementMacAddress, 
+        cdmsInventoryElementAddrType, cdmsInventoryElementAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a media player
+        which is registered with DMS becomes operational."
+    ::= 2
+
+ciscoDmsMediaPlayerDown TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoDigitalMediaSystemsMIB
+    VARIABLES {
+        cdmsNumMediaPlayerDevices, cdmsInventoryElementAddrType, 
+        cdmsInventoryElementAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when a media player
+        which is registered with DMS and which was operational
+        is shutdown."
+    ::= 3
+
+ciscoDmsMediaPlayerAddrTaken TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoDigitalMediaSystemsMIB
+    VARIABLES {
+        cdmsInventoryElementAddrType, cdmsInventoryElementAddress }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when it is detected
+        that the network address of a media player is
+        taken by a different media player."
+    ::= 4
+
+ciscoDmsHaClusterNodeUp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoDigitalMediaSystemsMIB
+    VARIABLES {
+        cdmsHaClusterHistClusterName, cdmsHaClusterHistNodeType, 
+        cdmsHaClusterHistNodeAddrType, cdmsHaClusterHistNodeAddr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when it is detected
+        that a node in a managed DMS cluster has transitioned
+        to active state, that is, the value of the object
+        'cdmsHaDmmClusterMemberOperState' or
+        'cdmsHaVpClusterMemberOperState' has transitioned to 'active'.
+        
+        This object specifies the administrative state of
+        sending the 'ciscoDmsHaClusterNodeDown' notification to
+        signal the fact that a component in a DMS cluster has 
+        transitioned to inactive state."
+    ::= 5
+
+ciscoDmsHaClusterNodeDown TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoDigitalMediaSystemsMIB
+    VARIABLES {
+        cdmsHaClusterHistClusterName, cdmsHaClusterHistNodeType, 
+        cdmsHaClusterHistNodeAddrType, cdmsHaClusterHistNodeAddr }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when it is detected
+        that a node in a managed DMS cluster has transitioned
+        to inactive state, that is, the value of the object
+        'cdmsHaDmmClusterMemberOperState' or
+        'cdmsHaVpClusterMemberOperState' has transitioned to
+        'shutdown'."
+    ::= 6
+
+cdmsDmsHaClusterConfigChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoDigitalMediaSystemsMIB
+    VARIABLES {
+        cdmsHaClusterHistClusterName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when it is detected
+        that the configuration of a managed DMS cluster has 
+        been altered. Configuration changes that trigger this
+        notification include modifications to the virtual IP address
+        and
+        the virtual IP address type."
+    ::= 7
+
+ciscoDmsSystemGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information
+--    about DMS system parameters.
+--  objects
+--    cdmsMajorVersion, cdmsMinorVersion, cdmsPatchVersion, 
+--    cdmsAdministrator
+
+ciscoDmsFeatureGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information
+--    about DMS licensed features.
+--  objects
+--    cdmsLicensableFeatures, cdmsLicensedFeatures, 
+--    cdmsLastLicenseUpdate, cdmsLicensedFeatureLimit, 
+--    cdmsLicensedFeatureDescription
+
+ciscoDmsFeatureAdvancedGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information
+--    about DMS advanced licensed features.
+--  objects
+--    cdmsLicensedFeatureInstallDate
+
+ciscoDmsInventoryGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information
+--    about DMS inventory.
+--  objects
+--    cdmsNumMediaIngestionDevices, cdmsNumMediaPlayerDevices, 
+--    cdmsNumVideoPortalDevices, cdmsInventoryElementMacAddress, 
+--    cdmsInventoryElementAddrType, cdmsInventoryElementAddress, 
+--    cdmsInventoryElementMetadata, cdmsInventoryElementState
+
+ciscoDmsServerGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information
+--    about DMS external servers.
+--  objects
+--    cdmsServerState, cdmsServerStatus
+
+ciscoDamGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information
+--    about DMS group.
+--  objects
+--    cdmsNumContentElements
+
+ciscoDmsSecurityGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information
+--    about DMS security.
+--  objects
+--    cdmsNumAuthenRequests, cdmsNumAuthenRequestsApproved, 
+--    cdmsNumAuthenRequestsDeclined, cdmsAuthenticationMode
+
+ciscoDmsUserGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information
+--    about DMS users and user groups.
+--  objects
+--    cdmsNumUsers, cdmsNumActiveDmmUsers, cdmsNumActiveVpUsers, 
+--    cdmsLastUserLastChange
+
+ciscoDmsEventGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information
+--    about DMS events.
+--  objects
+--    cdmsNumEvents, cdmsNumEventRate, cdmsNumAlarms, 
+--    cdmsNumAlarmRate, cdmsNumNotifications, 
+--    cdmsNumNotificationRate
+
+ciscoDmsNotificationCntlGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects that provides information
+--    about DMS notification control.
+--  objects
+--    cdmsMediaPlayerRegisteredEnable, cdmsMediaPlayerUpEnable, 
+--    cdmsMediaPlayerDownEnable, cdmsMediaPlayerAddrTakenEnable
+
+ciscoDmsHaGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of MIB objects that must be implemented to support
+--    management of DMS HA feature.
+--  objects
+--    cdmsHaClusterNodeUpEnable, cdmsHaClusterNodeDownEnable, 
+--    cdmsHaClusterConfigChangeEnable, cdmsHaClusterEnabled, 
+--    cdmsHaClusterName, cdmsHaClusterNumTotalDmms, 
+--    cdmsHaClusterNumActiveDmms, cdmsHaClusterDmmVipType, 
+--    cdmsHaClusterDmmVip, cdmsHaDmmClusterMemberIsPrimary, 
+--    cdmsHaDmmClusterMemberOperState, cdmsHaVpClusterNumClusters, 
+--    cdmsHaVpClusterMemberIsPrimary, 
+--    cdmsHaVpClusterMemberOperState, 
+--    cdmsHaClusterLastDmmStatusChangeTime, 
+--    cdmsHaClusterLastDmmStatusChangeAddrType, 
+--    cdmsHaClusterLastDmmStatusChangeAddress, 
+--    cdmsHaClusterLastVpStatusChangeTime, 
+--    cdmsHaClusterLastVpStatusChangeCluster, 
+--    cdmsHaClusterLastStatusChangeVpAddrType, 
+--    cdmsHaClusterLastVpStatusChangeVpAddress, 
+--    cdmsHaClusterHistoryMaxRecords
+
+ciscoDmsHaAdvancedGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of MIB objects that must be implemented to support
+--    advanced management of DMS HA feature. This group is optional.
+--  objects
+--    cdmsHaClusterHistTimestamp, cdmsHaClusterHistClusterName, 
+--    cdmsHaClusterHistNodeType, cdmsHaClusterHistNodeNewStatus, 
+--    cdmsHaClusterHistNodeAddrType, cdmsHaClusterHistNodeAddr, 
+--    cdmsHaClusterHistoryMaxRecords
+
+ciscoDmsNotificationCntlGroupRev1 OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information about DMS
+--    notification control. This revision adds support for High
+--    Availability (HA).
+--  objects
+--    cdmsMediaPlayerRegisteredEnable, cdmsMediaPlayerUpEnable, 
+--    cdmsMediaPlayerDownEnable, cdmsMediaPlayerAddrTakenEnable, 
+--    cdmsHaClusterNodeUpEnable, cdmsHaClusterNodeDownEnable, 
+--    cdmsHaClusterConfigChangeEnable
+
+ciscoDmsNotificationsGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 11 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects that provides information
+--    about DMS notifications.
+--  notifications
+--    ciscoDmsMediaPlayerRegistered, ciscoDmsMediaPlayerUp, 
+--    ciscoDmsMediaPlayerDown, ciscoDmsMediaPlayerAddrTaken
+
+ciscoDmsAdvancedNotificationsGroup OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 12 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Please enter the description here
+--  notifications
+--    cdmsDmsHaClusterConfigChange
+
+ciscoDmsNotificationsGroupRev1 OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBGroups 16 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information
+--    about DMS notifications. This revision adds support for High
+--    Availability (HA).
+--  notifications
+--    ciscoDmsMediaPlayerRegistered, ciscoDmsMediaPlayerUp, 
+--    ciscoDmsMediaPlayerDown, ciscoDmsMediaPlayerAddrTaken, 
+--    ciscoDmsHaClusterNodeUp, ciscoDmsHaClusterNodeDown
+
+ciscoDmsMonitorMIBCompliance OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for SNMP entities
+--    the Cisco Digital Media System MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDmsSystemGroup
+--   MandGroup
+--    ciscoDmsFeatureGroup
+--   MandGroup
+--    ciscoDmsInventoryGroup
+--   OptGroup
+--    ciscoDmsFeatureAdvancedGroup
+--   OptGroup
+--    ciscoDmsServerGroup
+--   OptGroup
+--    ciscoDamGroup
+--   OptGroup
+--    ciscoDmsSecurityGroup
+--   OptGroup
+--    ciscoDmsUserGroup
+--   OptGroup
+--    ciscoDmsEventGroup
+--   OptGroup
+--    ciscoDmsHaGroup
+--   OptGroup
+--    ciscoDmsHaAdvancedGroup
+--   OptGroup
+--    ciscoDmsNotificationCntlGroup
+--   OptGroup
+--    ciscoDmsNotificationsGroup
+--   OptGroup
+--    ciscoDmsAdvancedNotificationsGroup
+--   ObjVar
+--    cdmsAdministrator
+--   ObjVar
+--    cdmsInventoryElementState
+--   ObjVar
+--    cdmsInventoryElementMetadata
+--   ObjVar
+--    cdmsServerStatus
+--   ObjVar
+--    cdmsAuthenticationMode
+--   ObjVar
+--    cdmsMediaPlayerRegisteredEnable
+--   ObjVar
+--    cdmsMediaPlayerUpEnable
+--   ObjVar
+--    cdmsMediaPlayerDownEnable
+--   ObjVar
+--    cdmsMediaPlayerAddrTakenEnable
+--   ObjVar
+--    cdmsHaClusterNodeUpEnable
+--   ObjVar
+--    cdmsHaClusterNodeDownEnable
+--   ObjVar
+--    cdmsHaClusterConfigChangeEnable
+--   ObjVar
+--    cdmsHaClusterHistoryMaxRecords
+--   ObjVar
+--    cdmsHaClusterName
+
+ciscoDmsMonitorMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoDmsMonitorMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities the Cisco Digital
+--    Media System MIB. This revision adds support
+--    for High Availability (HA).
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDmsSystemGroup
+--   MandGroup
+--    ciscoDmsFeatureGroup
+--   MandGroup
+--    ciscoDmsInventoryGroup
+--   OptGroup
+--    ciscoDmsFeatureAdvancedGroup
+--   OptGroup
+--    ciscoDmsServerGroup
+--   OptGroup
+--    ciscoDamGroup
+--   OptGroup
+--    ciscoDmsSecurityGroup
+--   OptGroup
+--    ciscoDmsUserGroup
+--   OptGroup
+--    ciscoDmsEventGroup
+--   OptGroup
+--    ciscoDmsNotificationCntlGroupRev1
+--   OptGroup
+--    ciscoDmsNotificationsGroupRev1
+--   OptGroup
+--    ciscoDmsAdvancedNotificationsGroup
+--   OptGroup
+--    ciscoDmsHaGroup
+--   ObjVar
+--    cdmsAdministrator
+--   ObjVar
+--    cdmsInventoryElementState
+--   ObjVar
+--    cdmsInventoryElementMetadata
+--   ObjVar
+--    cdmsServerStatus
+--   ObjVar
+--    cdmsAuthenticationMode
+--   ObjVar
+--    cdmsMediaPlayerRegisteredEnable
+--   ObjVar
+--    cdmsMediaPlayerUpEnable
+--   ObjVar
+--    cdmsMediaPlayerDownEnable
+--   ObjVar
+--    cdmsMediaPlayerAddrTakenEnable
+--   ObjVar
+--    cdmsHaClusterNodeUpEnable
+--   ObjVar
+--    cdmsHaClusterNodeDownEnable
+--   ObjVar
+--    cdmsHaClusterConfigChangeEnable
+--   ObjVar
+--    cdmsHaClusterHistoryMaxRecords
+--   ObjVar
+--    cdmsHaClusterName
+
+
+END
+

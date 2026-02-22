@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNG.Api.SpatialController do
           longitude: s.longitude,
           timestamp: s.timestamp
         },
-        limit: 10000
+        limit: 10_000
 
     samples = ServiceRadar.Repo.all(query)
     json(conn, %{data: samples})

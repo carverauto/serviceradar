@@ -1,0 +1,478 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Package snmp pkg/agent/snmp/collector.go
+
+package snmp
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/logger"
+)
+
+const (
+	defaultByteBuffer               = 1024
+	defaultErrorChan                = 10
+	defaultDataChanBufferMultiplier = 2
+)
+
+// NewCollector creates a new SNMP collector for a target.
+func NewCollector(target *Target, log logger.Logger) (Collector, error) {
+	if err := validateTarget(target); err != nil {
+		return nil, fmt.Errorf("%w %w", ErrInvalidTargetConfig, err)
+	}
+
+	client, err := newSNMPClient(target)
+	if err != nil {
+		return nil, fmt.Errorf("%w %w", ErrSNMPConnect, err)
+	}
+
+	collector := &SNMPCollector{
+		target:    target,
+		client:    client,
+		dataChan:  make(chan DataPoint, len(target.OIDs)*defaultDataChanBufferMultiplier),
+		errorChan: make(chan error, defaultErrorChan),
+		done:      make(chan struct{}),
+		status: TargetStatus{
+			OIDStatus: make(map[string]OIDStatus),
+		},
+		bufferPool: &sync.Pool{
+			New: func() interface{} {
+				return make([]byte, 0, defaultByteBuffer)
+			},
+		},
+		logger: log,
+	}
+
+	return collector, nil
+}
+
+// Start implements the Collector interface.
+func (c *SNMPCollector) Start(ctx context.Context) error {
+	// Connect to the SNMP device
+	if err := c.client.Connect(); err != nil {
+		return fmt.Errorf("%w - %w", ErrSNMPConnect, err)
+	}
+
+	// Start collection goroutine
+	go c.collect(ctx)
+
+	// Start error handling goroutine
+	go c.handleErrors(ctx)
+
+	return nil
+}
+
+// Stop implements the Collector interface.
+func (c *SNMPCollector) Stop() error {
+	c.closeOnce.Do(func() {
+		close(c.done)
+
+		if err := c.client.Close(); err != nil {
+			c.logger.Error().
+				Err(err).
+				Str("target_name", c.target.Name).
+				Msg("Error closing SNMP client")
+		}
+	})
+
+	return nil
+}
+
+// GetResults implements the Collector interface.
+func (c *SNMPCollector) GetResults() <-chan DataPoint {
+	return c.dataChan
+}
+
+// collect runs the main collection loop.
+func (c *SNMPCollector) collect(ctx context.Context) {
+	ticker := time.NewTicker(time.Duration(c.target.Interval))
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.done:
+			return
+		case <-ticker.C:
+			if err := c.pollTarget(ctx); err != nil {
+				select {
+				case c.errorChan <- err:
+				default:
+					c.logger.Warn().Err(err).Msg("Error channel full, dropping error")
+				}
+			}
+		}
+	}
+}
+
+// pollTarget performs a single poll of all OIDs for the target.
+func (c *SNMPCollector) pollTarget(ctx context.Context) error {
+	c.logger.Debug().
+		Str("target_name", c.target.Name).
+		Str("target_host", c.target.Host).
+		Int("oid_count", len(c.target.OIDs)).
+		Msg("Polling target")
+
+	oids := make([]string, len(c.target.OIDs))
+	for i, oid := range c.target.OIDs {
+		oids[i] = oid.OID
+	}
+
+	// Get SNMP data
+	results, err := c.client.Get(oids)
+	if err != nil {
+		c.updateStatus(false, err.Error())
+		return fmt.Errorf("%w - %w", ErrSNMPGet, err)
+	}
+
+	c.logger.Debug().
+		Str("target_name", c.target.Name).
+		Int("result_count", len(results)).
+		Msg("Successfully polled target, processing results")
+	c.updateStatus(true, "")
+
+	// Process each result
+	for oid, value := range results {
+		if err := c.processResult(ctx, oid, value); err != nil {
+			c.logger.Error().
+				Err(err).
+				Str("oid", oid).
+				Msg("Error processing result for OID")
+		}
+	}
+
+	return nil
+}
+
+// processResult handles a single OID result.
+func (c *SNMPCollector) processResult(ctx context.Context, oid string, value interface{}) error {
+	oidConfig := c.findOIDConfig(oid)
+	if oidConfig == nil {
+		return fmt.Errorf("%w %s", ErrNoOIDConfig, oid)
+	}
+
+	converted, err := c.convertValue(value, oidConfig)
+	if err != nil {
+		return fmt.Errorf("%w - %w", ErrSNMPConvert, err)
+	}
+
+	now := time.Now()
+	finalValue := converted
+
+	// Handle Delta/Rate calculation at the edge
+	if oidConfig.Delta {
+		c.mu.RLock()
+		prevStatus, exists := c.status.OIDStatus[oidConfig.Name]
+		c.mu.RUnlock()
+
+		if exists && prevStatus.LastValue != nil && !prevStatus.LastUpdate.IsZero() {
+			elapsed := now.Sub(prevStatus.LastUpdate).Seconds()
+			if elapsed > 0 {
+				delta := calculateDelta(prevStatus.LastValue, converted)
+				// Calculate per-second rate
+				finalValue = delta / elapsed
+			} else {
+				// Avoid division by zero or negative time
+				return nil
+			}
+		} else {
+			// First sample, just store it and wait for next poll to calculate rate
+			c.updateOIDStatus(oidConfig.Name, &DataPoint{
+				Value:     converted,
+				Timestamp: now,
+			})
+			return nil
+		}
+	}
+
+	// Apply scaling if configured
+	if oidConfig.Scale != 0 && oidConfig.Scale != 1.0 {
+		if val, ok := toFloat64(finalValue); ok {
+			finalValue = val * oidConfig.Scale
+		}
+	}
+
+	// Create data point
+	// If we performed delta calculation, the resulting value is a Rate (Gauge/Float)
+	// and should no longer be treated as a Delta/Counter by the backend.
+	dataType := oidConfig.DataType
+	isDelta := oidConfig.Delta
+
+	if oidConfig.Delta {
+		dataType = TypeFloat
+		isDelta = false
+	}
+
+	point := DataPoint{
+		OIDName:   oidConfig.Name,
+		Value:     finalValue,
+		Timestamp: now,
+		DataType:  dataType,
+		Scale:     oidConfig.Scale,
+		Delta:     isDelta,
+	}
+
+	// Update OID status
+	c.updateOIDStatus(oidConfig.Name, &point)
+
+	select {
+	case c.dataChan <- point:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return ErrCollectorStopped
+	}
+}
+
+func calculateDelta(prev, current interface{}) float64 {
+	p, okP := toFloat64(prev)
+	c, okC := toFloat64(current)
+	if !okP || !okC {
+		return 0
+	}
+
+	if c < p {
+		// Handle counter rollover
+		// If both values are within 32-bit range, assume 32-bit rollover.
+		const maxUint32 = 4294967295
+		if p <= maxUint32 {
+			return (maxUint32 - p) + c + 1
+		}
+		// Otherwise assume 64-bit rollover
+		// We can't express maxUint64 precisely in float64 without precision loss at the very edge,
+		// but standard float64 has 53 bits of significand.
+		// For high precision 64-bit counters, this might be slightly off if values are huge,
+		// but it's the best we can do with float64 storage.
+		// NOTE: 1.844e19 is approx 2^64
+		const maxUint64 float64 = 18446744073709551615.0
+		return (maxUint64 - p) + c + 1
+	}
+
+	return c - p
+}
+
+func toFloat64(v interface{}) (float64, bool) {
+	switch val := v.(type) {
+	case float64:
+		return val, true
+	case uint64:
+		return float64(val), true
+	case int64:
+		return float64(val), true
+	case uint32:
+		return float64(val), true
+	case int32:
+		return float64(val), true
+	case int:
+		return float64(val), true
+	default:
+		return 0, false
+	}
+}
+
+// convertValue converts an SNMP value based on the OID configuration.
+func (c *SNMPCollector) convertValue(value interface{}, config *OIDConfig) (interface{}, error) {
+	switch config.DataType {
+	case TypeCounter:
+		return c.convertCounter(value)
+	case TypeGauge:
+		return c.convertGauge(value)
+	case TypeBoolean:
+		return c.convertBoolean(value)
+	case TypeBytes:
+		return c.convertBytes(value)
+	case TypeString:
+		return c.convertString(value)
+	case TypeFloat:
+		return c.convertFloat(value)
+	default:
+		return nil, fmt.Errorf("%w %v", ErrUnsupportedDataType, config.DataType)
+	}
+}
+
+// handleErrors processes errors from the collection process.
+func (c *SNMPCollector) handleErrors(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-c.done:
+			return
+		case err := <-c.errorChan:
+			c.logger.Error().
+				Err(err).
+				Str("target_name", c.target.Name).
+				Msg("Error collecting from target")
+		}
+	}
+}
+
+// updateStatus updates the collector's status.
+func (c *SNMPCollector) updateStatus(available bool, errorMsg string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.status.Available = available
+	c.status.LastPoll = time.Now()
+	c.status.Error = errorMsg
+}
+
+// updateOIDStatus updates the status for a specific OID.
+func (c *SNMPCollector) updateOIDStatus(oidName string, point *DataPoint) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	status := c.status.OIDStatus[oidName]
+	status.LastValue = point.Value
+	status.LastUpdate = point.Timestamp
+
+	c.status.OIDStatus[oidName] = status
+}
+
+// GetStatus returns the current status of the collector.
+func (c *SNMPCollector) GetStatus() TargetStatus {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	return c.status
+}
+
+// convertCounter converts a counter value to a uint64.
+func (*SNMPCollector) convertCounter(value interface{}) (uint64, error) {
+	switch v := value.(type) {
+	case uint64:
+		return v, nil
+	case uint32:
+		return uint64(v), nil
+	case int64:
+		if v < 0 {
+			return 0, fmt.Errorf("%w: negative value", ErrInvalidCounterType)
+		}
+
+		return uint64(v), nil
+	case int32:
+		if v < 0 {
+			return 0, fmt.Errorf("%w: negative value", ErrInvalidCounterType)
+		}
+
+		return uint64(v), nil
+	case float64:
+		if v < 0 {
+			return 0, fmt.Errorf("%w: negative value", ErrInvalidCounterType)
+		}
+
+		return uint64(v), nil
+	default:
+		return 0, fmt.Errorf("%w: %T", ErrInvalidCounterType, value)
+	}
+}
+
+func (*SNMPCollector) convertFloat(value interface{}) (float64, error) {
+	switch v := value.(type) {
+	case float64:
+		return v, nil
+	case float32:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
+	case uint64:
+		return float64(v), nil
+	case uint32:
+		return float64(v), nil
+	default:
+		return 0, fmt.Errorf("%w: %T", ErrInvalidFloatType, value)
+	}
+}
+
+func (c *SNMPCollector) findOIDConfig(oid string) *OIDConfig {
+	for _, cfg := range c.target.OIDs {
+		if cfg.OID == oid {
+			return &cfg
+		}
+	}
+
+	return nil
+}
+
+// convertGauge converts a gauge value to a float64.
+func (*SNMPCollector) convertGauge(value interface{}) (float64, error) {
+	switch v := value.(type) {
+	case uint64:
+		return float64(v), nil
+	case int64:
+		return float64(v), nil
+	case float64:
+		return v, nil
+	case uint32:
+		return float64(v), nil
+	case int32:
+		return float64(v), nil
+	default:
+		return 0, fmt.Errorf("%w %T", ErrInvalidGaugeType, value)
+	}
+}
+
+// convertBoolean converts a boolean value to a bool.
+func (*SNMPCollector) convertBoolean(value interface{}) (bool, error) {
+	switch v := value.(type) {
+	case int:
+		return v != 0, nil
+	case bool:
+		return v, nil
+	default:
+		return false, fmt.Errorf("%w %T", ErrInvalidBooleanType, value)
+	}
+}
+
+// convertBytes converts a byte value to a uint64.
+
+func (*SNMPCollector) convertBytes(value interface{}) (uint64, error) {
+	switch v := value.(type) {
+	case uint64:
+		return v, nil
+	case uint32:
+		return uint64(v), nil
+	case int64:
+		if v < 0 {
+			return 0, fmt.Errorf("%w: negative value", ErrInvalidBytesType)
+		}
+
+		return uint64(v), nil
+	default:
+		return 0, fmt.Errorf("%w %T", ErrInvalidBytesType, value)
+	}
+}
+
+// convertString converts a string value to a string.
+func (*SNMPCollector) convertString(value interface{}) (string, error) {
+	switch v := value.(type) {
+	case []byte:
+		return string(v), nil
+	case string:
+		return v, nil
+	default:
+		return "", fmt.Errorf("%w %T", ErrInvalidStringType, value)
+	}
+}

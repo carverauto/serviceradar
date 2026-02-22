@@ -1,0 +1,143 @@
+[note: this was extracted from
+http://www.cisco.com/warp/customer/477/21.html on 3/12/98]
+
+Ping MIB Implementation
+------------------------------------------------------------------------------
+
+Introduction
+
+The Ping Group is part of the Cisco proprietary MIB under the Cisco Management
+branch (.1.3.6.1.4.1.9.9.16.). The Ping Group can be used to set up, perform,
+and retrieve Internet Control Message Protocol (ICMP) activity between remote
+devices from a management station.
+
+The example script below can be used to initiate this sequence on HP OpenView
+or NetView. These commands can also be entered as "snmpsets" and "snmpgets"
+using the network management platforms' GUIs. Use one of the following methods
+to access the GUI:
+    o Select "Tools" then "MIB Browser: SNMP" from the menu bar.
+    o Type xnmbrowser at the command line.
+
+Example Script
+
+
+Management_Station-----------Router_Source------------Router_Dest
+
+
+
+echo "###### Create the instance #######"
+###### We've chosen 333 at random.  333 will be the row instance to use for this particular
+###### ping experiment.  After the ping, the row will be deleted.
+###### This keeps the table clean. Router_Source is the dns name of the device we are
+###### working with, and public is its RW community string.  The values for
+###### ciscoPingEntryStatus status are as follows (see [[Ping MIB]]):
+
+######  1 - active
+
+######  2 - notInService
+
+######  3 - notReady
+
+######  4 - createAndGo
+
+######  5 - createAndWait
+
+######  6 - destroy
+
+######  We will clear out any previous entries by setting ciscoPingEntryStatus = 6 (destroy)
+
+snmpset -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1.16.333 integer 6
+
+######  We start building the row by setting ciscoPingEntryStatus = 5 (createAndWait)
+
+echo
+
+
+snmpset -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1.16.333 integer 5
+
+
+echo
+
+
+echo "###### Now let's set the characteristics of the ping #######"
+
+
+###### Only the first three sets below are required.  The rest have default
+
+
+###### values.
+
+
+#Set ciscoPingEntryOwner = any_name
+
+
+snmpset -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1.15.333 octetstring any_name
+
+
+#Set ciscoPingProtocol = 1 = ip (see [[CISCO-TC-V1SMI.my]] CiscoNetworkProtocol)
+
+
+snmpset -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1.2.333 integer 1
+
+
+#Set ciscoPingAddress = #.#.#.#--take Remote_Dest's ip & convert each octet to hex
+
+
+snmpset -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1.3.333 octetstringhex ab447667
+
+
+#Set the packet count to 20 (ciscoPingPacketCount)
+
+
+snmpset -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1.4.333 integer 20
+
+
+#Set the packetsize to 100 (ciscoPingPacketSize)
+
+
+snmpset -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1.5.333 integer 100
+
+
+echo
+
+
+echo "##### Now let's verify that the ping is ready to go and launch it #######"
+
+
+#Get ciscoPingEntryStatus and make sure it is now equal to 2.  This means
+
+
+# notInService which indicates that we're ready to go.
+
+
+snmpget -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1.16.333
+
+
+# Set ciscoPingEntryStatus = 1 to tell it to activate.
+
+
+snmpset -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1.16.333 integer 1
+
+
+echo
+
+
+echo "##### Let's look at the results. #####"
+
+
+snmpwalk -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1
+
+
+echo
+
+
+echo "##### Now that we've gotten the results, let's destroy the row #####"
+
+
+snmpset -c public Router_Source .1.3.6.1.4.1.9.9.16.1.1.1.16.333 integer 6
+------------------------------------------------------------------------------
+Posted: Tue Sep 9 06:20:08 PDT 1997
+
+Copyright 1997 Cisco Systems, Inc. Copyright © 1998 Cisco Systems
+Inc. [[Important Notices]].
+

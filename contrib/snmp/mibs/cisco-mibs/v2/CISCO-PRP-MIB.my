@@ -1,0 +1,388 @@
+-- *****************************************************************
+-- CISCO-PRP-MIB
+--   
+-- May 2019, Sunil Kumar
+-- Copyright (c) 2019 by cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-PRP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DisplayString
+        FROM SNMPv2-TC
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoPrpMIB MODULE-IDENTITY
+    LAST-UPDATED    "201909110000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "Parallel Redundancy Protocol (PRP) is defined in the
+        International Standard IEC 62439-3. PRP is designed to provide
+        hitless redundancy (zero recovery time after failures) in
+        Ethernet networks.
+
+        PRP uses a  scheme, where the end nodes implement redundancy
+        (instead of network elements) by connecting two network
+        interfaces to two independent, disjointed, parallel networks
+        (LAN-A and LAN-B). Each of these Dually Attached Nodes (DANs)
+        then have redundant paths to all other DANs in the network."
+    REVISION        "201909110000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 866 }
+
+
+
+PrpStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Operational status of the DLR Device.
+        undefined(0)  Value is not valid.
+        stateUp(1)   PRP channel or LAN state UP.
+        stateDown(2) PRP channel or LAN state DOWN.
+        state"
+
+    REFERENCE       "Prp channel or LAN status"
+    SYNTAX          INTEGER  {
+                        undefined(0),
+                        stateUp(1),
+                        stateDown(2)
+                    }
+-- Textual Conventions definition will be defined before this line
+
+ciscoPrpMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoPrpMIB 0 }
+
+ciscoPrpMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoPrpMIB 1 }
+
+ciscoPrpMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoPrpMIB 2 }
+
+
+ciscoPrpChannelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoPrpChannelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Every entry in the table specifies information about the PRP
+        channel."
+    ::= { ciscoPrpMIBObjects 1 }
+
+ciscoPrpChannelEntry OBJECT-TYPE
+    SYNTAX          CiscoPrpChannelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the prpChannelTable."
+    INDEX           { ciscoPrpChannelIndex } 
+    ::= { ciscoPrpChannelTable 1 }
+
+CiscoPrpChannelEntry ::= SEQUENCE {
+        ciscoPrpChannelIndex      Unsigned32,
+        ciscoPrpChannelId         Unsigned32,
+        ciscoPrpChannelName       DisplayString,
+        ciscoPrpChannelStatus     PrpStatus,
+        ciscoPrpChannelLanAStatus PrpStatus,
+        ciscoPrpChannelLanBStatus PrpStatus
+}
+
+ciscoPrpChannelIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Prp table entry index value." 
+    ::= { ciscoPrpChannelEntry 1 }
+
+ciscoPrpChannelId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specifies the PRP channel id." 
+    ::= { ciscoPrpChannelEntry 2 }
+
+ciscoPrpChannelName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "PRP channel name." 
+    ::= { ciscoPrpChannelEntry 3 }
+
+ciscoPrpChannelStatus OBJECT-TYPE
+    SYNTAX          PrpStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Operational status of the PRP channel." 
+    ::= { ciscoPrpChannelEntry 4 }
+
+ciscoPrpChannelLanAStatus OBJECT-TYPE
+    SYNTAX          PrpStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Operational status of the PRP Lan A connection status." 
+    ::= { ciscoPrpChannelEntry 5 }
+
+ciscoPrpChannelLanBStatus OBJECT-TYPE
+    SYNTAX          PrpStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A ciscoPrpLanBStateChange notification is generated when the
+        value of 
+        ciscoPrpChannelLanBStatus is changed to Up or Down.
+        The notification contains information of ciscoPrpChannelId,
+        ciscoPrpChannelName, ciscoPrpChannelLanBStatus." 
+    ::= { ciscoPrpChannelEntry 6 }
+ 
+
+
+-- Default Notification Type
+
+ciscoPrpChannelStateChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        ciscoPrpChannelId,
+                        ciscoPrpChannelName,
+                        ciscoPrpChannelStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A ciscoPrpChannelStateChange notification is generated when the
+        value of 
+        ciscoPrpChannelStatus is changed to Up or Down.
+        The notification contains information of ciscoPrpChannelId,
+        ciscoPrpChannelName, ciscoPrpChannelStatus."
+   ::= { ciscoPrpMIBNotifs 1 }
+
+ciscoPrpLanAStateChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        ciscoPrpChannelId,
+                        ciscoPrpChannelName,
+                        ciscoPrpChannelLanAStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A ciscoPrpLanAStateChange notification is generated when the
+        value of 
+        ciscoPrpChannelLanAStatus is changed to Up or Down.
+        The notification contains information of ciscoPrpChannelId,
+        ciscoPrpChannelName, ciscoPrpChannelLanAStatus."
+   ::= { ciscoPrpMIBNotifs 2 }
+
+ciscoPrpLanBStateChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        ciscoPrpChannelId,
+                        ciscoPrpChannelName,
+                        ciscoPrpChannelLanBStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Object to notify change in Lan B status of
+        a PRP channel."
+   ::= { ciscoPrpMIBNotifs 3 }
+ciscoPrpMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoPrpMIBConform 1 }
+
+ciscoPrpMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoPrpMIBConform 2 }
+
+
+ciscoPrpMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoPrpMIBMainObjectGroup,
+                        ciscoPrpMIBNotificationGroup
+                    }
+    ::= { ciscoPrpMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoPrpMIBMainObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        ciscoPrpChannelId,
+                        ciscoPrpChannelStatus,
+                        ciscoPrpChannelLanAStatus,
+                        ciscoPrpChannelLanBStatus,
+                        ciscoPrpChannelName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Object group for PRP channel table entries."
+    ::= { ciscoPrpMIBGroups 1 }
+
+ciscoPrpMIBNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoPrpChannelStateChange,
+                        ciscoPrpLanAStateChange,
+                        ciscoPrpLanBStateChange
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Notification group which indicates state changes of a PRP
+        channel."
+    ::= { ciscoPrpMIBGroups 2 }
+
+END
+
+
+-- %DNP%  MLC -Compiled MLC
+
+-- %DNP%  MRS -with reviewer MRS
+
+-- %DNP%  MOS -ciscoPrpMIB MOS 
+
+-- %DNP%  MOS -PrpStatus MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBNotifs MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBObjects MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBConform MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelTable MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelEntry MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelIndex MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelId MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelName MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelStatus MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelLanAStatus MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelLanBStatus MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelStateChange MOS 
+
+-- %DNP%  MOS -ciscoPrpLanAStateChange MOS 
+
+-- %DNP%  MOS -ciscoPrpLanBStateChange MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBCompliances MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBGroups MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBCompliance MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBMainObjectGroup MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBNotificationGroup MOS 
+
+-- %DNP%  MOS -ciscoPrpMIB MOS 
+
+-- %DNP%  MOS -PrpStatus MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBNotifs MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelStateChange MOS 
+
+-- %DNP%  MOS -ciscoPrpLanAStateChange MOS 
+
+-- %DNP%  MOS -ciscoPrpLanBStateChange MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBObjects MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelTable MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelEntry MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelIndex MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelId MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelName MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelStatus MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelLanAStatus MOS 
+
+-- %DNP%  MOS -ciscoPrpChannelLanBStatus MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBConform MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBCompliances MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBCompliance MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBGroups MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBMainObjectGroup MOS 
+
+-- %DNP%  MOS -ciscoPrpMIBNotificationGroup MOS 
+
+-- %DNP%  MRC - ciscoPrpChannelLanAStatus~6~1 - 2019061303:19 PST - suyaraka -3.1 -ACK
+-- %DNP%  - RE: Not needed below info in description ... 
+-- %DNP%Taken care
+-- %DNP%
+-- %DNP% -1 MRC 
+
+-- %DNP%  MRC - ciscoPrpChannelStatus~4~3 - 2019061303:18 PST - suyaraka -3.1 -ACK
+-- %DNP%  - RE: No Need of below description ... 
+-- %DNP%Taken Care
+-- %DNP%
+-- %DNP% -1 MRC 
+
+-- %DNP%  MRC - ciscoPrpChannelLanBStatus~5~2 - 2019061303:18 PST - suyaraka -3.1 -ACK
+-- %DNP%  - RE: No need of below info in description 
+-- %DNP%Taken care
+-- %DNP%
+-- %DNP% -1 MRC 
+
+-- %DNP%  MRC - ciscoPrpChannelStatus~3~ - 2019061303:12 PST - mayamitt -3.0 -ACK
+-- %DNP%  - No Need of below description 
+-- %DNP%undefined(0)  Value is not valid. 
+-- %DNP%stateUp(1) Prp LAN A state up. 
+-- %DNP%stateDown(2)  Prp LAN A state down
+-- %DNP%
+-- %DNP% -0 MRC 
+
+-- %DNP%  MRC - ciscoPrpChannelLanBStatus~2~ - 2019061303:12 PST - mayamitt -3.0 -ACK
+-- %DNP%  - No need of below info in description
+-- %DNP%
+-- %DNP% -0 MRC 
+
+-- %DNP%  MRC - ciscoPrpChannelLanAStatus~1~ - 2019061303:11 PST - mayamitt -3.0 -ACK
+-- %DNP%  - Not needed below info in description 
+-- %DNP%undefined(0)  Value is not valid. 
+-- %DNP%stateUp(1) Prp LAN A state up. 
+-- %DNP%stateDown(2)  Prp LAN A state down
+-- %DNP%
+-- %DNP% -0 MRC 
+

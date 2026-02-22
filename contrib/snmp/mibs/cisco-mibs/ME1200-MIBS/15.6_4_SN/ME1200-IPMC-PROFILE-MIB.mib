@@ -1,0 +1,686 @@
+-- *****************************************************************
+-- IPMC-PROFILE-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-IPMC-PROFILE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    InetAddressIPv6 FROM INET-ADDRESS-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    IpAddress FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200IpmcProfileMib MODULE-IDENTITY
+    LAST-UPDATED "201403110000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the IPMC Profile MIB"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401220000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 38 }
+
+
+ME1200IpmcProfileRuleActionType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the configured action type for IPMC profile
+         rule."
+    SYNTAX      INTEGER { deny(0), permit(1) }
+
+me1200IpmcProfileMIBObjects OBJECT IDENTIFIER
+    ::= { me1200IpmcProfileMib 1 }
+
+me1200IpmcProfileConfig OBJECT IDENTIFIER
+    ::= { me1200IpmcProfileMIBObjects 2 }
+
+me1200IpmcProfileGlobals OBJECT IDENTIFIER
+    ::= { me1200IpmcProfileConfig 1 }
+
+me1200IpmcProfileGlobalsAdminState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable the IPMC Profile global functionality."
+    ::= { me1200IpmcProfileGlobals 1 }
+
+me1200IpmcProfileManagementTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcProfileManagementEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing IPMC profile entries."
+    ::= { me1200IpmcProfileConfig 2 }
+
+me1200IpmcProfileManagementEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcProfileManagementEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200IpmcProfileManagementProfileName }
+    ::= { me1200IpmcProfileManagementTable 1 }
+
+ME1200IpmcProfileManagementEntry ::= SEQUENCE {
+    me1200IpmcProfileManagementProfileName    ME1200DisplayString,
+    me1200IpmcProfileManagementProfileDescription     ME1200DisplayString,
+    me1200IpmcProfileManagementAction     ME1200RowEditorState
+}
+
+me1200IpmcProfileManagementProfileName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile management entry."
+    ::= { me1200IpmcProfileManagementEntry 1 }
+
+me1200IpmcProfileManagementProfileDescription OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The description of the IPMC Profile management entry."
+    ::= { me1200IpmcProfileManagementEntry 2 }
+
+me1200IpmcProfileManagementAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpmcProfileManagementEntry 100 }
+
+me1200IpmcProfileManagementTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200IpmcProfileConfig 3 }
+
+me1200IpmcProfileManagementTableRowEditorProfileName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile management entry."
+    ::= { me1200IpmcProfileManagementTableRowEditor 1 }
+
+me1200IpmcProfileManagementTableRowEditorProfileDescription OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The description of the IPMC Profile management entry."
+    ::= { me1200IpmcProfileManagementTableRowEditor 2 }
+
+me1200IpmcProfileManagementTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpmcProfileManagementTableRowEditor 100 }
+
+me1200IpmcProfileIpv4AddressRangeTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcProfileIpv4AddressRangeEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing the IPv4 address range entries that will
+         be applied for IPMC profile(s)."
+    ::= { me1200IpmcProfileConfig 4 }
+
+me1200IpmcProfileIpv4AddressRangeEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcProfileIpv4AddressRangeEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200IpmcProfileIpv4AddressRangeRangeName }
+    ::= { me1200IpmcProfileIpv4AddressRangeTable 1 }
+
+ME1200IpmcProfileIpv4AddressRangeEntry ::= SEQUENCE {
+    me1200IpmcProfileIpv4AddressRangeRangeName    ME1200DisplayString,
+    me1200IpmcProfileIpv4AddressRangeStartAddress     IpAddress,
+    me1200IpmcProfileIpv4AddressRangeEndAddress   IpAddress,
+    me1200IpmcProfileIpv4AddressRangeAction   ME1200RowEditorState
+}
+
+me1200IpmcProfileIpv4AddressRangeRangeName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile address range entry."
+    ::= { me1200IpmcProfileIpv4AddressRangeEntry 1 }
+
+me1200IpmcProfileIpv4AddressRangeStartAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The starting IPv4 address of the range that IPMC Profile performs
+         checking."
+    ::= { me1200IpmcProfileIpv4AddressRangeEntry 2 }
+
+me1200IpmcProfileIpv4AddressRangeEndAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ending IPv4 address of the range that IPMC Profile performs
+         checking."
+    ::= { me1200IpmcProfileIpv4AddressRangeEntry 3 }
+
+me1200IpmcProfileIpv4AddressRangeAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpmcProfileIpv4AddressRangeEntry 100 }
+
+me1200IpmcProfileIpv4AddressRangeTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200IpmcProfileConfig 5 }
+
+me1200IpmcProfileIpv4AddressRangeTableRowEditorRangeName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile address range entry."
+    ::= { me1200IpmcProfileIpv4AddressRangeTableRowEditor 1 }
+
+me1200IpmcProfileIpv4AddressRangeTableRowEditorStartAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The starting IPv4 address of the range that IPMC Profile performs
+         checking."
+    ::= { me1200IpmcProfileIpv4AddressRangeTableRowEditor 2 }
+
+me1200IpmcProfileIpv4AddressRangeTableRowEditorEndAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ending IPv4 address of the range that IPMC Profile performs
+         checking."
+    ::= { me1200IpmcProfileIpv4AddressRangeTableRowEditor 3 }
+
+me1200IpmcProfileIpv4AddressRangeTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpmcProfileIpv4AddressRangeTableRowEditor 100 }
+
+me1200IpmcProfileIpv6AddressRangeTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcProfileIpv6AddressRangeEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing the IPv6 address range entries that will
+         be applied for IPMC profile(s)."
+    ::= { me1200IpmcProfileConfig 6 }
+
+me1200IpmcProfileIpv6AddressRangeEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcProfileIpv6AddressRangeEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200IpmcProfileIpv6AddressRangeRangeName }
+    ::= { me1200IpmcProfileIpv6AddressRangeTable 1 }
+
+ME1200IpmcProfileIpv6AddressRangeEntry ::= SEQUENCE {
+    me1200IpmcProfileIpv6AddressRangeRangeName    ME1200DisplayString,
+    me1200IpmcProfileIpv6AddressRangeStartAddress     InetAddressIPv6,
+    me1200IpmcProfileIpv6AddressRangeEndAddress   InetAddressIPv6,
+    me1200IpmcProfileIpv6AddressRangeAction   ME1200RowEditorState
+}
+
+me1200IpmcProfileIpv6AddressRangeRangeName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile address range entry."
+    ::= { me1200IpmcProfileIpv6AddressRangeEntry 1 }
+
+me1200IpmcProfileIpv6AddressRangeStartAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The starting IPv6 address of the range that IPMC Profile performs
+         checking."
+    ::= { me1200IpmcProfileIpv6AddressRangeEntry 2 }
+
+me1200IpmcProfileIpv6AddressRangeEndAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ending IPv6 address of the range that IPMC Profile performs
+         checking."
+    ::= { me1200IpmcProfileIpv6AddressRangeEntry 3 }
+
+me1200IpmcProfileIpv6AddressRangeAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpmcProfileIpv6AddressRangeEntry 100 }
+
+me1200IpmcProfileIpv6AddressRangeTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200IpmcProfileConfig 7 }
+
+me1200IpmcProfileIpv6AddressRangeTableRowEditorRangeName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile address range entry."
+    ::= { me1200IpmcProfileIpv6AddressRangeTableRowEditor 1 }
+
+me1200IpmcProfileIpv6AddressRangeTableRowEditorStartAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The starting IPv6 address of the range that IPMC Profile performs
+         checking."
+    ::= { me1200IpmcProfileIpv6AddressRangeTableRowEditor 2 }
+
+me1200IpmcProfileIpv6AddressRangeTableRowEditorEndAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ending IPv6 address of the range that IPMC Profile performs
+         checking."
+    ::= { me1200IpmcProfileIpv6AddressRangeTableRowEditor 3 }
+
+me1200IpmcProfileIpv6AddressRangeTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpmcProfileIpv6AddressRangeTableRowEditor 100 }
+
+me1200IpmcProfileRuleTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcProfileRuleEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing the filtering rules with respect to a set
+         of address range used in a specific IPMC profile management entry."
+    ::= { me1200IpmcProfileConfig 8 }
+
+me1200IpmcProfileRuleEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcProfileRuleEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200IpmcProfileRuleProfileName, me1200IpmcProfileRuleRuleRange }
+    ::= { me1200IpmcProfileRuleTable 1 }
+
+ME1200IpmcProfileRuleEntry ::= SEQUENCE {
+    me1200IpmcProfileRuleProfileName      ME1200DisplayString,
+    me1200IpmcProfileRuleRuleRange    ME1200DisplayString,
+    me1200IpmcProfileRuleNextRuleRange    ME1200DisplayString,
+    me1200IpmcProfileRuleRuleAction   ME1200IpmcProfileRuleActionType,
+    me1200IpmcProfileRuleRuleLog      TruthValue,
+    me1200IpmcProfileRuleAction   ME1200RowEditorState
+}
+
+me1200IpmcProfileRuleProfileName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile management entry."
+    ::= { me1200IpmcProfileRuleEntry 1 }
+
+me1200IpmcProfileRuleRuleRange OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile address range used as a rule."
+    ::= { me1200IpmcProfileRuleEntry 2 }
+
+me1200IpmcProfileRuleNextRuleRange OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The next rule's address range name that this IPMC Profile management
+         entry performs checking."
+    ::= { me1200IpmcProfileRuleEntry 3 }
+
+me1200IpmcProfileRuleRuleAction OBJECT-TYPE
+    SYNTAX      ME1200IpmcProfileRuleActionType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The filtering action while this IPMC Profile management entry performs
+         checking. deny(0) will prohibit the IPMC control frames destined to
+         protocol stack. permit(1) will pass the IPMC control frames destined to
+         protocol stack."
+    ::= { me1200IpmcProfileRuleEntry 4 }
+
+me1200IpmcProfileRuleRuleLog OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable the IPMC Profile will log matched group address that is filtered
+         by this rule with the corresponding action (deny or permit). Disable
+         the IPMC Profile will not log any action for any group address whether
+         or not to be filtered by this rule."
+    ::= { me1200IpmcProfileRuleEntry 5 }
+
+me1200IpmcProfileRuleAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpmcProfileRuleEntry 100 }
+
+me1200IpmcProfileRuleTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200IpmcProfileConfig 9 }
+
+me1200IpmcProfileRuleTableRowEditorProfileName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile management entry."
+    ::= { me1200IpmcProfileRuleTableRowEditor 1 }
+
+me1200IpmcProfileRuleTableRowEditorRuleRange OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile address range used as a rule."
+    ::= { me1200IpmcProfileRuleTableRowEditor 2 }
+
+me1200IpmcProfileRuleTableRowEditorNextRuleRange OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The next rule's address range name that this IPMC Profile management
+         entry performs checking."
+    ::= { me1200IpmcProfileRuleTableRowEditor 3 }
+
+me1200IpmcProfileRuleTableRowEditorRuleAction OBJECT-TYPE
+    SYNTAX      ME1200IpmcProfileRuleActionType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The filtering action while this IPMC Profile management entry performs
+         checking. deny(0) will prohibit the IPMC control frames destined to
+         protocol stack. permit(1) will pass the IPMC control frames destined to
+         protocol stack."
+    ::= { me1200IpmcProfileRuleTableRowEditor 4 }
+
+me1200IpmcProfileRuleTableRowEditorRuleLog OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable the IPMC Profile will log matched group address that is filtered
+         by this rule with the corresponding action (deny or permit). Disable
+         the IPMC Profile will not log any action for any group address whether
+         or not to be filtered by this rule."
+    ::= { me1200IpmcProfileRuleTableRowEditor 5 }
+
+me1200IpmcProfileRuleTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpmcProfileRuleTableRowEditor 100 }
+
+me1200IpmcProfilePrecedenceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcProfilePrecedenceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying the rule entries of a specific IPMC
+         profile in precedence order."
+    ::= { me1200IpmcProfileConfig 10 }
+
+me1200IpmcProfilePrecedenceEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcProfilePrecedenceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters."
+    INDEX       { me1200IpmcProfilePrecedenceProfileName, me1200IpmcProfilePrecedenceRulePrecedence }
+    ::= { me1200IpmcProfilePrecedenceTable 1 }
+
+ME1200IpmcProfilePrecedenceEntry ::= SEQUENCE {
+    me1200IpmcProfilePrecedenceProfileName    ME1200DisplayString,
+    me1200IpmcProfilePrecedenceRulePrecedence     Integer32,
+    me1200IpmcProfilePrecedenceRuleRange      ME1200DisplayString,
+    me1200IpmcProfilePrecedenceNextRuleRange      ME1200DisplayString,
+    me1200IpmcProfilePrecedenceRuleAction     ME1200IpmcProfileRuleActionType,
+    me1200IpmcProfilePrecedenceRuleLog    TruthValue
+}
+
+me1200IpmcProfilePrecedenceProfileName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile management entry."
+    ::= { me1200IpmcProfilePrecedenceEntry 1 }
+
+me1200IpmcProfilePrecedenceRulePrecedence OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The precedence of the IPMC profile rule entry."
+    ::= { me1200IpmcProfilePrecedenceEntry 2 }
+
+me1200IpmcProfilePrecedenceRuleRange OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The name of the IPMC profile address range used as a rule."
+    ::= { me1200IpmcProfilePrecedenceEntry 3 }
+
+me1200IpmcProfilePrecedenceNextRuleRange OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The next rule's address range name that this IPMC Profile management
+         entry performs checking."
+    ::= { me1200IpmcProfilePrecedenceEntry 4 }
+
+me1200IpmcProfilePrecedenceRuleAction OBJECT-TYPE
+    SYNTAX      ME1200IpmcProfileRuleActionType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The filtering action while this IPMC Profile management entry performs
+         checking. deny(0) will prohibit the IPMC control frames destined to
+         protocol stack. permit(1) will pass the IPMC control frames destined to
+         protocol stack."
+    ::= { me1200IpmcProfilePrecedenceEntry 5 }
+
+me1200IpmcProfilePrecedenceRuleLog OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Enable the IPMC Profile will log matched group address that is filtered
+         by this rule with the corresponding action (deny or permit). Disable
+         the IPMC Profile will not log any action for any group address whether
+         or not to be filtered by this rule."
+    ::= { me1200IpmcProfilePrecedenceEntry 6 }
+
+me1200IpmcProfileMIBConformance OBJECT IDENTIFIER
+    ::= { me1200IpmcProfileMib 2 }
+
+me1200IpmcProfileMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200IpmcProfileMIBConformance 1 }
+
+me1200IpmcProfileMIBGroups OBJECT IDENTIFIER
+    ::= { me1200IpmcProfileMIBConformance 2 }
+
+me1200IpmcProfileGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcProfileGlobalsAdminState }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcProfileMIBGroups 1 }
+
+me1200IpmcProfileManagementTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcProfileManagementProfileDescription, 
+                  me1200IpmcProfileManagementAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcProfileMIBGroups 2 }
+
+me1200IpmcProfileManagementTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcProfileManagementTableRowEditorProfileName, 
+                  me1200IpmcProfileManagementTableRowEditorProfileDescription, 
+                  me1200IpmcProfileManagementTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcProfileMIBGroups 3 }
+
+me1200IpmcProfileIpv4AddressRangeTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcProfileIpv4AddressRangeStartAddress, 
+                  me1200IpmcProfileIpv4AddressRangeEndAddress, 
+                  me1200IpmcProfileIpv4AddressRangeAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcProfileMIBGroups 4 }
+
+me1200IpmcProfileIpv4AddressRangeTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcProfileIpv4AddressRangeTableRowEditorRangeName, 
+                  me1200IpmcProfileIpv4AddressRangeTableRowEditorStartAddress, 
+                  me1200IpmcProfileIpv4AddressRangeTableRowEditorEndAddress, 
+                  me1200IpmcProfileIpv4AddressRangeTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcProfileMIBGroups 5 }
+
+me1200IpmcProfileIpv6AddressRangeTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcProfileIpv6AddressRangeStartAddress, 
+                  me1200IpmcProfileIpv6AddressRangeEndAddress, 
+                  me1200IpmcProfileIpv6AddressRangeAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcProfileMIBGroups 6 }
+
+me1200IpmcProfileIpv6AddressRangeTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcProfileIpv6AddressRangeTableRowEditorRangeName, 
+                  me1200IpmcProfileIpv6AddressRangeTableRowEditorStartAddress, 
+                  me1200IpmcProfileIpv6AddressRangeTableRowEditorEndAddress, 
+                  me1200IpmcProfileIpv6AddressRangeTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcProfileMIBGroups 7 }
+
+me1200IpmcProfileRuleTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcProfileRuleNextRuleRange, 
+                  me1200IpmcProfileRuleRuleAction, me1200IpmcProfileRuleRuleLog, 
+                  me1200IpmcProfileRuleAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcProfileMIBGroups 8 }
+
+me1200IpmcProfileRuleTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcProfileRuleTableRowEditorProfileName, 
+                  me1200IpmcProfileRuleTableRowEditorRuleRange, 
+                  me1200IpmcProfileRuleTableRowEditorNextRuleRange, 
+                  me1200IpmcProfileRuleTableRowEditorRuleAction, 
+                  me1200IpmcProfileRuleTableRowEditorRuleLog, 
+                  me1200IpmcProfileRuleTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcProfileMIBGroups 9 }
+
+me1200IpmcProfilePrecedenceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcProfilePrecedenceRuleRange, 
+                  me1200IpmcProfilePrecedenceNextRuleRange, 
+                  me1200IpmcProfilePrecedenceRuleAction, 
+                  me1200IpmcProfilePrecedenceRuleLog }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcProfileMIBGroups 10 }
+
+me1200IpmcProfileMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200IpmcProfileGlobalsInfoGroup, 
+                  me1200IpmcProfileManagementTableInfoGroup, 
+                  me1200IpmcProfileManagementTableRowEditorInfoGroup, 
+                  me1200IpmcProfileIpv4AddressRangeTableInfoGroup, 
+                  me1200IpmcProfileIpv4AddressRangeTableRowEditorInfoGroup, 
+                  me1200IpmcProfileIpv6AddressRangeTableInfoGroup, 
+                  me1200IpmcProfileIpv6AddressRangeTableRowEditorInfoGroup, 
+                  me1200IpmcProfileRuleTableInfoGroup, 
+                  me1200IpmcProfileRuleTableRowEditorInfoGroup, 
+                  me1200IpmcProfilePrecedenceTableInfoGroup }
+
+    ::= { me1200IpmcProfileMIBCompliances 1 }
+
+END

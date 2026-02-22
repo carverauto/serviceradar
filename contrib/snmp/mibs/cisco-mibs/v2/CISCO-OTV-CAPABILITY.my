@@ -1,0 +1,176 @@
+-- *****************************************************************
+-- CISCO-OTV-CAPABILITY.my:
+-- Cisco CISCO-OTV-MIB AGENT-CAPABILITIES
+--   
+-- November 2012, Dipesh Gorashia
+--   
+-- Copyright (c) 2012-2013 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- ***************************************************************
+
+CISCO-OTV-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoOtvCapability MODULE-IDENTITY
+    LAST-UPDATED    "201307290000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-OTV-MIB."
+    REVISION        "201307290000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 622 }
+
+
+
+ciscoOtvCapNxOSV06R0202PN7K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(2) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-OTV-MIB capabilities."
+
+    SUPPORTS        CISCO-OTV-MIB
+    INCLUDES        {
+                        ciscoOtvSiteGroup,
+                        ciscoOtvOverlayGroup,
+                        ciscoOtvVlanGroup,
+                        ciscoOtvDataGroupConfigGroup,
+                        ciscoOtvDataGroupInfoGroup,
+                        ciscoOtvAdjacencyGroup,
+                        ciscoOtvArpNdCacheGroup,
+                        ciscoOtvRouteGroup,
+                        ciscoOtvMcastRouteGroup,
+                        ciscoOtvMcastRouteInfoGroup
+                    }
+    VARIATION       cotvSiteIdAdmin
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvSiteVlan
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayVlansExtendedFirst2k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayVlansExtendedSecond2k
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayControlGroupAddrType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayControlGroupAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayBroadcastGroupAddrType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayBroadcastGroupAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayJoinInterface
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlaySourceInterface
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayAdjServerTransportType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayAdjServerEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayPrimaryAdjServerAddrType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayPrimaryAdjServerAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlaySecondaryAdjServerAddrType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlaySecondaryAdjServerAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlaySuppressArpND
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvOverlayRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvDataGroupStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cotvDataGroupRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoOtvCapability 1 }
+
+END
+
+
+
+
+

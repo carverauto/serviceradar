@@ -1,0 +1,389 @@
+-- *********************************************************************
+-- CISCO-WWNMGR-MIB.my: World Wide Name Manager Mib
+--
+-- October 2002, Vinay Gaonkar
+--
+-- Copyright (c) 2002, 2006 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-WWNMGR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS        
+     MODULE-IDENTITY, OBJECT-TYPE, 
+     NOTIFICATION-TYPE,  
+     Unsigned32, Gauge32                    FROM SNMPv2-SMI
+     MODULE-COMPLIANCE, OBJECT-GROUP,
+     NOTIFICATION-GROUP                     FROM SNMPv2-CONF
+     MacAddress,
+     StorageType,
+     RowStatus                              FROM SNMPv2-TC
+     FcNameId                               FROM CISCO-ST-TC
+     vsanIndex                              FROM CISCO-VSAN-MIB
+     ciscoMgmt                              FROM CISCO-SMI;        
+
+ciscoWwnmgrMIB MODULE-IDENTITY
+        LAST-UPDATED "200602060000Z"
+        ORGANIZATION "Cisco Systems Inc. "
+        CONTACT-INFO
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+            "The World Wide Name (WWN) in the fibre channel networking 
+             technology is equivalent to the MAC address in Ethernet. 
+             There are six different types of WWNs defined in ANSI 
+             Standard for Fibre Channel Framing and Signalling (FC-FS) 
+             Spec Rev 1.4. 
+
+             This mib provides the mechanism to configure and report
+             WWNs for the fibre channel devices connected to a
+             fibre channel switch.
+
+             GLOSSARY :
+             NAA   Network Address Authority (NAA) address formats 
+                   for WWN.
+
+             OUI   Organization Unique Identifier.
+             
+             VSAN  Virtual Storage Area Network, 
+                   similar to a VLAN."
+        REVISION   "200602060000Z"
+        DESCRIPTION
+            "Added a new table 'wwnmVsanWwnTable'
+             to configure user specific WWN for VSANs."
+        REVISION   "200210010000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+        ::= { ciscoMgmt 286 }
+
+ciscoWwnmMIBObjects OBJECT IDENTIFIER    ::= { ciscoWwnmgrMIB 1 }
+wwnmConfigurationGroup OBJECT IDENTIFIER ::= { ciscoWwnmMIBObjects 1 } 
+wwnmNotificationGroup OBJECT IDENTIFIER  ::= { ciscoWwnmMIBObjects 2 }
+wwnmNotification OBJECT IDENTIFIER       ::= {wwnmNotificationGroup  1 }
+wwnmNotificationPrefix OBJECT IDENTIFIER ::= { wwnmNotification 0 }
+
+--
+-- WWN Manager configuration group
+--
+
+wwnmSecondaryBaseMacAddress OBJECT-TYPE
+        SYNTAX        MacAddress
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION   
+               "The first MAC address used for generating World Wide
+               Names (WWNs) when the default range of WWNs generated 
+               from supervisor MAC address are exhausted."   
+        DEFVAL {'000000000000'H}
+        ::= { wwnmConfigurationGroup 1 }
+
+wwnmSecondaryMacAddressRange OBJECT-TYPE
+        SYNTAX        Unsigned32 (0..4294967295)
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION
+               "The number of secondary MAC Addresses starting from 
+               and including the wwnmSecondayBaseMacAddress."
+        DEFVAL { 0 }
+        ::= { wwnmConfigurationGroup 2 }
+
+-- WWN Manager Statistics
+--
+
+wwnmType1MaxWwns OBJECT-TYPE
+        SYNTAX        Unsigned32 (0..4294967295)
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "Maximum number of NAA Type 1 WWNs that are available
+                for assignment to internal entities."
+        REFERENCE
+           "FC-FS-2 Rev 1.70, Section 14 Name Identifier Formats."
+        ::= {wwnmConfigurationGroup  3 }
+
+wwnmType1AvailableWwns OBJECT-TYPE
+        SYNTAX        Gauge32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "Number of NAA Type 1 WWNs that are currently 
+                available for assignment to internal entities."
+        REFERENCE
+           "FC-FS-2 Rev 1.70, Section 14 Name Identifier Formats."
+        ::= {wwnmConfigurationGroup  4 }
+
+wwnmTypeOtherMaxWwns  OBJECT-TYPE
+        SYNTAX        Unsigned32 (0..4294967295)
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+               "Maximum number of total WWNs of types NAA Type 2 
+               and Type 5 WWNs available for assignment to  internal
+               entities."
+        REFERENCE
+           "FC-FS-2 Rev 1.70, Section 14 Name Identifier Formats."
+        ::= {wwnmConfigurationGroup  5 }   
+                                      
+wwnmTypeOtherAvailableWwns OBJECT-TYPE
+        SYNTAX        Gauge32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION                   
+               "Sum of number of NAA Type 2 and Type 5 WWNs currently
+               available for assignment to the internal entities."
+        REFERENCE
+           "FC-FS-2 Rev 1.70, Section 14 Name Identifier Formats."
+        ::= {wwnmConfigurationGroup  6 }     
+
+wwnmType1ReservedWwns OBJECT-TYPE
+        SYNTAX        Unsigned32 (0..4294967295)
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "Number of NAA Type 1 WWNs that are reserved
+                for internal purposes."
+        REFERENCE
+           "FC-FS-2 Rev 1.70, Section 14 Name Identifier Formats."
+        ::= {wwnmConfigurationGroup  7 }
+
+wwnmTypeOtherReservedWwns  OBJECT-TYPE
+        SYNTAX        Unsigned32 (0..4294967295)
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+               "Number of total WWNs of types NAA Type 2 
+               and Type 5 WWNs reserved for internal purposes."
+        REFERENCE
+           "FC-FS-2 Rev 1.70, Section 14 Name Identifier Formats."
+        ::= {wwnmConfigurationGroup  8 }   
+
+--
+-- WWN configured for VSANs
+--
+
+wwnmVsanWwnTable OBJECT-TYPE
+        SYNTAX       SEQUENCE OF WwnmVsanWwnEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+               "This table provides an option to configure
+               user specified WWN for the VSANs. 
+
+               To enable the fibre channel switch to interoperate
+               with other vendor switches on a VSAN, user 
+               needs to configure a WWN (based on the other 
+               vendor switch OUI) for the corresponding VSAN. 
+
+               To create a new entry in this table for a VSAN,
+               a corresponding entry for that VSAN should exists in
+               the vsanTable. Also, the value of the corresponding 
+               instance of vsanAdminState should be in 'suspended' 
+               state and the VSAN should interoperate in mode 4 
+               (represented by vsanInterOperValue '4'). 
+ 
+               An entry from this table can be removed by any one
+               of the following ways, 
+               a. Setting the corresponding instance 
+                  wwnmVsanWwnRowStatus value to 'destroy'. 
+               b. Deleting the corresponding VSAN from vsanTable.
+               c. Changing the corresponding VSAN configuration 
+                  from interoperate mode 4 (represented by 
+                  vsanInterOperValue '4') to any other value."
+        REFERENCE "vsanTable, vsanAdminState, vsanInterOperValue in 
+                   CISCO-VSAN-MIB"
+        ::= {wwnmConfigurationGroup 9 }
+
+wwnmVsanWwnEntry OBJECT-TYPE
+        SYNTAX       WwnmVsanWwnEntry 
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+               "An entry (conceptual row) in this table.
+               Each entry of this table represents the 
+               WWN configuration set for a VSAN." 
+        INDEX { vsanIndex }
+        ::= { wwnmVsanWwnTable 1 }
+
+WwnmVsanWwnEntry ::= SEQUENCE {
+        wwnmVsanWwn                 FcNameId,
+        wwnmVsanWwnStorageType      StorageType,
+        wwnmVsanWwnRowStatus        RowStatus 
+}
+
+wwnmVsanWwn  OBJECT-TYPE
+        SYNTAX       FcNameId
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+               "The user configurable WWN for a VSAN.
+
+               For row creation, it is mandatory to set
+               the value of this object to a valid value."
+        ::= { wwnmVsanWwnEntry 1 }
+
+wwnmVsanWwnStorageType OBJECT-TYPE
+        SYNTAX         StorageType
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+               "The storage type for this conceptual row.
+               Conceptual rows having the value 'permanent' need
+               not allow write-access to any columnar objects in
+               the row."
+        DEFVAL         { nonVolatile }
+        ::= { wwnmVsanWwnEntry 2 }
+
+wwnmVsanWwnRowStatus  OBJECT-TYPE
+        SYNTAX RowStatus 
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+               "The status of this conceptual row. 
+
+               The value of this object cannot be 'active' 
+               unless the value of the corresponding instance
+               of 'wwnmVsanWwn' is set to a valid value." 
+        ::= { wwnmVsanWwnEntry 3 }
+
+--
+-- WWN Manager Notification Group
+--
+
+wwnmType1WwnShortageNotify  NOTIFICATION-TYPE
+        OBJECTS     { wwnmType1AvailableWwns}
+        STATUS      current
+        DESCRIPTION
+               "A WWN shortage notification is generated whenever the 
+               number of available Type 1 WWNs 'wwnmType1AvailableWwns'
+               reduces to either 20% or 10% or 0% of the maximum number
+               of Type 1 WWNs 'wwnmType1MaxWwns'.
+               After a shortage event is generated for a threshhold
+               (say 20%), another such event will not be generated until
+               after an availability event (see 
+               wwnmType1WwnAvailableNotify) is generated for the same 
+               threshold."
+    ::= { wwnmNotificationPrefix 1 }
+
+wwnmType1WwnAvailableNotify  NOTIFICATION-TYPE
+        OBJECTS     { wwnmType1AvailableWwns}
+        STATUS      current
+        DESCRIPTION
+               "An availability notification is generated whenever
+               the number of available Type 1 WWNs 
+               (wwnmType1AvailableWwns) increases to either 25% or 15% 
+               or 5% of the maximum number of Type 1 WWNs 
+               (wwnmType1MaxWwns) after a wwnmType1WwnShortageNotify
+               notification has been generated for either 20% or 10%
+               or 5% respectively."
+    ::= { wwnmNotificationPrefix 2 }
+
+wwnmTypeOtherWwnShortageNotify NOTIFICATION-TYPE
+        OBJECTS     { wwnmTypeOtherAvailableWwns}
+        STATUS      current
+        DESCRIPTION
+               "A WWN shortage notification is generated whenever the 
+               number of available Type Other WWNs 
+               'wwnmTypeOtherAvailableWwns' reduces to either 20% or 
+               10% or 0% of the maximum number of Type Other WWNs 
+               'wwnmTypeOtherMaxWwns'.
+               After a shortage event is generated for a threshhold 
+               (say 20%), another such event will not be generated until
+               after an availability event (see 
+               wwnmType1WwnAvailableNotify) is generated for the same 
+               threshold."
+    ::= { wwnmNotificationPrefix 3 }
+    
+wwnmTypeOtherWwnAvailableNotify  NOTIFICATION-TYPE
+            OBJECTS     { wwnmTypeOtherAvailableWwns}
+            STATUS      current
+            DESCRIPTION
+                   "An availability notification is generated whenever
+                   the number of available Type Other WWNs
+                   (wwnmTypeOtherAvailableWwns) increases to either 25% 
+                   or 15% or 5% of the maximum number of Type Other WWNs
+                   (wwnmTypeOtherMaxWwns) after a 
+                   wwnmTypeOtherWwnShortageNotify notification has been 
+                   generated for either 20% or 10% or 5% respectively."
+    ::= { wwnmNotificationPrefix 4 }
+
+-- Conformance
+
+ciscoWwnmMIBConformance OBJECT IDENTIFIER ::= { ciscoWwnmgrMIB 2 }
+ciscoWwnmMIBCompliances OBJECT IDENTIFIER 
+                                 ::= { ciscoWwnmMIBConformance 1 }
+ciscoWwnmMIBGroups OBJECT IDENTIFIER 
+                                 ::= { ciscoWwnmMIBConformance 2 }
+
+ciscoWwnmMIBCompliance MODULE-COMPLIANCE
+        STATUS  deprecated 
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the CISCO-WWNMGR-MIB."
+        MODULE MANDATORY-GROUPS { cwmWwnmConfigurationGroup,
+                                  cwmWwnmNotificationGroup }
+
+        ::= { ciscoWwnmMIBCompliances 1 }
+
+ciscoWwnmMIBCompliance1 MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the CISCO-WWNMGR-MIB."
+        MODULE MANDATORY-GROUPS { cwmWwnmConfigurationGroup,
+                                  cwmWwnmVsanWwnGroup,
+                                  cwmWwnmNotificationGroup }
+        OBJECT wwnmVsanWwnRowStatus
+        SYNTAX     INTEGER {
+                     active (1),
+                     createAndGo (4),
+                     destroy (6)
+                   }
+        DESCRIPTION
+                "Only 'active', 'createAndGo' and 'destroy' needs
+                to be supported."
+
+        ::= { ciscoWwnmMIBCompliances 2 }
+
+-- Units of Conformance
+
+cwmWwnmConfigurationGroup  OBJECT-GROUP
+        OBJECTS  { wwnmSecondaryBaseMacAddress, 
+                   wwnmSecondaryMacAddressRange, 
+                   wwnmType1MaxWwns, wwnmType1AvailableWwns,
+                   wwnmTypeOtherMaxWwns, wwnmTypeOtherAvailableWwns,
+                   wwnmType1ReservedWwns, wwnmTypeOtherReservedWwns
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for WWN Manager."
+        ::= { ciscoWwnmMIBGroups 6 }
+
+cwmWwnmNotificationGroup  NOTIFICATION-GROUP
+        NOTIFICATIONS  { wwnmType1WwnShortageNotify , 
+                         wwnmType1WwnAvailableNotify,
+                         wwnmTypeOtherWwnShortageNotify,
+                         wwnmTypeOtherWwnAvailableNotify }
+        STATUS   current
+        DESCRIPTION
+                "A collection of notifications for the 
+                WWN assignment."
+        ::= { ciscoWwnmMIBGroups 8 }
+
+cwmWwnmVsanWwnGroup OBJECT-GROUP
+        OBJECTS  { 
+                   wwnmVsanWwn,
+                   wwnmVsanWwnStorageType,
+                   wwnmVsanWwnRowStatus
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects to represent the configured 
+                 WWN for the VSANs."
+        ::= { ciscoWwnmMIBGroups 9 }
+END

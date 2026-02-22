@@ -1,0 +1,259 @@
+-- *****************************************************************
+-- CISCO-XGCP-EXT-CAPABILITY.my:
+-- CISCO-XGCP-EXT-MIB AGENT-CAPABILITIES
+--
+-- June 2004, Sarassou Radjou    
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-XGCP-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoXgcpExtCapability MODULE-IDENTITY
+        LAST-UPDATED    "200406180000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-voice-gateway@cisco.com"
+        DESCRIPTION
+                "The capabilities description of
+                 CISCO-XGCP-EXT-MIB."
+
+        REVISION        "200406180000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+
+        ::= { ciscoAgentCapability 99999 }
+
+ciscoXgcpExtCapabilityV12R03 AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS 12.3."
+    STATUS              current
+    DESCRIPTION         "CISCO-XGCP-EXT-MIB capabilities."
+    
+    SUPPORTS            CISCO-XGCP-EXT-MIB
+        INCLUDES        { cxeCallCtrlGroup, cxeCcProfileGroup }
+    
+        VARIATION       cxeCallCtrlControlServiceType   
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlBearerServiceType 
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlVoIpDtmfRelayMode    
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlVoIpDtmfCodec        
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlVoAal2DtmfRelayMode       
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlVoAal2DtmfCodec
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlTsePayload   
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlNetNseTimer  
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlRtcpRcvTimer
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlIgnoreAal2LcoCodec
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlDigitMapOrder
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlT38Inhibited
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlT38NseRspTimer
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlT38FecEnabled
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlT38LsRedundancy
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlT38HsRedundancy
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlT38NsfCountryCode
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlT38NsfVendorCode
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlVselDselFselSupport
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlDefaultBearTraffic
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlLastFailedMgcAddrType
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCallCtrlLastFailedMgcAddress
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCcProfileName
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileMgcGrpNum
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileMgcAddrType
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileMgcAddress
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileProtocolIdx
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCcProfileXgcpRetryMethod
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileRetryMax1
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCcProfileDnsLookupMax1
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileRetryMax2
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCcProfileDnsLookupMax2
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileMwiTimeout
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCcProfileTsmaxTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileTdinitTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileTdminTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileTdmaxTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileTcritTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileTparTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileThistTimeout
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCcProfileRtTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileRbkTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileCgTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileBzTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileDlTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileSlTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileRgTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileRoTimeout
+            ACCESS      read-only
+            DESCRIPTION "Unable to set this on IOS."
+        
+        VARIATION       cxeCcProfileCot1Timeout
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCcProfileCot2Timeout
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+        VARIATION       cxeCcProfileRowStatus
+            ACCESS      not-implemented 
+            DESCRIPTION "Not supported."
+        
+    ::= { ciscoXgcpExtCapability 1 }
+        
+END

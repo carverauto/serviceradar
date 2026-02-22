@@ -1,0 +1,72 @@
+
+The below MIBs are supported by the C8510-CSR in release 1.0 and later.
+SNMP version 1 MIBs are in the v1 directory and SNMP version 2 MIBs are
+in the v2 directory.  Note that for most every MIB <foo>.my in the v2
+directory, there exists a SNMP version 1 conversion of the MIB
+<foo>-V1SMI.my in the v1 directory.  The exception is SNMPv2-TC.my.
+Thanks go to David T. Perkins for his package smicng which was used to
+produce most of the v1 conversions.
+
+================================================================
+
+The following support was available in Release 2.0 of the C8510-CSR
+software in addition to Release 1.0.
+
+    1. Standard MIBs:
+          ENTITY-MIB.my
+          CISCO-ENTITY-VENDORTYPE-OID-MIB.my
+
+
+================================================================
+
+The following support was available in Release 1.0 of the C8510-CSR
+software.
+
+The C8510-CSR inherits many standard MIBs and Cisco enterprise MIBs
+as part of the Cisco IOS 11.2 code base.
+
+    1. Standard MIBs:
+	  IANAifType-MIB.my
+          IF-MIB.my
+          RFC1213-MIB.my
+	  RFC1398-MIB.my
+          RMON-MIB.my (only alarm and event groups are supported)
+          SNMPv2-MIB.my
+	  SNMPv2-SMI.my
+	  SNMPv2-TC.my
+	  TCP-MIB.my
+	  UDP-MIB.my
+	  RS-232-MIB.my
+
+
+    2. Cisco enterprise MIBs:
+	  CISCO-RHINO-MIB.my
+          CISCO-FLASH-MIB.my
+	  CISCO-IP-STAT-MIB.my
+	  CISCO-IMAGE-MIB.my
+          CISCO-CONFIG-MAN-MIB.my
+	  CISCO-MEMORY-POOL-MIB.my
+          CISCO-CDP-MIB.my
+	  CISCO-TCP-MIB.my
+
+	  CISCO-CONFIG-COPY-MIB.my
+          CISCO-GENERAL-TRAPS.my
+          CISCO-PING-MIB.my
+          CISCO-PRODUCTS-MIB.my
+          CISCO-SMI.my
+          CISCO-TC.my
+
+	  OLD-CISCO-CPU-MIB.my
+          OLD-CISCO-INTERFACES-MIB.my
+	  OLD-CISCO-IP-MIB.my
+	  OLD-CISCO-MEMORY-MIB.my
+          OLD-CISCO-SYS-MIB.my  
+	       Note: objects in this doc are also contained in the
+				separate docs OLD-CISCO-CPU-MIB.my,
+				OLD-CISCO-SYSTEM-MIB.my and 
+				OLD-CISCO-MEMORY-MIB.my
+	  OLD-CISCO-SYSTEM-MIB.my
+          OLD-CISCO-TS-MIB.my
+
+================================================================
+

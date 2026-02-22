@@ -1,0 +1,1503 @@
+-- *****************************************************************
+-- Description of managed objects for ADSL DMT line interfaces.
+--
+-- March 1999, Patrick Gili
+-- August 2000, Andy Spooner  
+-- February 2001, Manish Bakshi
+--
+-- Copyright (c) 1999, 2000, 2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ADSL-DMT-LINE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Integer32,
+    MODULE-IDENTITY,
+    OBJECT-TYPE                         FROM SNMPv2-SMI
+    Unsigned32                          FROM CISCO-TC
+    TEXTUAL-CONVENTION,DateAndTime,
+    TruthValue                          FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP                        FROM SNMPv2-CONF
+    ciscoMgmt                           FROM CISCO-SMI
+    adslLineConfProfileName,
+    adslLineAlarmConfProfileName        FROM ADSL-LINE-MIB
+    ifIndex, InterfaceIndexOrZero       FROM IF-MIB;
+
+ciscoAdslDmtLineMIB MODULE-IDENTITY
+    LAST-UPDATED   "200105171600Z"
+    ORGANIZATION   "Cisco Systems, Inc."
+    CONTACT-INFO   "Cisco Systems
+                    Customer Service
+
+                    Postal: 170 W Tasman Drive
+                    San Jose, CA 95134
+
+                    Tel: +1 800 553-NETS
+
+                    E-mail: cs-dslam@cisco.com"
+    DESCRIPTION
+        "This MIB module serves as an enterprise-specific extension of
+        the ADSL-LINE-MIB.  The structure of this MIB module shadows
+        the structure of the ADSL-LINE-MIB, table for table.  The tables
+        defined by this MIB module contain managed objects that meet the
+        following criteria:
+
+        1)  A managed object represents an attribute or characteristic
+            specific to DMT (Digital Multi-Tone) modems.
+
+        2)  The ADSL-DMT-LINE-MIB does not already contain a managed
+            object representing the same information as a managed
+            object.
+
+        Observe that entries contained by the tables in this MIB module
+        do not augment the corresponding entries in the ADSL-LINE-MIB,
+        as every modem represented by the ADSL-LINE-MIB is not
+        necessarily a DMT modem.
+
+        Also observe that entries contained by the tables in this MIB
+        module do not augment the corresponding entries in the
+        ADSL-DMT-LINE-MIB, as this assumes that the ADSL-DMT-LINE-MIB
+        defines tables that correspond to every table defined by the
+        ADSL-LINE-MIB.  At this time, this assumption does not hold
+        true.
+
+        *** DEFINITIONS ***
+
+        AGGREGATE DATA RATE
+            Data rate transmitted by an ADSL system in any one
+            direction.  This includes both net data rates and overhead
+            used by the system, including:
+                - EOC
+                - AOC (ADSL Overhead Control channel)
+                - CRC (Cyclic Redundancy Check) check bytes
+                - fixed indicator bits for OAM (Operatings,
+                  Administration, and Maintenance)
+                - synchronization control bytes
+                - capacity for bearer channel synchronization control
+
+        BEARER CHANNEL
+            A user data stream of a specific data rate that is
+            transported transparently by an ADSL system over one of the
+            simplex channels (i.e., AS0, AS1, AS2, or AS3) or one of the
+            duplex channels (i.e., LS0, LS1, or LS2).
+
+        BIN
+            DMT line coding divides the frequency spectrum above the
+            voice band of a line (i.e., 0-4 kHz) into 255 sub-carriers,
+            each supporting 4.3125 kHz of bandwidth.  A 'bin' refers to
+            a single sub-carrier.
+
+        DATA SYMBOL RATE
+            The average symbol rate (after allowing for the overhead of
+            the sync symbol) at which symbols carrying data are
+            transmitted; that is, 4000 symbols/second.
+
+        DOWNSTREAM
+            The flow of data in the direction from the ATU-C to ATU-R.
+
+        LINE RATE
+            The total data rate supported by a line; that is,
+            (sum of b(i) for all i) * 4 kbps.
+
+        MARGIN (also referred to as 'SNR margin')
+            The difference between the SNR of the received signal and
+            the SNR required to provide a BER of 10E-7.
+
+        NET DATA RATE
+            The data rate that is available for user data in any one
+            direction; for the downstream direction this is the sum of
+            the simplex and duplex bearer channel rates.
+
+        SPLITTER
+            Filters that separate the high frequency signals (ADSL)
+            from the voice band signals; (frequently called POTS
+            splitters even though the voice band signals may comprise
+            more than just POTS).
+
+        SYMBOL
+            The number of bits the transmitter is capable of
+            multiplexing and modulating over all the bins in a single
+            signalling interval.
+
+        SYMBOL RATE
+            The rate at which all symbols, including the sync
+            symbol, are transmitted; that is, (69/68) * 4000
+            symbols/sec; contrasted with the data symbol rate.
+
+        TOTAL DATA RATE
+            The aggregate data rate (q.v.) plus Reed-Solomon FEC
+            overhead.
+
+        UPSTREAM
+            The flow of data in the direction from the ATU-R to ATU-C.
+
+        *** ABBREVIATIONS, ACRONYMS, AND SYMBOLS ***
+
+        ADSL - Asymmetric Digital Subscriber Line.
+
+        ATM - Asynchronous Transfer Mode.
+
+        ATU-C - ADSL Transceiver Unit, Central Office end.
+
+        ATU-R - ADSL Transceiver Unit, Remote terminal end.
+
+        b(i) - the number of bits (i.e., constellation size) modulated
+            on bin i.
+
+        BER - Bit Error Ratio.
+
+        DMT - Discrete MultiTone.
+
+        DSL - Digital Subscriber Line.
+
+        EOC - Embedded Operations Channel.
+
+        FEC - Forward Error Correction.
+
+        SNR - Signal-to-Noise Ratio.
+
+        STM - Synchronous Transfer Mode."     
+    REVISION    "200105171600Z"
+    DESCRIPTION
+        "Added new table for AtucDmtBin and AturDmtBin information.
+        Added two attributes to the profile: 
+        cAdslAtucDmtConfMinrateBlock and 
+        cAdslAtucDmtDualBitmapEnabled" 
+    REVISION	"200008220000Z"
+    DESCRIPTION
+	    "Added new value for DmtCodewordSize to allow the
+	     setting of DmtCodewordSize to 1/2 symbols per codeword."
+    REVISION	"200005190000Z"
+    DESCRIPTION
+	    "Updated cAdslLineDmtConfOperatingMode object to
+         support G.992.1, G.992.2 and T1.413 enumerations.
+         Also added descriptions for the above."
+    REVISION	"9903300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 130 }
+
+DmtOverheadFraming ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "There exist two types of ADSL framing: full overhead and
+        reduced overhead.  Furthermore, there exist two versions of
+        full overhead and two versions of reduced overhead.  The
+        table below defines the four resulting framing structures:
+
+        'structure0'    Full overhead framing with asynchronous
+                        bit-to-modem timing (enabled synchronization
+                        control mechanism).
+
+        'structure1'    Full overhead framing with synchronous 
+                        bit-to-modem timing (disabled synchronization
+                        control mechanism).
+
+        'structure2'    Reduced overhead framing with separate fast
+                        and sync bytes in fast and interleaved latency
+                        buffers respectively (64 kbps framing overhead).
+
+        'structure3'    Reduced overhead framing with merged fast and
+                        sync byte, using either the fast or interleaved
+                        latency buffer (32 kbps framing overhead).
+
+        During the training sequence, the ATU-C shall indicate the
+        highest framing structure number that it supports.  It is
+        implied that if the ATU-C indicates it supports framing
+        structure k, it also supports all framing structures 0 to k-1.
+        If during the training sequence the ATU-R indicates a lower
+        framing structure than that specified by the ATU-C, the ATU-C
+        shall fall back to the framing structure number indicated by
+        the ATU-R.
+
+        Management requirements drive the determination of overhead,
+        full or reduced.  Full overhead provides more bandwidth to the
+        EOC channel, thereby enabling higher polling rates.  However,
+        reduced overhead provides enough bandwidth to satisfy typical
+        applications.
+
+        If an ADSL line is supporting an ATM link, then a structure 
+        must be chosen that disables synchronization control.
+
+        If an ADSL line is supporting an STM link, and the ADSL line
+        interface has a clock tightly coupled to the stratum clock,
+        then synchronization control is not necessary.
+
+        If an ADSL line is supporting an STM link, and the ADSL line
+        interface is driven by a clock that has no relationship with
+        the stratum clock, then a struture that enables synchronization
+        control is necessary."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    SYNTAX INTEGER { 
+        structure0(0),
+        structure1(1),
+        structure2(2),
+        structure3(3)
+    }
+
+DmtFecSize ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "One of the three parameters that affects FEC operation; the
+        number of FEC redundancy bytes per Reed-Solomon codeword.  The
+        codeword size also affects FEC operation.  The interleave depth
+        also affects FEC operation on an interleaved channel (see the
+        ADSL-LINE-MIB, specifically adslAtucChanConfMaxInterleaveDelay
+        and adslAturChanConfMaxInterleaveDelay)."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces.
+
+        draft-ietf-adslmib-adsllinemib-04, Definitions of Managed
+        Objects for ADSL Lines."
+    SYNTAX INTEGER (0 | 2 | 4 | 6 | 8 | 10 | 12 | 14 | 16)
+
+DmtCodewordSize ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "One of the three parameters that affects FEC operation; the
+        number of ADSL symbols per FEC codeword.  The FEC size also
+        affects FEC operation.  The interleave depth also affects FEC
+        operation on an interleaved channel (see the ADSL-LINE-MIB,
+        specifically adslAtucChanConfMaxInterleaveDelay
+        and adslAturChanConfMaxInterleaveDelay).
+
+        The following constraints apply:
+
+        -   This value is always '1' when performing the FEC operation
+            on a fast buffer.
+
+        -   When performing the FEC operation on an interleaved buffer,
+            the specification does not require a codeword size greater
+            than '1' when the interleave depth is set to '1'.
+
+	-   if DmtCodeWordSize is positive, it represents the actual
+	    number of symbols per codeword.  If DmtCodeWordSize is 
+	    negative, it represents the exponent value in a power 
+	    of 2.  For example, if DmtCodeWordSize is equal to -1,
+	    then the number of symbols per codeword would be equal
+  	    to 2^^-1 = 1/2."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces.
+
+        RFC 2662 - Definitions of Managed Objects for the ADSL Lines. 
+        G. Bathrick,. Ly. August 1999. "
+
+    SYNTAX INTEGER (-1 | 1 | 2 | 4 | 8 | 16)
+
+-- MIB Objects Definitions
+
+ciscoAdslDmtLineMIBObjects OBJECT IDENTIFIER ::=
+    { ciscoAdslDmtLineMIB 1 }
+
+-- ADSL DMT Line Table
+
+cAdslDmtLineTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CAdslDmtLineEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table extends the adslLineTable and contains enterprise-
+        specific common attributes describing both ends of ADSL lines
+        supported by the system."
+    ::= { ciscoAdslDmtLineMIBObjects 1 }
+
+cAdslDmtLineEntry OBJECT-TYPE
+    SYNTAX      CAdslDmtLineEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of enterprise-specific common attributes describing both
+        ends of an ADSL line supported by the system.  There exists an
+        entry for each ifEntry with an ifType of adsl(94)."
+    INDEX       { ifIndex }
+    ::= { cAdslDmtLineTable 1 }
+
+CAdslDmtLineEntry ::= SEQUENCE {
+    cAdslDmtLineOverheadFraming DmtOverheadFraming
+}
+
+cAdslDmtLineOverheadFraming OBJECT-TYPE
+    SYNTAX      DmtOverheadFraming
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object represents the negotiated overhead framing
+        structure being used by the ATU-C and ATU-R."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    ::= { cAdslDmtLineEntry 1 }
+
+-- ADSL ATU-C DMT Physical-Layer Parameters Table
+
+cAdslAtucDmtPhysTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CAdslAtucDmtPhysEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table extends the adslAtucPhysTable and contains
+        enterprise-specific physical layer parameters for ATU-C
+        class devices supported by the system."
+    ::= { ciscoAdslDmtLineMIBObjects 2 }
+
+cAdslAtucDmtPhysEntry OBJECT-TYPE
+    SYNTAX      CAdslAtucDmtPhysEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of enterprise-specific physical-layer parameters for an 
+        ATU-C class device supported by the system.  There exists an
+        entry for each ifEntry with an ifType of adsl(94)."
+    INDEX       { ifIndex }
+    ::= { cAdslAtucDmtPhysTable 1 }
+
+CAdslAtucDmtPhysEntry ::= SEQUENCE {
+    cAdslAtucDmtState INTEGER
+}
+
+cAdslAtucDmtState OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    standard(1),
+                    unknown(2),
+                    downloading(3),
+                    downloadFailed(4),
+                    testing(5)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The value of this object specifies the enterprise-specific
+        specific status of the ATU-C.  If the value of adslAtucDMTState
+        is not 'other', then the value of this object is 'standard'.
+        If the value of adslAtucDMTState is 'other', and the ATU-C
+        is in an unrecognized state, then the value of this object
+        is 'unknown'.  If the value of adslAtucDMTState is 'other',
+        and the ATU-C is not in an unrecognized state, then the value
+        of this object specifies the enterprise-specific state of the
+        ATU-C."
+    REFERENCE
+        "ADSL Forum Technical Specification TR-014, DMT Line Code
+        Specific MIB."
+    ::= { cAdslAtucDmtPhysEntry 1 }
+
+-- ADSL ATU-C DMT Channel Parameters Table
+
+cAdslAtucDmtChanTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CAdslAtucDmtChanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table extends the adslAtucChanTable and contains
+        enterprise-specific physical layer parameters for the ATU-C
+        channels supported by the system."
+    ::= { ciscoAdslDmtLineMIBObjects 4 }
+
+cAdslAtucDmtChanEntry OBJECT-TYPE
+    SYNTAX      CAdslAtucDmtChanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of enterprise-specific physical-layer parameters for an 
+        ATU-C channel supported by the system.  There exists an entry
+        for each ifEntry with an ifType of adslInterleave(124) or
+        adslFast(125)."
+    INDEX       { ifIndex }
+    ::= { cAdslAtucDmtChanTable 1 }
+
+CAdslAtucDmtChanEntry ::= SEQUENCE {
+    cAdslAtucDmtChanFecSize      DmtFecSize,
+    cAdslAtucDmtChanCodewordSize DmtCodewordSize
+}
+
+cAdslAtucDmtChanFecSize OBJECT-TYPE
+    SYNTAX      DmtFecSize
+    UNITS       "bytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of FEC redundancy bytes the
+        ATU-C appends to downstream on the corresponding channel.  The
+        ATU-C can fallback from the initial value specified for the 
+        corresponding channel (i.e., cAdslAtucDmtConfFastFecSize or
+        cAdslAtucInterleaveFecSize) based on the aggregate data rate
+        rate achieved during training."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    ::= { cAdslAtucDmtChanEntry 1 }
+
+cAdslAtucDmtChanCodewordSize OBJECT-TYPE
+    SYNTAX      DmtCodewordSize
+    UNITS       "symbols"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the actual number of symbols per
+        codeword being used by the ATU-C for downstream messages.
+        The ATU-C and ATU-R negotiate this value during the
+        training sequence.  A value of 0 indicates the 
+        automatic mode."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    ::= { cAdslAtucDmtChanEntry 2 }
+
+-- ADSL ATU-R DMT Channel Parameters Table
+
+cAdslAturDmtChanTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CAdslAturDmtChanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table extends the adslAturChanTable and contains
+        enterprise-specific physical layer parameters for the ATU-R
+        channels supported by the system."
+    ::= { ciscoAdslDmtLineMIBObjects 5 }
+
+cAdslAturDmtChanEntry OBJECT-TYPE
+    SYNTAX      CAdslAturDmtChanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A set of enterprise-specific physical-layer parameters for an 
+        ATU-R channel supported by the system.  There exists an entry
+        for each ifEntry with an ifType of adslInterleave(124) or
+        adslFast(125)."
+    INDEX       { ifIndex }
+    ::= { cAdslAturDmtChanTable 1 }
+
+CAdslAturDmtChanEntry ::= SEQUENCE {
+    cAdslAturDmtChanFecSize      DmtFecSize,
+    cAdslAturDmtChanCodewordSize DmtCodewordSize
+}
+
+cAdslAturDmtChanFecSize OBJECT-TYPE
+    SYNTAX      DmtFecSize
+    UNITS       "bytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of FEC redundancy bytes the
+        ATU-R appends to upstream on the corresponding channel.  The
+        ATU-C can fallback from the initial value specified for the 
+        corresponding channel (i.e., cAdslAturDmtConfFastFecSize or
+        cAdslAturInterleaveFecSize) based on the aggregate data rate
+        achieved during training."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    ::= { cAdslAturDmtChanEntry 1 }
+
+cAdslAturDmtChanCodewordSize OBJECT-TYPE
+    SYNTAX      DmtCodewordSize
+    UNITS       "symbols"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the actual number of symbols per
+        codeword being used by the ATU-R for upstream messages.
+        The ATU-C and ATU-R negotiate this value during the
+        training sequence."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    ::= { cAdslAturDmtChanEntry 2 }
+
+-- Configuration Profile Table
+
+cAdslDmtLineConfProfileTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CAdslDmtLineConfProfileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table extends the adslLineConfProfileTable and contains
+        enterprise-specific ADSL DMT line configuration information."
+    ::= { ciscoAdslDmtLineMIBObjects 14 }
+
+cAdslDmtLineConfProfileEntry OBJECT-TYPE
+    SYNTAX      CAdslDmtLineConfProfileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A configuration profile containing enterprise-specific ADSL DMT
+        line configuration information."
+    INDEX       { IMPLIED adslLineConfProfileName }
+    ::= { cAdslDmtLineConfProfileTable 1 }
+
+CAdslDmtLineConfProfileEntry ::= SEQUENCE {
+    cAdslLineDmtConfOperatingMode     INTEGER,
+    cAdslLineDmtConfTrainingMode      INTEGER,
+    cAdslAtucDmtConfFastFecSize       DmtFecSize,
+    cAdslAtucDmtConfInterleaveFecSize DmtFecSize,
+    cAdslAtucDmtConfCodewordSize      DmtCodewordSize,
+    cAdslAtucDmtConfOverheadFraming   DmtOverheadFraming,
+    cAdslAtucDmtConfBitSwapEnabled    TruthValue,
+    cAdslAtucDmtConfBitSwapFrom       Integer32,
+    cAdslAtucDmtConfBitSwapTo         Integer32,
+    cAdslAturDmtConfInterleaveFecSize DmtFecSize,
+    cAdslAturDmtConfFastFecSize       DmtFecSize,
+    cAdslAturDmtConfCodewordSize      DmtCodewordSize,
+    cAdslAtucDmtConfMinrateBlock      TruthValue,
+    cAdslAtucDmtDualBitmapEnabled     TruthValue
+}
+
+cAdslLineDmtConfOperatingMode OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    automatic(1),
+                    splitterless(2),
+                    g992Dot1(3),
+                    g992Dot2(4),
+                    t1Dot413(5)
+
+                }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the line operating mode being employed
+        by the ADSL line.  An ADSL line uses of one of two operating
+        modes:
+
+        - Automatic
+            An ATU-C that employs this operating mode automatically
+            detects the capabilities of the ATU-R and utilizes either
+            a startup sequence specified by G.992.1, G.992.2, or
+            T1.413-1998.  This line operating mode is the default for
+            an ADSL line.
+
+        - Splitterless
+            This operating mode should no longer be used.  It is 
+            equivalent to the G.992.2 selection.  Selecting this 
+            mode will automatically map to the G992.2 mode.  It is
+            appropriate in this case that both the ATU-C and ATU-R 
+            support 'heavy' capability but the ATU-C side wishes to 
+            force 'lite' operation.  Selecting this mode will 
+            automatically convert to the G992.2 mode.
+
+        - G992.1
+            This operating mode forces the used of the G994.1 startup
+            sequence and compliance to G992.1 operation.
+                            
+        - G992.2
+            This operating mode forces the use of the G994.1
+            startup sequence and compliance to G992.2 operation.  
+            It is appropriate in this case that both the ATU-C and 
+            ATU-R support 'heavy' capability but the ATU-C side 
+            wishes to force 'lite' operation.
+
+        - T1.413
+            This operating mode forces the ATU-R to use the 
+            T1.413-1998 startup sequence."
+
+    REFERENCE
+        "ITU G.992.1, Asymmetric Digital Subscriber Line (ADSL)
+        Transceiver.
+
+        ITU G.992.2, Splitterless Asymmetric Digital Subscriber
+        Line (ADSL) Transceiver.
+
+        ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    DEFVAL      { automatic }
+    ::= { cAdslDmtLineConfProfileEntry 1 }
+
+cAdslLineDmtConfTrainingMode OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    standard(1),
+                    fast(2)
+                }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the mode employed by the ATU-C and
+        ATU-R when training against each other.  One of two training
+        modes can be employed:
+
+        - Standard
+            An ATU-C initiates a training sequence using the method
+            defined by G.992.1, G.992.2, or T1.413-1998.  This training
+            mode is the default for ADSL modems.
+
+        - Fast
+            An ATU-C initiates a vendor-specific training sequence that
+            can possibly provide a shorter training sequence."
+    REFERENCE
+        "ITU G.992.1, Asymmetric Digital Subscriber Line (ADSL)
+        Transceiver.
+
+        ITU G.992.2, Splitterless Asymmetric Digital Subscriber
+        Line (ADSL) Transceiver.
+
+        ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    DEFVAL      { standard }
+    ::= { cAdslDmtLineConfProfileEntry 2 }
+
+cAdslAtucDmtConfFastFecSize OBJECT-TYPE
+    SYNTAX      DmtFecSize
+    UNITS       "bytes"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the initial number of FEC redundancy
+        bytes the ATU-C appends to downstream frames transmitted over
+        the fast channel during the training sequence.  The ATU-C can
+        fallback from this value depending on the aggregate data rate
+        achieved during training.
+
+        It is desirable to choose a large FEC size, thereby increasing
+        the chance of being able to correct errors in the data delivered
+        by a frame.  However, additional FEC redundancy bytes increases
+        frame overhead, and thus frame latency."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    DEFVAL      { 16 }
+    ::= { cAdslDmtLineConfProfileEntry 3 }
+
+cAdslAtucDmtConfInterleaveFecSize OBJECT-TYPE
+    SYNTAX      DmtFecSize
+    UNITS       "bytes"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the initial number of FEC redundancy
+        bytes the ATU-C appends to downstream frames transmitted over
+        the interleaved channel during the training sequence.  The
+        ATU-C can fallback from this value depending on the aggregate
+        data rate achieved during training.
+
+        It is desirable to choose a large FEC size, thereby increasing
+        the chance of being able to correct errors in the data delivered
+        by a frame.  However, additional FEC redundancy bytes increases
+        frame overhead, and thus frame latency.
+
+        The value of this object must be a integral multiple of the
+        value of cAdslAtucDmtConfCodewordSize."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    DEFVAL      { 16 }
+    ::= { cAdslDmtLineConfProfileEntry 4 }
+
+cAdslAtucDmtConfCodewordSize OBJECT-TYPE
+    SYNTAX      DmtCodewordSize
+    UNITS       "symbols"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of symbols per codeword being
+        used by the ATU-C for downstream messages on an interleaved
+        channel during the training sequence.  The ATU-C can fallback
+        from this value based on the aggregate data rate achieved during
+        training.
+
+        It is desirable to choose a large codeword size to minimize 
+        overhead.  However, increasing the codeword size increases the
+        possibility of not being able to correct errors in the data
+        delivered by a frame."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    DEFVAL      { 16 }
+    ::= { cAdslDmtLineConfProfileEntry 5 }
+
+cAdslAtucDmtConfOverheadFraming OBJECT-TYPE
+    SYNTAX      DmtOverheadFraming
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the overhead framing structure which the
+        ATU-C will request when establishing a link with the ATU-R.
+        The value of 'structure0' is not valid."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    DEFVAL      { structure3 }
+    ::= { cAdslDmtLineConfProfileEntry 6 }
+
+cAdslAtucDmtConfBitSwapEnabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies whether the ATU-C performs bitswapping.
+        Bitswapping attempts to maintain an acceptable margin for
+        each bin; equalizing the margin across all bins through bit
+        reallocation, thereby maximizing error performance.
+
+        The ATU-C performs bitswapping by monitoring the margin
+        measured for each bin by the transmitter:
+
+        1)  If a bin's margin falls below 'target' and the difference,
+            between the margin and 'target' exceeds 'thresh(f)', then
+            the ATU-C marks the bin as a 'from' bin.
+
+        2)  If a bin's margin exceeds 'target' and the difference
+            between the margin and 'target' exceeds 'thresh(t)', then
+            the ATU-C marks the bin as a 'to' bin.
+
+        Where:  'target'    = adslAtucConfTargetSnrMgn
+                'thresh(f)' = cAdslAtucDmtConfBitSwapFrom
+                'thresh(t)' = cAdslAtucDmtConfBitSwapTo
+
+        The ATU-C attempts to equalize the margin across the bins by
+        swapping bits out of bins marked 'from' into bins marked 'to'.
+        When the ATU-C swaps a bit out of bin, it decreases its b(i).
+        Thus, the bins constellation is smaller, which increases its
+        margin.  When the ATU-C swaps a bit into a bin, it increases
+        its b(i).  Thus, the bins constellation is larger, which
+        decreases its margin.
+
+        In addition, the ATU-R may optionally implement its own
+        monitoring capability.  The ATU-R uses this information to
+        request the ATU-C to perform bitswapping.  When this object
+        is 'true', the ATU-C must be prepared to accept and properly
+        handle bitswap requests from the ATU-R.
+
+        While bitswapping has its obvious advantages, bitswapping can
+        have undesirable side effects.  It can introduce errors on
+        lines prone to impulse noise.  In this case, it may be desirable
+        to disable bitswapping."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces.
+
+        RFC 2662 - Definitions of Managed Objects for the ADSL Lines. 
+        G. Bathrick,. Ly. August 1999. "
+
+    DEFVAL      { true }
+    ::= { cAdslDmtLineConfProfileEntry 7 }
+
+cAdslAtucDmtConfBitSwapFrom OBJECT-TYPE
+    SYNTAX      Integer32 (1..9)
+    UNITS       "dB"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Bitswapping attempts to maintain an acceptable margin for
+        each bin; equalizing the margin across all bins through bit
+        reallocation, thereby maximizing error performance.
+
+        The ATU-C performs bitswapping by monitoring the margin
+        measured for each bin by the transmitter.  If a bin's margin
+        falls below adslAtucConfTargetSnrMgn and the difference
+        between the margin and adslAtucConfTargetSnrMgn exceeds
+        the value of this object, then the ATU-C marks a bin as
+        a 'from' bin.
+
+        The ATU-C attempts to equalize the margin across the bins by
+        swapping bits out of bins marked 'from' into bins marked 'to'.
+        When the ATU-C swaps a bit out of bin, it decreases its b(i).
+        Thus, the bins constellation is smaller. which increases its
+        margin.  When the ATU-C swaps a bit into a bin, it increases
+        its b(i).  Thus, the bins constellation is larger, which
+        decreases its margin.
+
+        If this value is too small, then the ATU-C may frequently
+        toggle the bit allocation on bins, and if impulse noise is
+        present, this can cause errors.  If this value is too large,
+        then the ATU-C may not identify an adequate number of bins
+        that it can swap bits 'from', thereby decreasing the chances
+        for the ATU-C to equalize the margin across all the bins.
+        Unequalized margin across all the bins translates into poor
+        error performance."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces.
+
+        RFC 2662 - Definitions of Managed Objects for the ADSL Lines. 
+        G. Bathrick,. Ly. August 1999. "
+
+    DEFVAL      { 3 }
+    ::= { cAdslDmtLineConfProfileEntry 8 }
+
+cAdslAtucDmtConfBitSwapTo OBJECT-TYPE
+    SYNTAX      Integer32 (1..9)
+    UNITS       "dB"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "Bitswapping attempts to maintain an acceptable margin for
+        each bin; equalizing the margin across all bins through bit
+        reallocation, thereby maximizing error performance.
+
+        The ATU-C performs bitswapping by monitoring the margin
+        measured for each bin by the transmitter.  If a bin's margin
+        exceeds adslAtucConfTargetSnrMgn and the difference between
+        the margin and adslAtucConfTargetSnrMgn exceeds the value of
+        this object, then the ATU-C marks a bin as a 'to' bin.
+
+        The ATU-C attempts to equalize the margin across the bins by
+        swapping bits out of bins marked 'from' into bins marked 'to'.
+        When the ATU-C swaps a bit out of bin, it decreases its b(i).
+        Thus, the bins constellation is smaller. which increases its
+        margin.  When the ATU-C swaps a bit into a bin, it increases
+        its b(i).  Thus, the bins constellation is larger, which
+        decreases its margin.
+
+        If this value is too small, then the ATU-C may frequently
+        toggle the bit allocation on bins, and if impulse noise is
+        present, this can cause errors.  If this value is too large,
+        then the ATU-C may not identify an adequate number of bins
+        that it can swap bits 'to', thereby decreasing the chances
+        for the ATU-C to equalize the margin across all the bins.
+        Unequalized margin across all the bins translates into poor
+        error performance."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces.
+
+        RFC 2662 - Definitions of Managed Objects for the ADSL Lines. 
+        G. Bathrick,. Ly. August 1999. "
+
+    DEFVAL      { 3 }
+    ::= { cAdslDmtLineConfProfileEntry 9 }
+
+cAdslAturDmtConfFastFecSize OBJECT-TYPE
+    SYNTAX      DmtFecSize
+    UNITS       "bytes"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the initial number of FEC redundancy
+        bytes the ATU-R appends to upstream frames transmitted over
+        the fast channel during the training sequence.  The ATU-C can
+        force the ATU-R to fallback from this value depending on the
+        aggregate data rate achieved during training.
+
+        It is desirable to choose a large FEC size, thereby increasing
+        the chance of being able to correct errors in the data delivered
+        by a frame.  However, additional FEC redundancy bytes increases
+        frame overhead, and thus frame latency."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    DEFVAL      { 16 }
+    ::= { cAdslDmtLineConfProfileEntry 10 }
+
+cAdslAturDmtConfInterleaveFecSize OBJECT-TYPE
+    SYNTAX      DmtFecSize
+    UNITS       "bytes"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the initial number of FEC redundancy
+        bytes the ATU-R appends to upstream frames transmitted over
+        the interleaved channel during the training sequence.  The
+        ATU-C can force the ATU-R to fallback from this value
+        depending on the aggregate data rate achieved during training.
+
+        It is desirable to choose a large FEC size, thereby increasing
+        the chance of being able to correct errors in the data delivered
+        by a frame.  However, additional FEC redundancy bytes increases
+        frame overhead, and thus frame latency.
+
+        The value of this object must be a integral multiple of the
+        value of cAdslAturDmtConfCodewordSize."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    DEFVAL      { 16 }
+    ::= { cAdslDmtLineConfProfileEntry 11 }
+
+cAdslAturDmtConfCodewordSize OBJECT-TYPE
+    SYNTAX      DmtCodewordSize
+    UNITS       "symbols"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the number of symbols per codeword being
+        used by the ATU-R for upstream messages on an interleaved
+        channel during the training sequence.  The ATU-C can force the
+        ATU-R to fallback from this value based on the aggregate data
+        rate achieved during training.
+
+        It is desirable to choose a large codeword size to minimize 
+        overhead.  However, increasing the codeword size increases the
+        possibility of not being able to correct errors in the data
+        delivered by a frame."
+    REFERENCE
+        "ANSI T1.413-1998 Issue 2, Network and Customer Installation
+        Interfaces - Asymmetric Digital Subscriber Line (ADSL)
+        Metallic Interfaces."
+    DEFVAL      { 16 }
+    ::= { cAdslDmtLineConfProfileEntry 12 }
+       
+cAdslAtucDmtConfMinrateBlock OBJECT-TYPE
+	SYNTAX      TruthValue
+	MAX-ACCESS  read-create
+	STATUS      current
+	DESCRIPTION
+	    "This object is used to implement min-rate blocking on DMT 
+	    interfaces that support this option. "         
+	DEFVAL		{ false }
+	::= { cAdslDmtLineConfProfileEntry 13 }
+		
+cAdslAtucDmtDualBitmapEnabled OBJECT-TYPE
+	SYNTAX      TruthValue
+	MAX-ACCESS  read-create
+	STATUS      current
+	DESCRIPTION
+	    "This object is used to implement dual bitmap tables for 
+	    Annex C compliant DMT interfaces. The bin data for 
+            the DSL interface will appear in cAdslAturDmtBinTable
+            and cAdslAtucDmtBinTable. "         
+	DEFVAL		{ false }
+	::= { cAdslDmtLineConfProfileEntry 14 }
+
+-- Alarm Configuration Profile Table
+
+cAdslDmtLineAlarmConfProfileTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CAdslDmtLineAlarmConfProfileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table extends the adslLineAlarmConfProfileTable and
+        contains enterprise-specific ADSL line configuration information
+        pertaining to alarms."
+    ::= { ciscoAdslDmtLineMIBObjects 15 }
+
+cAdslDmtLineAlarmConfProfileEntry OBJECT-TYPE
+    SYNTAX      CAdslDmtLineAlarmConfProfileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A configuration profile containing enterprise-specific ADSL
+        line configuration information pertaining to alarms"
+    INDEX       { IMPLIED adslLineAlarmConfProfileName }
+    ::= { cAdslDmtLineAlarmConfProfileTable 1 }
+
+CAdslDmtLineAlarmConfProfileEntry ::= SEQUENCE {
+    cAdslAtucDmtThreshRateFallback Integer32,
+    cAdslAturDmtThreshRateFallback Integer32
+}
+
+cAdslAtucDmtThreshRateFallback OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies a bit rate threshold.  When the
+        following condition is met, the agent generates an
+        adslAtucRateChangeTrap:
+
+            ( I + F ) < cAdslAtucDmtThreshRateFallback
+
+        where I = adslAtucChanCurrTxRate for ATU-C's interleave channel
+              F = adslAtucChanCurrTxRate for ATU-C's fast channel
+
+        Setting this value to '0' prevents the agent from generating an
+        adslAtucRateChangeTrap due to rate fallback."
+    REFERENCE
+        "RFC 2662 - Definitions of Managed Objects for the ADSL Lines. 
+        G. Bathrick,. Ly. August 1999. "
+
+    DEFVAL      { 0 }
+    ::= { cAdslDmtLineAlarmConfProfileEntry 1 }
+
+cAdslAturDmtThreshRateFallback OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies a bit rate threshold.  When the
+        following condition is met, the agent generate an
+        adslAturRateChangeTrap:
+
+            ( I + F ) < cAdslAturDmtThreshRatefallback
+
+        where I = adslAturChanCurrTxRate for ATU-R's interleave channel
+              F = adslAturChanCurrTxRate for ATU-R's fast channel
+
+        Setting this value to '0' prevents the agent from generating an
+        adslAtucRateChangeTrap due to rate fallback."
+    REFERENCE
+        "RFC 2662 - Definitions of Managed Objects for the ADSL Lines. 
+        G. Bathrick,. Ly. August 1999. "
+
+    DEFVAL      { 0 }
+    ::= { cAdslDmtLineAlarmConfProfileEntry 2 }        
+    
+cAdslDmtBinIfNumber OBJECT-TYPE
+    SYNTAX     InterfaceIndexOrZero
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "The cAdslDmtBinIfNumber is used to set the ifIndex for 
+        for which DMT bin information will be collected in 
+        cAdslAtucDmtBinTable and cAdslAturDmtBinTable. The 
+        request will be processed when cAdslDmtIfRqstStatus
+        is set to pollNow (1). Setting this object will fail if
+        the value of cAdslDmtIfRqstStatus is currently 
+        rqstInProgress (3). In addition, the interface must 
+        have an ifEntry with an ifType of adsl(94) and an 
+        adslLineCoding of dmt(2)."
+    ::= { ciscoAdslDmtLineMIBObjects 16}
+    
+cAdslDmtBinIfRqstStatus OBJECT-TYPE
+    SYNTAX    INTEGER {
+		        reset (-1),	
+                        pollNow (1), 
+    			noIfConfigured (2),
+			ifConfigured (3),
+  			rqstInProgess (4),
+    		 	lcDownForIf (5),
+    			ifUntrained (6),
+    			failure (7),
+    			success (8) }
+    MAX-ACCESS  read-write
+    STATUS 		current
+    DESCRIPTION 
+        "This object initiates the polling and stores the status
+        of the last DMT Bin request. This object can have the 
+        following values :
+              reset (-1)     : write this value to reset the 
+                               the finite state machine (FSM)
+			       that controls the reading of 
+                               bin information on a DMT  
+                               interface.
+              pollNow (1)    : write this value to begin bin 
+                               polling on an interface specified 
+                               in cAdslDmtBinIfNumber.
+           noIfConfigured(2) : status read when no valid 
+                               interface is set in 
+                               cAdslDmtBinIfNumber 
+           ifConfigured(3)   : status read when a valid 
+                               interface is set in 
+                               cAdslDmtBinIfNumber 
+           rqstInProgress(4) : status returned until the 
+                               data collection is complete
+                               on an interface.
+             lcDownForIf (5) : status returned if the line 
+                               card is down for the 
+                               interface.
+            ifUntrained (6)  : status returned if the interface
+			       on the DSLAM is untrained.
+               failure (7)   : status returned when the request 
+                               cannot be completed due to 
+                               error.
+             success (8)     : status returned when bin data
+                               collection has been properly
+                               completed.
+        Data collected on a status of success (8) will be available in 
+        cAdslAtucDmtBinTable and cAdslAturDmtBinTable.  A read of this 
+        object can return any value between 2 and 8, while a write can 
+        only be set to the value of 1 or -1."
+    ::=  { ciscoAdslDmtLineMIBObjects 17}        
+    
+cAdslDmtBinIfLstRqstUpldTime OBJECT-TYPE
+	SYNTAX 		DateAndTime
+	MAX-ACCESS      read-only
+	STATUS		current
+	DESCRIPTION
+	    "cAdslDmtBinIfLstRqstUpldTime stores the time and date
+	    when the last successful upload request was done. This 
+	    field is used to determine the age of DMT Bin data 
+	    in the cAdslAtucDmtBinTable and cAdslAturDmtBinTable."
+	::= { ciscoAdslDmtLineMIBObjects 18}
+
+cAdslAtucDmtBinTable OBJECT-TYPE
+	SYNTAX		SEQUENCE OF  CAdslAtucDmtBinEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+            "This table contains information on the 256 DMT bins in 
+            the downstream direction. Bins correspond to 4 kHz slots 
+            on a trained DSL line modem.  The information stored in 
+            each bin includes bit counts per hertz of bandwidth and 
+            the transmitter gain in 0.01 dB increments."
+	::= { ciscoAdslDmtLineMIBObjects 19}
+
+cAdslAtucDmtBinEntry   OBJECT-TYPE
+	SYNTAX		CAdslAtucDmtBinEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+            "A set of enterprise-specific parameters for a DMT
+            DSL interface. After bin data has been collected
+            successfully there will be at least 1 row entry for 
+            the interface indicated by cAdslAtucDmtBinIfIndex."
+	INDEX	{ cAdslAtucDmtBitmapIndex, cAdslAtucDmtBinIndex }
+	::= { cAdslAtucDmtBinTable   1}
+
+CAdslAtucDmtBinEntry ::= SEQUENCE {    
+	cAdslAtucDmtBitmapIndex         Unsigned32,
+	cAdslAtucDmtBinIndex		Unsigned32,
+	cAdslAtucDmtBinBitAlloc		Unsigned32,
+	cAdslAtucDmtBinTxGain		Unsigned32,
+	cAdslAtucDmtBinNumber		Unsigned32
+}
+
+cAdslAtucDmtBitmapIndex OBJECT-TYPE        
+	SYNTAX		Unsigned32(1..5)
+	MAX-ACCESS	not-accessible
+	STATUS 		current                
+	DESCRIPTION
+	    "This index is used to step through all of the bin tables 
+	    on a DSL interface."
+	::= { cAdslAtucDmtBinEntry     1 }
+	
+cAdslAtucDmtBinIndex OBJECT-TYPE        
+	SYNTAX		Unsigned32(1..256)
+	MAX-ACCESS	not-accessible
+	STATUS 		current                
+	DESCRIPTION
+	    "A unique value, greater than zero, for each dmt bin
+	    on the interface specified in cAdslDmtBinIfNumber  It is
+	    recommended that values be assigned contiguously
+	    starting from 1."
+	::= { cAdslAtucDmtBinEntry     2 }
+
+cAdslAtucDmtBinBitAlloc  OBJECT-TYPE
+	SYNTAX		Unsigned32(0..15)
+	UNITS		"bits/Hz"
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION
+            "This stores the number of bits allotted per Hertz in this 
+	    bin. For example, a value of 15 would indicate that this 
+	    slot is tranmitting at a physical rate of 64kbits/sec."
+	::= { cAdslAtucDmtBinEntry  	3 }
+
+cAdslAtucDmtBinTxGain	OBJECT-TYPE
+	SYNTAX		Unsigned32(0..400)
+	UNITS		"tenth dB"
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION
+	    "This field has the transmitter gain for this bin and is 
+	    stored in 0.01 dB increments."
+	::= { cAdslAtucDmtBinEntry  	4 }
+
+cAdslAtucDmtBinNumber	OBJECT-TYPE
+	SYNTAX		Unsigned32(0..255)
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION
+	    "This field indicates the 4.3125 kHz band of downstream 
+	    DSL line spectrum occupied by a bin. For example, a value 
+	    of 3 would indicate the band from 12.9375 to 17.25 kHz 
+	    of the spectrum."
+	::= { cAdslAtucDmtBinEntry  	5 }
+
+cAdslAturDmtBinTable OBJECT-TYPE
+	SYNTAX		SEQUENCE OF  CAdslAturDmtBinEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+	    "This table contains information for the 32 DMT bins in 
+            the upstream direction. A bin corresponds to a 4 kHz slots 
+            on a trained DSL line modem. The information stored in each
+            bin includes bit counts per hertz and the transmitter gain 
+            in 0.01 dB increments."
+	::= { ciscoAdslDmtLineMIBObjects 20 }
+
+cAdslAturDmtBinEntry   OBJECT-TYPE
+	SYNTAX		CAdslAturDmtBinEntry
+	MAX-ACCESS	not-accessible
+	STATUS		current
+	DESCRIPTION
+            "A set of enterprise-specific parameters for a DMT
+            DSL interface. After bin data has been collected
+            successfully there will be at least 1 row entry for 
+            the interface indicated by cAdslAtucDmtBinIfIndex."
+	INDEX	{ cAdslAturDmtBitmapIndex, cAdslAturDmtBinIndex }
+	::= { cAdslAturDmtBinTable   1 }
+
+CAdslAturDmtBinEntry ::= SEQUENCE {   
+	cAdslAturDmtBitmapIndex         Unsigned32,
+	cAdslAturDmtBinIndex		Unsigned32,
+	cAdslAturDmtBinBitAlloc		Unsigned32,
+	cAdslAturDmtBinTxGain		Unsigned32,
+	cAdslAturDmtBinNumber		Unsigned32
+}
+
+cAdslAturDmtBitmapIndex OBJECT-TYPE        
+	SYNTAX		Unsigned32(1..5)
+	MAX-ACCESS	not-accessible
+	STATUS 		current
+	DESCRIPTION
+	    "This index is used to step through all of the bin tables 
+	    on a DSL interface."
+	::= { cAdslAturDmtBinEntry     1 }
+
+cAdslAturDmtBinIndex OBJECT-TYPE        
+	SYNTAX		Unsigned32(1..256)
+	MAX-ACCESS	not-accessible
+	STATUS 		current
+	DESCRIPTION
+	    "A unique value, greater than zero, for each dmt bin
+	    on the interface specified in cAdslDmtBinIfNumber  It is
+	    recommended that values be assigned contiguously
+	    starting from 1."
+	::= { cAdslAturDmtBinEntry     2 }
+
+cAdslAturDmtBinBitAlloc  OBJECT-TYPE
+	SYNTAX		Unsigned32(0..15)
+	UNITS		"bits/Hz"
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION
+	    "This stores the number of bits allotted per Hertz in this 
+	    bin. For example, a value of 15 indicates that this  
+	    slot is transmitting at a physical rate of 64 Kbits."
+	::= { cAdslAturDmtBinEntry  3 }
+
+cAdslAturDmtBinTxGain	OBJECT-TYPE
+	SYNTAX		Unsigned32(0..400)
+	UNITS		"hundredth dB"
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION
+	    "This field has the transmitter gain for this bin and is 
+	    stored in 0.01 dB increments."
+	::= { cAdslAturDmtBinEntry  4 }
+
+cAdslAturDmtBinNumber	OBJECT-TYPE
+	SYNTAX		Unsigned32(0..255)
+	MAX-ACCESS	read-only
+	STATUS		current
+	DESCRIPTION
+	    "This field indicates the 4.3125 kHz band of upstream 
+	    DSL line spectrum occupied by a bin. For example, a value 
+	    of 3 would indicate the band from 12.9375 to 17.25 kHz 
+	    of the spectrum."
+	::= { cAdslAturDmtBinEntry  5 }
+	
+-- MIB Notification Definitions
+
+ciscoAdslDmtLineMIBNotificationsPrefix OBJECT IDENTIFIER ::= 
+    { ciscoAdslDmtLineMIB 2 }
+
+ciscoAdslDmtLineMIBNotifications       OBJECT IDENTIFIER ::= 
+    { ciscoAdslDmtLineMIBNotificationsPrefix 0 }
+
+-- MIB Conformance Statements
+ciscoAdslDmtLineMIBConformance OBJECT IDENTIFIER ::= 
+    { ciscoAdslDmtLineMIB 3 }
+
+ciscoAdslDmtLineMIBCompliances OBJECT IDENTIFIER ::= 
+    { ciscoAdslDmtLineMIBConformance 1 }
+
+ciscoAdslDmtLineMIBGroups      OBJECT IDENTIFIER ::= 
+    { ciscoAdslDmtLineMIBConformance 2 }
+
+-- Compliance
+ciscoAdslDmtLineMIBCompliance MODULE-COMPLIANCE
+    STATUS deprecated
+    DESCRIPTION
+        "The compliance statement for entities that implement the
+        CISCO-ADSL-DMT-LINE-MIB.  Implementation of this MIB is
+        mandatory for any platform that supports one or more ADSL
+        DMT line interfaces.Replaced by 
+        ciscoAdslDmtLineMIBComplianceRev1"
+
+    MODULE -- this module
+        MANDATORY-GROUPS {
+            cAdslDmtLineGroup,
+            cAdslAtucDmtPhysGroup,
+            cAdslAtucDmtChanGroup,
+            cAdslAturDmtChanGroup,
+            cAdslDmtLineConfProfileGroup,
+            cAdslDmtLineAlarmConfProfileGroup
+        }
+   ::= { ciscoAdslDmtLineMIBCompliances 1 }
+
+ciscoAdslDmtLineMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+        "The compliance statement for entities that implement the
+        CISCO-ADSL-DMT-LINE-MIB.  Implementation of this MIB is
+        mandatory for any platform that supports one or more ADSL
+        DMT line interfaces."
+
+    MODULE -- this module
+        MANDATORY-GROUPS {
+            cAdslDmtLineGroup,
+            cAdslAtucDmtPhysGroup,
+            cAdslAtucDmtChanGroup,
+            cAdslAturDmtChanGroup,
+            cAdslDmtLineConfProfileGroupRev1,
+            cAdslDmtLineAlarmConfProfileGroup,
+            cAdslDmtBinIfGroup,
+	    cAdslAtucDmtBinDataGroup,
+            cAdslAturDmtBinDataGroup
+        }
+   ::= { ciscoAdslDmtLineMIBCompliances 2 }
+
+-- Units of Conformance
+
+cAdslDmtLineGroup OBJECT-GROUP
+    OBJECTS {
+        cAdslDmtLineOverheadFraming
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining the 
+         enterprise-specific attributes of an ADSL line 
+         supporting modems using the DMT line code."
+    ::= { ciscoAdslDmtLineMIBGroups 1 }
+
+cAdslAtucDmtPhysGroup OBJECT-GROUP
+    OBJECTS {
+        cAdslAtucDmtState
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining the 
+         enterprise-specific physical-layer parameters of 
+         an ATU-C using the DMT line code."
+    ::= { ciscoAdslDmtLineMIBGroups 2 }
+
+cAdslAtucDmtChanGroup OBJECT-GROUP
+    OBJECTS {
+       cAdslAtucDmtChanFecSize,
+       cAdslAtucDmtChanCodewordSize
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining the 
+         enterprise-specific channel parameters of an 
+         ATU-C using the DMT line code."
+    ::= { ciscoAdslDmtLineMIBGroups 3 }
+
+cAdslAturDmtChanGroup OBJECT-GROUP
+    OBJECTS {
+       cAdslAturDmtChanFecSize,
+       cAdslAturDmtChanCodewordSize
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining the 
+         enterprise-specific channel parameters of an ATU-R 
+         using the DMT line code."
+    ::= { ciscoAdslDmtLineMIBGroups 4 }
+
+cAdslDmtLineConfProfileGroup OBJECT-GROUP
+    OBJECTS {
+        cAdslLineDmtConfOperatingMode,
+        cAdslLineDmtConfTrainingMode,
+        cAdslAtucDmtConfFastFecSize,
+        cAdslAtucDmtConfInterleaveFecSize,
+        cAdslAtucDmtConfCodewordSize,
+        cAdslAtucDmtConfOverheadFraming,
+        cAdslAtucDmtConfBitSwapEnabled,
+        cAdslAtucDmtConfBitSwapFrom,
+        cAdslAtucDmtConfBitSwapTo,
+        cAdslAturDmtConfInterleaveFecSize,
+        cAdslAturDmtConfFastFecSize,
+        cAdslAturDmtConfCodewordSize
+    }
+    STATUS deprecated
+    DESCRIPTION
+       "A collection of managed objects defining the 
+        enterprise-specific line configuration information 
+        associated with one or more ADSL ATU class devices 
+        implementing the DMT line code. Replaced by
+        cAdslDmtLineConfProfileGroupRev1."
+    ::= { ciscoAdslDmtLineMIBGroups 5 }
+
+cAdslDmtLineAlarmConfProfileGroup OBJECT-GROUP
+    OBJECTS {
+        cAdslAtucDmtThreshRateFallback,
+        cAdslAturDmtThreshRateFallback
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of managed objects defining the 
+         enterprise-specific line alarm configuration 
+         information associated with one or more ATU 
+         class devices implementing the DMT line code."
+    ::= { ciscoAdslDmtLineMIBGroups 6 }
+    
+cAdslDmtBinIfGroup OBJECT-GROUP
+    OBJECTS {
+         cAdslDmtBinIfNumber,
+         cAdslDmtBinIfRqstStatus,
+         cAdslDmtBinIfLstRqstUpldTime
+     }
+    STATUS  current
+    DESCRIPTION 
+        "A collection of managed objects defining the 
+         enterprise-specific line interface information 
+         used to collect bin data from DMT interfaces."
+    ::= { ciscoAdslDmtLineMIBGroups 7}
+
+cAdslAtucDmtBinDataGroup OBJECT-GROUP
+    OBJECTS {
+         cAdslAtucDmtBinBitAlloc,
+         cAdslAtucDmtBinTxGain,
+         cAdslAtucDmtBinNumber
+     }
+    STATUS  current
+    DESCRIPTION 
+        "A collection of managed objects defining the 
+         enterprise-specific line BIN information 
+         associated with one or more ATUC class 
+         devices implementing the DMT line code."
+    ::= { ciscoAdslDmtLineMIBGroups 8}
+
+cAdslAturDmtBinDataGroup OBJECT-GROUP
+    OBJECTS {
+         cAdslAturDmtBinBitAlloc,
+         cAdslAturDmtBinTxGain,
+         cAdslAturDmtBinNumber
+     }
+    STATUS  current
+    DESCRIPTION 
+        "A collection of managed objects defining the 
+         enterprise-specific line BIN information 
+         associated with  a ATUR class device 
+         implementing the DMT line code."
+    ::= { ciscoAdslDmtLineMIBGroups 9}
+
+cAdslDmtLineConfProfileGroupRev1 OBJECT-GROUP
+    OBJECTS {
+        cAdslLineDmtConfOperatingMode,
+        cAdslLineDmtConfTrainingMode,
+        cAdslAtucDmtConfFastFecSize,
+        cAdslAtucDmtConfInterleaveFecSize,
+        cAdslAtucDmtConfCodewordSize,
+        cAdslAtucDmtConfOverheadFraming,
+        cAdslAtucDmtConfBitSwapEnabled,
+        cAdslAtucDmtConfBitSwapFrom,
+        cAdslAtucDmtConfBitSwapTo,
+        cAdslAturDmtConfInterleaveFecSize,
+        cAdslAturDmtConfFastFecSize,
+        cAdslAturDmtConfCodewordSize,
+	cAdslAtucDmtConfMinrateBlock,
+        cAdslAtucDmtDualBitmapEnabled
+    }
+    STATUS current
+    DESCRIPTION
+       "A collection of managed objects defining the 
+        enterprise-specific line configuration information 
+        associated with one or more ADSL ATU class devices 
+        implementing the DMT line code."
+    ::= { ciscoAdslDmtLineMIBGroups 10 }
+END

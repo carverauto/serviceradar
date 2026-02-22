@@ -1,0 +1,832 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-CIMCVMEDIA-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- CIMCVMEDIA management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-CIMCVMEDIA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprCimcvmediaDeviceType,
+    CfprCimcvmediaErrorType,
+    CfprCimcvmediaMountConfigRetryOnMountFail,
+    CfprCimcvmediaMountStatus,
+    CfprCimcvmediaTransport,
+    CfprPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprCimcvmediaObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        CIMCVMEDIA management information model package"
+    ::= { ciscoFirepowerMIBObjects 10 }
+
+cfprCimcvmediaActualMountEntryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCimcvmediaActualMountEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry managed object table"
+    ::= { cfprCimcvmediaObjects 1 }
+
+cfprCimcvmediaActualMountEntryEntry OBJECT-TYPE
+    SYNTAX           CfprCimcvmediaActualMountEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCimcvmediaActualMountEntryTable table."
+    INDEX { cfprCimcvmediaActualMountEntryInstanceId }
+    ::= { cfprCimcvmediaActualMountEntryTable 1 }
+
+CfprCimcvmediaActualMountEntryEntry ::= SEQUENCE {
+    cfprCimcvmediaActualMountEntryInstanceId                         CfprManagedObjectId,
+    cfprCimcvmediaActualMountEntryDn                                 CfprManagedObjectDn,
+    cfprCimcvmediaActualMountEntryRn                                 SnmpAdminString,
+    cfprCimcvmediaActualMountEntryDeviceType                         CfprCimcvmediaDeviceType,
+    cfprCimcvmediaActualMountEntryEncPwd                             SnmpAdminString,
+    cfprCimcvmediaActualMountEntryErrorType                          CfprCimcvmediaErrorType,
+    cfprCimcvmediaActualMountEntryImageFileName                      SnmpAdminString,
+    cfprCimcvmediaActualMountEntryImagePath                          SnmpAdminString,
+    cfprCimcvmediaActualMountEntryMappingName                        SnmpAdminString,
+    cfprCimcvmediaActualMountEntryMountProtocol                      CfprCimcvmediaTransport,
+    cfprCimcvmediaActualMountEntryOperMountStatus                    CfprCimcvmediaMountStatus,
+    cfprCimcvmediaActualMountEntryPassword                           SnmpAdminString,
+    cfprCimcvmediaActualMountEntryPwdSet                             TruthValue,
+    cfprCimcvmediaActualMountEntryRemoteHost                         SnmpAdminString,
+    cfprCimcvmediaActualMountEntryRemoteIpAddress                    SnmpAdminString,
+    cfprCimcvmediaActualMountEntryRemotePort                         Gauge32,
+    cfprCimcvmediaActualMountEntryUserId                             SnmpAdminString,
+    cfprCimcvmediaActualMountEntryVirtualDiskId                      Gauge32
+}
+
+cfprCimcvmediaActualMountEntryInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCimcvmediaActualMountEntryEntry 1 }
+
+cfprCimcvmediaActualMountEntryDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:dn
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 2 }
+
+cfprCimcvmediaActualMountEntryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:rn
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 3 }
+
+cfprCimcvmediaActualMountEntryDeviceType OBJECT-TYPE
+    SYNTAX       CfprCimcvmediaDeviceType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:deviceType
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 4 }
+
+cfprCimcvmediaActualMountEntryEncPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:encPwd
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 5 }
+
+cfprCimcvmediaActualMountEntryErrorType OBJECT-TYPE
+    SYNTAX       CfprCimcvmediaErrorType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:errorType
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 6 }
+
+cfprCimcvmediaActualMountEntryImageFileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:imageFileName
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 7 }
+
+cfprCimcvmediaActualMountEntryImagePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:imagePath
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 8 }
+
+cfprCimcvmediaActualMountEntryMappingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:mappingName
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 9 }
+
+cfprCimcvmediaActualMountEntryMountProtocol OBJECT-TYPE
+    SYNTAX       CfprCimcvmediaTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:mountProtocol
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 10 }
+
+cfprCimcvmediaActualMountEntryOperMountStatus OBJECT-TYPE
+    SYNTAX       CfprCimcvmediaMountStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:operMountStatus
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 11 }
+
+cfprCimcvmediaActualMountEntryPassword OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:password
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 12 }
+
+cfprCimcvmediaActualMountEntryPwdSet OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:pwdSet
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 13 }
+
+cfprCimcvmediaActualMountEntryRemoteHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:remoteHost
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 14 }
+
+cfprCimcvmediaActualMountEntryRemoteIpAddress OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:remoteIpAddress
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 15 }
+
+cfprCimcvmediaActualMountEntryRemotePort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:remotePort
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 16 }
+
+cfprCimcvmediaActualMountEntryUserId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:userId
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 17 }
+
+cfprCimcvmediaActualMountEntryVirtualDiskId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountEntry:virtualDiskId
+        managed object property"
+    ::= { cfprCimcvmediaActualMountEntryEntry 18 }
+
+cfprCimcvmediaActualMountListTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCimcvmediaActualMountListEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountList managed object table"
+    ::= { cfprCimcvmediaObjects 2 }
+
+cfprCimcvmediaActualMountListEntry OBJECT-TYPE
+    SYNTAX           CfprCimcvmediaActualMountListEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCimcvmediaActualMountListTable table."
+    INDEX { cfprCimcvmediaActualMountListInstanceId }
+    ::= { cfprCimcvmediaActualMountListTable 1 }
+
+CfprCimcvmediaActualMountListEntry ::= SEQUENCE {
+    cfprCimcvmediaActualMountListInstanceId                          CfprManagedObjectId,
+    cfprCimcvmediaActualMountListDn                                  CfprManagedObjectDn,
+    cfprCimcvmediaActualMountListRn                                  SnmpAdminString
+}
+
+cfprCimcvmediaActualMountListInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCimcvmediaActualMountListEntry 1 }
+
+cfprCimcvmediaActualMountListDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountList:dn
+        managed object property"
+    ::= { cfprCimcvmediaActualMountListEntry 2 }
+
+cfprCimcvmediaActualMountListRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ActualMountList:rn
+        managed object property"
+    ::= { cfprCimcvmediaActualMountListEntry 3 }
+
+cfprCimcvmediaConfigMountEntryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCimcvmediaConfigMountEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry managed object table"
+    ::= { cfprCimcvmediaObjects 3 }
+
+cfprCimcvmediaConfigMountEntryEntry OBJECT-TYPE
+    SYNTAX           CfprCimcvmediaConfigMountEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCimcvmediaConfigMountEntryTable table."
+    INDEX { cfprCimcvmediaConfigMountEntryInstanceId }
+    ::= { cfprCimcvmediaConfigMountEntryTable 1 }
+
+CfprCimcvmediaConfigMountEntryEntry ::= SEQUENCE {
+    cfprCimcvmediaConfigMountEntryInstanceId                         CfprManagedObjectId,
+    cfprCimcvmediaConfigMountEntryDn                                 CfprManagedObjectDn,
+    cfprCimcvmediaConfigMountEntryRn                                 SnmpAdminString,
+    cfprCimcvmediaConfigMountEntryDescription                        SnmpAdminString,
+    cfprCimcvmediaConfigMountEntryDeviceType                         CfprCimcvmediaDeviceType,
+    cfprCimcvmediaConfigMountEntryEncPwd                             SnmpAdminString,
+    cfprCimcvmediaConfigMountEntryImageFileName                      SnmpAdminString,
+    cfprCimcvmediaConfigMountEntryImagePath                          SnmpAdminString,
+    cfprCimcvmediaConfigMountEntryMappingName                        SnmpAdminString,
+    cfprCimcvmediaConfigMountEntryMountProtocol                      CfprCimcvmediaTransport,
+    cfprCimcvmediaConfigMountEntryPassword                           SnmpAdminString,
+    cfprCimcvmediaConfigMountEntryPwdSet                             TruthValue,
+    cfprCimcvmediaConfigMountEntryRemoteHost                         SnmpAdminString,
+    cfprCimcvmediaConfigMountEntryRemoteIpAddress                    SnmpAdminString,
+    cfprCimcvmediaConfigMountEntryRemotePort                         Gauge32,
+    cfprCimcvmediaConfigMountEntryUserId                             SnmpAdminString
+}
+
+cfprCimcvmediaConfigMountEntryInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCimcvmediaConfigMountEntryEntry 1 }
+
+cfprCimcvmediaConfigMountEntryDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:dn
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 2 }
+
+cfprCimcvmediaConfigMountEntryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:rn
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 3 }
+
+cfprCimcvmediaConfigMountEntryDescription OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:description
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 4 }
+
+cfprCimcvmediaConfigMountEntryDeviceType OBJECT-TYPE
+    SYNTAX       CfprCimcvmediaDeviceType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:deviceType
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 5 }
+
+cfprCimcvmediaConfigMountEntryEncPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:encPwd
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 6 }
+
+cfprCimcvmediaConfigMountEntryImageFileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:imageFileName
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 7 }
+
+cfprCimcvmediaConfigMountEntryImagePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:imagePath
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 8 }
+
+cfprCimcvmediaConfigMountEntryMappingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:mappingName
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 9 }
+
+cfprCimcvmediaConfigMountEntryMountProtocol OBJECT-TYPE
+    SYNTAX       CfprCimcvmediaTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:mountProtocol
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 10 }
+
+cfprCimcvmediaConfigMountEntryPassword OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:password
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 11 }
+
+cfprCimcvmediaConfigMountEntryPwdSet OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:pwdSet
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 12 }
+
+cfprCimcvmediaConfigMountEntryRemoteHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:remoteHost
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 13 }
+
+cfprCimcvmediaConfigMountEntryRemoteIpAddress OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:remoteIpAddress
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 14 }
+
+cfprCimcvmediaConfigMountEntryRemotePort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:remotePort
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 15 }
+
+cfprCimcvmediaConfigMountEntryUserId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ConfigMountEntry:userId
+        managed object property"
+    ::= { cfprCimcvmediaConfigMountEntryEntry 16 }
+
+cfprCimcvmediaExtMgmtRuleEntryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCimcvmediaExtMgmtRuleEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ExtMgmtRuleEntry managed object table"
+    ::= { cfprCimcvmediaObjects 4 }
+
+cfprCimcvmediaExtMgmtRuleEntryEntry OBJECT-TYPE
+    SYNTAX           CfprCimcvmediaExtMgmtRuleEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCimcvmediaExtMgmtRuleEntryTable table."
+    INDEX { cfprCimcvmediaExtMgmtRuleEntryInstanceId }
+    ::= { cfprCimcvmediaExtMgmtRuleEntryTable 1 }
+
+CfprCimcvmediaExtMgmtRuleEntryEntry ::= SEQUENCE {
+    cfprCimcvmediaExtMgmtRuleEntryInstanceId                         CfprManagedObjectId,
+    cfprCimcvmediaExtMgmtRuleEntryDn                                 CfprManagedObjectDn,
+    cfprCimcvmediaExtMgmtRuleEntryRn                                 SnmpAdminString,
+    cfprCimcvmediaExtMgmtRuleEntryExtMgmtIpAddr                      InetAddressIPv4,
+    cfprCimcvmediaExtMgmtRuleEntryMappingName                        SnmpAdminString,
+    cfprCimcvmediaExtMgmtRuleEntryMgmtIfIpAddr                       InetAddressIPv4,
+    cfprCimcvmediaExtMgmtRuleEntryMountProtocol                      CfprCimcvmediaTransport,
+    cfprCimcvmediaExtMgmtRuleEntryRemoteIpAddr                       InetAddressIPv4,
+    cfprCimcvmediaExtMgmtRuleEntryRemotePort                         Gauge32
+}
+
+cfprCimcvmediaExtMgmtRuleEntryInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCimcvmediaExtMgmtRuleEntryEntry 1 }
+
+cfprCimcvmediaExtMgmtRuleEntryDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ExtMgmtRuleEntry:dn
+        managed object property"
+    ::= { cfprCimcvmediaExtMgmtRuleEntryEntry 2 }
+
+cfprCimcvmediaExtMgmtRuleEntryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ExtMgmtRuleEntry:rn
+        managed object property"
+    ::= { cfprCimcvmediaExtMgmtRuleEntryEntry 3 }
+
+cfprCimcvmediaExtMgmtRuleEntryExtMgmtIpAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ExtMgmtRuleEntry:extMgmtIpAddr
+        managed object property"
+    ::= { cfprCimcvmediaExtMgmtRuleEntryEntry 4 }
+
+cfprCimcvmediaExtMgmtRuleEntryMappingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ExtMgmtRuleEntry:mappingName
+        managed object property"
+    ::= { cfprCimcvmediaExtMgmtRuleEntryEntry 5 }
+
+cfprCimcvmediaExtMgmtRuleEntryMgmtIfIpAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ExtMgmtRuleEntry:mgmtIfIpAddr
+        managed object property"
+    ::= { cfprCimcvmediaExtMgmtRuleEntryEntry 6 }
+
+cfprCimcvmediaExtMgmtRuleEntryMountProtocol OBJECT-TYPE
+    SYNTAX       CfprCimcvmediaTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ExtMgmtRuleEntry:mountProtocol
+        managed object property"
+    ::= { cfprCimcvmediaExtMgmtRuleEntryEntry 7 }
+
+cfprCimcvmediaExtMgmtRuleEntryRemoteIpAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ExtMgmtRuleEntry:remoteIpAddr
+        managed object property"
+    ::= { cfprCimcvmediaExtMgmtRuleEntryEntry 8 }
+
+cfprCimcvmediaExtMgmtRuleEntryRemotePort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:ExtMgmtRuleEntry:remotePort
+        managed object property"
+    ::= { cfprCimcvmediaExtMgmtRuleEntryEntry 9 }
+
+cfprCimcvmediaMountConfigDefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCimcvmediaMountConfigDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigDef managed object table"
+    ::= { cfprCimcvmediaObjects 5 }
+
+cfprCimcvmediaMountConfigDefEntry OBJECT-TYPE
+    SYNTAX           CfprCimcvmediaMountConfigDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCimcvmediaMountConfigDefTable table."
+    INDEX { cfprCimcvmediaMountConfigDefInstanceId }
+    ::= { cfprCimcvmediaMountConfigDefTable 1 }
+
+CfprCimcvmediaMountConfigDefEntry ::= SEQUENCE {
+    cfprCimcvmediaMountConfigDefInstanceId                           CfprManagedObjectId,
+    cfprCimcvmediaMountConfigDefDn                                   CfprManagedObjectDn,
+    cfprCimcvmediaMountConfigDefRn                                   SnmpAdminString,
+    cfprCimcvmediaMountConfigDefDescr                                SnmpAdminString,
+    cfprCimcvmediaMountConfigDefIntId                                SnmpAdminString,
+    cfprCimcvmediaMountConfigDefName                                 SnmpAdminString,
+    cfprCimcvmediaMountConfigDefPolicyLevel                          Gauge32,
+    cfprCimcvmediaMountConfigDefPolicyOwner                          CfprPolicyPolicyOwner,
+    cfprCimcvmediaMountConfigDefRetryOnMountFail                     CfprCimcvmediaMountConfigRetryOnMountFail
+}
+
+cfprCimcvmediaMountConfigDefInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCimcvmediaMountConfigDefEntry 1 }
+
+cfprCimcvmediaMountConfigDefDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigDef:dn managed
+        object property"
+    ::= { cfprCimcvmediaMountConfigDefEntry 2 }
+
+cfprCimcvmediaMountConfigDefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigDef:rn managed
+        object property"
+    ::= { cfprCimcvmediaMountConfigDefEntry 3 }
+
+cfprCimcvmediaMountConfigDefDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigDef:descr
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigDefEntry 4 }
+
+cfprCimcvmediaMountConfigDefIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigDef:intId
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigDefEntry 5 }
+
+cfprCimcvmediaMountConfigDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigDef:name
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigDefEntry 6 }
+
+cfprCimcvmediaMountConfigDefPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigDef:policyLevel
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigDefEntry 7 }
+
+cfprCimcvmediaMountConfigDefPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigDef:policyOwner
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigDefEntry 8 }
+
+cfprCimcvmediaMountConfigDefRetryOnMountFail OBJECT-TYPE
+    SYNTAX       CfprCimcvmediaMountConfigRetryOnMountFail
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigDef:retryOnMountFail
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigDefEntry 9 }
+
+cfprCimcvmediaMountConfigPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprCimcvmediaMountConfigPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigPolicy managed
+        object table"
+    ::= { cfprCimcvmediaObjects 6 }
+
+cfprCimcvmediaMountConfigPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprCimcvmediaMountConfigPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprCimcvmediaMountConfigPolicyTable table."
+    INDEX { cfprCimcvmediaMountConfigPolicyInstanceId }
+    ::= { cfprCimcvmediaMountConfigPolicyTable 1 }
+
+CfprCimcvmediaMountConfigPolicyEntry ::= SEQUENCE {
+    cfprCimcvmediaMountConfigPolicyInstanceId                        CfprManagedObjectId,
+    cfprCimcvmediaMountConfigPolicyDn                                CfprManagedObjectDn,
+    cfprCimcvmediaMountConfigPolicyRn                                SnmpAdminString,
+    cfprCimcvmediaMountConfigPolicyDescr                             SnmpAdminString,
+    cfprCimcvmediaMountConfigPolicyIntId                             SnmpAdminString,
+    cfprCimcvmediaMountConfigPolicyName                              SnmpAdminString,
+    cfprCimcvmediaMountConfigPolicyPolicyLevel                       Gauge32,
+    cfprCimcvmediaMountConfigPolicyPolicyOwner                       CfprPolicyPolicyOwner,
+    cfprCimcvmediaMountConfigPolicyRetryOnMountFail                  CfprCimcvmediaMountConfigRetryOnMountFail
+}
+
+cfprCimcvmediaMountConfigPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprCimcvmediaMountConfigPolicyEntry 1 }
+
+cfprCimcvmediaMountConfigPolicyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigPolicy:dn
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigPolicyEntry 2 }
+
+cfprCimcvmediaMountConfigPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigPolicy:rn
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigPolicyEntry 3 }
+
+cfprCimcvmediaMountConfigPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigPolicy:descr
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigPolicyEntry 4 }
+
+cfprCimcvmediaMountConfigPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigPolicy:intId
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigPolicyEntry 5 }
+
+cfprCimcvmediaMountConfigPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigPolicy:name
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigPolicyEntry 6 }
+
+cfprCimcvmediaMountConfigPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigPolicy:policyLevel
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigPolicyEntry 7 }
+
+cfprCimcvmediaMountConfigPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigPolicy:policyOwner
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigPolicyEntry 8 }
+
+cfprCimcvmediaMountConfigPolicyRetryOnMountFail OBJECT-TYPE
+    SYNTAX       CfprCimcvmediaMountConfigRetryOnMountFail
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower cimcvmedia:MountConfigPolicy:retryOnMountFail
+        managed object property"
+    ::= { cfprCimcvmediaMountConfigPolicyEntry 9 }
+
+END

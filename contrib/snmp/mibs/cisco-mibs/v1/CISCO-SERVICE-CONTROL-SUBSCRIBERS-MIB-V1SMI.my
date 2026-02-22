@@ -1,0 +1,507 @@
+-- MIB file created 01-Jul-2008 10:20:13, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SERVICE-CONTROL-SUBSCRIBERS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SERVICE-CONTROL-SUBSCRIBERS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    RowStatus, TruthValue, StorageType
+            FROM SNMPv2-TC-v1
+    entPhysicalIndex, entPhysicalName
+            FROM ENTITY-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoServiceControlSubscribersMIB OBJECT IDENTIFIER ::= { ciscoMgmt 628 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200705220000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-excelsior-dev@cisco.com
+--  Descr
+--    This MIB provides global and specific information on
+--    subscribers managed by a service control entity, which is a
+--    network element that monitors network traffic between network
+--    subscribers based on user configured policies.
+--    
+--    The network subscribers are the end users of the network with a
+--    unique network address for each subscriber.
+--    
+--    A specific subscriber is identified by this MIB by its 
+--    subscriber name which is assured to be unique, this id
+--    is used to retrieve this specific subscriber's information.
+--  RevDate
+--    200705220000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoServiceControlSubscribersMIBNotifs OBJECT IDENTIFIER ::= { ciscoServiceControlSubscribersMIB 0 }
+ciscoServiceControlSubscribersMIBObjects OBJECT IDENTIFIER ::= { ciscoServiceControlSubscribersMIB 1 }
+ciscoServiceControlSubscribersMIBConform OBJECT IDENTIFIER ::= { ciscoServiceControlSubscribersMIB 2 }
+cServiceControlSubscribersCompliances OBJECT IDENTIFIER ::= { ciscoServiceControlSubscribersMIBConform 1 }
+cServiceControlSubscribersGroups OBJECT IDENTIFIER ::= { ciscoServiceControlSubscribersMIBConform 2 }
+
+cServiceControlSubscribersTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CServiceControlSubscribersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table maintains list of subscribers of the service control
+        entity that has an entry in the entPhysicalTable of the
+        ENTITY-MIB.
+        
+        An entry must be created in this table to monitor the subscriber
+        so that NMS application can query subscriber data from the
+        CISCO-SERVICE-CONTROL-DPI-MIB. 
+        If the service control entity is not required to monitor a
+        particular subscriber, the corresponding entry is deleted by
+        setting the cServiceControlSubscribersRowStatus object to
+        'destroy'.
+        
+        When the service control entity reboots, the entries associated
+        with this entity will be cleared."
+    ::= { ciscoServiceControlSubscribersMIBObjects 1 }
+
+cServiceControlSubscribersEntry OBJECT-TYPE
+    SYNTAX CServiceControlSubscribersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the
+        cServiceControlSubscribersTable.
+        
+        An entry is created to specify which subscriber
+        (cServiceControlSubscribersName) will be monitored by a service
+        control entity, identified by entPhysicalIndex in the
+        entPhysicalTable with its entPhysicalClass of 'module' or
+        'chassis'."
+    INDEX { entPhysicalIndex, cServiceControlSubscribersIndex }
+    ::= { cServiceControlSubscribersTable 1 }
+
+CServiceControlSubscribersEntry ::= SEQUENCE {
+    cServiceControlSubscribersIndex Gauge,
+    cServiceControlSubscribersName SnmpAdminString,
+    cServiceControlSubscriberStorageType StorageType,
+    cServiceControlSubscribersRowStatus RowStatus
+    }
+
+cServiceControlSubscribersIndex OBJECT-TYPE
+    SYNTAX Gauge(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique subscriber entry index."
+    ::= { cServiceControlSubscribersEntry 1 }
+
+cServiceControlSubscribersName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the subscriber to be monitored by this
+        service control entity."
+    ::= { cServiceControlSubscribersEntry 2 }
+
+cServiceControlSubscriberStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual row.
+        The following columnar objects are allowed to be writable 
+        when the storageType of this conceptual row is permanent(4):
+        cServiceControlSubscribersName"
+    DEFVAL { volatile }
+    ::= { cServiceControlSubscribersEntry 3 }
+
+cServiceControlSubscribersRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row:
+        To create a row in this table, a manager must
+        set this object to either 'createAndGo' or
+        'createAndWait'.
+              Until instances of all corresponding columns are
+        appropriately configured, the value of the
+        corresponding instance of this object is 'notReady'.
+             In particular, a newly created row cannot be made
+        active until the appropriate columns have been set.
+        Default value will be automatically provisioned for those
+        objects not specified during row creation. 
+        
+        cServiceControlSubscribersName may not be modified while the
+        value of this object is 'active'.
+        
+        An entry is deleted by setting the value of corresponding
+        instance of this object to 'destroy' or the subscriber is not
+        using the service anymore by disconnecting from the network.
+        
+        The entries will be deleted when the service control entity
+        reboots."
+    ::= { cServiceControlSubscribersEntry 4 }
+
+cServiceControlSubscribersInfoTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CServiceControlSubscribersInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides listing of subscribers data for a service
+        control entity that has an entry in the entPhysicalTable of the
+        ENTITY-MIB.
+        
+        A subscriber of a service on the network is uniquely identified
+        by the cServiceControlSubscribersName. The subscriber may
+        either
+        be mapped to a network address known by the service control
+        entity, or may be anonymous. This table maintains statistical
+        data for subscribers known by the service control entity."
+    ::= { ciscoServiceControlSubscribersMIBObjects 2 }
+
+cServiceControlSubscribersInfoEntry OBJECT-TYPE
+    SYNTAX CServiceControlSubscribersInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the
+        cServiceControlSubscribersInfoTable. This
+        entry lists information about the data regarding subscribers
+        management operations performed, and the current status of the
+        subscribers database on a service control entity that has an
+        entry in the entPhysicalTable.
+        
+        entPhysicalIndex is index for this table which represents
+        entities of 'module' or 'chassis' entPhysicalClass."
+    INDEX { entPhysicalIndex }
+    ::= { cServiceControlSubscribersInfoTable 1 }
+
+CServiceControlSubscribersInfoEntry ::= SEQUENCE {
+    cServiceControlSubscribersNumIntroduced Gauge,
+    cServiceControlSubscribersNumFree Gauge,
+    cServiceControlSubscribersNumIpAddrMappings Gauge,
+    cServiceControlSubscribersNumIpAddrMappingsFree Gauge,
+    cServiceControlSubscribersNumIpRangeMappings Gauge,
+    cServiceControlSubscribersNumIpRangeMappingsFree Gauge,
+    cServiceControlSubscribersNumVlanMappings Gauge,
+    cServiceControlSubscribersNumVlanMappingsFree Gauge,
+    cServiceControlSubscribersNumActive Gauge,
+    cServiceControlSubscribersNumUpdates Counter,
+    cServiceControlSubscribersNumTpIpRanges Gauge,
+    cServiceControlSubscribersNumTpIpRangesFree Gauge,
+    cServiceControlSubscribersNumAnonymous Gauge,
+    cServiceControlSubscribersNumWithSessions Gauge,
+    cServiceControlSubscriberMappingFailedReason SnmpAdminString,
+    cServiceControlSubsribersMaxSupported Gauge
+    }
+
+cServiceControlSubscribersNumIntroduced OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current number of subscribers that
+        have been introduced to the system. These subscribers may or may
+        not have IP address or VLAN mappings."
+    ::= { cServiceControlSubscribersInfoEntry 1 }
+
+cServiceControlSubscribersNumFree OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the free subscriber space available in
+        the system. This is the number of subscribers that can be
+        introduced to the system in addition to the subscribers that are
+        already introduced to the system as maintained by
+        cServiceControlSubscribersNumIntroduced."
+    ::= { cServiceControlSubscribersInfoEntry 2 }
+
+cServiceControlSubscribersNumIpAddrMappings OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current number of subscriber
+        mappings to a single network address or to different network
+        addresses. Each address mapped to a subscriber constitutes a
+        subscriber mapping."
+    ::= { cServiceControlSubscribersInfoEntry 3 }
+
+cServiceControlSubscribersNumIpAddrMappingsFree OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of free 'IP address to
+        subscriber' mappings that may be used for defining new mappings."
+    ::= { cServiceControlSubscribersInfoEntry 4 }
+
+cServiceControlSubscribersNumIpRangeMappings OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current number of 'IP-range to
+        subscriber' mappings. Each mapping instance corresponds to a
+        subscriber mapped to a range of IP addresses."
+    ::= { cServiceControlSubscribersInfoEntry 5 }
+
+cServiceControlSubscribersNumIpRangeMappingsFree OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of free 'IP-range to
+        subscriber' mappings that may be used for defining new mappings."
+    ::= { cServiceControlSubscribersInfoEntry 6 }
+
+cServiceControlSubscribersNumVlanMappings OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current number of subscriber
+        mappings to a single VLAN ID or to different VLAN IDs. 
+        Each VLAN ID mapped to a subscriber constitutes a
+        subscriber mapping."
+    ::= { cServiceControlSubscribersInfoEntry 7 }
+
+cServiceControlSubscribersNumVlanMappingsFree OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of free 'VLAN to subscriber'
+        mappings that may be used for defining new mappings."
+    ::= { cServiceControlSubscribersInfoEntry 8 }
+
+cServiceControlSubscribersNumActive OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current number of active subscribers.
+        These subscribers necessarily have an IP address or VLAN
+        mappings that define the traffic that should be associated and
+        served according to the subscriber service agreement."
+    ::= { cServiceControlSubscribersInfoEntry 9 }
+
+cServiceControlSubscribersNumUpdates OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the accumulated number of subscribers
+        database updates received by the system."
+    ::= { cServiceControlSubscribersInfoEntry 10 }
+
+cServiceControlSubscribersNumTpIpRanges OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current number of 'Traffic Processor
+        IP address ranges' used. This object is equal to the total
+        number of network address ranges used to map to all the
+        subscribers in the system. For multiple traffic processor
+        systems, the address ranges are distributed between traffic
+        processors for dedicated processing of data belonging to the
+        mapped address space."
+    ::= { cServiceControlSubscribersInfoEntry 11 }
+
+cServiceControlSubscribersNumTpIpRangesFree OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of free 'Traffic Processor IP
+        ranges'."
+    ::= { cServiceControlSubscribersInfoEntry 12 }
+
+cServiceControlSubscribersNumAnonymous OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current number of anonymous
+        subscribers."
+    ::= { cServiceControlSubscribersInfoEntry 13 }
+
+cServiceControlSubscribersNumWithSessions OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current number of subscribers with
+        open flows."
+    ::= { cServiceControlSubscribersInfoEntry 14 }
+
+cServiceControlSubscriberMappingFailedReason OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This contains user readable description of the problem when
+        some external entity attempts to create illegal or inconsistent
+        subscriber mappings. For example, an attempt to map a
+        subscriber to incorrect address will culminate in the subscriber
+        name and the address to which mapping attempt is made and the
+        reason why the mapping attempt failed."
+    ::= { cServiceControlSubscribersInfoEntry 15 }
+
+cServiceControlSubsribersMaxSupported OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the max number of subscribers that can be
+        monitored by this service control entity."
+    ::= { cServiceControlSubscribersInfoEntry 16 }
+
+cServiceControlSubscribersNotifsEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls whether the system produces
+        cServiceControlSubscriberMapping notifications. A 'false'
+        value will prevent cServiceControlSubscriberMapping
+        notifications from being generated by this system."
+    ::= { ciscoServiceControlSubscribersMIBObjects 3 }
+
+cServiceControlSubscriberMapping TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoServiceControlSubscribersMIB
+    VARIABLES {
+        entPhysicalName, 
+        cServiceControlSubscriberMappingFailedReason }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the service control entity when
+        some external entity attempts to create illegal or inconsistent
+        subscriber mappings. The
+        cServiceControlSubscriberMappingFailedReason contains a message
+        describing the problem and entPhysicalName contains the name of
+        the service control entity generating the notification."
+    ::= 1
+
+cServiceControlSubscribersObjectGroup OBJECT IDENTIFIER ::= { cServiceControlSubscribersGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Group of objects for subscribers.
+--  objects
+--    cServiceControlSubscribersName, 
+--    cServiceControlSubscribersRowStatus, 
+--    cServiceControlSubscriberStorageType
+
+cServiceControlSubscribersInfoObjectGroup OBJECT IDENTIFIER ::= { cServiceControlSubscribersGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Group of objects for subscriber mappings subscriber
+--    statistics.
+--  objects
+--    cServiceControlSubscribersNumIntroduced, 
+--    cServiceControlSubscribersNumFree, 
+--    cServiceControlSubscribersNumIpAddrMappings, 
+--    cServiceControlSubscribersNumIpAddrMappingsFree, 
+--    cServiceControlSubscribersNumIpRangeMappings, 
+--    cServiceControlSubscribersNumIpRangeMappingsFree, 
+--    cServiceControlSubscribersNumVlanMappings, 
+--    cServiceControlSubscribersNumVlanMappingsFree, 
+--    cServiceControlSubscribersNumActive, 
+--    cServiceControlSubscribersNumUpdates, 
+--    cServiceControlSubscribersNumTpIpRanges, 
+--    cServiceControlSubscribersNumTpIpRangesFree, 
+--    cServiceControlSubscribersNumAnonymous, 
+--    cServiceControlSubscribersNumWithSessions, 
+--    cServiceControlSubscriberMappingFailedReason, 
+--    cServiceControlSubsribersMaxSupported
+
+cServiceControlSubscribersNotifsGroup OBJECT IDENTIFIER ::= { cServiceControlSubscribersGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration information
+--    applicable to all subscriber mapping notifications.
+--  objects
+--    cServiceControlSubscribersNotifsEnable
+
+cServiceControlSubscribersNotificationGroup OBJECT IDENTIFIER ::= { cServiceControlSubscribersGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Group of notifications for this MIB.
+--  notifications
+--    cServiceControlSubscriberMapping
+
+cServiceControlSubscribersCompliance OBJECT IDENTIFIER ::= { cServiceControlSubscribersCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP Agents which implement this
+--    MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cServiceControlSubscribersObjectGroup
+--   MandGroup
+--    cServiceControlSubscribersNotificationGroup
+--   MandGroup
+--    cServiceControlSubscribersInfoObjectGroup
+--   MandGroup
+--    cServiceControlSubscribersNotifsGroup
+
+
+END
+

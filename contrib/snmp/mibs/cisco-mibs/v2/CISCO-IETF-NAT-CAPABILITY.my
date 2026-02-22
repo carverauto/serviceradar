@@ -1,0 +1,410 @@
+-- *****************************************************************
+-- CISCO-IETF-NAT-CAPABILITY.my: NAT-MIB AGENT-CAPABILITIES
+-- 
+-- September 2001, Sudhindra Barve.
+-- 
+-- Copyright (c) 2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+CISCO-IETF-NAT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+            FROM CISCO-SMI;
+
+ciscoIetfNatCapability MODULE-IDENTITY
+                LAST-UPDATED    "200109100000Z"
+                ORGANIZATION    "Cisco Systems, Inc."
+                CONTACT-INFO
+                    "          Cisco Systems
+                               Customer Service
+
+                    Postal:    170 West Tasman Drive
+                               San Jose, CA  95134
+                               USA
+
+                       Tel:    +1 800 553-NETS
+
+                    E-mail:    cs-nat@cisco.com"
+                DESCRIPTION
+                        "Agent capabilities for NAT-MIB"
+                REVISION        "200109100000Z"
+                DESCRIPTION
+                        "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 99999 }
+
+ciscoIetfNatCapabilityV12R02T AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.2T"
+STATUS          current
+DESCRIPTION     "NAT MIB capabilities"
+
+SUPPORTS        CISCO-IETF-NAT-MIB
+INCLUDES        { cnatConfigGroup, cnatBindGroup,
+                  cnatStatisticsGroup }
+
+VARIATION       cnatConfServiceType 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfEntry is currently not
+                 supported"
+
+VARIATION       cnatConfTimeoutIcmpIdle 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfEntry is currently not
+                 supported"
+
+VARIATION       cnatConfTimeoutUdpIdle 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfEntry is currently not
+                 supported"
+
+VARIATION       cnatConfTimeoutTcpIdle 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfEntry is currently not
+                 supported"
+
+VARIATION       cnatConfTimeoutTcpNeg 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfEntry is currently not
+                 supported"
+
+VARIATION       cnatConfTimeoutOther 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfEntry is currently not
+                 supported"
+
+VARIATION       cnatConfMaxBindLeaseTime 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfEntry is currently not
+                 supported"
+
+VARIATION       cnatConfMaxBindIdleTime 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfEntry is currently not
+                 supported"
+
+VARIATION       cnatConfStorageType 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfEntry is currently not
+                 supported"
+
+VARIATION       cnatConfStatus 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfEntry is currently not
+                 supported"
+
+VARIATION       cnatConfStaticAddrMapName 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticAddrMapType 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticLocalAddrFrom 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticLocalAddrTo 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticLocalPortFrom 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticLocalPortTo 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticGlobalAddrFrom 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticGlobalAddrTo 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticGlobalPortFrom 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticGlobalPortTo 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticProtocol 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticAddrMapStorageType
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfStaticAddrMapStatus
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfStaticAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynAddrMapName 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynAddrMapType 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynLocalAddrFrom 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynLocalAddrTo 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynLocalPortFrom 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynLocalPortTo 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynGlobalAddrFrom 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynGlobalAddrTo 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynGlobalPortFrom 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynGlobalPortTo 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynProtocol 
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynAddrMapStorageType
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatConfDynAddrMapStatus
+ACCESS          not-implemented 
+DESCRIPTION     "Table for CnatConfDynAddrMapEntry is 
+                 currently not supported"
+
+VARIATION       cnatInterfaceRealm
+ACCESS          read-only
+DESCRIPTION     "Write/create not-implemented"
+
+VARIATION       cnatInterfaceStorageType
+SYNTAX          INTEGER { readOnly(5) } -- subset of StorageType
+ACCESS          read-only
+DESCRIPTION     "Write/create not-implemented so the value is 
+                 hard coded to readOnly(5)"
+
+VARIATION       cnatInterfaceStatus
+SYNTAX          INTEGER { active(1) } -- subset of RowStatus
+ACCESS          read-only
+DESCRIPTION     "Write/create not-implemented, and value is
+                 hard coded to active(1)"
+
+VARIATION       cnatAddrBindDirection
+SYNTAX          INTEGER { biDirectional (2) } 
+ACCESS          read-only
+DESCRIPTION     "Once the nat translation is created it can
+                 be used for translations happening from both
+                 both the direction. So value is hard coded to
+                 biDirectional (2)"
+
+VARIATION       cnatAddrBindConfName
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatConfEntry is not supported, 
+                 hence this object is also not supported"
+
+VARIATION       cnatAddrBindSessionCount
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is not supported,
+                 hence this object is also not supported"
+
+VARIATION       cnatAddrPortBindDirection
+SYNTAX          INTEGER { biDirectional (2) }
+ACCESS          read-only
+DESCRIPTION     "Once the nat translation is created it can
+                 be used for translations happening from both
+                 both the direction. So value is hard coded to
+                 biDirectional (2)"
+
+VARIATION       cnatAddrPortBindConfName
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatConfEntry is not supported, 
+                 hence this object is also not supported"
+
+VARIATION       cnatAddrPortBindSessionCount
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is not supported,
+                 hence this object is also not supported"
+
+VARIATION       cnatSessionBindId
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionId
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionDirection
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionUpTime
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionProtocolType
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionOrigPrivateAddr
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionTransPrivateAddr
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionOrigPrivatePort
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionTransPrivatePort
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionOrigPublicAddr
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionTransPublicAddr
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionOrigPulbicPort
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionTransPublicPort
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionCurrentIdleTime
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionSecondBindId
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionInTranslate
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatSessionOutTranslate
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatSessionEntry is currently
+                 not supported"
+
+VARIATION       cnatAddrMapStatsConfName
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatAddrMapStatsEntry is currently
+                 not supported"
+
+VARIATION       cnatAddrMapStatsMapName
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatAddrMapStatsEntry is currently
+                 not supported"
+
+VARIATION       cnatAddrMapStatsInTranslate
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatAddrMapStatsEntry is currently
+                 not supported"
+
+VARIATION       cnatAddrMapStatsOutTranslate
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatAddrMapStatsEntry is currently
+                 not supported"
+
+VARIATION       cnatAddrMapStatsNoResource
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatAddrMapStatsEntry is currently
+                 not supported"
+
+VARIATION       cnatAddrMapStatsAddrUsed
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatAddrMapStatsEntry is currently
+                 not supported"
+
+VARIATION       cnatInterfacePktsIn
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatInterfaceStatsEntry is currently
+                 not supported"
+
+VARIATION       cnatInterfacePktsOut
+ACCESS          not-implemented
+DESCRIPTION     "Table for CnatInterfaceStatsEntry is currently
+                 not supported"
+                 
+	::= { ciscoIetfNatCapability 1 }
+END

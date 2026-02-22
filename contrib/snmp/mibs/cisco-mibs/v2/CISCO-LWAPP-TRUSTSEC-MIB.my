@@ -1,0 +1,334 @@
+-- *****************************************************************
+-- CISCO-LWAPP-TRUSTSEC-MIB.my
+--
+-- February 2017, Amar Kumar
+--
+-- Copyright (c) 2016 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+CISCO-LWAPP-TRUSTSEC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    DateAndTime,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CtsSecurityGroupTag
+        FROM CISCO-TRUSTSEC-TC-MIB    
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    cLApSysMacAddress
+        FROM CISCO-LWAPP-AP-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+        
+ciscoLwappTrustSecMIB   MODULE-IDENTITY
+    LAST-UPDATED        "201702100000Z"
+    ORGANIZATION        "Cisco Systems Inc."
+    CONTACT-INFO
+                   "Cisco Systems,
+                    Customer Service
+       
+            Postal: 170 West Tasman Drive
+                    San Jose, CA  95134
+                    USA
+            
+                    Tel: +1 800 553-NETS
+              
+                    Email: cs-snmp@cisco.com"
+
+    DESCRIPTION
+        "This MIB module is for the configuration of a network
+        device on the Cisco Trusted Security (TrustSec) system.
+
+        TrustSec secures a network fabric by authenticating and
+        authorizing each device connecting to the network, allowing for
+        the encryption, authentication and replay protection of data
+        traffic on a hop by hop basis.
+
+        Glossary :
+
+        TrustSec - Cisco Trusted Security
+
+        EAP-FAST - Extensible Authentication Protocol-Flexible
+                   Authentication via Secure Tunneling (RFC 4851)
+
+        PAC - Protected Access Credential
+              A credential dynamically downloaded from the
+              Access Control Server.
+        ACS - Access Control Server
+        SGT - Security Group Tag
+        SXP - SGT Exchange Protocol.
+              A tag identifying its source, assigned to a packet on
+              ingress to a TrustSec cloud, and used to determine
+              security and other policy to be applied to it along
+              its path through the cloud.
+              This MIB module is for the configuration and status query
+              of SGT Exchange Protocol over TCP (SXPoTCP) feature of the
+              device on the Cisco's Trusted Security (TrustSec) system.
+
+              Security Group Tag (SGT) identifying its source, assigned to a
+              packet on ingress to a TrustSec cloud, and used to determine
+              security and other policy to be applied to it along its path
+              through the cloud."
+
+   REVISION      "201702100000Z"
+
+   DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 836 }
+
+
+clCtsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappTrustSecMIB 0 }
+
+clCtsTableMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappTrustSecMIB 1 }
+
+clCtsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappTrustSecMIB 2 }
+    
+clCtsGlobalMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappTrustSecMIB 3 }
+
+
+
+clCtsSecurityGroupTagId OBJECT-TYPE
+    SYNTAX          CtsSecurityGroupTag
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies user to specify the SGT for the packets
+        originating from this device.
+
+        A value of zero for this object indicates that no SGT has been
+        configured."
+    DEFVAL { 0 }
+    ::= { clCtsGlobalMIBObjects 1 }
+
+    
+clCtsDeviceId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the identifier for the device.
+
+        This identifier and the device password (specified by
+        clCtsDevicePassword) are used together by the Cisco Trusted
+        Security feature for authenticating the device.
+
+        The object may not be set to a zero length string.
+
+        The system will return a zero length string for this object
+        either when there is no value configured for this object or
+        TrustSec credentials for the device have been cleared by
+        setting clCtsCredentialsClearAll to 'true'."
+    DEFVAL {" "}
+    ::= { clCtsGlobalMIBObjects 2 }
+
+
+clCtsDevicePassword OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies user to specify the password for
+        the device.
+
+        This password and the device identifier (specified by
+        clCtsDeviceId) are used together by the Cisco Trusted Security
+        feature for authenticating the device.
+
+        The object may not be set to a zero length string.
+
+        When read, this object always returns the value of a
+        zero-length octet string."
+    DEFVAL { "" }
+    ::= { clCtsGlobalMIBObjects 3 }
+
+clCtsInlineTagEnableStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the inline tagging option is
+        Enabled or disabled.
+        A 'true' value indicates that inline tagging option is enabled.
+        A 'false' value indicates that inline tagging option is disabled."
+    DEFVAL { false }
+    ::= { clCtsGlobalMIBObjects 4 }
+
+clCtsEnableStatus   OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the CTS option is
+        Enabled or disabled.
+        A value of 'true' indicates that CTS is enabled.
+        A value of 'false' indicates that CTS is disabled."
+    DEFVAL { false }
+    ::= { clCtsGlobalMIBObjects 6 }
+
+--********************************************************************
+-- *  AP SXP Table
+--********************************************************************
+
+clCtsApSxpPeerTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CLCtsApSxpPeerEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "A list of SXP peers configured on this device.
+                 It is a list of IP addresses of respective
+                 SXP connection peers configured for this device.
+                 SXP peers exchange security group tags information
+                 of clients through SxpV4 protocol."
+        ::= { clCtsTableMIBObjects 1 }
+
+cLCtsApSxpPeerEntry OBJECT-TYPE
+        SYNTAX     CLCtsApSxpPeerEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "An entry containing management information of a
+                 particular SXP peers."
+        INDEX   { cLApSysMacAddress, clCtsApSxpPeerIpType, clCtsApSxpPeerIp }
+        ::= { clCtsApSxpPeerTable 1 }
+
+CLCtsApSxpPeerEntry ::= SEQUENCE {
+            clCtsApSxpPeerIpType      InetAddressType, 
+            clCtsApSxpPeerIp          InetAddress,
+            clCtsApSxpPeerPassword    INTEGER,
+            clCtsApSxpMode            INTEGER,
+            clCtsApSxpPeerRowStatus   RowStatus
+}
+
+clCtsApSxpPeerIpType OBJECT-TYPE
+    SYNTAX          InetAddressType 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of the peer SXP device."
+    ::= { cLCtsApSxpPeerEntry 1 }
+
+
+clCtsApSxpPeerIp OBJECT-TYPE
+    SYNTAX          InetAddress 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+           "The Internet address of the SXP peer device. The type of this
+            address is determined by the value of cLCtsApSxpPeerIpType
+            object."
+
+    ::= { cLCtsApSxpPeerEntry 2 }
+
+clCtsApSxpMode      OBJECT-TYPE
+    SYNTAX          INTEGER {speaker(1),
+                             listener(2),
+                             both(3)}
+    MAX-ACCESS      read-create 
+    STATUS          current
+    DESCRIPTION
+    "This object specifies the device mode of this SXP connection.
+
+    A value of 'speaker' indicates that device will acts as
+    the speaker in this SXP connection.
+
+    A value of 'listener' indicates that device will acts as
+    the listener in this SXP connection.
+
+    A value of 'both' indicates that device will acts as
+    both speaker and listener making it a Bi-directional SXP
+    connection."
+    ::= { cLCtsApSxpPeerEntry 3 }
+
+
+clCtsApSxpPeerPassword   OBJECT-TYPE
+    SYNTAX               INTEGER { 
+                         notRequired(0), 
+                         required(1), 
+                         default(2) 
+                         }
+    MAX-ACCESS           read-create 
+    STATUS               current
+    DESCRIPTION
+        "This object specifies to configure the
+        password of the sxp peer device."
+    ::= { cLCtsApSxpPeerEntry 4 }
+
+clCtsApSxpPeerRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus 
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the conceptual status of the
+        row."
+    ::= { cLCtsApSxpPeerEntry 5 }
+    
+
+-- *******************************************************************
+-- *    Compliance statements
+-- *******************************************************************
+
+clCtsMIBCompliances  OBJECT IDENTIFIER
+    ::= { clCtsMIBConform 1 }
+
+clCtsMIBGroups  OBJECT IDENTIFIER
+    ::= { clCtsMIBConform 2 }
+
+
+clCtsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappTrustSecMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        clCtsGroup
+                    }
+    ::= { clCtsMIBCompliances 1 }
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+
+clCtsGroup OBJECT-GROUP
+    OBJECTS         {
+                        clCtsSecurityGroupTagId,
+						clCtsDeviceId,
+						clCtsDevicePassword,
+						clCtsInlineTagEnableStatus,
+						clCtsEnableStatus,
+						clCtsApSxpPeerIpType,
+                        clCtsApSxpPeerIp,          
+                        clCtsApSxpPeerPassword,    
+                        clCtsApSxpMode,            
+                        clCtsApSxpPeerRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects represents the information
+        about the general attributes of Trustsec."
+    ::= { clCtsMIBGroups 1 }
+	
+END
+
+
+
+

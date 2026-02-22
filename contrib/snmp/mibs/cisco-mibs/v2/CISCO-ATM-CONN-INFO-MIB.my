@@ -1,0 +1,679 @@
+-- *****************************************************************
+-- CISCO-ATM-CONN-INFO-MIB
+--
+-- April 2003, Rashmi Purandare
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ATM-CONN-INFO-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Gauge32,
+    Unsigned32                  FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP                FROM SNMPv2-CONF
+    ifIndex                     FROM IF-MIB
+    ciscoMgmt                   FROM CISCO-SMI
+    TEXTUAL-CONVENTION          FROM SNMPv2-TC;
+
+ciscoAtmConnInfoMIB MODULE-IDENTITY
+         LAST-UPDATED    "200306160000Z"
+         ORGANIZATION    "Cisco Systems, Inc."
+         CONTACT-INFO
+                 "       Cisco Systems
+                         Customer Service
+
+                 Postal: 170 W Tasman Drive
+                         San Jose, CA  95134
+                         USA
+
+                         Tel: +1 800 553-NETS
+
+                 E-mail: cs-wanatm@cisco.com"
+         DESCRIPTION
+                 "The MIB module for providing the parameters 
+                  configured on an ATM interface.
+                  Terminologies used:
+                  SVC  : Switched Virtual Channel
+                  SPVC : Soft Permanent Virtual Circuit
+                  SPVP : Soft Permanent Virtual Path
+                  SVPC : Switched Virtual Path Connection
+                  DAX  : Connection with endpoints on the same 
+                         ATM switch
+                  P2p  : Point-to-point connection
+                  P2mp : Point-to-multi-point connection
+                  Root : The root of point-to-multipoint connection,
+                         which is associated with a VPI/VCI
+                  Leaf : Usually one point-to-multipoint connection
+                         consists of one root and one or more leaves. 
+                         Leaf is the branch point for point 
+                         to multipoint connection that is 
+                         associated with a VPI/VCI
+                  Party: One or more party is associated with each 
+                         leaf, all parties are associated with 
+                         the same VPI/VCI that its leaf belongs to
+                  
+                  Source           Via Node           Destination
+                  -------          -------            -------
+                 A|     |B        C|     |D          E|     |F
+                --+-----+----------+-----+------------+-----+--
+                  |     |          |     |            |     |     
+                  -------          -------            -------
+                  Each active connection has two terminating 
+                  endpoints. 
+                  In the above diagram, Endpoints A and F are 
+                  terminating.
+                  Of these the master endpoint of the connection 
+                  initiates the routing of the call and is 
+                  considered the calling party. The slave endpoint
+                  is the called party which receives calls and is 
+                  the destination of a call.
+                  Any endpoints that are created either on Via nodes 
+                  or on the node with the terminating endpoint in 
+                  order to have a complete connections between 
+                  endpoints A and F are said to be intermediate 
+                  endpoints. In the above diagram, endpoints B, C, 
+                  D and E are intermediate endpoints.
+                  "
+         REVISION        "200306160000Z"
+         DESCRIPTION
+                 "Initial version of the MIB."
+         ::= { ciscoMgmt 9999 }
+
+caciMIBNotifications     OBJECT IDENTIFIER ::= { ciscoAtmConnInfoMIB 0 }
+caciMIBObjects    OBJECT IDENTIFIER ::= { ciscoAtmConnInfoMIB 1 }
+
+-- conn statistics
+caciAtmConnInfo             OBJECT IDENTIFIER ::= { caciMIBObjects 1 }
+caciIfInfo                  OBJECT IDENTIFIER ::= { caciAtmConnInfo 1 }
+caciP2pConns                OBJECT IDENTIFIER ::= { caciAtmConnInfo 2 }
+caciP2pEndpoints            OBJECT IDENTIFIER ::= { caciAtmConnInfo 3 }
+caciP2pIntEndpoints         OBJECT IDENTIFIER ::= { caciAtmConnInfo 4 }
+caciP2mpConns               OBJECT IDENTIFIER ::= { caciAtmConnInfo 5 }
+caciGeneric                 OBJECT IDENTIFIER ::= { caciAtmConnInfo 6 }
+
+-- Textual conventions
+
+CaciGeneralConnEPCategory::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "General category for connection or endpoint types 
+         supported on the switch.
+         caciP2p    : Point to point connection
+         caciP2mpR  : Point to multi point root connection
+         caciP2mpL  : Point to multi point leaf connection
+         caciP2mpPty: Point to multi point party connection"
+    SYNTAX INTEGER {
+               caciP2p(1),
+               caciP2mpR(2),
+               caciP2mpL(3),
+               caciP2mpPty(4)
+              }
+
+CaciP2pConnCategory::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The connection category.
+         caciP2pSvcc : Point to point Svc connection
+         caciP2pSvpc : Point to point Svpc connection
+         caciP2pSpvcD: Point to point Spvc DAX connection
+         caciP2pSpvpD: Point to point Spvp DAX connection
+         caciP2pSpvcR: Point to point SPVC Routed connection
+         caciP2pSpvpR: Point to point Spvp Routed connection"
+    SYNTAX INTEGER {
+               caciP2pSvcc(1),
+               caciP2pSvpc(2),
+               caciP2pSpvcD(3),
+               caciP2pSpvpD(4),
+               caciP2pSpvcR(5),
+               caciP2pSpvpR(6)
+              }
+
+CaciP2pEndpointCategory::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+       "The terminating endpoint category.
+        caciP2pSpvcRPEP : Point to point Spvc 
+                          Routed Persistent endpoint
+        caciP2pSpvcRNPEP: Point to point Spvc 
+                          Routed Non-persistent endpoint
+        caciP2pSpvpRPEP : Point to point Spvp 
+                          Routed Persistent endpoint
+        caciP2pSpvpRNPEP: Point to point Spvp 
+                          Routed Non-persistent endpoint
+        caciP2pSpvcDEP  : Point to point Spvc 
+                          DAX endpoint
+        caciP2pSpvpDEP  : Point to point Spvp 
+                          DAX endpoint"
+    SYNTAX INTEGER {
+            caciP2pSpvcRPEP(1),
+            caciP2pSpvcRNPEP(2),
+            caciP2pSpvpRPEP(3),
+            caciP2pSpvpRNPEP(4),
+            caciP2pSpvcDEP(5),
+            caciP2pSpvpDEP(6)
+    }
+
+CaciP2pIntEndpointCategory::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The intermediate endpoint category.
+         caciP2pSvccIntEP : Point to point Svc 
+                            intermediate endpoint
+         caciP2pSvpcIntEP : Point to point Svpc 
+                            intermediate endpoint
+         caciP2pSpvcRIntEP: Point to point Spvc Routed 
+                            intermediate endpoint
+         caciP2pSpvpRIntEP: Point to point Spvp Routed 
+                            intermediate endpoint"
+    SYNTAX INTEGER {
+               caciP2pSvccIntEP(1),
+               caciP2pSvpcIntEP(2),
+               caciP2pSpvcRIntEP(3),
+               caciP2pSpvpRIntEP(4)
+              }
+
+CaciP2mpConnCategory::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The point to multipoint connection category.
+         caciP2mpSvcRoot  : Point to multipoint Svc 
+                            root connection
+         caciP2mpSvcLeaf  : Point to multipoint Svc 
+                            leaf connection
+         caciP2mpSvcParty : Point to multipoint Svc 
+                            party connection
+         caciP2mpSvpcRoot : Point to multipoint Svpc 
+                            root connection
+         caciP2mpSvpcLeaf : Point to multipoint Svpc 
+                            leaf connection
+         caciP2mpSvpcParty: Point to multipoint Svpc 
+                            party connection
+         caciP2mpSpvcP    : Point to multipoint Spvc
+                            persistent connection
+         caciP2mpSpvcNP   : Point to multipoint Spvc
+                            non-persistent connection
+         caciP2mpSpvcAct  : Point to multipoint Spvc
+                            Active connection
+         caciP2mpSpvpP    : Point to multipoint Spvp
+                            persistent connection
+         caciP2mpSpvpNP   : Point to multipoint Spvp
+                            non-persistent connection
+         caciP2mpSpvpAct  : Point to multipoint Spvp
+                            active connection
+         caciP2mpSpvcPaP  : Point to multipoint Spvc
+                            party persistent connection
+         caciP2mpSpvcPaAct: Point to multipoint Spvc
+                            party active connection
+         caciP2mpSpvpPaP  : Point to multipoint Spvp
+                            party persistent connection
+         caciP2mpSpvpPaAct: Point to multipoint Spvp 
+                            party active connection"
+    SYNTAX INTEGER {
+               caciP2mpSvcRoot(1),
+               caciP2mpSvcLeaf(2),
+               caciP2mpSvcParty(3),
+               caciP2mpSvpcRoot(4),
+               caciP2mpSvpcLeaf(5),
+               caciP2mpSvpcParty(6),
+               caciP2mpSpvcP(7),
+               caciP2mpSpvcNP(8),
+               caciP2mpSpvcAct(9),
+               caciP2mpSpvpP(10),
+               caciP2mpSpvpNP(11),
+               caciP2mpSpvpAct(12),
+               caciP2mpSpvcPaP(13),
+               caciP2mpSpvcPaAct(14),
+               caciP2mpSpvpPaP(15),
+               caciP2mpSpvpPaAct(16)
+              }
+
+CaciATMEndpointCategory::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The connection category.
+         caciTotalSpvc   : Total SPVC endpoints configured 
+                           on the ATM switch
+         caciP2pTotalInt : Total intermediate endpoints
+                           configured on the ATM switch
+         caciTotalMaster : Total master endpoints configured
+                           on the ATM switch
+         caciTotalSlave  : Total slave endpoints configured
+                           on the ATM switch"
+    SYNTAX INTEGER {
+               caciTotalSpvc(1),
+               caciP2pTotalInt(2),
+               caciTotalMaster(3),
+               caciTotalSlave(4)
+              }
+
+-- Node related scalars
+
+-- Total connections
+
+caciP2pTotalConfConns OBJECT-TYPE
+         SYNTAX     Unsigned32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object specifies the total point to point
+                 connections that are configured on this ATM switch."
+         ::= { caciGeneric 1 }
+
+caciP2pMaxPossibleConns OBJECT-TYPE
+         SYNTAX     Unsigned32
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+                "This object specifies the upper limit of the 
+                 point to point and point to multipoint 
+                 connections that are allowed to be configured
+                 on this ATM switch."
+         ::= { caciGeneric 2 }
+
+--Total endpoints
+
+caciMaxPossibleEndpoints OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object specifies the upper limit of all the 
+         possible endpoints that are allowed to be 
+         configured on this ATM switch."
+    ::= { caciGeneric 3 }
+ 
+-- Summary of switch endpoints
+
+caciGenericEndpointTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CaciGenericEndpointEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The table contains number of connection per 
+         CaciATMEndpointCategory."
+    ::= { caciGeneric 4 }
+
+caciGenericEndpointEntry OBJECT-TYPE
+    SYNTAX     CaciGenericEndpointEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in the table specifying the number 
+         of connections for the corresponding 
+         CaciATMEndpointCategory."
+    INDEX { caciATMEndpointCategory }
+    ::= { caciGenericEndpointTable 1 }
+
+CaciGenericEndpointEntry ::=
+    SEQUENCE {
+        caciATMEndpointCategory   CaciATMEndpointCategory,
+        caciTotalEndpoints        Gauge32
+    }
+
+caciATMEndpointCategory    OBJECT-TYPE
+    SYNTAX     CaciATMEndpointCategory
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "Endpoint category corresponding to 
+         CaciATMEndpointCategory."
+    ::= { caciGenericEndpointEntry 1 }
+
+caciTotalEndpoints    OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The total number of endpoints of 
+         caciATMEndpointCategory configured 
+         on this ATM switch."
+    ::= { caciGenericEndpointEntry 2 }
+
+-- Interface Connections Statistics table
+
+caciConnInfoTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CaciConnInfoEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The Connection Statistics table. 
+         This table has the number of connections per interface."
+    ::= { caciIfInfo 1 }
+
+caciConnInfoEntry OBJECT-TYPE
+    SYNTAX     CaciConnInfoEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in the caciConnInfoTable. 
+         Each entry in ifTable with ifType 
+         values: atm(37), atmLogical(80) or atmVirtual(149) 
+         has an associated entry in this table."
+    INDEX { ifIndex, caciGeneralConnEPCategory }
+    ::= { caciConnInfoTable 1 }
+
+CaciConnInfoEntry ::=
+    SEQUENCE {
+        caciGeneralConnEPCategory CaciGeneralConnEPCategory,
+        caciNumUsedConns          Gauge32
+    }
+
+caciGeneralConnEPCategory OBJECT-TYPE
+    SYNTAX     CaciGeneralConnEPCategory
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The general connection or endpoint category
+         on this ATM switch."
+    ::= { caciConnInfoEntry 1 }
+
+caciNumUsedConns OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object specifies the total number of used 
+         connections of type caciGeneralConnEPCategory 
+         on this interface."
+    ::= { caciConnInfoEntry 2 }
+
+
+-- Summary of total P2p connections 
+caciP2pConnTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CaciP2pConnEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The table contains number of connection per 
+         CaciP2pConnCategory."
+    ::= { caciP2pConns 1}
+
+caciP2pConnEntry OBJECT-TYPE
+    SYNTAX     CaciP2pConnEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in the table specifying the number 
+         of connections for the corresponding CaciP2pConnCategory."
+    INDEX { caciP2pConnectionCategory }
+    ::= { caciP2pConnTable 1 }
+
+CaciP2pConnEntry ::=
+    SEQUENCE {
+        caciP2pConnectionCategory   CaciP2pConnCategory,
+        caciP2pTotalConns           Gauge32
+    }
+
+caciP2pConnectionCategory  OBJECT-TYPE
+    SYNTAX     CaciP2pConnCategory
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The connection category."
+    ::= { caciP2pConnEntry 1 }
+
+caciP2pTotalConns OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The total number of P2p connections of type 
+         CaciP2pConnCategory configured on this ATM switch."
+    ::= { caciP2pConnEntry 2 }
+
+-- Summary of total P2p Endpoints
+
+caciP2pEndpointTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CaciP2pEndpointEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "The table contains number of endpoints per 
+         CaciP2pEndpointCategory."
+    ::= { caciP2pEndpoints 1}
+
+caciP2pEndpointEntry OBJECT-TYPE
+    SYNTAX     CaciP2pEndpointEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in the table specifying the number 
+         of endpoints for the corresponding 
+         CaciP2pEndpointCategory."
+    INDEX { caciP2pEndptCategory }
+    ::= { caciP2pEndpointTable 1 }
+
+CaciP2pEndpointEntry ::=
+    SEQUENCE {
+        caciP2pEndptCategory      CaciP2pEndpointCategory,
+        caciP2pTotalConfEndpoints Gauge32
+    }
+
+caciP2pEndptCategory OBJECT-TYPE
+    SYNTAX     CaciP2pEndpointCategory
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The point to point endpoint category."
+    ::= { caciP2pEndpointEntry 1 }
+
+caciP2pTotalConfEndpoints OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The number of total P2p enpoints of type 
+         CaciP2pEndpointCategory configured on this ATM switch."
+    ::= { caciP2pEndpointEntry 2 }
+
+-- Summary of Total Active SVC/SPVC P2p intermediate endpoints
+
+caciP2pIntEndpointTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CaciP2pIntEndpointEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The table contains number of endpoints per 
+         CaciP2pIntEndpointCategory."
+    ::= { caciP2pIntEndpoints 1}
+
+caciP2pIntEndpointEntry OBJECT-TYPE
+    SYNTAX     CaciP2pIntEndpointEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in the table specifying the number 
+         of endpoints for the corresponding 
+         CaciP2pIntEndpointCategory."
+    INDEX { caciP2pIntEndptCategory }
+    ::= { caciP2pIntEndpointTable 1 }
+
+CaciP2pIntEndpointEntry ::=
+    SEQUENCE {
+        caciP2pIntEndptCategory   CaciP2pIntEndpointCategory,
+        caciP2pTotalIntEndpoints  Gauge32
+    }
+
+caciP2pIntEndptCategory    OBJECT-TYPE
+    SYNTAX     CaciP2pIntEndpointCategory
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The point to point intermediate endpoint category."
+    ::= { caciP2pIntEndpointEntry 1 }
+
+caciP2pTotalIntEndpoints   OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The total number of P2p intermediate enpoints of type 
+         CaciP2pIntEndpointCategory present on this ATM switch."
+    ::= { caciP2pIntEndpointEntry 2 }
+
+-- Summary of point to multipoint connections
+
+caciP2mpConnTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CaciP2mpConnEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The table contains number of connection per 
+         CaciP2mpConnCategory."
+    ::= { caciP2mpConns 1 }
+
+caciP2mpConnEntry OBJECT-TYPE
+    SYNTAX     CaciP2mpConnEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in the table specifying the number 
+         of connections for the corresponding 
+         CaciP2mpConnCategory."
+    INDEX { caciP2mpConnectionCategory }
+    ::= { caciP2mpConnTable 1 }
+
+CaciP2mpConnEntry ::=
+    SEQUENCE {
+        caciP2mpConnectionCategory   CaciP2mpConnCategory,
+        caciP2mpTotalConfConns       Gauge32
+    }
+
+caciP2mpConnectionCategory OBJECT-TYPE
+    SYNTAX     CaciP2mpConnCategory
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The point to multi point connection category."
+    ::= { caciP2mpConnEntry 1 }
+
+caciP2mpTotalConfConns OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The total number of P2mp connections of type 
+         CaciP2mpConnCategory configured on this ATM switch."
+    ::= { caciP2mpConnEntry 2 }
+
+
+-- Notifications
+-- There are no notifications for this module
+
+-- conformance information
+
+ciscoAtmConnInfoMIBConformance OBJECT IDENTIFIER ::= 
+                               { ciscoAtmConnInfoMIB 2 }
+ciscoAtmConnInfoMIBCompliances OBJECT IDENTIFIER ::=
+                               { ciscoAtmConnInfoMIBConformance 1 }
+ciscoAtmConnInfoMIBGroups      OBJECT IDENTIFIER ::=
+                               { ciscoAtmConnInfoMIBConformance 2 } 
+
+ciscoAtmConnInfoMIBCompliance MODULE-COMPLIANCE
+   STATUS current
+   DESCRIPTION
+       "The Compliance statement for ciscoAtm management group."
+        MODULE -- this module
+        MANDATORY-GROUPS { ciscoConnInfoConfMIBGroup,
+                           ciscoTotalConnsMIBGroup,
+                           ciscoTotalEndpointsMIBGroup
+                         }
+        GROUP ciscoP2pConnsMIBGroup
+        DESCRIPTION
+            "Required if P2p connections are supported"
+
+        GROUP ciscoP2pEndpointsMIBGroup
+        DESCRIPTION
+            "Required if P2p connections are supported"
+
+        GROUP ciscoP2pIntEndpointsMIBGroup
+        DESCRIPTION
+            "Required if P2p connections are supported"
+
+        GROUP ciscoP2mpConnsMIBGroup
+        DESCRIPTION
+            "Required if P2mp connections are supported"
+
+   ::= { ciscoAtmConnInfoMIBCompliances 1 }
+
+-- units of conformance
+ciscoConnInfoConfMIBGroup  OBJECT-GROUP
+   OBJECTS {
+            caciNumUsedConns
+          }
+        STATUS current
+        DESCRIPTION
+            "Objects used for representing connection 
+             statistical details about an interface."
+        ::= { ciscoAtmConnInfoMIBGroups 1 }
+
+ciscoP2pConnsMIBGroup OBJECT-GROUP
+    OBJECTS {
+             caciP2pTotalConns
+            }
+    STATUS current
+    DESCRIPTION
+        "Objects used for representing the point to point 
+         connections of a particular CaP2pConnCategory."
+    ::= { ciscoAtmConnInfoMIBGroups 2 }
+
+ciscoP2pEndpointsMIBGroup OBJECT-GROUP
+    OBJECTS {
+             caciP2pTotalConfEndpoints
+            }
+    STATUS current
+    DESCRIPTION
+        "Objects used for representing the point to point 
+         endpoints of a particular CaP2pEndpointCategory."
+    ::= { ciscoAtmConnInfoMIBGroups 3 }
+
+ciscoP2pIntEndpointsMIBGroup OBJECT-GROUP
+    OBJECTS {
+             caciP2pTotalIntEndpoints
+            }
+    STATUS current
+    DESCRIPTION
+        "Objects used for representing the point to point 
+         intermediate endpoints of a particular 
+         CaP2pIntEndpointCategory."
+    ::= { ciscoAtmConnInfoMIBGroups 4 }
+
+ciscoP2mpConnsMIBGroup OBJECT-GROUP
+    OBJECTS {
+             caciP2mpTotalConfConns
+            }
+    STATUS current
+    DESCRIPTION
+        "Objects used for representing the point to multi point 
+         connections of a particular CaP2mpConnCategory."
+    ::= { ciscoAtmConnInfoMIBGroups 5 }
+
+ciscoTotalConnsMIBGroup OBJECT-GROUP
+    OBJECTS {
+             caciP2pTotalConfConns,
+             caciP2pMaxPossibleConns
+            }
+    STATUS current
+    DESCRIPTION
+        "Objects used for representing the total connections
+         on the ATM switch."
+    ::= { ciscoAtmConnInfoMIBGroups 6 }
+
+ciscoTotalEndpointsMIBGroup OBJECT-GROUP
+    OBJECTS {
+             caciMaxPossibleEndpoints,
+             caciTotalEndpoints
+            }
+    STATUS current
+    DESCRIPTION
+        "Objects used for representing the total endpoints 
+         on the ATM switch."
+    ::= { ciscoAtmConnInfoMIBGroups 7 }
+
+END
+

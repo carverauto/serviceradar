@@ -1,0 +1,465 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-LSMAINT-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- LSMAINT management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-LSMAINT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApLsConfigIssues,
+    CfprApLsmaintAckChangeDetails,
+    CfprApLsmaintAckChanges,
+    CfprApLsmaintAckDisr,
+    CfprApLsmaintChangeMode,
+    CfprApPolicyPolicyOwner,
+    CfprApTrigAckMode,
+    CfprApTrigAckOperState,
+    CfprApTrigAckPrevOperState,
+    CfprApTrigAdminState
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApLsmaintObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        LSMAINT management information model package"
+    ::= { ciscoFirepowerApMIBObjects 48 }
+
+cfprApLsmaintAckTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApLsmaintAckEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack managed object table"
+    ::= { cfprApLsmaintObjects 1 }
+
+cfprApLsmaintAckEntry OBJECT-TYPE
+    SYNTAX           CfprApLsmaintAckEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApLsmaintAckTable table."
+    INDEX { cfprApLsmaintAckInstanceId }
+    ::= { cfprApLsmaintAckTable 1 }
+
+CfprApLsmaintAckEntry ::= SEQUENCE {
+    cfprApLsmaintAckInstanceId                                       CfprApManagedObjectId,
+    cfprApLsmaintAckDn                                               CfprApManagedObjectDn,
+    cfprApLsmaintAckRn                                               SnmpAdminString,
+    cfprApLsmaintAckAcked                                            DateAndTime,
+    cfprApLsmaintAckAckedBy                                          SnmpAdminString,
+    cfprApLsmaintAckAdminState                                       CfprApTrigAdminState,
+    cfprApLsmaintAckAutoDelete                                       TruthValue,
+    cfprApLsmaintAckChangeBy                                         SnmpAdminString,
+    cfprApLsmaintAckChangeDetails                                    CfprApLsmaintAckChangeDetails,
+    cfprApLsmaintAckChangeMode                                       CfprApLsmaintChangeMode,
+    cfprApLsmaintAckChanges                                          CfprApLsmaintAckChanges,
+    cfprApLsmaintAckConfigIssues                                     CfprApLsConfigIssues,
+    cfprApLsmaintAckDeploymentMode                                   CfprApTrigAckMode,
+    cfprApLsmaintAckDescr                                            SnmpAdminString,
+    cfprApLsmaintAckDisr                                             CfprApLsmaintAckDisr,
+    cfprApLsmaintAckIgnoreCap                                        TruthValue,
+    cfprApLsmaintAckIntId                                            SnmpAdminString,
+    cfprApLsmaintAckModified                                         DateAndTime,
+    cfprApLsmaintAckName                                             SnmpAdminString,
+    cfprApLsmaintAckOldPnDn                                          SnmpAdminString,
+    cfprApLsmaintAckOperScheduler                                    SnmpAdminString,
+    cfprApLsmaintAckOperState                                        CfprApTrigAckOperState,
+    cfprApLsmaintAckPolicyLevel                                      Gauge32,
+    cfprApLsmaintAckPolicyOwner                                      CfprApPolicyPolicyOwner,
+    cfprApLsmaintAckPrevOperState                                    CfprApTrigAckPrevOperState,
+    cfprApLsmaintAckScheduler                                        SnmpAdminString
+}
+
+cfprApLsmaintAckInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApLsmaintAckEntry 1 }
+
+cfprApLsmaintAckDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:dn managed object property"
+    ::= { cfprApLsmaintAckEntry 2 }
+
+cfprApLsmaintAckRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:rn managed object property"
+    ::= { cfprApLsmaintAckEntry 3 }
+
+cfprApLsmaintAckAcked OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:acked managed object property"
+    ::= { cfprApLsmaintAckEntry 4 }
+
+cfprApLsmaintAckAckedBy OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:ackedBy managed object property"
+    ::= { cfprApLsmaintAckEntry 5 }
+
+cfprApLsmaintAckAdminState OBJECT-TYPE
+    SYNTAX       CfprApTrigAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:adminState managed object property"
+    ::= { cfprApLsmaintAckEntry 6 }
+
+cfprApLsmaintAckAutoDelete OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:autoDelete managed object property"
+    ::= { cfprApLsmaintAckEntry 7 }
+
+cfprApLsmaintAckChangeBy OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:changeBy managed object property"
+    ::= { cfprApLsmaintAckEntry 8 }
+
+cfprApLsmaintAckChangeDetails OBJECT-TYPE
+    SYNTAX       CfprApLsmaintAckChangeDetails
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:changeDetails managed
+        object property"
+    ::= { cfprApLsmaintAckEntry 9 }
+
+cfprApLsmaintAckChangeMode OBJECT-TYPE
+    SYNTAX       CfprApLsmaintChangeMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:changeMode managed object property"
+    ::= { cfprApLsmaintAckEntry 10 }
+
+cfprApLsmaintAckChanges OBJECT-TYPE
+    SYNTAX       CfprApLsmaintAckChanges
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:changes managed object property"
+    ::= { cfprApLsmaintAckEntry 11 }
+
+cfprApLsmaintAckConfigIssues OBJECT-TYPE
+    SYNTAX       CfprApLsConfigIssues
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:configIssues managed object property"
+    ::= { cfprApLsmaintAckEntry 12 }
+
+cfprApLsmaintAckDeploymentMode OBJECT-TYPE
+    SYNTAX       CfprApTrigAckMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:deploymentMode managed
+        object property"
+    ::= { cfprApLsmaintAckEntry 13 }
+
+cfprApLsmaintAckDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:descr managed object property"
+    ::= { cfprApLsmaintAckEntry 14 }
+
+cfprApLsmaintAckDisr OBJECT-TYPE
+    SYNTAX       CfprApLsmaintAckDisr
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:disr managed object property"
+    ::= { cfprApLsmaintAckEntry 15 }
+
+cfprApLsmaintAckIgnoreCap OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:ignoreCap managed object property"
+    ::= { cfprApLsmaintAckEntry 16 }
+
+cfprApLsmaintAckIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:intId managed object property"
+    ::= { cfprApLsmaintAckEntry 17 }
+
+cfprApLsmaintAckModified OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:modified managed object property"
+    ::= { cfprApLsmaintAckEntry 18 }
+
+cfprApLsmaintAckName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:name managed object property"
+    ::= { cfprApLsmaintAckEntry 19 }
+
+cfprApLsmaintAckOldPnDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:oldPnDn managed object property"
+    ::= { cfprApLsmaintAckEntry 20 }
+
+cfprApLsmaintAckOperScheduler OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:operScheduler managed
+        object property"
+    ::= { cfprApLsmaintAckEntry 21 }
+
+cfprApLsmaintAckOperState OBJECT-TYPE
+    SYNTAX       CfprApTrigAckOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:operState managed object property"
+    ::= { cfprApLsmaintAckEntry 22 }
+
+cfprApLsmaintAckPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:policyLevel managed object property"
+    ::= { cfprApLsmaintAckEntry 23 }
+
+cfprApLsmaintAckPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:policyOwner managed object property"
+    ::= { cfprApLsmaintAckEntry 24 }
+
+cfprApLsmaintAckPrevOperState OBJECT-TYPE
+    SYNTAX       CfprApTrigAckPrevOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:prevOperState managed
+        object property"
+    ::= { cfprApLsmaintAckEntry 25 }
+
+cfprApLsmaintAckScheduler OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:Ack:scheduler managed object property"
+    ::= { cfprApLsmaintAckEntry 26 }
+
+cfprApLsmaintMaintPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApLsmaintMaintPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy managed object table"
+    ::= { cfprApLsmaintObjects 2 }
+
+cfprApLsmaintMaintPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprApLsmaintMaintPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApLsmaintMaintPolicyTable table."
+    INDEX { cfprApLsmaintMaintPolicyInstanceId }
+    ::= { cfprApLsmaintMaintPolicyTable 1 }
+
+CfprApLsmaintMaintPolicyEntry ::= SEQUENCE {
+    cfprApLsmaintMaintPolicyInstanceId                               CfprApManagedObjectId,
+    cfprApLsmaintMaintPolicyDn                                       CfprApManagedObjectDn,
+    cfprApLsmaintMaintPolicyRn                                       SnmpAdminString,
+    cfprApLsmaintMaintPolicyDescr                                    SnmpAdminString,
+    cfprApLsmaintMaintPolicyIntId                                    SnmpAdminString,
+    cfprApLsmaintMaintPolicyName                                     SnmpAdminString,
+    cfprApLsmaintMaintPolicyOperSchedName                            SnmpAdminString,
+    cfprApLsmaintMaintPolicyPolicyLevel                              Gauge32,
+    cfprApLsmaintMaintPolicyPolicyOwner                              CfprApPolicyPolicyOwner,
+    cfprApLsmaintMaintPolicySchedName                                SnmpAdminString,
+    cfprApLsmaintMaintPolicyUptimeDisr                               CfprApTrigAckMode
+}
+
+cfprApLsmaintMaintPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApLsmaintMaintPolicyEntry 1 }
+
+cfprApLsmaintMaintPolicyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy:dn managed object property"
+    ::= { cfprApLsmaintMaintPolicyEntry 2 }
+
+cfprApLsmaintMaintPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy:rn managed object property"
+    ::= { cfprApLsmaintMaintPolicyEntry 3 }
+
+cfprApLsmaintMaintPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy:descr managed
+        object property"
+    ::= { cfprApLsmaintMaintPolicyEntry 4 }
+
+cfprApLsmaintMaintPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy:intId managed
+        object property"
+    ::= { cfprApLsmaintMaintPolicyEntry 5 }
+
+cfprApLsmaintMaintPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy:name managed object property"
+    ::= { cfprApLsmaintMaintPolicyEntry 6 }
+
+cfprApLsmaintMaintPolicyOperSchedName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy:operSchedName
+        managed object property"
+    ::= { cfprApLsmaintMaintPolicyEntry 7 }
+
+cfprApLsmaintMaintPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy:policyLevel
+        managed object property"
+    ::= { cfprApLsmaintMaintPolicyEntry 8 }
+
+cfprApLsmaintMaintPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy:policyOwner
+        managed object property"
+    ::= { cfprApLsmaintMaintPolicyEntry 9 }
+
+cfprApLsmaintMaintPolicySchedName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy:schedName
+        managed object property"
+    ::= { cfprApLsmaintMaintPolicyEntry 10 }
+
+cfprApLsmaintMaintPolicyUptimeDisr OBJECT-TYPE
+    SYNTAX       CfprApTrigAckMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower lsmaint:MaintPolicy:uptimeDisr
+        managed object property"
+    ::= { cfprApLsmaintMaintPolicyEntry 11 }
+
+END

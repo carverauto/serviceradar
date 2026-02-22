@@ -1,0 +1,280 @@
+-- MIB file created 12-Oct-2005 14:14:13, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+MPLS-LDP-GENERIC-STD-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "MPLS-LDP-GENERIC-STD-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, StorageType
+            FROM SNMPv2-TC-v1
+    InterfaceIndexOrZero
+            FROM IF-MIB
+    mplsStdMIB
+            FROM MPLS-TC-STD-MIB
+    mplsLdpEntityLdpId, mplsLdpEntityIndex
+            FROM MPLS-LDP-STD-MIB
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+mplsLdpGenericStdMIB OBJECT IDENTIFIER ::= { mplsStdMIB 7 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200406030000Z
+--  OrgName
+--    Multiprotocol Label Switching (mpls)
+--     Working Group
+--  ContactInfo
+--    Joan Cucchiara (jcucchiara@mindspring.com)
+--     Marconi Communications, Inc.
+--    
+--     Hans Sjostrand (hans@ipunplugged.com)
+--     ipUnplugged
+--    
+--    
+--     James V. Luciani (james_luciani@mindspring.com)
+--     Marconi Communications, Inc.
+--    
+--     Working Group Chairs:
+--     George Swallow,   email: swallow@cisco.com
+--     Loa Andersson,    email: loa@pi.se
+--    
+--     MPLS Working Group, email: mpls@uu.net
+--  Descr
+--    Copyright (C) The Internet Society (year). The
+--    initial version of this MIB module was published
+--    in RFC 3815. For full legal notices see the RFC
+--    itself or see:
+--    http://www.ietf.org/copyrights/ianamib.html
+--    
+--    This MIB contains managed object definitions for
+--    configuring and monitoring the Multiprotocol Label
+--    Switching (MPLS), Label Distribution Protocol (LDP),
+--    utilizing ethernet as the Layer 2 media.
+--  RevDate
+--    200406030000Z
+--  RevDescr
+--    Initial version published as part of RFC 3815.
+
+mplsLdpGenericObjects OBJECT IDENTIFIER ::= { mplsLdpGenericStdMIB 1 }
+mplsLdpGenericConformance OBJECT IDENTIFIER ::= { mplsLdpGenericStdMIB 2 }
+mplsLdpEntityGenericObjects OBJECT IDENTIFIER ::= { mplsLdpGenericObjects 1 }
+mplsLdpGenericGroups OBJECT IDENTIFIER ::= { mplsLdpGenericConformance 1 }
+mplsLdpGenericCompliances OBJECT IDENTIFIER ::= { mplsLdpGenericConformance 2 }
+
+mplsLdpEntityGenericLRTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF MplsLdpEntityGenericLREntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The MPLS LDP Entity Generic Label Range (LR)
+        Table.
+        
+        The purpose of this table is to provide a mechanism
+        for configurating a contiguous range of generic labels,
+        or a 'label range' for LDP Entities.
+        
+        LDP Entities which use Generic Labels must have at least
+        one entry in this table.  In other words, this table
+        'extends' the mpldLdpEntityTable for Generic Labels."
+    ::= { mplsLdpEntityGenericObjects 1 }
+
+mplsLdpEntityGenericLREntry OBJECT-TYPE
+    SYNTAX MplsLdpEntityGenericLREntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A row in the LDP Entity Generic Label
+        Range (LR) Table.  One entry in this table contains
+        information on a single range of labels
+        represented by the configured Upper and Lower
+        Bounds pairs.  NOTE: there is NO corresponding
+        LDP message which relates to the information
+        in this table, however, this table does provide
+        a way for a user to 'reserve' a generic label
+        range.
+        
+        NOTE:  The ranges for a specific LDP Entity
+        are UNIQUE and non-overlapping.
+        
+        A row will not be created unless a unique and
+        non-overlapping range is specified."
+    INDEX { mplsLdpEntityLdpId, mplsLdpEntityIndex, mplsLdpEntityGenericLRMin, mplsLdpEntityGenericLRMax }
+    ::= { mplsLdpEntityGenericLRTable 1 }
+
+MplsLdpEntityGenericLREntry ::= SEQUENCE {
+    mplsLdpEntityGenericLRMin Gauge,
+    mplsLdpEntityGenericLRMax Gauge,
+    mplsLdpEntityGenericLabelSpace INTEGER,
+    mplsLdpEntityGenericIfIndexOrZero InterfaceIndexOrZero,
+    mplsLdpEntityGenericLRStorageType StorageType,
+    mplsLdpEntityGenericLRRowStatus RowStatus
+    }
+
+mplsLdpEntityGenericLRMin OBJECT-TYPE
+    SYNTAX Gauge(0..1048575)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum label configured for this range."
+    ::= { mplsLdpEntityGenericLREntry 1 }
+
+mplsLdpEntityGenericLRMax OBJECT-TYPE
+    SYNTAX Gauge(0..1048575)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum label configured for this range."
+    ::= { mplsLdpEntityGenericLREntry 2 }
+
+mplsLdpEntityGenericLabelSpace OBJECT-TYPE
+    SYNTAX INTEGER {
+        perPlatform(1),
+        perInterface(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This value of this object is perPlatform(1), then
+        this means that the label space type is
+        per platform.
+        
+        If this object is perInterface(2), then this
+        means that the label space type is per Interface."
+    REFERENCE
+        "RFC3036, LDP Specification, Section 2.2.1,
+        Label Spaces."
+    DEFVAL { perPlatform }
+    ::= { mplsLdpEntityGenericLREntry 3 }
+
+mplsLdpEntityGenericIfIndexOrZero OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This value represents either the InterfaceIndex of
+        the 'ifLayer' where these Generic Label would be created,
+        
+        
+        or 0 (zero).  The value of zero means that the
+        InterfaceIndex is not known.
+        
+        However, if the InterfaceIndex is known,
+        then it must be represented by this value.
+        
+        If an InterfaceIndex becomes known, then the
+        network management entity (e.g., SNMP agent) responsible
+        for this object MUST change the value from 0 (zero) to the
+        value of the InterfaceIndex."
+    ::= { mplsLdpEntityGenericLREntry 4 }
+
+mplsLdpEntityGenericLRStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        Conceptual rows having the value 'permanent(4)'
+        need not allow write-access to any columnar
+        objects in the row."
+    DEFVAL { nonVolatile }
+    ::= { mplsLdpEntityGenericLREntry 5 }
+
+mplsLdpEntityGenericLRRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.  All writable
+         objects in this row may be modified at any time,
+         however, as described in  detail in the section
+         entitled, 'Changing Values After Session
+         Establishment', and again described in the
+         DESCRIPTION clause of the mplsLdpEntityAdminStatus object,
+         if a session has been initiated with a Peer,
+         changing objects in this table will
+         wreak havoc with the session and interrupt traffic.
+         To repeat again:  the recommended procedure is
+         to set the mplsLdpEntityAdminStatus to
+         down, thereby explicitly causing a
+         session to be torn down. Then, change objects
+         in this entry, then set the mplsLdpEntityAdminStatus
+         to enable which enables a new session to be initiated.
+        
+         There must exist at least one entry in this
+         table for every LDP Entity that has a
+         generic label configured."
+    ::= { mplsLdpEntityGenericLREntry 6 }
+
+mplsLdpGenericGroup OBJECT IDENTIFIER ::= { mplsLdpGenericGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects that apply to all MPLS LDP implementations
+--    using Generic Labels as the Layer 2.
+--  objects
+--    mplsLdpEntityGenericLabelSpace, 
+--    mplsLdpEntityGenericIfIndexOrZero, 
+--    mplsLdpEntityGenericLRStorageType, 
+--    mplsLdpEntityGenericLRRowStatus
+
+mplsLdpGenericModuleFullCompliance OBJECT IDENTIFIER ::= { mplsLdpGenericCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The Module is implemented with support for
+--    read-create and read-write.  In other words,
+--    both monitoring and configuration
+--    are available when using this MODULE-COMPLIANCE.
+--  Module
+--    >>current<<
+--   MandGroup
+--    mplsLdpGenericGroup
+--   ObjVar
+--    mplsLdpEntityGenericLRRowStatus
+
+mplsLdpGenericModuleReadOnlyCompliance OBJECT IDENTIFIER ::= { mplsLdpGenericCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The Module is implemented with support for
+--    read-only.  In other words, only monitoring
+--    is available by implementing this MODULE-COMPLIANCE.
+--  Module
+--    >>current<<
+--   MandGroup
+--    mplsLdpGenericGroup
+--   ObjVar
+--    mplsLdpEntityGenericLabelSpace
+--   ObjVar
+--    mplsLdpEntityGenericIfIndexOrZero
+--   ObjVar
+--    mplsLdpEntityGenericLRStorageType
+--   ObjVar
+--    mplsLdpEntityGenericLRRowStatus
+
+
+END
+

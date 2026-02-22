@@ -1,0 +1,659 @@
+-- *****************************************************************
+-- CISCO-POWER-ETHERNET-EXT-CAPABILITY.my:
+-- Cisco CISCO-POWER-ETHERNET-EXT-MIB AGENT-CAPABILITIES
+--   
+-- June 2004, Seth Wang
+--   
+-- Copyright (c) 2004, 2006-2013 by Cisco Systems Inc.
+--   
+-- All rights reserved.
+-- ***************************************************************
+
+CISCO-POWER-ETHERNET-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoPowerEthernetExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "201307160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-POWER-ETHERNET-EXT-MIB."
+    REVISION        "201307160000Z"
+    DESCRIPTION
+        "Added capability statement
+        cPowerEthExtCapV15R0102SYPCat6K."
+    REVISION        "201212120000Z"
+    DESCRIPTION
+        "Added capability statement
+        cPowerEthExtCapV15R0101SYPCat6K."
+    REVISION        "201204040000Z"
+    DESCRIPTION
+        "Added capability statement
+        cPowerEthExtCapV12R0233SXJ2PCat6K and
+        cPowerEthExtCapV15R0101SGCat4K.
+
+        Added VARIATION of cpeExtPdStatsClass to capability
+        statement cPowerEthExtCapV12R0233SXIPCat6K."
+    REVISION        "200905290000Z"
+    DESCRIPTION
+        "Added capability statement cPowerEthExtCapV12R0252SGPCat4K.
+        Modified VARIATION of cpeExtPsePortPwrMax in capability
+        statement cPowerEthExtCapCatOSV08R0401,
+        cPowerEthExtCapCatOSV08R0501, cPowerEthExtCapCatOSV08R0601,
+        cPowerEthExtCapV12R0233SXHPCat6K,
+        cPowerEthExtCapV12R0233SXIPCat6K.
+
+        Modified VARIATION of cpeExtDefaultAllocation in capability
+        statement cPowerEthExtCapCatOSV08R0501,
+        cPowerEthExtCapCatOSV08R0601."
+    REVISION        "200810280000Z"
+    DESCRIPTION
+        "Added capability statement cPowerEthExtCapV12R0233SXIPCat6K."
+    REVISION        "200706290000Z"
+    DESCRIPTION
+        "Added capability statement cPowerEthExtCapV12R0233SXHPCat6K."
+    REVISION        "200706270000Z"
+    DESCRIPTION
+        "Added capability statement cPowerEthExtCapC3kV122SU040"
+    REVISION        "200702080000Z"
+    DESCRIPTION
+        "Added Agent Capability for c3550 in cPowerEthExtCapC3kV122SR035"
+    REVISION        "200612200000Z"
+    DESCRIPTION
+        "Added capability statement cPowerEthExtCapCatOSV08R0601."
+    REVISION        "200610190000Z"
+    DESCRIPTION
+        "Added capability statement
+        cPowerEthExtCapC3kV122SR035."
+    REVISION        "200406150000Z"
+    DESCRIPTION
+        "Added capability statement
+        cPowerEthExtCapCatOSV08R0501."
+    REVISION        "200406070000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 406 }
+
+
+
+cPowerEthExtCapCatOSV08R0401 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.4(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortGlobalConfigGroup
+                    }
+    VARIATION       cpeExtPsePortPwrMax
+    SYNTAX          Unsigned32 (4000..15400)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000 or 15400
+        depends on the hardware."
+
+    VARIATION       cpeExtDefaultAllocation
+    SYNTAX          Unsigned32 (4000..15400)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000 or 15400
+        depends on the hardware."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoPowerEthernetExtCapability 1 }
+
+cPowerEthExtCapCatOSV08R0501 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.5(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortGlobalConfigGroup,
+                        cpeExtPsePortPwrMonitorGroup,
+                        cpeExtMainPseGroup
+                    }
+    VARIATION       cpeExtPsePortPwrMax
+    SYNTAX          Unsigned32 (4000..15400)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000 or 15400
+        depends on the hardware."
+
+    VARIATION       cpeExtDefaultAllocation
+    SYNTAX          Unsigned32 (4000..15400)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000 or 15400
+        depends on the hardware."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2),
+                        limit(3)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoPowerEthernetExtCapability 2 }
+
+cPowerEthExtCapC3kV122SR035 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "CISCO IOS 12.2S(0.35) for Cat3k"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB Capabilities"
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtMainPseGroup,
+                        cpeExtPsePortGlobalConfigGroup,
+                        cpeExtPsePortPwrMonitorGroup
+                    }
+    VARIATION       cpeExtDefaultAllocation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2)
+                    }
+    DESCRIPTION
+        "Value Limit(3) is not supported on c3750/c3560/c3550 and Value
+        High(2) is not supported on c3550."
+
+    VARIATION       cpeExtPsePortAdditionalStatus
+    SYNTAX          BITS {
+                        deny(0)
+                    }
+    DESCRIPTION
+        "value 'overdraw(1)' is not supported on c3750/c3560/c3550."
+
+    VARIATION       cpeExtPsePortPwrConsumption
+    SYNTAX          Unsigned32
+    DESCRIPTION
+        "Shows available power for c3750/c3560/c3550."
+
+    VARIATION       cpeExtPsePortMaxPwrDrawn
+    SYNTAX          Unsigned32
+    DESCRIPTION
+        "This object is not supported on c3750/c3560/c3550."
+
+    ::= { ciscoPowerEthernetExtCapability 3 }
+
+cPowerEthExtCapCatOSV08R0601 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1)"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortGlobalConfigGroup,
+                        cpeExtPsePortPwrMonitorGroup,
+                        cpeExtPortEntityIndexGroup,
+                        cpeExtMainPseGroup2,
+                        cpeExtPseGrpPwrGroup
+                    }
+    VARIATION       cpeExtPsePortPwrMax
+    SYNTAX          Unsigned32 (4000..15400)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000 or 15400
+        depends on the hardware."
+
+    VARIATION       cpeExtDefaultAllocation
+    SYNTAX          Unsigned32 (4000..15400)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000 or 15400
+        depends on the hardware."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2),
+                        limit(3)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoPowerEthernetExtCapability 4 }
+
+cPowerEthExtCapC3kV122SU040 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "CISCO IOS 12.2S(0.40) for Cat3k"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB Capabilities"
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortGlobalConfigGroup,
+                        cpeExtPsePortPwrMonitorGroup,
+                        cpeExtMainPseGroup,
+                        cpeExtPortPolicingGroup,
+                        cpeExtPdStatsGroup,
+                        cpeExtPortPolicingActionGroup,
+                        cpeExtPortPwrManAllocGroup,
+                        cpeExtPolicingNotifEnableGroup,
+                        cpeExtPolicingNotifGroup
+                    }
+    VARIATION       cpeExtDefaultAllocation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not implemented."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2),
+                        limit(3),
+                        disable(4)
+                    }
+    DESCRIPTION
+        "'limit(3)' is not supported on c3750/c3560/c3550 and
+        'static(2)' is not supported only on c3550."
+
+    VARIATION       cpeExtPsePortAdditionalStatus
+    SYNTAX          BITS {
+                        deny(0),
+                        overdraw(1),
+                        overdrawLog(2)
+                    }
+    DESCRIPTION
+        "'overdraw(1)' is not supported on c3750/c3560/c3550."
+
+    VARIATION       cpeExtPsePortPwrConsumption
+    SYNTAX          Unsigned32
+    DESCRIPTION
+        "Shows available power for c3750/c3560/c3550."
+
+    VARIATION       cpeExtPsePortMaxPwrDrawn
+    SYNTAX          Unsigned32
+    DESCRIPTION
+        "This object is not supported on c3750/c3560/c3550."
+
+    VARIATION       cpeExtPsePortPolicingCapable
+    DESCRIPTION
+        "This object is supported only on c3750e and c3560e."
+
+    VARIATION       cpeExtPdStatsTotalDevices
+    SYNTAX          Unsigned32
+    DESCRIPTION
+        "This object is not supported on c3550."
+
+    VARIATION       cpeExtPsePortPolicingEnable
+    SYNTAX          INTEGER  {
+                        on(1),
+                        off(2)
+                    }
+    DESCRIPTION
+        "This object is supported only on c3750e and c3560e."
+
+    VARIATION       cpeExtPsePortPolicingAction
+    SYNTAX          INTEGER  {
+                        deny(1),
+                        logOnly(2)
+                    }
+    DESCRIPTION
+        "This object is supported only on c3750e and c3560e."
+
+    VARIATION       cpeExtPdStatsDeviceCount
+    SYNTAX          Unsigned32
+    DESCRIPTION
+        "This object is not supported on c3550."
+
+    VARIATION       cpeExtPsePortPwrManAlloc
+    SYNTAX          Unsigned32
+    DESCRIPTION
+        "This object is not supported on c3550."
+
+    VARIATION       cpeExtPolicingNotifEnable
+    DESCRIPTION
+        "This object is supported only on c3750e and c3560e."
+
+    ::= { ciscoPowerEthernetExtCapability 5 }
+
+cPowerEthExtCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500 
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortPwrMonitorGroup,
+                        cpeExtPortEntityIndexGroup,
+                        cpeExtPortPolicingGroup,
+                        cpeExtMainPseGroup2
+                    }
+    VARIATION       cpeExtPsePortPwrMax
+    SYNTAX          Unsigned32 (4000..16800)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000, 15400 or
+        16800 depends on the hardware."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2),
+                        disable(4)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    ::= { ciscoPowerEthernetExtCapability 6 }
+
+cPowerEthExtCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500 
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortPwrMonitorGroup,
+                        cpeExtPortEntityIndexGroup,
+                        cpeExtPortPolicingGroup,
+                        cpeExtMainPseGroup2,
+                        cpeExtPdStatsGroup
+                    }
+    VARIATION       cpeExtPsePortPwrMax
+    SYNTAX          Unsigned32 (4000..16800)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000, 15400 or
+        16800 depends on the hardware."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2),
+                        disable(4)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    VARIATION       cpeExtPdStatsClass
+    SYNTAX          INTEGER  {
+                        cisco(1),
+                        class0(2),
+                        class1(3),
+                        class2(4),
+                        class3(5)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoPowerEthernetExtCapability 7 }
+
+cPowerEthExtCapV12R0252SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(52)SG on CAT4K family
+                    switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortPwrMonitorGroup,
+                        cpeExtPortEntityIndexGroup,
+                        cpeExtPortPolicingGroup,
+                        cpeExtMainPseGroup2,
+                        cpeExtPortPolicingActionGroup,
+                        cpeExtPortPwrManAllocGroup,
+                        cpeExtPolicingNotifEnableGroup,
+                        cpeExtPolicingNotifGroup
+                    }
+    VARIATION       cpeExtPsePortPwrMax
+    SYNTAX          Unsigned32 (4000..30000)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000, 15400
+        or 30000 depends on the hardware."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2),
+                        disable(4)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    ::= { ciscoPowerEthernetExtCapability 8 }
+
+cPowerEthExtCapV12R0233SXJ2PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXJ2 on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortPwrMonitorGroup,
+                        cpeExtPortEntityIndexGroup,
+                        cpeExtPortPolicingGroup,
+                        cpeExtMainPseGroup2,
+                        cpeExtPdStatsGroup,
+                        cpeExtPowerPriorityGroup,
+                        cpeExtPsePortLldpGroup,
+                        cpeExtPsePortCapabilitiesGroup
+                    }
+    VARIATION       cpeExtPsePortPwrMax
+    SYNTAX          Unsigned32 (4000..16800)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000, 15400 or
+        16800 depends on the hardware."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2),
+                        disable(4)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    VARIATION       cpeExtPdStatsClass
+    SYNTAX          INTEGER  {
+                        cisco(1),
+                        class0(2),
+                        class1(3),
+                        class2(4),
+                        class3(5),
+                        class4(6)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoPowerEthernetExtCapability 9 }
+
+cPowerEthExtCapV15R0101SGCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SG on Cat4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortPwrMonitorGroup,
+                        cpeExtPortEntityIndexGroup,
+                        cpeExtPortPolicingGroup,
+                        cpeExtMainPseGroup2,
+                        cpeExtPortPolicingActionGroup,
+                        cpeExtPortPwrManAllocGroup,
+                        cpeExtPolicingNotifEnableGroup,
+                        cpeExtPolicingNotifGroup,
+                        cpeExtPsePortLldpGroup
+                    }
+    VARIATION       cpeExtPsePortPwrMax
+    SYNTAX          Unsigned32 (4000..30000)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000, 15400
+        or 30000 depends on the hardware."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2),
+                        disable(4)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    ::= { ciscoPowerEthernetExtCapability 10 }
+
+cPowerEthExtCapV15R0101SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortPwrMonitorGroup,
+                        cpeExtPortEntityIndexGroup,
+                        cpeExtPortPolicingGroup,
+                        cpeExtMainPseGroup2,
+                        cpeExtPdStatsGroup,
+                        cpeExtPowerPriorityGroup,
+                        cpeExtPsePortLldpGroup,
+                        cpeExtPsePortCapabilitiesGroup
+                    }
+    VARIATION       cpeExtPsePortPwrMax
+    SYNTAX          Unsigned32 (4000..16800)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000, 15400 or
+        16800 depends on the hardware."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2),
+                        disable(4)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    VARIATION       cpeExtPdStatsClass
+    SYNTAX          INTEGER  {
+                        cisco(1),
+                        class0(2),
+                        class1(3),
+                        class2(4),
+                        class3(5),
+                        class4(6)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoPowerEthernetExtCapability 11 }
+
+cPowerEthExtCapV15R0102SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(2)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-POWER-ETHERNET-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-POWER-ETHERNET-EXT-MIB
+    INCLUDES        {
+                        cpeExtPsePortGroup,
+                        cpeExtPsePortPwrMonitorGroup,
+                        cpeExtPortEntityIndexGroup,
+                        cpeExtPortPolicingGroup,
+                        cpeExtMainPseGroup2,
+                        cpeExtPdStatsGroup,
+                        cpeExtPowerPriorityGroup,
+                        cpeExtPsePortLldpGroup,
+                        cpeExtPsePortCapabilitiesGroup,
+                        cpeExtPsePortLldpPowerGroup
+                    }
+    VARIATION       cpeExtPsePortPwrMax
+    SYNTAX          Unsigned32 (4000..16800)
+    DESCRIPTION
+        "Only a limited set of values is supported.
+        The maximum supported value may be 7000, 15400 or
+        16800 depends on the hardware."
+
+    VARIATION       cpeExtPsePortEnable
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        static(2),
+                        disable(4)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values is supported."
+
+    VARIATION       cpeExtPdStatsClass
+    SYNTAX          INTEGER  {
+                        cisco(1),
+                        class0(2),
+                        class1(3),
+                        class2(4),
+                        class3(5),
+                        class4(6)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoPowerEthernetExtCapability 12 }
+END

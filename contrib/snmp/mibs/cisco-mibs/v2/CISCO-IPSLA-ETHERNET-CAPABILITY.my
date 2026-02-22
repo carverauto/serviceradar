@@ -1,0 +1,53 @@
+-- *****************************************************************
+-- CISCO-IPSLA-ETHERNET-CAPABILITY.my:  Cisco RTTMON MIB AGENT-CAPABILITIES
+--
+-- February 8, 2006 - Minghui Zhu
+--
+-- Copyright (c) 2006 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-IPSLA-ETHERNET-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+            FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+            FROM SNMPv2-CONF
+    ciscoAgentCapability
+            FROM CISCO-SMI;
+
+ciscoIpSlaEthernetCapability MODULE-IDENTITY
+    LAST-UPDATED    "200602080000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+               Tel: +1 800 553-NETS
+
+            E-mail: cs-ipsla@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-IPSLA-ETHERNET-MIB"
+    REVISION "200602080000Z"
+    DESCRIPTION
+        "Initial Creation"
+    ::= { ciscoAgentCapability 498 }
+
+ciscoIpSlaEthernetCapabilityRev1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(01)SRB"
+    STATUS          current
+    DESCRIPTION     "Cisco IP SLA ETHERNET MIB capabilities"
+    SUPPORTS        CISCO-IPSLA-ETHERNET-MIB 
+        INCLUDES    { ciscoIpSlaEthernetAutoGroup, 
+                      ciscoIpSlaEthernetStatsGroup }
+
+    ::= { ciscoIpSlaEthernetCapability 1 }
+
+
+END

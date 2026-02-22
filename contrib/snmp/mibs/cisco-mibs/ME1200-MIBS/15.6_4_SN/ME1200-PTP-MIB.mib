@@ -1,0 +1,2296 @@
+-- *****************************************************************
+-- PTP-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-PTP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200Integer16 FROM ME1200-TC
+    ME1200Integer64 FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200Unsigned64 FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    IpAddress FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    MacAddress FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200PtpMib MODULE-IDENTITY
+    LAST-UPDATED "201507060000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "Private PTP MIB."
+    REVISION    "201507060000Z"
+    DESCRIPTION
+        "Added hardware clock domain, support for profiles and fields related to
+         8275.1"
+    REVISION    "201503260000Z"
+    DESCRIPTION
+        "Added attribute Dscp to PtpConfigClocksDefaultDs"
+    REVISION    "201404140000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 65 }
+
+
+ME1200ptpClockPortState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { initializing(0), faulty(1), disabled(2), listening(3), preMaster(4), master(5), passive(6), uncalibrated(7), slave(8), p2pTransparent(9), e2eTransparent(10) }
+
+ME1200ptpDestAdrType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { default(0), linkLocal(1) }
+
+ME1200ptpDeviceType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { none(0), ordBound(1), p2pTransparent(2), e2eTransparent(3), masterOnly(4), slaveOnly(5) }
+
+ME1200ptpExtClock1pps ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { onePpsDisable(0), onePpsOutput(1), onePpsInput(2) }
+
+ME1200ptpPreferredAdj ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { preferredAdjLtc(0), preferredAdjSyncE(1), preferredAdjXO(2), preferredAdjLtcPhase(3) }
+
+ME1200ptpProfile ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { noProfile(0), ieee1588(1), g8265(2), g8275(3) }
+
+ME1200ptpProtocol ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { ethernet(0), ethernetMixed(1), ip4multi(2), ip4mixed(3), ip4uni(4), oam(5), onePps(6) }
+
+ME1200ptpServoClockOption ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { clockFree(0), clockSyncE(1) }
+
+ME1200ptpSlaveClockState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { slaveClockStateFreerun(0), slaveClockStateFreqLocking(1), slaveClockStatePhaseLocking(2), slaveClockStateLocked(3), slaveClockStateHoldover(4), slaveClockStateInvalid(5) }
+
+ME1200ptpSystemTimeSyncMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { systemTimeNoSync(0), systemTimeSyncGet(1), systemTimeSyncSet(2) }
+
+ME1200ptpUcCommState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "-"
+    SYNTAX      INTEGER { idle(0), initializing(1), connected(2), selected(3), synced(4) }
+
+me1200PtpMibObjects OBJECT IDENTIFIER
+    ::= { me1200PtpMib 1 }
+
+me1200PtpCapabilities OBJECT IDENTIFIER
+    ::= { me1200PtpMibObjects 1 }
+
+me1200PtpCapabilitiesGlobals OBJECT IDENTIFIER
+    ::= { me1200PtpCapabilities 1 }
+
+me1200PtpCapabilitiesGlobalsClockCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of PTP clocks supported by the device."
+    ::= { me1200PtpCapabilitiesGlobals 1 }
+
+me1200PtpConfig OBJECT IDENTIFIER
+    ::= { me1200PtpMibObjects 2 }
+
+me1200PtpConfigGlobals OBJECT IDENTIFIER
+    ::= { me1200PtpConfig 1 }
+
+me1200PtpConfigGlobalsExternalClockMode OBJECT IDENTIFIER
+    ::= { me1200PtpConfigGlobals 1 }
+
+me1200PtpConfigGlobalsExternalClockModeOnePpsMode OBJECT-TYPE
+    SYNTAX      ME1200ptpExtClock1pps
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The mode of the PPS pin."
+    ::= { me1200PtpConfigGlobalsExternalClockMode 1 }
+
+me1200PtpConfigGlobalsExternalClockModeExternalEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "External enable of PPS output."
+    ::= { me1200PtpConfigGlobalsExternalClockMode 2 }
+
+me1200PtpConfigGlobalsExternalClockModeAdjustMethod OBJECT-TYPE
+    SYNTAX      ME1200ptpPreferredAdj
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The adjustment method of the PPS external output.
+         
+         0: LTC Frequency
+         
+         1: SyncE DPLL
+         
+         2: Oscillator
+         
+         3: LTC Phase"
+    ::= { me1200PtpConfigGlobalsExternalClockMode 3 }
+
+me1200PtpConfigGlobalsExternalClockModeClockFrequency OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The frequency in hertz (Hz) of the PPS external output."
+    ::= { me1200PtpConfigGlobalsExternalClockMode 4 }
+
+me1200PtpConfigGlobalsSystemTimeSyncMode OBJECT IDENTIFIER
+    ::= { me1200PtpConfigGlobals 2 }
+
+me1200PtpConfigGlobalsSystemTimeSyncModeMode OBJECT-TYPE
+    SYNTAX      ME1200ptpSystemTimeSyncMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Mode of the System time <-> ptp time synchronization."
+    ::= { me1200PtpConfigGlobalsSystemTimeSyncMode 1 }
+
+me1200PtpConfigClocks OBJECT IDENTIFIER
+    ::= { me1200PtpConfig 2 }
+
+me1200PtpConfigClocksDefaultDsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpConfigClocksDefaultDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the configurable part of the PTP clocks DefaultDS."
+    ::= { me1200PtpConfigClocks 1 }
+
+me1200PtpConfigClocksDefaultDsEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpConfigClocksDefaultDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpConfigClocksDefaultDsClockId }
+    ::= { me1200PtpConfigClocksDefaultDsTable 1 }
+
+ME1200PtpConfigClocksDefaultDsEntry ::= SEQUENCE {
+    me1200PtpConfigClocksDefaultDsClockId     Integer32,
+    me1200PtpConfigClocksDefaultDsDeviceType      ME1200ptpDeviceType,
+    me1200PtpConfigClocksDefaultDsTwoStepFlag     TruthValue,
+    me1200PtpConfigClocksDefaultDsPriority1   ME1200Unsigned8,
+    me1200PtpConfigClocksDefaultDsPriority2   ME1200Unsigned8,
+    me1200PtpConfigClocksDefaultDsOneWay      TruthValue,
+    me1200PtpConfigClocksDefaultDsDomainNumber    ME1200Unsigned8,
+    me1200PtpConfigClocksDefaultDsProtocol    ME1200ptpProtocol,
+    me1200PtpConfigClocksDefaultDsVlanTagEnable   TruthValue,
+    me1200PtpConfigClocksDefaultDsVid     ME1200Unsigned16,
+    me1200PtpConfigClocksDefaultDsPcp     ME1200Unsigned8,
+    me1200PtpConfigClocksDefaultDsMep     Integer32,
+    me1200PtpConfigClocksDefaultDsClkDom      Unsigned32,
+    me1200PtpConfigClocksDefaultDsDscp    ME1200Unsigned8,
+    me1200PtpConfigClocksDefaultDsProfile     ME1200ptpProfile,
+    me1200PtpConfigClocksDefaultDsLocalPriority   ME1200Unsigned8,
+    me1200PtpConfigClocksDefaultDsAction      ME1200RowEditorState
+}
+
+me1200PtpConfigClocksDefaultDsClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpConfigClocksDefaultDsEntry 1 }
+
+me1200PtpConfigClocksDefaultDsDeviceType OBJECT-TYPE
+    SYNTAX      ME1200ptpDeviceType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PTP clock type."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 2 }
+
+me1200PtpConfigClocksDefaultDsTwoStepFlag OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Determines whether clock uses follow-up packets."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 3 }
+
+me1200PtpConfigClocksDefaultDsPriority1 OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The priority1 value."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 4 }
+
+me1200PtpConfigClocksDefaultDsPriority2 OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The priority2 value."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 5 }
+
+me1200PtpConfigClocksDefaultDsOneWay OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Determines whether clock uses sync packets only."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 6 }
+
+me1200PtpConfigClocksDefaultDsDomainNumber OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The domain number."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 7 }
+
+me1200PtpConfigClocksDefaultDsProtocol OBJECT-TYPE
+    SYNTAX      ME1200ptpProtocol
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protocol to be used for the encapsulation of the PTP packets."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 8 }
+
+me1200PtpConfigClocksDefaultDsVlanTagEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Determines whether clock uses sync packets only."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 9 }
+
+me1200PtpConfigClocksDefaultDsVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN id (if VLAN tagging is enabled)."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 10 }
+
+me1200PtpConfigClocksDefaultDsPcp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value (if VLAN tagging is enabled)."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 11 }
+
+me1200PtpConfigClocksDefaultDsMep OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The mep instance number (if protocol is OAM)."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 12 }
+
+me1200PtpConfigClocksDefaultDsClkDom OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clock domain used."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 13 }
+
+me1200PtpConfigClocksDefaultDsDscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP field value (if protocol is IPv4)."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 14 }
+
+me1200PtpConfigClocksDefaultDsProfile OBJECT-TYPE
+    SYNTAX      ME1200ptpProfile
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PTP profile."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 15 }
+
+me1200PtpConfigClocksDefaultDsLocalPriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The local priority value."
+    ::= { me1200PtpConfigClocksDefaultDsEntry 16 }
+
+me1200PtpConfigClocksDefaultDsAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200PtpConfigClocksDefaultDsEntry 100 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200PtpConfigClocks 2 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 1 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorDeviceType OBJECT-TYPE
+    SYNTAX      ME1200ptpDeviceType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PTP clock type."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 2 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorTwoStepFlag OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Determines whether clock uses follow-up packets."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 3 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorPriority1 OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The priority1 value."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 4 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorPriority2 OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The priority2 value."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 5 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorOneWay OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Determines whether clock uses sync packets only."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 6 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorDomainNumber OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The domain number."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 7 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorProtocol OBJECT-TYPE
+    SYNTAX      ME1200ptpProtocol
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The protocol to be used for the encapsulation of the PTP packets."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 8 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorVlanTagEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Determines whether clock uses sync packets only."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 9 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN id (if VLAN tagging is enabled)."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 10 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorPcp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value (if VLAN tagging is enabled)."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 11 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorMep OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The mep instance number (if protocol is OAM)."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 12 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorClkDom OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clock domain used."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 13 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorDscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DSCP field value (if protocol is IPv4)."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 14 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorProfile OBJECT-TYPE
+    SYNTAX      ME1200ptpProfile
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PTP profile."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 15 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorLocalPriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The local priority value."
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 16 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200PtpConfigClocksDefaultDsTableRowEditor 100 }
+
+me1200PtpConfigClocksTimePropertiesDsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpConfigClocksTimePropertiesDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the configurable part of the PTP clocks TimePropertiesDS."
+    ::= { me1200PtpConfigClocks 3 }
+
+me1200PtpConfigClocksTimePropertiesDsEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpConfigClocksTimePropertiesDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpConfigClocksTimePropertiesDsClockId }
+    ::= { me1200PtpConfigClocksTimePropertiesDsTable 1 }
+
+ME1200PtpConfigClocksTimePropertiesDsEntry ::= SEQUENCE {
+    me1200PtpConfigClocksTimePropertiesDsClockId      Integer32,
+    me1200PtpConfigClocksTimePropertiesDsCurrentUtcOffset     ME1200Integer16,
+    me1200PtpConfigClocksTimePropertiesDsCurrentUtcOffsetValid    TruthValue,
+    me1200PtpConfigClocksTimePropertiesDsLeap59   TruthValue,
+    me1200PtpConfigClocksTimePropertiesDsLeap61   TruthValue,
+    me1200PtpConfigClocksTimePropertiesDsTimeTraceable    TruthValue,
+    me1200PtpConfigClocksTimePropertiesDsFrequencyTraceable   TruthValue,
+    me1200PtpConfigClocksTimePropertiesDsPtpTimescale     TruthValue,
+    me1200PtpConfigClocksTimePropertiesDsTimeSource   ME1200Unsigned8
+}
+
+me1200PtpConfigClocksTimePropertiesDsClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpConfigClocksTimePropertiesDsEntry 1 }
+
+me1200PtpConfigClocksTimePropertiesDsCurrentUtcOffset OBJECT-TYPE
+    SYNTAX      ME1200Integer16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The current UTC time offset."
+    ::= { me1200PtpConfigClocksTimePropertiesDsEntry 2 }
+
+me1200PtpConfigClocksTimePropertiesDsCurrentUtcOffsetValid OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates whether the current UTC time offset value is valid."
+    ::= { me1200PtpConfigClocksTimePropertiesDsEntry 3 }
+
+me1200PtpConfigClocksTimePropertiesDsLeap59 OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates that the last minute of the day has only 59 seconds."
+    ::= { me1200PtpConfigClocksTimePropertiesDsEntry 4 }
+
+me1200PtpConfigClocksTimePropertiesDsLeap61 OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates that the last minute of the day has 61 seconds."
+    ::= { me1200PtpConfigClocksTimePropertiesDsEntry 5 }
+
+me1200PtpConfigClocksTimePropertiesDsTimeTraceable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates that time is traceable to a primary reference."
+    ::= { me1200PtpConfigClocksTimePropertiesDsEntry 6 }
+
+me1200PtpConfigClocksTimePropertiesDsFrequencyTraceable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates that frequency is traceable to a primary reference."
+    ::= { me1200PtpConfigClocksTimePropertiesDsEntry 7 }
+
+me1200PtpConfigClocksTimePropertiesDsPtpTimescale OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates whether timescale of the grandmaster clock is PTP."
+    ::= { me1200PtpConfigClocksTimePropertiesDsEntry 8 }
+
+me1200PtpConfigClocksTimePropertiesDsTimeSource OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Source of time used by the grandmaster clock."
+    ::= { me1200PtpConfigClocksTimePropertiesDsEntry 9 }
+
+me1200PtpConfigClocksFilterParametersTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpConfigClocksFilterParametersEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the configurable part of the PTP clocks filter parameters."
+    ::= { me1200PtpConfigClocks 4 }
+
+me1200PtpConfigClocksFilterParametersEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpConfigClocksFilterParametersEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpConfigClocksFilterParametersClockId }
+    ::= { me1200PtpConfigClocksFilterParametersTable 1 }
+
+ME1200PtpConfigClocksFilterParametersEntry ::= SEQUENCE {
+    me1200PtpConfigClocksFilterParametersClockId      Integer32,
+    me1200PtpConfigClocksFilterParametersDelayFilter      Unsigned32,
+    me1200PtpConfigClocksFilterParametersFilterType   Unsigned32,
+    me1200PtpConfigClocksFilterParametersPeriod   Unsigned32,
+    me1200PtpConfigClocksFilterParametersDist     Unsigned32
+}
+
+me1200PtpConfigClocksFilterParametersClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpConfigClocksFilterParametersEntry 1 }
+
+me1200PtpConfigClocksFilterParametersDelayFilter OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Defines the time constant of the delay filter."
+    ::= { me1200PtpConfigClocksFilterParametersEntry 2 }
+
+me1200PtpConfigClocksFilterParametersFilterType OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Selects the type of filter/servo used."
+    ::= { me1200PtpConfigClocksFilterParametersEntry 3 }
+
+me1200PtpConfigClocksFilterParametersPeriod OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Defines the period of the offset filter."
+    ::= { me1200PtpConfigClocksFilterParametersEntry 4 }
+
+me1200PtpConfigClocksFilterParametersDist OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Sets the dist value of the offset filter."
+    ::= { me1200PtpConfigClocksFilterParametersEntry 5 }
+
+me1200PtpConfigClocksServoParametersTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpConfigClocksServoParametersEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the configurable part of the PTP clocks servo parameters."
+    ::= { me1200PtpConfigClocks 5 }
+
+me1200PtpConfigClocksServoParametersEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpConfigClocksServoParametersEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpConfigClocksServoParametersClockId }
+    ::= { me1200PtpConfigClocksServoParametersTable 1 }
+
+ME1200PtpConfigClocksServoParametersEntry ::= SEQUENCE {
+    me1200PtpConfigClocksServoParametersClockId   Integer32,
+    me1200PtpConfigClocksServoParametersDisplay   TruthValue,
+    me1200PtpConfigClocksServoParametersPEnable   TruthValue,
+    me1200PtpConfigClocksServoParametersIEnable   TruthValue,
+    me1200PtpConfigClocksServoParametersDEnable   TruthValue,
+    me1200PtpConfigClocksServoParametersPval      Unsigned32,
+    me1200PtpConfigClocksServoParametersIval      Unsigned32,
+    me1200PtpConfigClocksServoParametersDval      Unsigned32,
+    me1200PtpConfigClocksServoParametersSrvOption     ME1200ptpServoClockOption,
+    me1200PtpConfigClocksServoParametersSynceThreshold    Unsigned32,
+    me1200PtpConfigClocksServoParametersSynceAp   Unsigned32,
+    me1200PtpConfigClocksServoParametersHoFilter      Integer32,
+    me1200PtpConfigClocksServoParametersStableAdjThreshold    ME1200Unsigned64
+}
+
+me1200PtpConfigClocksServoParametersClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpConfigClocksServoParametersEntry 1 }
+
+me1200PtpConfigClocksServoParametersDisplay OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates whether output shall be sent to the debug terminal."
+    ::= { me1200PtpConfigClocksServoParametersEntry 2 }
+
+me1200PtpConfigClocksServoParametersPEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates whether P-value of servo algorithm shall be used."
+    ::= { me1200PtpConfigClocksServoParametersEntry 3 }
+
+me1200PtpConfigClocksServoParametersIEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates whether I-value of servo algorithm shall be used."
+    ::= { me1200PtpConfigClocksServoParametersEntry 4 }
+
+me1200PtpConfigClocksServoParametersDEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Indicates whether D-value of servo algorithm shall be used."
+    ::= { me1200PtpConfigClocksServoParametersEntry 5 }
+
+me1200PtpConfigClocksServoParametersPval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "P-value of the offset filter."
+    ::= { me1200PtpConfigClocksServoParametersEntry 6 }
+
+me1200PtpConfigClocksServoParametersIval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "I-value of the offset filter."
+    ::= { me1200PtpConfigClocksServoParametersEntry 7 }
+
+me1200PtpConfigClocksServoParametersDval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "D-value of the offset filter."
+    ::= { me1200PtpConfigClocksServoParametersEntry 8 }
+
+me1200PtpConfigClocksServoParametersSrvOption OBJECT-TYPE
+    SYNTAX      ME1200ptpServoClockOption
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "D-value of the offset filter."
+    ::= { me1200PtpConfigClocksServoParametersEntry 9 }
+
+me1200PtpConfigClocksServoParametersSynceThreshold OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "SyncE Threshold"
+    ::= { me1200PtpConfigClocksServoParametersEntry 10 }
+
+me1200PtpConfigClocksServoParametersSynceAp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "SyncE Ap"
+    ::= { me1200PtpConfigClocksServoParametersEntry 11 }
+
+me1200PtpConfigClocksServoParametersHoFilter OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Holdoff low pass filter constant."
+    ::= { me1200PtpConfigClocksServoParametersEntry 12 }
+
+me1200PtpConfigClocksServoParametersStableAdjThreshold OBJECT-TYPE
+    SYNTAX      ME1200Unsigned64
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Threshold at which offset is assumed to be stable."
+    ::= { me1200PtpConfigClocksServoParametersEntry 13 }
+
+me1200PtpConfigClocksSlaveConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpConfigClocksSlaveConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the configurable part of the PTP clocks slave configuration."
+    ::= { me1200PtpConfigClocks 6 }
+
+me1200PtpConfigClocksSlaveConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpConfigClocksSlaveConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpConfigClocksSlaveConfigClockId }
+    ::= { me1200PtpConfigClocksSlaveConfigTable 1 }
+
+ME1200PtpConfigClocksSlaveConfigEntry ::= SEQUENCE {
+    me1200PtpConfigClocksSlaveConfigClockId   Integer32,
+    me1200PtpConfigClocksSlaveConfigStableOffset      Unsigned32,
+    me1200PtpConfigClocksSlaveConfigOffsetOk      Unsigned32,
+    me1200PtpConfigClocksSlaveConfigOffsetFail    Unsigned32
+}
+
+me1200PtpConfigClocksSlaveConfigClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpConfigClocksSlaveConfigEntry 1 }
+
+me1200PtpConfigClocksSlaveConfigStableOffset OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Stable offset threshold in ns."
+    ::= { me1200PtpConfigClocksSlaveConfigEntry 2 }
+
+me1200PtpConfigClocksSlaveConfigOffsetOk OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Offset OK threshold in ns."
+    ::= { me1200PtpConfigClocksSlaveConfigEntry 3 }
+
+me1200PtpConfigClocksSlaveConfigOffsetFail OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Offset fail threshold in ns."
+    ::= { me1200PtpConfigClocksSlaveConfigEntry 4 }
+
+me1200PtpConfigClocksUnicastSlaveConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpConfigClocksUnicastSlaveConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the configurable part of the PTP clocks unicast slave
+         configuration."
+    ::= { me1200PtpConfigClocks 7 }
+
+me1200PtpConfigClocksUnicastSlaveConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpConfigClocksUnicastSlaveConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpConfigClocksUnicastSlaveConfigClockId, me1200PtpConfigClocksUnicastSlaveConfigMasterId }
+    ::= { me1200PtpConfigClocksUnicastSlaveConfigTable 1 }
+
+ME1200PtpConfigClocksUnicastSlaveConfigEntry ::= SEQUENCE {
+    me1200PtpConfigClocksUnicastSlaveConfigClockId    Integer32,
+    me1200PtpConfigClocksUnicastSlaveConfigMasterId   Integer32,
+    me1200PtpConfigClocksUnicastSlaveConfigDuration   Unsigned32,
+    me1200PtpConfigClocksUnicastSlaveConfigIpAddress      IpAddress
+}
+
+me1200PtpConfigClocksUnicastSlaveConfigClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpConfigClocksUnicastSlaveConfigEntry 1 }
+
+me1200PtpConfigClocksUnicastSlaveConfigMasterId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpConfigClocksUnicastSlaveConfigEntry 2 }
+
+me1200PtpConfigClocksUnicastSlaveConfigDuration OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of seconds for which the Announce/Sync messages are requested."
+    ::= { me1200PtpConfigClocksUnicastSlaveConfigEntry 3 }
+
+me1200PtpConfigClocksUnicastSlaveConfigIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "IPv4 address of requested master clock."
+    ::= { me1200PtpConfigClocksUnicastSlaveConfigEntry 4 }
+
+me1200PtpConfigClocksPortDsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpConfigClocksPortDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the configurable part of the PTP clocks PortDS."
+    ::= { me1200PtpConfigClocks 8 }
+
+me1200PtpConfigClocksPortDsEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpConfigClocksPortDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpConfigClocksPortDsClockId, me1200PtpConfigClocksPortDsPortId }
+    ::= { me1200PtpConfigClocksPortDsTable 1 }
+
+ME1200PtpConfigClocksPortDsEntry ::= SEQUENCE {
+    me1200PtpConfigClocksPortDsClockId    Integer32,
+    me1200PtpConfigClocksPortDsPortId     ME1200InterfaceIndex,
+    me1200PtpConfigClocksPortDsEnabled    ME1200Unsigned8,
+    me1200PtpConfigClocksPortDsLogAnnounceInterval    ME1200Integer16,
+    me1200PtpConfigClocksPortDsAnnounceReceiptTimeout     ME1200Unsigned8,
+    me1200PtpConfigClocksPortDsLogSyncInterval    ME1200Integer16,
+    me1200PtpConfigClocksPortDsDelayMechanism     ME1200Unsigned8,
+    me1200PtpConfigClocksPortDsLogMinPdelayReqInterval    ME1200Integer16,
+    me1200PtpConfigClocksPortDsDelayAsymmetry     ME1200Integer64,
+    me1200PtpConfigClocksPortDsIngressLatency     ME1200Integer64,
+    me1200PtpConfigClocksPortDsEgressLatency      ME1200Integer64,
+    me1200PtpConfigClocksPortDsPortInternal   TruthValue,
+    me1200PtpConfigClocksPortDsVersionNumber      ME1200Unsigned16,
+    me1200PtpConfigClocksPortDsMcastAddr      ME1200ptpDestAdrType,
+    me1200PtpConfigClocksPortDsNotSlave   TruthValue,
+    me1200PtpConfigClocksPortDsLocalPriority      ME1200Unsigned8
+}
+
+me1200PtpConfigClocksPortDsClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpConfigClocksPortDsEntry 1 }
+
+me1200PtpConfigClocksPortDsPortId OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpConfigClocksPortDsEntry 2 }
+
+me1200PtpConfigClocksPortDsEnabled OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Defines whether port is enabled."
+    ::= { me1200PtpConfigClocksPortDsEntry 3 }
+
+me1200PtpConfigClocksPortDsLogAnnounceInterval OBJECT-TYPE
+    SYNTAX      ME1200Integer16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Interval between announce message transmissions."
+    ::= { me1200PtpConfigClocksPortDsEntry 4 }
+
+me1200PtpConfigClocksPortDsAnnounceReceiptTimeout OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The timeout for receiving announce messages on the port."
+    ::= { me1200PtpConfigClocksPortDsEntry 5 }
+
+me1200PtpConfigClocksPortDsLogSyncInterval OBJECT-TYPE
+    SYNTAX      ME1200Integer16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The interval for issuing sync meesages in the master."
+    ::= { me1200PtpConfigClocksPortDsEntry 6 }
+
+me1200PtpConfigClocksPortDsDelayMechanism OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The delay mechanism used for the port."
+    ::= { me1200PtpConfigClocksPortDsEntry 7 }
+
+me1200PtpConfigClocksPortDsLogMinPdelayReqInterval OBJECT-TYPE
+    SYNTAX      ME1200Integer16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The value of logMinPdelayReqInterval"
+    ::= { me1200PtpConfigClocksPortDsEntry 8 }
+
+me1200PtpConfigClocksPortDsDelayAsymmetry OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The value for the communication path asymmetry."
+    ::= { me1200PtpConfigClocksPortDsEntry 9 }
+
+me1200PtpConfigClocksPortDsIngressLatency OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Ingress delay for port."
+    ::= { me1200PtpConfigClocksPortDsEntry 10 }
+
+me1200PtpConfigClocksPortDsEgressLatency OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Egress delay for port."
+    ::= { me1200PtpConfigClocksPortDsEntry 11 }
+
+me1200PtpConfigClocksPortDsPortInternal OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Defines whether port is enabled as an internal interface."
+    ::= { me1200PtpConfigClocksPortDsEntry 12 }
+
+me1200PtpConfigClocksPortDsVersionNumber OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The version of PTP being used by the port."
+    ::= { me1200PtpConfigClocksPortDsEntry 13 }
+
+me1200PtpConfigClocksPortDsMcastAddr OBJECT-TYPE
+    SYNTAX      ME1200ptpDestAdrType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The multicast address used (default or link local)."
+    ::= { me1200PtpConfigClocksPortDsEntry 14 }
+
+me1200PtpConfigClocksPortDsNotSlave OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "When true, the port will not act as a slave."
+    ::= { me1200PtpConfigClocksPortDsEntry 15 }
+
+me1200PtpConfigClocksPortDsLocalPriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The local priority value."
+    ::= { me1200PtpConfigClocksPortDsEntry 16 }
+
+me1200PtpStatus OBJECT IDENTIFIER
+    ::= { me1200PtpMibObjects 3 }
+
+me1200PtpStatusClocks OBJECT IDENTIFIER
+    ::= { me1200PtpStatus 1 }
+
+me1200PtpStatusClocksDefaultDsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpStatusClocksDefaultDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the dynamic (status) part of the PTP clocks DefaultDS."
+    ::= { me1200PtpStatusClocks 1 }
+
+me1200PtpStatusClocksDefaultDsEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpStatusClocksDefaultDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpStatusClocksDefaultDsClockId }
+    ::= { me1200PtpStatusClocksDefaultDsTable 1 }
+
+ME1200PtpStatusClocksDefaultDsEntry ::= SEQUENCE {
+    me1200PtpStatusClocksDefaultDsClockId     Integer32,
+    me1200PtpStatusClocksDefaultDsClockIdentity   OCTET STRING,
+    me1200PtpStatusClocksDefaultDsClockQualityClockClass      ME1200Unsigned8,
+    me1200PtpStatusClocksDefaultDsClockQualityClockAccuracy   ME1200Unsigned8,
+    me1200PtpStatusClocksDefaultDsClockQualityOffsetScaledLogVar      ME1200Unsigned16
+}
+
+me1200PtpStatusClocksDefaultDsClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksDefaultDsEntry 1 }
+
+me1200PtpStatusClocksDefaultDsClockIdentity OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(8))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the unique 8 byte clockIdentify field from the DefaultDS
+         structure."
+    ::= { me1200PtpStatusClocksDefaultDsEntry 2 }
+
+me1200PtpStatusClocksDefaultDsClockQualityClockClass OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the clock class field of the clock quality structure."
+    ::= { me1200PtpStatusClocksDefaultDsEntry 3 }
+
+me1200PtpStatusClocksDefaultDsClockQualityClockAccuracy OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the clock accuracy field of the clock quality structure."
+    ::= { me1200PtpStatusClocksDefaultDsEntry 4 }
+
+me1200PtpStatusClocksDefaultDsClockQualityOffsetScaledLogVar OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the offsetScaledLogVariance field of the clock quality
+         structure."
+    ::= { me1200PtpStatusClocksDefaultDsEntry 5 }
+
+me1200PtpStatusClocksCurrentDsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpStatusClocksCurrentDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the dynamic (status) part of the PTP clocks CurrentDS."
+    ::= { me1200PtpStatusClocks 2 }
+
+me1200PtpStatusClocksCurrentDsEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpStatusClocksCurrentDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpStatusClocksCurrentDsClockId }
+    ::= { me1200PtpStatusClocksCurrentDsTable 1 }
+
+ME1200PtpStatusClocksCurrentDsEntry ::= SEQUENCE {
+    me1200PtpStatusClocksCurrentDsClockId     Integer32,
+    me1200PtpStatusClocksCurrentDsStepsRemoved    ME1200Unsigned16,
+    me1200PtpStatusClocksCurrentDsOffsetFromMaster    ME1200Integer64,
+    me1200PtpStatusClocksCurrentDsMeanPathDelay   ME1200Integer64
+}
+
+me1200PtpStatusClocksCurrentDsClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksCurrentDsEntry 1 }
+
+me1200PtpStatusClocksCurrentDsStepsRemoved OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of PTP clocks traversed from the grandmaster to the local
+         PTP clock."
+    ::= { me1200PtpStatusClocksCurrentDsEntry 2 }
+
+me1200PtpStatusClocksCurrentDsOffsetFromMaster OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The time differece in ns from the grandmaster to the local PTP clock."
+    ::= { me1200PtpStatusClocksCurrentDsEntry 3 }
+
+me1200PtpStatusClocksCurrentDsMeanPathDelay OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The mean path delay from the master to the local slave."
+    ::= { me1200PtpStatusClocksCurrentDsEntry 4 }
+
+me1200PtpStatusClocksParentDsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpStatusClocksParentDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the dynamic (status) part of the PTP clocks ParentDS."
+    ::= { me1200PtpStatusClocks 3 }
+
+me1200PtpStatusClocksParentDsEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpStatusClocksParentDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpStatusClocksParentDsClockId }
+    ::= { me1200PtpStatusClocksParentDsTable 1 }
+
+ME1200PtpStatusClocksParentDsEntry ::= SEQUENCE {
+    me1200PtpStatusClocksParentDsClockId      Integer32,
+    me1200PtpStatusClocksParentDsParentPortIdentityClockIdentity      OCTET STRING,
+    me1200PtpStatusClocksParentDsParentPortIdentityPortNumber     ME1200Unsigned16,
+    me1200PtpStatusClocksParentDsParentStats      TruthValue,
+    me1200PtpStatusClocksParentDsObservedParentOffsetScaledLogVar     ME1200Unsigned16,
+    me1200PtpStatusClocksParentDsObservedParentClockPhaseChangeRate   Integer32,
+    me1200PtpStatusClocksParentDsGrmstrIdentity   OCTET STRING,
+    me1200PtpStatusClocksParentDsGrmstrClkQualClockClass      ME1200Unsigned8,
+    me1200PtpStatusClocksParentDsGmstrClkQualClockAccuracy    ME1200Unsigned8,
+    me1200PtpStatusClocksParentDsGmstrClkQualOffsetScaledLogVar   ME1200Unsigned16,
+    me1200PtpStatusClocksParentDsGmstrPriority1   ME1200Unsigned8,
+    me1200PtpStatusClocksParentDsGmstrPriority2   ME1200Unsigned8
+}
+
+me1200PtpStatusClocksParentDsClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksParentDsEntry 1 }
+
+me1200PtpStatusClocksParentDsParentPortIdentityClockIdentity OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(8))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the 8 byte unique clock identity of the parent port."
+    ::= { me1200PtpStatusClocksParentDsEntry 2 }
+
+me1200PtpStatusClocksParentDsParentPortIdentityPortNumber OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the port number on the parent associated with the parent clock."
+    ::= { me1200PtpStatusClocksParentDsEntry 3 }
+
+me1200PtpStatusClocksParentDsParentStats OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Parents stats (always false)."
+    ::= { me1200PtpStatusClocksParentDsEntry 4 }
+
+me1200PtpStatusClocksParentDsObservedParentOffsetScaledLogVar OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This field is optional and is not computed (as signaled by parentStats
+         being false)."
+    ::= { me1200PtpStatusClocksParentDsEntry 5 }
+
+me1200PtpStatusClocksParentDsObservedParentClockPhaseChangeRate OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This field is optional and is not computed (as signaled by parentStats
+         being false)."
+    ::= { me1200PtpStatusClocksParentDsEntry 6 }
+
+me1200PtpStatusClocksParentDsGrmstrIdentity OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(8))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the 8 byte unique clock identity of the grand master clock."
+    ::= { me1200PtpStatusClocksParentDsEntry 7 }
+
+me1200PtpStatusClocksParentDsGrmstrClkQualClockClass OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the clock class of the clock quality structure of the grand
+         master clock."
+    ::= { me1200PtpStatusClocksParentDsEntry 8 }
+
+me1200PtpStatusClocksParentDsGmstrClkQualClockAccuracy OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the clock accuracy of the clock quality structure of the grand
+         master clock."
+    ::= { me1200PtpStatusClocksParentDsEntry 9 }
+
+me1200PtpStatusClocksParentDsGmstrClkQualOffsetScaledLogVar OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the offsetScaledLogVariance field of the clock quality
+         structure of the grand master clock."
+    ::= { me1200PtpStatusClocksParentDsEntry 10 }
+
+me1200PtpStatusClocksParentDsGmstrPriority1 OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Grandmaster Priority1 value."
+    ::= { me1200PtpStatusClocksParentDsEntry 11 }
+
+me1200PtpStatusClocksParentDsGmstrPriority2 OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Grandmaster Priority2 value."
+    ::= { me1200PtpStatusClocksParentDsEntry 12 }
+
+me1200PtpStatusClocksTimePropertiesDsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpStatusClocksTimePropertiesDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the dynamic (status) part of the PTP clocks TimePropertiesDS."
+    ::= { me1200PtpStatusClocks 4 }
+
+me1200PtpStatusClocksTimePropertiesDsEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpStatusClocksTimePropertiesDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpStatusClocksTimePropertiesDsClockId }
+    ::= { me1200PtpStatusClocksTimePropertiesDsTable 1 }
+
+ME1200PtpStatusClocksTimePropertiesDsEntry ::= SEQUENCE {
+    me1200PtpStatusClocksTimePropertiesDsClockId      Integer32,
+    me1200PtpStatusClocksTimePropertiesDsCurrentUtcOffset     ME1200Integer16,
+    me1200PtpStatusClocksTimePropertiesDsCurrentUtcOffsetValid    TruthValue,
+    me1200PtpStatusClocksTimePropertiesDsLeap59   TruthValue,
+    me1200PtpStatusClocksTimePropertiesDsLeap61   TruthValue,
+    me1200PtpStatusClocksTimePropertiesDsTimeTraceable    TruthValue,
+    me1200PtpStatusClocksTimePropertiesDsFrequencyTraceable   TruthValue,
+    me1200PtpStatusClocksTimePropertiesDsPtpTimescale     TruthValue,
+    me1200PtpStatusClocksTimePropertiesDsTimeSource   ME1200Unsigned8
+}
+
+me1200PtpStatusClocksTimePropertiesDsClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksTimePropertiesDsEntry 1 }
+
+me1200PtpStatusClocksTimePropertiesDsCurrentUtcOffset OBJECT-TYPE
+    SYNTAX      ME1200Integer16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The current UTC time offset."
+    ::= { me1200PtpStatusClocksTimePropertiesDsEntry 2 }
+
+me1200PtpStatusClocksTimePropertiesDsCurrentUtcOffsetValid OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicates whether the current UTC time offset value is valid."
+    ::= { me1200PtpStatusClocksTimePropertiesDsEntry 3 }
+
+me1200PtpStatusClocksTimePropertiesDsLeap59 OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicates that the last minute of the day has only 59 seconds."
+    ::= { me1200PtpStatusClocksTimePropertiesDsEntry 4 }
+
+me1200PtpStatusClocksTimePropertiesDsLeap61 OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicates that the last minute of the day has 61 seconds."
+    ::= { me1200PtpStatusClocksTimePropertiesDsEntry 5 }
+
+me1200PtpStatusClocksTimePropertiesDsTimeTraceable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicates that time is traceable to a primary reference."
+    ::= { me1200PtpStatusClocksTimePropertiesDsEntry 6 }
+
+me1200PtpStatusClocksTimePropertiesDsFrequencyTraceable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicates that frequency is traceable to a primary reference."
+    ::= { me1200PtpStatusClocksTimePropertiesDsEntry 7 }
+
+me1200PtpStatusClocksTimePropertiesDsPtpTimescale OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicates whether timescale of the grandmaster clock is PTP."
+    ::= { me1200PtpStatusClocksTimePropertiesDsEntry 8 }
+
+me1200PtpStatusClocksTimePropertiesDsTimeSource OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Source of time used by the grandmaster clock."
+    ::= { me1200PtpStatusClocksTimePropertiesDsEntry 9 }
+
+me1200PtpStatusClocksSlaveDsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpStatusClocksSlaveDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the dynamic (status) part of the PTP clocks SlaveDS."
+    ::= { me1200PtpStatusClocks 5 }
+
+me1200PtpStatusClocksSlaveDsEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpStatusClocksSlaveDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpStatusClocksSlaveDsClockId }
+    ::= { me1200PtpStatusClocksSlaveDsTable 1 }
+
+ME1200PtpStatusClocksSlaveDsEntry ::= SEQUENCE {
+    me1200PtpStatusClocksSlaveDsClockId   Integer32,
+    me1200PtpStatusClocksSlaveDsSlavePort     ME1200Unsigned16,
+    me1200PtpStatusClocksSlaveDsSlaveState    ME1200ptpSlaveClockState,
+    me1200PtpStatusClocksSlaveDsHoldoverStable    ME1200Unsigned8,
+    me1200PtpStatusClocksSlaveDsHoldoverAdj   ME1200Integer64
+}
+
+me1200PtpStatusClocksSlaveDsClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksSlaveDsEntry 1 }
+
+me1200PtpStatusClocksSlaveDsSlavePort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "0 => no slave port, 1..n => selected slave port."
+    ::= { me1200PtpStatusClocksSlaveDsEntry 2 }
+
+me1200PtpStatusClocksSlaveDsSlaveState OBJECT-TYPE
+    SYNTAX      ME1200ptpSlaveClockState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The slaves state."
+    ::= { me1200PtpStatusClocksSlaveDsEntry 3 }
+
+me1200PtpStatusClocksSlaveDsHoldoverStable OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "True if the stabilization period has expired."
+    ::= { me1200PtpStatusClocksSlaveDsEntry 4 }
+
+me1200PtpStatusClocksSlaveDsHoldoverAdj OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The calculated holdover offset (ppb*10)."
+    ::= { me1200PtpStatusClocksSlaveDsEntry 5 }
+
+me1200PtpStatusClocksUnicastMasterTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpStatusClocksUnicastMasterEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the dynamic (status) part of the PTP clocks unicast master
+         table."
+    ::= { me1200PtpStatusClocks 6 }
+
+me1200PtpStatusClocksUnicastMasterEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpStatusClocksUnicastMasterEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpStatusClocksUnicastMasterClockId, me1200PtpStatusClocksUnicastMasterSlaveIp }
+    ::= { me1200PtpStatusClocksUnicastMasterTable 1 }
+
+ME1200PtpStatusClocksUnicastMasterEntry ::= SEQUENCE {
+    me1200PtpStatusClocksUnicastMasterClockId     Integer32,
+    me1200PtpStatusClocksUnicastMasterSlaveIp     IpAddress,
+    me1200PtpStatusClocksUnicastMasterSlaveMac    MacAddress,
+    me1200PtpStatusClocksUnicastMasterPort    ME1200Unsigned16,
+    me1200PtpStatusClocksUnicastMasterAnnLogMsgPeriod     ME1200Integer16,
+    me1200PtpStatusClocksUnicastMasterAnn     TruthValue,
+    me1200PtpStatusClocksUnicastMasterLogMsgPeriod    ME1200Integer16,
+    me1200PtpStatusClocksUnicastMasterSync    TruthValue
+}
+
+me1200PtpStatusClocksUnicastMasterClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksUnicastMasterEntry 1 }
+
+me1200PtpStatusClocksUnicastMasterSlaveIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksUnicastMasterEntry 2 }
+
+me1200PtpStatusClocksUnicastMasterSlaveMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksUnicastMasterEntry 3 }
+
+me1200PtpStatusClocksUnicastMasterPort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Port on the master that slave is connected to."
+    ::= { me1200PtpStatusClocksUnicastMasterEntry 4 }
+
+me1200PtpStatusClocksUnicastMasterAnnLogMsgPeriod OBJECT-TYPE
+    SYNTAX      ME1200Integer16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The granted Announce interval."
+    ::= { me1200PtpStatusClocksUnicastMasterEntry 5 }
+
+me1200PtpStatusClocksUnicastMasterAnn OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "True if sending announce messages."
+    ::= { me1200PtpStatusClocksUnicastMasterEntry 6 }
+
+me1200PtpStatusClocksUnicastMasterLogMsgPeriod OBJECT-TYPE
+    SYNTAX      ME1200Integer16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The granted sync interval."
+    ::= { me1200PtpStatusClocksUnicastMasterEntry 7 }
+
+me1200PtpStatusClocksUnicastMasterSync OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "True if sending sync messages."
+    ::= { me1200PtpStatusClocksUnicastMasterEntry 8 }
+
+me1200PtpStatusClocksUnicastSlaveTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpStatusClocksUnicastSlaveEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the dynamic (status) part of the PTP clocks unicast slave
+         table."
+    ::= { me1200PtpStatusClocks 7 }
+
+me1200PtpStatusClocksUnicastSlaveEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpStatusClocksUnicastSlaveEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpStatusClocksUnicastSlaveClockId, me1200PtpStatusClocksUnicastSlaveMasterId }
+    ::= { me1200PtpStatusClocksUnicastSlaveTable 1 }
+
+ME1200PtpStatusClocksUnicastSlaveEntry ::= SEQUENCE {
+    me1200PtpStatusClocksUnicastSlaveClockId      Integer32,
+    me1200PtpStatusClocksUnicastSlaveMasterId     Integer32,
+    me1200PtpStatusClocksUnicastSlaveMasterIp     IpAddress,
+    me1200PtpStatusClocksUnicastSlaveMasterMac    MacAddress,
+    me1200PtpStatusClocksUnicastSlaveSourcePortIdentityClockIdentity      OCTET STRING,
+    me1200PtpStatusClocksUnicastSlaveSourcePortIdentityPortNumber     ME1200Unsigned16,
+    me1200PtpStatusClocksUnicastSlavePort     ME1200Unsigned16,
+    me1200PtpStatusClocksUnicastSlaveLogMsgPeriod     ME1200Integer16,
+    me1200PtpStatusClocksUnicastSlaveCommState    ME1200ptpUcCommState,
+    me1200PtpStatusClocksUnicastSlaveConfMasterIp     IpAddress
+}
+
+me1200PtpStatusClocksUnicastSlaveClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksUnicastSlaveEntry 1 }
+
+me1200PtpStatusClocksUnicastSlaveMasterId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksUnicastSlaveEntry 2 }
+
+me1200PtpStatusClocksUnicastSlaveMasterIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the IP address of the master."
+    ::= { me1200PtpStatusClocksUnicastSlaveEntry 3 }
+
+me1200PtpStatusClocksUnicastSlaveMasterMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the MAC address of the master."
+    ::= { me1200PtpStatusClocksUnicastSlaveEntry 4 }
+
+me1200PtpStatusClocksUnicastSlaveSourcePortIdentityClockIdentity OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(8))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is the 8 byte unique clock identity of the source port."
+    ::= { me1200PtpStatusClocksUnicastSlaveEntry 5 }
+
+me1200PtpStatusClocksUnicastSlaveSourcePortIdentityPortNumber OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This is port number of the port used on the source."
+    ::= { me1200PtpStatusClocksUnicastSlaveEntry 6 }
+
+me1200PtpStatusClocksUnicastSlavePort OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The port (on the slave) connected to the master."
+    ::= { me1200PtpStatusClocksUnicastSlaveEntry 7 }
+
+me1200PtpStatusClocksUnicastSlaveLogMsgPeriod OBJECT-TYPE
+    SYNTAX      ME1200Integer16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The granted sync interval."
+    ::= { me1200PtpStatusClocksUnicastSlaveEntry 8 }
+
+me1200PtpStatusClocksUnicastSlaveCommState OBJECT-TYPE
+    SYNTAX      ME1200ptpUcCommState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Communication state."
+    ::= { me1200PtpStatusClocksUnicastSlaveEntry 9 }
+
+me1200PtpStatusClocksUnicastSlaveConfMasterIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Copy of the destination ip address."
+    ::= { me1200PtpStatusClocksUnicastSlaveEntry 10 }
+
+me1200PtpStatusClocksPortsDsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpStatusClocksPortsDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the dynamic (status) part of the PTP clocks PortDS."
+    ::= { me1200PtpStatusClocks 8 }
+
+me1200PtpStatusClocksPortsDsEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpStatusClocksPortsDsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpStatusClocksPortsDsClockId, me1200PtpStatusClocksPortsDsPortId }
+    ::= { me1200PtpStatusClocksPortsDsTable 1 }
+
+ME1200PtpStatusClocksPortsDsEntry ::= SEQUENCE {
+    me1200PtpStatusClocksPortsDsClockId   Integer32,
+    me1200PtpStatusClocksPortsDsPortId    ME1200InterfaceIndex,
+    me1200PtpStatusClocksPortsDsPortState     ME1200ptpClockPortState,
+    me1200PtpStatusClocksPortsDsLogMinDelayReqInterval    ME1200Integer16,
+    me1200PtpStatusClocksPortsDsPeerMeanPathDelay     ME1200Integer64,
+    me1200PtpStatusClocksPortsDsPeerDelayOk   TruthValue
+}
+
+me1200PtpStatusClocksPortsDsClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksPortsDsEntry 1 }
+
+me1200PtpStatusClocksPortsDsPortId OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksPortsDsEntry 2 }
+
+me1200PtpStatusClocksPortsDsPortState OBJECT-TYPE
+    SYNTAX      ME1200ptpClockPortState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksPortsDsEntry 3 }
+
+me1200PtpStatusClocksPortsDsLogMinDelayReqInterval OBJECT-TYPE
+    SYNTAX      ME1200Integer16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksPortsDsEntry 4 }
+
+me1200PtpStatusClocksPortsDsPeerMeanPathDelay OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksPortsDsEntry 5 }
+
+me1200PtpStatusClocksPortsDsPeerDelayOk OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpStatusClocksPortsDsEntry 6 }
+
+me1200PtpControl OBJECT IDENTIFIER
+    ::= { me1200PtpMibObjects 4 }
+
+me1200PtpControlClocksTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PtpControlClocksEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the PTP clocks control structure."
+    ::= { me1200PtpControl 1 }
+
+me1200PtpControlClocksEntry OBJECT-TYPE
+    SYNTAX      ME1200PtpControlClocksEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The clockId index must be a value must be a value from 0 up to the
+         number of PTP clocks minus one."
+    INDEX       { me1200PtpControlClocksClockId }
+    ::= { me1200PtpControlClocksTable 1 }
+
+ME1200PtpControlClocksEntry ::= SEQUENCE {
+    me1200PtpControlClocksClockId     Integer32,
+    me1200PtpControlClocksSyncToSystemClock   ME1200Unsigned8
+}
+
+me1200PtpControlClocksClockId OBJECT-TYPE
+    SYNTAX      Integer32 (0..32767)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpControlClocksEntry 1 }
+
+me1200PtpControlClocksSyncToSystemClock OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "-"
+    ::= { me1200PtpControlClocksEntry 2 }
+
+me1200PtpStatistics OBJECT IDENTIFIER
+    ::= { me1200PtpMibObjects 5 }
+
+me1200PtpNotifs OBJECT IDENTIFIER
+    ::= { me1200PtpMibObjects 6 }
+
+me1200PtpNotifsPortStateChange NOTIFICATION-TYPE
+    OBJECTS {
+        me1200PtpStatusClocksPortsDsPortId,
+        me1200PtpStatusClocksPortsDsPortState
+    }
+    STATUS        current
+    DESCRIPTION
+            "An me1200PtpNotifsPortStateChange notification is sent when the Port State changes occurs.
+             Port State is an enumerated integer value. Description of various possible Port States is:
+
+             initializing   - In this state a port initializes
+                              its data sets, hardware, and
+                              communication facilities.
+
+             faulty         - The fault state of the protocol.
+
+             disabled       - The port shall not place any
+                              messages on its communication path.
+
+             listening      - The port is waiting for the
+                              announceReceiptTimeout to expire or
+                              to receive an Announce message from
+                              a master.
+
+             preMaster      - The port shall behave in all respects
+                              as though it were in the MASTER state
+                              except that it shall not place any
+                              messages on its communication path
+                              except for Pdelay_Req, Pdelay_Resp,
+                              Pdelay_Resp_Follow_Up, signaling, or
+                              management messages.
+             master         - The port is behaving as a master port.
+
+             passive        - The port shall not place any
+                              messages on its communication path
+                              except for Pdelay_Req, Pdelay_Resp,
+                              Pdelay_Resp_Follow_Up, or signaling
+                              messages, or management messages
+                              that are a required response to
+                              another management message
+
+             uncalibrated   - The local port is preparing to
+                              synchronize to the master port.
+
+             slave          - The port is synchronizing to the
+                              selected master port.
+
+             p2pTransparent - The port is in point to point
+                              transparent state.
+
+             e2eTransparent - The port is in end to end
+                              transparent state."
+   ::= { me1200PtpNotifs 1 }
+
+me1200PtpNotifsClockSlaveStateChange NOTIFICATION-TYPE
+    OBJECTS {
+        me1200PtpStatusClocksSlaveDsClockId,
+        me1200PtpStatusClocksSlaveDsSlaveState
+    }
+    STATUS        current
+    DESCRIPTION
+            "An me1200PtpNotifsClockSlaveStateChange notification is sent when the clock slave state changes.
+             Clock Slave Sate is an enumerated integer value. Description of various possible Port States is:
+
+            Freerun      - Applies to a slave device that is not locked to
+                           a master. This is the initial state a slave starts out with
+                           when it is not getting any PTP packets from the master or because of
+                           some other input error (erroneous packets, etc).
+            FreqLocking  - The slave device is receiving packets from a
+                           master and is trying to acquire a frequency lock.
+            PhaseLocking - The slave device is receiving packets from a
+                           master and is trying to acquire a phase lock.
+            Locked       - Locked to the master with respect to
+                           frequency and phase.
+            Holdover     - In this state the slave device is locked to a
+                           master but communication with the master is lost or the
+                           timestamps in the ptp packets are incorrect. But since the
+                           slave was locked to the master, it can run with the same
+                           accuracy for
+                           sometime. The slave can continue to operate in this state for
+                           some time. If communication with the master is not restored for
+                           a while, the device is moved to the FREERUN state.
+            Invalid      - The slave is in Invalid state.
+            "
+   ::= { me1200PtpNotifs 2 }
+
+me1200PtpNotifsUnicastCommunicationStateChange NOTIFICATION-TYPE
+    OBJECTS {
+        me1200PtpStatusClocksUnicastSlaveCommState
+    }
+    STATUS        current
+    DESCRIPTION
+            "An me1200PtpNotifsUnicastCommunicationStateChange notification is sent when the unicast communication
+             state changes (A unicast slave reports change in the communication state to the configured masters).
+             Unicast communication state is an enumerated integer value.
+             Description of various possible states is:
+
+             idle        - When communication state is idle.
+             intializing - When communication state is initializing.
+             connected   - When communication state is connected.
+             selected    - When communication state is selected.
+             synced      - When communication state is synced.
+            "
+   ::= { me1200PtpNotifs 3 }
+
+me1200PtpNotifsUnicastSlaveAppears NOTIFICATION-TYPE
+    OBJECTS {
+        me1200PtpStatusClocksUnicastMasterSlaveIp
+    }
+    STATUS        current
+    DESCRIPTION
+            "An me1200PtpNotifsUnicastSlaveAppears notification is sent when a unicast slave appears.
+            "
+   ::= { me1200PtpNotifs 4 }
+
+me1200PtpNotifsUnicastSlaveDisappears NOTIFICATION-TYPE
+    OBJECTS {
+        me1200PtpStatusClocksUnicastMasterSlaveIp
+    }
+    STATUS        current
+    DESCRIPTION
+            "An me1200PtpNotifsUnicastSlaveDisappears notification is sent when a unicast slave disappears.
+            "
+   ::= { me1200PtpNotifs 5 }
+
+me1200PtpMibConformance OBJECT IDENTIFIER
+    ::= { me1200PtpMib 2 }
+
+me1200PtpMibCompliances OBJECT IDENTIFIER
+    ::= { me1200PtpMibConformance 1 }
+
+me1200PtpMibGroups OBJECT IDENTIFIER
+    ::= { me1200PtpMibConformance 2 }
+
+me1200PtpCapabilitiesGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpCapabilitiesGlobalsClockCount }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 1 }
+
+me1200PtpConfigGlobalsExternalClockModeInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpConfigGlobalsExternalClockModeOnePpsMode, 
+                  me1200PtpConfigGlobalsExternalClockModeExternalEnable, 
+                  me1200PtpConfigGlobalsExternalClockModeAdjustMethod, 
+                  me1200PtpConfigGlobalsExternalClockModeClockFrequency }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 2 }
+
+me1200PtpConfigGlobalsSystemTimeSyncModeInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpConfigGlobalsSystemTimeSyncModeMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 3 }
+
+me1200PtpConfigClocksDefaultDsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpConfigClocksDefaultDsDeviceType, 
+                  me1200PtpConfigClocksDefaultDsTwoStepFlag, 
+                  me1200PtpConfigClocksDefaultDsPriority1, 
+                  me1200PtpConfigClocksDefaultDsPriority2, 
+                  me1200PtpConfigClocksDefaultDsOneWay, 
+                  me1200PtpConfigClocksDefaultDsDomainNumber, 
+                  me1200PtpConfigClocksDefaultDsProtocol, 
+                  me1200PtpConfigClocksDefaultDsVlanTagEnable, 
+                  me1200PtpConfigClocksDefaultDsVid, 
+                  me1200PtpConfigClocksDefaultDsPcp, 
+                  me1200PtpConfigClocksDefaultDsMep, 
+                  me1200PtpConfigClocksDefaultDsClkDom, 
+                  me1200PtpConfigClocksDefaultDsDscp, 
+                  me1200PtpConfigClocksDefaultDsProfile, 
+                  me1200PtpConfigClocksDefaultDsLocalPriority, 
+                  me1200PtpConfigClocksDefaultDsAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 4 }
+
+me1200PtpConfigClocksDefaultDsTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpConfigClocksDefaultDsTableRowEditorClockId, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorDeviceType, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorTwoStepFlag, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorPriority1, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorPriority2, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorOneWay, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorDomainNumber, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorProtocol, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorVlanTagEnable, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorVid, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorPcp, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorMep, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorClkDom, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorDscp, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorProfile, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorLocalPriority, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 5 }
+
+me1200PtpConfigClocksTimePropertiesDsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpConfigClocksTimePropertiesDsCurrentUtcOffset, 
+                  me1200PtpConfigClocksTimePropertiesDsCurrentUtcOffsetValid, 
+                  me1200PtpConfigClocksTimePropertiesDsLeap59, 
+                  me1200PtpConfigClocksTimePropertiesDsLeap61, 
+                  me1200PtpConfigClocksTimePropertiesDsTimeTraceable, 
+                  me1200PtpConfigClocksTimePropertiesDsFrequencyTraceable, 
+                  me1200PtpConfigClocksTimePropertiesDsPtpTimescale, 
+                  me1200PtpConfigClocksTimePropertiesDsTimeSource }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 6 }
+
+me1200PtpConfigClocksFilterParametersTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpConfigClocksFilterParametersDelayFilter, 
+                  me1200PtpConfigClocksFilterParametersFilterType, 
+                  me1200PtpConfigClocksFilterParametersPeriod, 
+                  me1200PtpConfigClocksFilterParametersDist }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 7 }
+
+me1200PtpConfigClocksServoParametersTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpConfigClocksServoParametersDisplay, 
+                  me1200PtpConfigClocksServoParametersPEnable, 
+                  me1200PtpConfigClocksServoParametersIEnable, 
+                  me1200PtpConfigClocksServoParametersDEnable, 
+                  me1200PtpConfigClocksServoParametersPval, 
+                  me1200PtpConfigClocksServoParametersIval, 
+                  me1200PtpConfigClocksServoParametersDval, 
+                  me1200PtpConfigClocksServoParametersSrvOption, 
+                  me1200PtpConfigClocksServoParametersSynceThreshold, 
+                  me1200PtpConfigClocksServoParametersSynceAp, 
+                  me1200PtpConfigClocksServoParametersHoFilter, 
+                  me1200PtpConfigClocksServoParametersStableAdjThreshold }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 8 }
+
+me1200PtpConfigClocksSlaveConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpConfigClocksSlaveConfigStableOffset, 
+                  me1200PtpConfigClocksSlaveConfigOffsetOk, 
+                  me1200PtpConfigClocksSlaveConfigOffsetFail }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 9 }
+
+me1200PtpConfigClocksUnicastSlaveConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpConfigClocksUnicastSlaveConfigDuration, 
+                  me1200PtpConfigClocksUnicastSlaveConfigIpAddress }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 10 }
+
+me1200PtpConfigClocksPortDsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpConfigClocksPortDsEnabled, 
+                  me1200PtpConfigClocksPortDsLogAnnounceInterval, 
+                  me1200PtpConfigClocksPortDsAnnounceReceiptTimeout, 
+                  me1200PtpConfigClocksPortDsLogSyncInterval, 
+                  me1200PtpConfigClocksPortDsDelayMechanism, 
+                  me1200PtpConfigClocksPortDsLogMinPdelayReqInterval, 
+                  me1200PtpConfigClocksPortDsDelayAsymmetry, 
+                  me1200PtpConfigClocksPortDsIngressLatency, 
+                  me1200PtpConfigClocksPortDsEgressLatency, 
+                  me1200PtpConfigClocksPortDsPortInternal, 
+                  me1200PtpConfigClocksPortDsVersionNumber, 
+                  me1200PtpConfigClocksPortDsMcastAddr, 
+                  me1200PtpConfigClocksPortDsNotSlave, 
+                  me1200PtpConfigClocksPortDsLocalPriority }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 11 }
+
+me1200PtpStatusClocksDefaultDsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpStatusClocksDefaultDsClockIdentity, 
+                  me1200PtpStatusClocksDefaultDsClockQualityClockClass, 
+                  me1200PtpStatusClocksDefaultDsClockQualityClockAccuracy, 
+                  me1200PtpStatusClocksDefaultDsClockQualityOffsetScaledLogVar }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 12 }
+
+me1200PtpStatusClocksCurrentDsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpStatusClocksCurrentDsStepsRemoved, 
+                  me1200PtpStatusClocksCurrentDsOffsetFromMaster, 
+                  me1200PtpStatusClocksCurrentDsMeanPathDelay }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 13 }
+
+me1200PtpStatusClocksParentDsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpStatusClocksParentDsParentPortIdentityClockIdentity, 
+                  me1200PtpStatusClocksParentDsParentPortIdentityPortNumber, 
+                  me1200PtpStatusClocksParentDsParentStats, 
+                  me1200PtpStatusClocksParentDsObservedParentOffsetScaledLogVar, 
+                  me1200PtpStatusClocksParentDsObservedParentClockPhaseChangeRate, 
+                  me1200PtpStatusClocksParentDsGrmstrIdentity, 
+                  me1200PtpStatusClocksParentDsGrmstrClkQualClockClass, 
+                  me1200PtpStatusClocksParentDsGmstrClkQualClockAccuracy, 
+                  me1200PtpStatusClocksParentDsGmstrClkQualOffsetScaledLogVar, 
+                  me1200PtpStatusClocksParentDsGmstrPriority1, 
+                  me1200PtpStatusClocksParentDsGmstrPriority2 }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 14 }
+
+me1200PtpStatusClocksTimePropertiesDsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpStatusClocksTimePropertiesDsCurrentUtcOffset, 
+                  me1200PtpStatusClocksTimePropertiesDsCurrentUtcOffsetValid, 
+                  me1200PtpStatusClocksTimePropertiesDsLeap59, 
+                  me1200PtpStatusClocksTimePropertiesDsLeap61, 
+                  me1200PtpStatusClocksTimePropertiesDsTimeTraceable, 
+                  me1200PtpStatusClocksTimePropertiesDsFrequencyTraceable, 
+                  me1200PtpStatusClocksTimePropertiesDsPtpTimescale, 
+                  me1200PtpStatusClocksTimePropertiesDsTimeSource }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 15 }
+
+me1200PtpStatusClocksSlaveDsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpStatusClocksSlaveDsSlavePort, 
+                  me1200PtpStatusClocksSlaveDsSlaveState, 
+                  me1200PtpStatusClocksSlaveDsHoldoverStable, 
+                  me1200PtpStatusClocksSlaveDsHoldoverAdj }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 16 }
+
+me1200PtpStatusClocksUnicastMasterTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpStatusClocksUnicastMasterSlaveMac, 
+                  me1200PtpStatusClocksUnicastMasterPort, 
+                  me1200PtpStatusClocksUnicastMasterAnnLogMsgPeriod, 
+                  me1200PtpStatusClocksUnicastMasterAnn, 
+                  me1200PtpStatusClocksUnicastMasterLogMsgPeriod, 
+                  me1200PtpStatusClocksUnicastMasterSync }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 17 }
+
+me1200PtpStatusClocksUnicastSlaveTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpStatusClocksUnicastSlaveMasterIp, 
+                  me1200PtpStatusClocksUnicastSlaveMasterMac, 
+                  me1200PtpStatusClocksUnicastSlaveSourcePortIdentityClockIdentity, 
+                  me1200PtpStatusClocksUnicastSlaveSourcePortIdentityPortNumber, 
+                  me1200PtpStatusClocksUnicastSlavePort, 
+                  me1200PtpStatusClocksUnicastSlaveLogMsgPeriod, 
+                  me1200PtpStatusClocksUnicastSlaveCommState, 
+                  me1200PtpStatusClocksUnicastSlaveConfMasterIp }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 18 }
+
+me1200PtpStatusClocksPortsDsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpStatusClocksPortsDsPortState, 
+                  me1200PtpStatusClocksPortsDsLogMinDelayReqInterval, 
+                  me1200PtpStatusClocksPortsDsPeerMeanPathDelay, 
+                  me1200PtpStatusClocksPortsDsPeerDelayOk }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 19 }
+
+me1200PtpControlClocksTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PtpControlClocksSyncToSystemClock }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PtpMibGroups 20 }
+
+me1200PtpNotifsGroup  NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        me1200PtpNotifsPortStateChange,
+        me1200PtpNotifsClockSlaveStateChange,
+        me1200PtpNotifsUnicastCommunicationStateChange,
+        me1200PtpNotifsUnicastSlaveAppears,
+        me1200PtpNotifsUnicastSlaveDisappears
+    }
+    STATUS  current
+    DESCRIPTION
+            "PTP Nofication events' group."
+    ::= { me1200PtpMibGroups 21 }
+
+me1200PtpMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200PtpCapabilitiesGlobalsInfoGroup, 
+                  me1200PtpConfigGlobalsExternalClockModeInfoGroup, 
+                  me1200PtpConfigGlobalsSystemTimeSyncModeInfoGroup, 
+                  me1200PtpConfigClocksDefaultDsTableInfoGroup, 
+                  me1200PtpConfigClocksDefaultDsTableRowEditorInfoGroup, 
+                  me1200PtpConfigClocksTimePropertiesDsTableInfoGroup, 
+                  me1200PtpConfigClocksFilterParametersTableInfoGroup, 
+                  me1200PtpConfigClocksServoParametersTableInfoGroup, 
+                  me1200PtpConfigClocksSlaveConfigTableInfoGroup, 
+                  me1200PtpConfigClocksUnicastSlaveConfigTableInfoGroup, 
+                  me1200PtpConfigClocksPortDsTableInfoGroup, 
+                  me1200PtpStatusClocksDefaultDsTableInfoGroup, 
+                  me1200PtpStatusClocksCurrentDsTableInfoGroup, 
+                  me1200PtpStatusClocksParentDsTableInfoGroup, 
+                  me1200PtpStatusClocksTimePropertiesDsTableInfoGroup, 
+                  me1200PtpStatusClocksSlaveDsTableInfoGroup, 
+                  me1200PtpStatusClocksUnicastMasterTableInfoGroup, 
+                  me1200PtpStatusClocksUnicastSlaveTableInfoGroup, 
+                  me1200PtpStatusClocksPortsDsTableInfoGroup, 
+                  me1200PtpControlClocksTableInfoGroup,
+                  me1200PtpNotifsGroup }
+
+    ::= { me1200PtpMibCompliances 1 }
+
+END

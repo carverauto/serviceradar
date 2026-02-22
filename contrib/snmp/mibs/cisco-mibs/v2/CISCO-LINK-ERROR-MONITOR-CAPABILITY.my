@@ -1,0 +1,72 @@
+-- *****************************************************************
+-- CISCO-LINK-ERROR-MONITOR-CAPABILITY.my:
+-- CISCO-LINK-ERROR-MONITOR-MIB AGENT-CAPABILITIES
+--
+-- August 2004, Padma Pullela
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-LINK-ERROR-MONITOR-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, 
+        Unsigned32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoLinkErrorMonitorCapability MODULE-IDENTITY
+        LAST-UPDATED    "200408050000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com"
+        DESCRIPTION
+                "This MIB module describes the capability 
+                 of CISCO-LINK-ERROR-MONITOR-MIB."
+
+        REVISION        "200408050000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 414 }
+
+clemCapCatOSV08R0401 AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco CatOS 8.4(1)." 
+    STATUS              current
+    DESCRIPTION         "CISCO-LINK-ERROR-MONITOR-MIB capabilities."
+
+    SUPPORTS            CISCO-LINK-ERROR-MONITOR-MIB
+        INCLUDES        { 
+                          clemGlobalGroup,
+                          clemThresholdGroup,
+                          clemIfCounterGroup,
+                          clemNotificationGroup,
+                          clemNotificationControlGroup 
+                        }
+         VARIATION      clemSamplingInterval
+            SYNTAX      Unsigned32 (30..1800)
+            DESCRIPTION "Only a limited set of values are supported."
+         VARIATION      clemSamplingTimes
+            SYNTAX      Unsigned32 (1..255)
+            DESCRIPTION "Only a limited set of values are supported."
+         VARIATION      clemThresholdLow
+            SYNTAX      Unsigned32 (1..65535)
+            DESCRIPTION "Only a limited set of values are supported."
+         VARIATION      clemThresholdHigh
+            SYNTAX      Unsigned32 (1..65535)
+            DESCRIPTION "Only a limited set of values are supported."
+
+      ::= { ciscoLinkErrorMonitorCapability 1 }
+END

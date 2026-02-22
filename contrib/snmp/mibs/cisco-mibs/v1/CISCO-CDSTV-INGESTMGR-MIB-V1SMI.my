@@ -1,0 +1,622 @@
+-- MIB file created 18-Jun-2010 12:35:55, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CDSTV-INGESTMGR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CDSTV-INGESTMGR-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    InetPortNumber, InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    TruthValue
+            FROM SNMPv2-TC-v1
+    CiscoURLString, CiscoURLStringOrEmpty, TimeIntervalSec, 
+    TimeIntervalMin
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoCdstvIngestmgrMIB OBJECT IDENTIFIER ::= { ciscoMgmt 739 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201005270000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-cds@cisco.com
+--  Descr
+--    This MIB module defines ingest manager configuration objects
+--    that faciliate the management of the Cisco Content Delivery
+--    System for TV (CDS-TV) product family.
+--    
+--    CDS-TV is a suite of products and software applications
+--    providing ingest, storage, caching, streaming, playout and
+--    on-demand delivery of video to television or set-top-box
+--    clients.
+--    
+--    Abbreviations:
+--    
+--    CCP     Cache Control Protocol
+--    CDS     Content Delivery System
+--    CORBA   Common Object Request Broker Architecture 
+--    ISA     Interactive Services Architecture
+--    ISV     Integrated Streamer-Vault
+--    FSI     File Service Interface
+--    FTP     File Transfer Protocol
+--    MPEG    Motion Picture Experts Group
+--    MSA     Managed Services Architecture
+--    RTSP    Real-Time Streaming Protocol
+--    STB     Set-Top Box
+--    
+--    Common terms:
+--    
+--    Catcher: Device responsible for receiving content (typically via
+--    satellite dishes and antennae) from content providers or from a
+--    Headend-In-The-Sky. 
+--    
+--    Content Ingest: Acquisition of content from a source such as a
+--    catcher or an FTP server for storing it locally and making it
+--    available to streamers as needed.
+--    
+--    Ingest Manager: CDS module that takes care of provisioned
+--    content objects by collecting metadata, sending messages to the
+--    appropriate subsystem to ingest the content, and sending
+--    messages to expire the content when the expiration period has
+--    passed. 
+--    
+--    Device Roles:
+--    
+--    Vault: Content delivery application responsible for ingesting
+--    and storing video content and making it available to streamers
+--    and/or caching nodes.
+--    
+--    Caching Nodes: Content delivery application responsible for
+--    caching content from vault (using CCP) and then streaming
+--    content out to streamers over HTTP or CCP.
+--    
+--    Streamer: Content delivery application responsible for streaming
+--    video out to STB's.
+--    
+--    ISV: Content delivery application capable of acting as both a
+--    vault and as a streamer in a single device.
+--  RevDate
+--    201005270000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoCdstvIngestMgrMIBNotifs OBJECT IDENTIFIER ::= { ciscoCdstvIngestmgrMIB 0 }
+ciscoCdstvIngestMgrMIBObjects OBJECT IDENTIFIER ::= { ciscoCdstvIngestmgrMIB 1 }
+ciscoCdstvIngestMgrMIBConform OBJECT IDENTIFIER ::= { ciscoCdstvIngestmgrMIB 2 }
+ciscoCdstvIngestMgrMIBCompliances OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBConform 1 }
+cdstvIngestMgrGeneralSettings OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBObjects 1 }
+cdstvIngestMgrIngestSettings OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBObjects 2 }
+cdstvIngestMgrBackOfficeSettings OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBObjects 3 }
+cdstvIngestMgrContentStoreSettings OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBObjects 4 }
+cdstvIngestMgrEncryptionSettings OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBObjects 5 }
+ciscoCdstvIngestMgrMIBGroups OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBConform 2 }
+
+cdstvIngestMgrHostAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of the IP address (specified by
+        cdstvIngestMgrHostAddress) of the Ingest Manager."
+    ::= { cdstvIngestMgrGeneralSettings 1 }
+
+cdstvIngestMgrHostAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the IP address of the Ingest Manager. The
+        type of this address is specified by
+        cdstvIngestMgrHostAddressType."
+    ::= { cdstvIngestMgrGeneralSettings 2 }
+
+cdstvIngestMgrPort OBJECT-TYPE
+    SYNTAX InetPortNumber(0..65535)
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the port number to use for listening for
+        inbound connections."
+    ::= { cdstvIngestMgrGeneralSettings 3 }
+
+cdstvIngestMgrFsiCallbackPort OBJECT-TYPE
+    SYNTAX InetPortNumber(0..65535)
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the port number to use for File Services
+        Interface (FSI) callbacks."
+    ::= { cdstvIngestMgrGeneralSettings 4 }
+
+cdstvIngestMgrAdditionalPackageWindow OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    days
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the additional amount of time to wait
+        once the package expiration window has ended before
+        destroying the stored content package. Typically, when the
+        package expiration window ends, the ingested content package is
+        destroyed from the device. The additional package window adds a
+        grace period to the expiration window."
+    ::= { cdstvIngestMgrGeneralSettings 5 }
+
+cdstvIngestMgrFtpTimeout OBJECT-TYPE
+    SYNTAX TimeIntervalSec
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maximum period the Ingest Manager
+        waits before timing out an FTP session and terminating
+        the process."
+    ::= { cdstvIngestMgrGeneralSettings 6 }
+
+cdstvIngestMgrUseAssetIdEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether to use the Asset ID (a unique ID
+        assigned to each content ingested into the CDS) for the content
+        name.
+        'true' indicates that Asset ID is used for the content name.
+        'false' indicates Asset ID is not used for the content name."
+    ::= { cdstvIngestMgrGeneralSettings 7 }
+
+cdstvIngestMgrManageCorbaServices OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the CDS manages the CORBA
+        services.
+        'true' indicates that CDS manages CORBA services.
+        'false' indicates that CDS does not manage CORBA services."
+    ::= { cdstvIngestMgrGeneralSettings 8 }
+
+cdstvIngestMgrRequireNotifyService OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the CDS requires the use of ISA
+        Notify Service.
+        'true' indicates that CDS requires the use of ISA Notify
+        Service.
+        'false' indicates that CDS does not require the use of ISA
+        Notify Service."
+    ::= { cdstvIngestMgrGeneralSettings 9 }
+
+cdstvIngestMgrDebugLevel OBJECT-TYPE
+    SYNTAX INTEGER {
+        errors(1),
+        all(2),
+        off(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the amount of debugging information
+        logged.
+        errors(1) - Only error messages are logged.
+        all(2) - Errors, warnings and success message are all logged.
+        off(3) - Debugging is disabled."
+    ::= { cdstvIngestMgrGeneralSettings 10 }
+
+cdstvIngestMgrMetaDataPublish OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether content metadata is published or
+        not.
+        'true' indicates that content metadata is published.
+        'false' indicates that content metadata is not published."
+    ::= { cdstvIngestMgrGeneralSettings 11 }
+
+cdstvIngestMgrMetaPublishUrl OBJECT-TYPE
+    SYNTAX CiscoURLString
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the URL where the metadata is published,
+        typically the back-office."
+    ::= { cdstvIngestMgrGeneralSettings 12 }
+
+cdstvIngestMgrMetaPublishBackupUrl OBJECT-TYPE
+    SYNTAX CiscoURLStringOrEmpty
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the URL of the backup server where the
+        metadata is published. This string is empty if a backup server
+        URL is not configured."
+    ::= { cdstvIngestMgrGeneralSettings 13 }
+
+cdstvIngestMgrIngestInterface OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   isa(0)
+        --   ciscoSoap(1)
+        --   prodisSoap(2)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies all ingest interfaces (methods)
+        available, i.e. ISA, Cisco SOAP, Prodis SOAP or any combination
+        of the three.
+        isa(0) - ISA.
+        ciscoSoap(1) - Cisco SOAP 
+        prodisSoap(2) - Prodis SOAP."
+    ::= { cdstvIngestMgrIngestSettings 1 }
+
+cdstvIngestMgrCiscoSoapUrl OBJECT-TYPE
+    SYNTAX CiscoURLStringOrEmpty
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the URL (IP address, port, and directory)
+        on the Vault used to receive content using the Cisco SOAP
+        (Simple Object Access Protocol). An example of the Cisco SOAP
+        URL is http://10.22.216.251:8793/CiscoAIM. This string is empty
+        if Cisco SOAP is not used."
+    ::= { cdstvIngestMgrIngestSettings 2 }
+
+cdstvIngestMgrProdisSoapUrl OBJECT-TYPE
+    SYNTAX CiscoURLStringOrEmpty
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the URL (IP address, port, and directory)
+        on the Vault used to receive content using the Prodis
+        SOAP(Simple Object Access Protocol). An example of the Prodis
+        SOAP URL is http://10.22.216.251:8793/ProdisAIM. This string is
+        empty if Prodis SOAP is not used."
+    ::= { cdstvIngestMgrIngestSettings 3 }
+
+cdstvIngestMgrBackOfficeMaxRetries OBJECT-TYPE
+    SYNTAX Gauge(0..1000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maximum number of times to retry a
+        failed communication with the back-office."
+    ::= { cdstvIngestMgrBackOfficeSettings 1 }
+
+cdstvIngestMgrBackOfficeRetryInterval OBJECT-TYPE
+    SYNTAX TimeIntervalMin
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the amount of time to wait before
+        retrying a failed communication with the back-office."
+    ::= { cdstvIngestMgrBackOfficeSettings 2 }
+
+cdstvIngestMgrBackOfficeTimeout OBJECT-TYPE
+    SYNTAX TimeIntervalSec
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the amount of time to wait for the
+        back-office to respond to a communication attempt."
+    ::= { cdstvIngestMgrBackOfficeSettings 3 }
+
+cdstvIngestMgrBackOfficeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CdstvIngestMgrBackOfficeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing the back-office type and URL
+        settings."
+    ::= { cdstvIngestMgrBackOfficeSettings 4 }
+
+cdstvIngestMgrBackOfficeEntry OBJECT-TYPE
+    SYNTAX CdstvIngestMgrBackOfficeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the table of back-office type and
+        URL settings. Rows are added if new back-offices are
+        configured and deleted if back-offices are disabled."
+    INDEX { cdstvIngestMgrBackOfficeIndex }
+    ::= { cdstvIngestMgrBackOfficeTable 1 }
+
+CdstvIngestMgrBackOfficeEntry ::= SEQUENCE {
+    cdstvIngestMgrBackOfficeIndex Gauge,
+    cdstvIngestMgrBackOfficeType INTEGER,
+    cdstvIngestMgrBackOfficeUrl CiscoURLStringOrEmpty
+    }
+
+cdstvIngestMgrBackOfficeIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object uniquely identifies a back-office."
+    ::= { cdstvIngestMgrBackOfficeEntry 1 }
+
+cdstvIngestMgrBackOfficeType OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        totalManage(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of back-office support used.
+        none(1) - No back-office support.
+        totalManage(2) - Use TotalManage back-office support."
+    ::= { cdstvIngestMgrBackOfficeEntry 2 }
+
+cdstvIngestMgrBackOfficeUrl OBJECT-TYPE
+    SYNTAX CiscoURLStringOrEmpty
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the location (URL) of the back-office.
+        This string is empty if back-office support is disabled."
+    ::= { cdstvIngestMgrBackOfficeEntry 3 }
+
+cdstvIngestMgrContentStore OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        isa(2),
+        fsi(3),
+        ngod(4),
+        openStream(5)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of content store used.
+        none(1) - Content store is disabled.
+        isa(2) - Use ISA content store.
+        fsi(3) - Use FSI content store.
+        ngod(4) - Use Next-Generation On-Demand (NGOD) content store.
+        openStream(5) - Use OpenStream content store."
+    ::= { cdstvIngestMgrContentStoreSettings 1 }
+
+cdstvIngestMgrContentStoreUrl OBJECT-TYPE
+    SYNTAX CiscoURLStringOrEmpty
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the URL where the content store is
+        located. This string is empty if content store is disabled."
+    ::= { cdstvIngestMgrContentStoreSettings 2 }
+
+cdstvIngestMgrEncryptionType OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        verimatrix(2),
+        widevine(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of encryption used.
+        none(1) - Encryption is disabled.
+        verimatrix(2) - Use Verimatrix encryption.
+        widevine(3) - Use Widevine encryption."
+    ::= { cdstvIngestMgrEncryptionSettings 1 }
+
+cdstvIngestMgrEncryptionTargetUrl OBJECT-TYPE
+    SYNTAX CiscoURLStringOrEmpty
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the location on the encryption server
+        used to send MPEG files for encryption, for example,
+        http://192.168.128.54:7898/files/encrypted. This string will be
+        empty if encryption is disabled."
+    ::= { cdstvIngestMgrEncryptionSettings 2 }
+
+cdstvIngestMgrEncryptionRetrievalUrl OBJECT-TYPE
+    SYNTAX CiscoURLStringOrEmpty
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the location on the encryption server
+        used to retrieve encrypted MPEG files, for example,
+        ftp://192.168.128.54:7899/files/encrypted. This string will be
+        empty if encryption is disabled."
+    ::= { cdstvIngestMgrEncryptionSettings 3 }
+
+ciscoCdstvIngestMgrMIBMainObjectGroup OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provide the configuration of
+--    CDS-TV ingest manager.
+--  objects
+--    cdstvIngestMgrHostAddress, cdstvIngestMgrPort, 
+--    cdstvIngestMgrFsiCallbackPort, 
+--    cdstvIngestMgrAdditionalPackageWindow, 
+--    cdstvIngestMgrFtpTimeout, cdstvIngestMgrUseAssetIdEnable, 
+--    cdstvIngestMgrManageCorbaServices, 
+--    cdstvIngestMgrRequireNotifyService, cdstvIngestMgrDebugLevel, 
+--    cdstvIngestMgrMetaDataPublish, cdstvIngestMgrMetaPublishUrl, 
+--    cdstvIngestMgrMetaPublishBackupUrl, 
+--    cdstvIngestMgrHostAddressType
+
+ciscoCdstvIngestMgrMIBIngestSettingsGroup OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provide the ingest settings of the
+--    CDS-TV ingest manager.
+--  objects
+--    cdstvIngestMgrIngestInterface, cdstvIngestMgrCiscoSoapUrl, 
+--    cdstvIngestMgrProdisSoapUrl
+
+ciscoCdstvIngestMgrMIBBackOfficeSettingsGroup OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provide the back-office settings
+--    of the CDS-TV ingest manager.
+--  objects
+--    cdstvIngestMgrBackOfficeMaxRetries, 
+--    cdstvIngestMgrBackOfficeRetryInterval, 
+--    cdstvIngestMgrBackOfficeTimeout, cdstvIngestMgrBackOfficeType, 
+--    cdstvIngestMgrBackOfficeUrl
+
+ciscoCdstvIngestMgrMIBContentStoreSettingsGroup OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provide the content store settings
+--    of the CDS-TV ingest manager.
+--  objects
+--    cdstvIngestMgrContentStore, cdstvIngestMgrContentStoreUrl
+
+ciscoCdstvIngestMgrMIBEncryptionSettingsGroup OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provide the encryption settings of
+--    the CDS-TV ingest manager.
+--  objects
+--    cdstvIngestMgrEncryptionType, 
+--    cdstvIngestMgrEncryptionTargetUrl, 
+--    cdstvIngestMgrEncryptionRetrievalUrl
+
+ciscoCdstvIngestMgrMIBCompliance OBJECT IDENTIFIER ::= { ciscoCdstvIngestMgrMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the entities which
+--    implement the Cisco CDS TV Ingest Manager MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoCdstvIngestMgrMIBMainObjectGroup
+--   MandGroup
+--    ciscoCdstvIngestMgrMIBIngestSettingsGroup
+--   MandGroup
+--    ciscoCdstvIngestMgrMIBBackOfficeSettingsGroup
+--   MandGroup
+--    ciscoCdstvIngestMgrMIBContentStoreSettingsGroup
+--   MandGroup
+--    ciscoCdstvIngestMgrMIBEncryptionSettingsGroup
+--   ObjVar
+--    cdstvIngestMgrHostAddressType
+--   ObjVar
+--    cdstvIngestMgrHostAddress
+--   ObjVar
+--    cdstvIngestMgrPort
+--   ObjVar
+--    cdstvIngestMgrFsiCallbackPort
+--   ObjVar
+--    cdstvIngestMgrAdditionalPackageWindow
+--   ObjVar
+--    cdstvIngestMgrFtpTimeout
+--   ObjVar
+--    cdstvIngestMgrUseAssetIdEnable
+--   ObjVar
+--    cdstvIngestMgrManageCorbaServices
+--   ObjVar
+--    cdstvIngestMgrRequireNotifyService
+--   ObjVar
+--    cdstvIngestMgrDebugLevel
+--   ObjVar
+--    cdstvIngestMgrMetaDataPublish
+--   ObjVar
+--    cdstvIngestMgrMetaPublishUrl
+--   ObjVar
+--    cdstvIngestMgrMetaPublishBackupUrl
+--   ObjVar
+--    cdstvIngestMgrIngestInterface
+--   ObjVar
+--    cdstvIngestMgrCiscoSoapUrl
+--   ObjVar
+--    cdstvIngestMgrProdisSoapUrl
+--   ObjVar
+--    cdstvIngestMgrBackOfficeMaxRetries
+--   ObjVar
+--    cdstvIngestMgrBackOfficeRetryInterval
+--   ObjVar
+--    cdstvIngestMgrBackOfficeTimeout
+--   ObjVar
+--    cdstvIngestMgrBackOfficeType
+--   ObjVar
+--    cdstvIngestMgrBackOfficeUrl
+--   ObjVar
+--    cdstvIngestMgrContentStore
+--   ObjVar
+--    cdstvIngestMgrContentStoreUrl
+--   ObjVar
+--    cdstvIngestMgrEncryptionType
+--   ObjVar
+--    cdstvIngestMgrEncryptionTargetUrl
+--   ObjVar
+--    cdstvIngestMgrEncryptionRetrievalUrl
+
+
+END
+

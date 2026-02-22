@@ -1,0 +1,942 @@
+-- MIB file created 03-Nov-2003 17:34:41, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-FCIP-MGMT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-FCIP-MGMT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    DomainId, FcNameIdOrZero, FcNameId
+            FROM CISCO-ST-TC
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoFcipMgmtMIB OBJECT IDENTIFIER ::= { ciscoExperiment 96 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200305190000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--         Cisco Systems
+--          Customer Service
+--    Postal: 170 W Tasman Drive
+--          San Jose, CA  95134
+--          USA
+--    Tel: +1 800 553 -NETS
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    The Fibre Channel Over TCP/IP management MIB module.
+--     This mib module is the Cisco version of the FCIP MIB draft
+--     , draft-ietf-ips-fcip-mib-02.txt, from the IETF. 
+--  RevDate
+--    200305190000Z
+--  RevDescr
+--    Changed the MAX-ACCESS of cfmFcipStaRtRemFcipEntWWN from
+--    read-create to read-write.
+--  RevDate
+--    200210050000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoFcipObjects OBJECT IDENTIFIER ::= { ciscoFcipMgmtMIB 1 }
+cfmFcipConformance OBJECT IDENTIFIER ::= { ciscoFcipMgmtMIB 2 }
+cfmFcipConfig   OBJECT IDENTIFIER ::= { ciscoFcipObjects 1 }
+cfmFcipNotification OBJECT IDENTIFIER ::= { ciscoFcipObjects 2 }
+cfmFcipNotifications OBJECT IDENTIFIER ::= { cfmFcipNotification 0 }
+cfmFcipCompliances OBJECT IDENTIFIER ::= { cfmFcipConformance 1 }
+cfmFcipGroups   OBJECT IDENTIFIER ::= { cfmFcipConformance 2 }
+
+CfmFcEntityMode ::= INTEGER {
+        ePortMode(1),
+        bPortMode(2),
+        other(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of port mode provided by an FCIP Entity
+--     for a FCIP Link. An FCIP Entity can be an E-Port
+--     mode for one of its FCIP Link Endpoints, an B-Port
+--     mode for another of its FCIP Link Endpoints.
+--     ePortMode(1) - entity mode is e_port.
+--     bPortMode(2) - entity mode is b_port.
+--     other(3) -  entity mode is some other port.
+
+cfmFcipDynIpConfType OBJECT-TYPE
+    SYNTAX INTEGER {
+        slpv2(1),
+        none(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of discovery protocol used to discover remote
+         FCIP entities.
+             slpv2(1) - Service Location Protocol.
+             none(2)  - nothing is used. "
+    ::= { cfmFcipConfig 1 }
+
+cfmFcipFabricWWN OBJECT-TYPE
+    SYNTAX FcNameIdOrZero
+--    Rsyntax OCTET STRING(SIZE(0|8|16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The World Wide Name of this FCIP device. The zero-length
+         string value is used in circumstances where the WWN is
+         unassigned/unknown. "
+    ::= { cfmFcipConfig 2 }
+
+cfmFcipEntityInstanceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmFcipEntityInstanceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing FCIP entity specific information. "
+    ::= { cfmFcipConfig 3 }
+
+cfmFcipEntityInstanceEntry OBJECT-TYPE
+    SYNTAX CfmFcipEntityInstanceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row of the FCIP entity table containing 
+             information about a particular FCIP entity. "
+    INDEX { cfmFcipEntityId }
+    ::= { cfmFcipEntityInstanceTable 1 }
+
+CfmFcipEntityInstanceEntry ::= SEQUENCE {
+    cfmFcipEntityId Gauge,
+    cfmFcipEntityAddressType InetAddressType,
+    cfmFcipEntityAddress InetAddress,
+    cfmFcipEntityTcpConnPort Gauge,
+    cfmFcipEntitySACKOption INTEGER,
+    cfmFcipEntitySeqNumWrap TruthValue,
+    cfmFcipEntityPHBSupport TruthValue,
+    cfmFcipEntityStatus RowStatus
+    }
+
+cfmFcipEntityId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The FCIP entity identifier. "
+    ::= { cfmFcipEntityInstanceEntry 1 }
+
+cfmFcipEntityAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address by which the entity is
+         reachable. "
+    ::= { cfmFcipEntityInstanceEntry 2 }
+
+cfmFcipEntityAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address for this entity. "
+    ::= { cfmFcipEntityInstanceEntry 3 }
+
+cfmFcipEntityTcpConnPort OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A TCP port other than the FCIP Well-Known port on which the 
+         FCIP entity listens for new TCP connection requests. It
+         contains the value zero (0) if the FCIP Entity only listens on
+         the Well-Known port. "
+    ::= { cfmFcipEntityInstanceEntry 4 }
+
+cfmFcipEntitySACKOption OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of whether the TCP Selective Acknowledgement 
+         Option is enabled to allow the receiver end to acknowledge 
+         multiple lost packets in a singel ACK, enabling faster
+         recovery.
+         enabled(1) - acknowledge option is enabled.
+         disabled(2) - acknowledge option is disabled. "
+    ::= { cfmFcipEntityInstanceEntry 5 }
+
+cfmFcipEntitySeqNumWrap OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of whether the FCIP Entity supports the
+             protection against sequence number wrap. 
+             If true(1), the FCIP Entity supports protection against
+             sequence number wrap. If false(2), the FCIP Entity does not
+             support protection against sequence number wrap. "
+    ::= { cfmFcipEntityInstanceEntry 6 }
+
+cfmFcipEntityPHBSupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An indication of whether the FCIP Entity supports PHB IP
+             QoS. "
+    ::= { cfmFcipEntityInstanceEntry 7 }
+
+cfmFcipEntityStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. "
+    ::= { cfmFcipEntityInstanceEntry 8 }
+
+cfmFcipLinkTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmFcipLinkEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing FCIP link specific information. "
+    ::= { cfmFcipConfig 4 }
+
+cfmFcipLinkEntry OBJECT-TYPE
+    SYNTAX CfmFcipLinkEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row of the FCIP link table containing
+             information about a particular FCIP link. "
+    INDEX { cfmFcipEntityId, cfmFcipLinkIndex }
+    ::= { cfmFcipLinkTable 1 }
+
+CfmFcipLinkEntry ::= SEQUENCE {
+    cfmFcipLinkIndex Gauge,
+    cfmFcipLinkIfIndex INTEGER,
+    cfmFcipLinkCost Gauge,
+    cfmFcipLinkLocalFcipEntityMode CfmFcEntityMode,
+    cfmFcipLinkRemFcipEntityWWN FcNameIdOrZero,
+    cfmFcipLinkRemFcipEntityId Gauge,
+    cfmFcipLinkRemFcipEntityAddrType InetAddressType,
+    cfmFcipLinkRemFcipEntityAddress InetAddress,
+    cfmFcipLinkRemFcipEntityMode CfmFcEntityMode,
+    cfmFcipLinkStatus RowStatus
+    }
+
+cfmFcipLinkIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer which uniquely identifies one FCIP link
+         within a FCIP entity. "
+    ::= { cfmFcipLinkEntry 1 }
+
+cfmFcipLinkIfIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value that identifies the interface on this FCIP
+             device to which this link pertains. The interface identified
+             by a particular value of this object is the same interface as 
+             identified by the same value of the ifIndex object, defined 
+             in IF-MIB. "
+    ::= { cfmFcipLinkEntry 2 }
+
+cfmFcipLinkCost OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The cost associated with this FCIP Link. The link cost is 
+         used to select lowest cost route. "
+    REFERENCE
+        "FC-SW-2 REV 5.3 Section 8.5.5"
+    ::= { cfmFcipLinkEntry 3 }
+
+cfmFcipLinkLocalFcipEntityMode OBJECT-TYPE
+    SYNTAX CfmFcEntityMode
+--    Rsyntax INTEGER {
+--        ePortMode(1),
+--        bPortMode(2),
+--        other(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The mode of the local FCIP Entity to which this FCIP Link
+         pertains. "
+    ::= { cfmFcipLinkEntry 4 }
+
+cfmFcipLinkRemFcipEntityWWN OBJECT-TYPE
+    SYNTAX FcNameIdOrZero
+--    Rsyntax OCTET STRING(SIZE(0|8|16))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The World Wide Name of the remote FC Fabric Entity. If this
+         is a zero length string then this link would accept 
+         connections from any remote entity. If a WWN is specified
+         then this link would accept connections from a remote entity
+         with this WWN. "
+    ::= { cfmFcipLinkEntry 5 }
+
+cfmFcipLinkRemFcipEntityId OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The remote FCIP entity's identifier. "
+    ::= { cfmFcipLinkEntry 6 }
+
+cfmFcipLinkRemFcipEntityAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address by which the remote FCIP entity
+         is reachable. "
+    ::= { cfmFcipLinkEntry 7 }
+
+cfmFcipLinkRemFcipEntityAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address for the remote FCIP entity. "
+    ::= { cfmFcipLinkEntry 8 }
+
+cfmFcipLinkRemFcipEntityMode OBJECT-TYPE
+    SYNTAX CfmFcEntityMode
+--    Rsyntax INTEGER {
+--        ePortMode(1),
+--        bPortMode(2),
+--        other(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The mode of the remote FCIP Entity to which this FCIP Link
+         pertains. "
+    ::= { cfmFcipLinkEntry 9 }
+
+cfmFcipLinkStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. "
+    ::= { cfmFcipLinkEntry 10 }
+
+cfmFcipTcpConnTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmFcipTcpConnEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing FCIP specific information about this FCIP
+         device's existing TCP connections. The FCIP TCP Connection 
+         table contains information about existing TCP connections. 
+         Each FCIP link within a FCIP entity manages one or more TCP
+         connections. The FCIP entity employs a Data Engine for each
+         TCP connection for handling FC frame encapsulation,
+         de-encapsulation and transmission of FCIP frames on the 
+         connection. "
+    ::= { cfmFcipConfig 5 }
+
+cfmFcipTcpConnEntry OBJECT-TYPE
+    SYNTAX CfmFcipTcpConnEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row of the FCIP TCP Connection table containing
+             information about a particular TCP connection. "
+    INDEX { cfmFcipEntityId, cfmFcipLinkIndex, cfmFcipTcpConnLocalPort, cfmFcipTcpConnRemPort }
+    ::= { cfmFcipTcpConnTable 1 }
+
+CfmFcipTcpConnEntry ::= SEQUENCE {
+    cfmFcipTcpConnLocalPort INTEGER,
+    cfmFcipTcpConnRemPort INTEGER,
+    cfmFcipTcpConnPurpose INTEGER,
+    cfmFcipTcpConnRWSize Gauge,
+    cfmFcipTcpConnMSS Gauge,
+    cfmFcipTcpConnTimeOut Gauge
+    }
+
+cfmFcipTcpConnLocalPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The local port number for this TCP connection. "
+    ::= { cfmFcipTcpConnEntry 1 }
+
+cfmFcipTcpConnRemPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The remote port number for this TCP connection. "
+    ::= { cfmFcipTcpConnEntry 2 }
+
+cfmFcipTcpConnPurpose OBJECT-TYPE
+    SYNTAX INTEGER {
+        control(1),
+        data(2),
+        both(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of messages that get transmitted on this TCP
+         connection.
+         control(1) - TCP connection is for control purpose.
+         data(2)    - TCP connection is for data purpose.
+         both(3)    - TCP connection is for control and data 
+                      purpose. "
+    ::= { cfmFcipTcpConnEntry 3 }
+
+cfmFcipTcpConnRWSize OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The default maximum TCP Receiver Window size for this TCP
+         connection. "
+    ::= { cfmFcipTcpConnEntry 4 }
+
+cfmFcipTcpConnMSS OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP Maximum Segment Size (MSS) for this TCP connection. "
+    ::= { cfmFcipTcpConnEntry 5 }
+
+cfmFcipTcpConnTimeOut OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The timeout value for this TCP connection. "
+    ::= { cfmFcipTcpConnEntry 6 }
+
+cfmFcipDynamicRouteTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmFcipDynamicRouteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing FCIP Route specific information.
+         The FCIP dynamic route table contains information about this 
+         FCIP device's routing information that is dynamically 
+         discovered. The FCIP device may use SLPv2 protocol in 
+         conjunction with other protocols, say FSPF, for dynamically
+         discovering other FCIP entities, and populate this table for
+         Destination Address Identifier to connecting FCIP link
+         information. "
+    ::= { cfmFcipConfig 6 }
+
+cfmFcipDynamicRouteEntry OBJECT-TYPE
+    SYNTAX CfmFcipDynamicRouteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row of the FCIP Dynamic Route Table containing
+         information about a particular FCIP route. "
+    INDEX { cfmFcipEntityId, cfmFcipDynamicRouteDID, cfmFcipDynamicRouteIndex }
+    ::= { cfmFcipDynamicRouteTable 1 }
+
+CfmFcipDynamicRouteEntry ::= SEQUENCE {
+    cfmFcipDynamicRouteIndex Gauge,
+    cfmFcipDynamicRouteDID DomainId,
+    cfmFcipDynamicRouteLinkIndex Gauge
+    }
+
+cfmFcipDynamicRouteIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An index that uniquely identifies an entry in the FCIP dynamic
+        Route table. "
+    ::= { cfmFcipDynamicRouteEntry 1 }
+
+cfmFcipDynamicRouteDID OBJECT-TYPE
+    SYNTAX DomainId
+--    Rsyntax INTEGER(1..239)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The 8 bit ID of a Fibre Channel Domain that is reachable from
+        this FCIP device. "
+    ::= { cfmFcipDynamicRouteEntry 2 }
+
+cfmFcipDynamicRouteLinkIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The FCIP Link that is represented by this value in the FCIP 
+         Link table used to reach this domain (specified by the 
+         previous object 'cfmFcipDynamicRouteDID') on the remote FCIP
+         device. "
+    ::= { cfmFcipDynamicRouteEntry 3 }
+
+cfmFcipStaticRouteTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmFcipStaticRouteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing FCIP Route specific information.
+         The FCIP static route table contains information about this 
+         FCIP device's routing information that is created by the
+         Network Admin. In the absence of dynamic discovery of remote
+         FCIP entities, the Network Manager will figure out all the 
+         remote FCIP devices that are reachable from this device, and
+         populate this table with FCIP link information for each 
+         Domain Id. "
+    ::= { cfmFcipConfig 7 }
+
+cfmFcipStaticRouteEntry OBJECT-TYPE
+    SYNTAX CfmFcipStaticRouteEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row of the FCIP Static Route Table containing
+         information about a particular FCIP route. "
+    INDEX { cfmFcipEntityId, cfmFcipStaRtDID, cfmFcipStaRtIndex }
+    ::= { cfmFcipStaticRouteTable 1 }
+
+CfmFcipStaticRouteEntry ::= SEQUENCE {
+    cfmFcipStaRtIndex Gauge,
+    cfmFcipStaRtDID DomainId,
+    cfmFcipStaRtRemFcipEntWWN FcNameId,
+    cfmFcipStaRtRemFcipEntId Gauge,
+    cfmFcipStaRtRemFcipEntAddrType InetAddressType,
+    cfmFcipStaRtRemFcipEntAddr InetAddress,
+    cfmFcipStaRtStatus RowStatus
+    }
+
+cfmFcipStaRtIndex OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An index that uniquely identifies an entry in the FCIP static
+         Route table. "
+    ::= { cfmFcipStaticRouteEntry 1 }
+
+cfmFcipStaRtDID OBJECT-TYPE
+    SYNTAX DomainId
+--    Rsyntax INTEGER(1..239)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The 8 bit ID of a Fibre Channel Domain that is reachable from
+        this FCIP device. "
+    ::= { cfmFcipStaticRouteEntry 2 }
+
+cfmFcipStaRtRemFcipEntWWN OBJECT-TYPE
+    SYNTAX FcNameId
+--    Rsyntax OCTET STRING(SIZE(8))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The World Wide Name of the remote FC Entity to which this
+         route applies. "
+    ::= { cfmFcipStaticRouteEntry 3 }
+
+cfmFcipStaRtRemFcipEntId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The identifier of the remote FCIP entity to which this route
+         pertains. "
+    ::= { cfmFcipStaticRouteEntry 4 }
+
+cfmFcipStaRtRemFcipEntAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address used by the remote FCIP entity
+         to which this route pertains. "
+    ::= { cfmFcipStaticRouteEntry 5 }
+
+cfmFcipStaRtRemFcipEntAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address for the remote FCIP entity."
+    ::= { cfmFcipStaticRouteEntry 6 }
+
+cfmFcipStaRtStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. "
+    ::= { cfmFcipStaticRouteEntry 7 }
+
+cfmFcipLinkErrorsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmFcipLinkErrorsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing error counters for FCIP Links.
+         The FCIP Link Errors Table contains counters that indicate the
+         number of times each error case happened that caused closing
+         down a TCP connection. "
+    ::= { cfmFcipConfig 8 }
+
+cfmFcipLinkErrorsEntry OBJECT-TYPE
+    SYNTAX CfmFcipLinkErrorsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row of the FCIP Link Errors Table containing
+         error counters for a FCIP Link. "
+    INDEX { cfmFcipEntityId, cfmFcipLinkIndex }
+    ::= { cfmFcipLinkErrorsTable 1 }
+
+CfmFcipLinkErrorsEntry ::= SEQUENCE {
+    cfmFcipLinkFcipLossofFcSynchs Counter,
+    cfmFcipLinkFcipSfNotRcv Counter,
+    cfmFcipLinkFcipSfRespNotRcv Counter,
+    cfmFcipLinkFcipSfRespMismatch Counter,
+    cfmFcipLinkFcipSfInvalidNonce Counter,
+    cfmFcipLinkFcipDuplicateSfRcv Counter,
+    cfmFcipLinkFcipSfInvalidWWN Counter,
+    cfmFcipLinkFcipBB2LkaTimeOut Counter,
+    cfmFcipLinkFcipSntpTimeStampExp Counter,
+    cfmFcipLinkTcpTooManyErrors Counter,
+    cfmFcipLinkTcpKeepAliveTimeOut Counter,
+    cfmFcipLinkTcpExDatagramsDropped Counter,
+    cfmFcipLinkTcpSaParamMismatch Counter
+    }
+
+cfmFcipLinkFcipLossofFcSynchs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times FC synchronization lost on this FCIP
+         Link. "
+    ::= { cfmFcipLinkErrorsEntry 1 }
+
+cfmFcipLinkFcipSfNotRcv OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times FCIP Special Frame not received on
+         this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 2 }
+
+cfmFcipLinkFcipSfRespNotRcv OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times FCIP Special Frame Response not 
+         received on this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 3 }
+
+cfmFcipLinkFcipSfRespMismatch OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times FCIP Special Frame Bytes mismatch
+         happened on this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 4 }
+
+cfmFcipLinkFcipSfInvalidNonce OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times FCIP Special Frame Invalid connections
+         once happened on this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 5 }
+
+cfmFcipLinkFcipDuplicateSfRcv OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times duplicate FCIP Special Frames received
+         on this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 6 }
+
+cfmFcipLinkFcipSfInvalidWWN OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times FCIP Special Frames with invalid
+         destination FC Fabric Entity WWN received on this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 7 }
+
+cfmFcipLinkFcipBB2LkaTimeOut OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times B_Access Link Keep Alive Time out
+         happened on this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 8 }
+
+cfmFcipLinkFcipSntpTimeStampExp OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times SNTP Time Stamp expired on this FCIP
+         Link. "
+    ::= { cfmFcipLinkErrorsEntry 9 }
+
+cfmFcipLinkTcpTooManyErrors OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times TCP connections with too many errors
+         closed down on this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 10 }
+
+cfmFcipLinkTcpKeepAliveTimeOut OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times TCP connections that experienced TCP
+         Keep Alive Time outs closed down on this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 11 }
+
+cfmFcipLinkTcpExDatagramsDropped OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times TCP connections that dropped excessive
+         number of datagrams closed down on this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 12 }
+
+cfmFcipLinkTcpSaParamMismatch OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times TCP connections with SA parameter
+         mismatches closed down on this FCIP Link. "
+    ::= { cfmFcipLinkErrorsEntry 13 }
+
+cfmFcipEntityScalarGroup OBJECT IDENTIFIER ::= { cfmFcipGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of scalar objects applicable to all FCIP
+--     instances. 
+--  objects
+--    cfmFcipDynIpConfType, cfmFcipFabricWWN
+
+cfmFcipEntityInstanceGroup OBJECT IDENTIFIER ::= { cfmFcipGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about FCIP
+--     instances. 
+--  objects
+--    cfmFcipEntityAddressType, cfmFcipEntityAddress, 
+--    cfmFcipEntityTcpConnPort, cfmFcipEntitySACKOption, 
+--    cfmFcipEntitySeqNumWrap, cfmFcipEntityPHBSupport, 
+--    cfmFcipEntityStatus
+
+cfmFcipLinkGroup OBJECT IDENTIFIER ::= { cfmFcipGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about FCIP
+--     Links. 
+--  objects
+--    cfmFcipLinkIfIndex, cfmFcipLinkCost, 
+--    cfmFcipLinkLocalFcipEntityMode, cfmFcipLinkRemFcipEntityWWN, 
+--    cfmFcipLinkRemFcipEntityId, cfmFcipLinkRemFcipEntityAddrType, 
+--    cfmFcipLinkRemFcipEntityAddress, cfmFcipLinkRemFcipEntityMode, 
+--    cfmFcipLinkStatus
+
+cfmFcipTcpConnGroup OBJECT IDENTIFIER ::= { cfmFcipGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about FCIP TCP
+--     conections. 
+--  objects
+--    cfmFcipTcpConnPurpose, cfmFcipTcpConnRWSize, 
+--    cfmFcipTcpConnMSS, cfmFcipTcpConnTimeOut
+
+cfmFcipDynamicRouteGroup OBJECT IDENTIFIER ::= { cfmFcipGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about FCIP
+--     dynamic routes. 
+--  objects
+--    cfmFcipDynamicRouteLinkIndex
+
+cfmFcipStaticRouteGroup OBJECT IDENTIFIER ::= { cfmFcipGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about FCIP
+--     static routes. 
+--  objects
+--    cfmFcipStaRtRemFcipEntWWN, cfmFcipStaRtRemFcipEntId, 
+--    cfmFcipStaRtRemFcipEntAddrType, cfmFcipStaRtRemFcipEntAddr, 
+--    cfmFcipStaRtStatus
+
+cfmFcipLinkErrorsGroup OBJECT IDENTIFIER ::= { cfmFcipGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about FCIP
+--     link errors. 
+--  objects
+--    cfmFcipLinkFcipLossofFcSynchs, cfmFcipLinkFcipSfNotRcv, 
+--    cfmFcipLinkFcipSfRespNotRcv, cfmFcipLinkFcipSfRespMismatch, 
+--    cfmFcipLinkFcipSfInvalidNonce, cfmFcipLinkFcipDuplicateSfRcv, 
+--    cfmFcipLinkFcipSfInvalidWWN, cfmFcipLinkFcipBB2LkaTimeOut, 
+--    cfmFcipLinkFcipSntpTimeStampExp, cfmFcipLinkTcpTooManyErrors, 
+--    cfmFcipLinkTcpKeepAliveTimeOut, 
+--    cfmFcipLinkTcpExDatagramsDropped, 
+--    cfmFcipLinkTcpSaParamMismatch
+
+cfmFcipCompliance OBJECT IDENTIFIER ::= { cfmFcipCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Compliance statement for FCIP MIB. 
+--  Module
+--    >>current<<
+--   MandGroup
+--    cfmFcipEntityScalarGroup
+--   MandGroup
+--    cfmFcipEntityInstanceGroup
+--   MandGroup
+--    cfmFcipLinkGroup
+--   MandGroup
+--    cfmFcipTcpConnGroup
+--   MandGroup
+--    cfmFcipDynamicRouteGroup
+--   MandGroup
+--    cfmFcipStaticRouteGroup
+--   MandGroup
+--    cfmFcipLinkErrorsGroup
+
+
+END
+

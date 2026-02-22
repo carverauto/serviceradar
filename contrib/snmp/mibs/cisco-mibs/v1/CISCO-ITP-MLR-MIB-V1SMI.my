@@ -1,0 +1,4392 @@
+-- MIB file created 20-Feb-2005 03:57:27, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ITP-MLR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ITP-MLR-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    CgsccpGttGlobalTitleInd, CgsccpGttTransType
+            FROM CISCO-ITP-GSCCP-MIB
+    cgspCLLICode, cgspEventSequenceNumber, cgspInstNetwork
+            FROM CISCO-ITP-GSP-MIB
+    CItpTcGtaLongDisplay, CItpTcNAI, CItpTcNetworkName, 
+    CItpTcNumberingPlan, CItpTcPointCode, CItpTcPointCodeMask, 
+    CItpTcServiceIndicator, CItpTcSubSystemNumber, 
+    CItpTcTableLoadStatus, CItpTcURL
+            FROM CISCO-ITP-TC-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    DateAndTime, RowStatus, TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoMlrMIB OBJECT IDENTIFIER ::= { ciscoMgmt 396 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200409220000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems, Inc
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-ss7@cisco.com
+--  Descr
+--    The MIB for providing information about Multi-layer 
+--     Routing(MLR). This MIB will provide information used to 
+--     control and measure SS7 messages signalling units
+--     in a SS7 Network. Message Signalling Units are routed
+--     based on information found in the SCCP, TCAP, MAP, and 
+--     MAP-user layers.  It uses information from these layers
+--     to make customizable routing decision based on the 
+--     following criteria.
+--     
+--     - message A-address (origination SME)
+--     - message B-address (destination SME)
+--     - protocol identifier 
+--     - operation code
+--     - called party address
+--     - calling party address
+--     
+--     The Cisco IP Transfer Point (ITP) is a hardware 
+--     and software solution that transports SS7 traffic 
+--     using IP.  Each ITP node provides function similar
+--     to SS7 signalling point.   
+--     
+--     The Multi-layer SMS router will be developed in 
+--     compliance to the following standards.
+--     
+--     - GSM MAP v1, v2 and v3  MO SMS formats
+--     - GSM MAP SMS user information for MO messages
+--     - IS-41 MAP Mobile Originated SMS formats for 
+--       Revisions A thru D.
+--    
+--                                                             
+--     Acronyms and Terms
+--     A-address  The originating SME of the short message.
+--     
+--     ANSI-41    ANSI standard for defining cellular radio 
+--                telecommunications inter-system operation.  
+--                
+--     B-address  The destination SME of the short message.
+--     
+--     BCH        Binary Coded Hexadecimal
+--    
+--     CdPA       The SCCP Called Party Address field.
+--     
+--     CgPA       The SCCP Calling Party Address field.
+--     
+--     GSM        ITU standard for defining the Global 
+--                System for Mobile communications.  
+--                
+--     GTT        Global Title Translation.  A function 
+--                normally performed in an STP, GTT is the 
+--                procedure by which the destination 
+--                signalling point and subsystem number(SSN)
+--                is determined from GTA digits (i.e., the 
+--                global title) present in the signalling
+--                message.
+--                
+--     IMEI       International Mobile Equipment Identity
+--     
+--     IMSI       International Mobile Station Identity or  
+--                International Mobile Subscriber Identity
+--                A mobile station identifier typically 
+--                used in GSM networks, but is also defined
+--                for use in IS-41 networks via IS-751.
+--                
+--     IS-41      ANSI standard for defining cellular radio
+--                telecommunications inter-system operation.  
+--                Unless otherwise stated, this refers to 
+--                the IS-41-D specification.
+--                
+--     MAP        SS7 Mobile Application Part.  This layer 
+--                provides mobility procedures to SS7 
+--                network applications.  MAP is generically
+--                used to refer to both GSM-MAP, and the 
+--                IS-41-D MAP Protocol.
+--    
+--     MC         Message Center.  Network element responsible
+--                for relaying and store-and-forwarding of 
+--                short messages in ANSI-41 networks.  
+--                
+--     MDN        Mobile Directory Number.  A 10-digit North 
+--                American Numbering Plan number assigned to
+--                mobile users in IS-41 networks.  It may be 
+--                different from the MIN.
+--                
+--     MIN        Mobile Identification Number.  The 10-digit
+--                North American Numbering Plan number 
+--                assigned to mobile users in IS-41 networks.  
+--                It may be different from the MDN.
+--                
+--     MLR        Multi-layer Routing          
+--     
+--     MO         Mobile Originated.  This term is used to
+--                refer to an SMS message that is being 
+--                sent from an MS to the SMSC.
+--      
+--     MS         Mobile Subscriber.
+--       
+--     MS         mobile station  
+--     
+--     MSU        Message Signal Unit 
+--     
+--     MT         Mobile Terminated.  This term is used to 
+--                refer to an SMS message that is being 
+--                sent from an SMSC to an MS. 
+--    
+--     MTP        Message Transfer Part 
+--                MTP1   Layers 1 (physical) 
+--                MTP2   Layer  2 (data) and 
+--                MTP3   Layer  3 (network) 
+--    
+--    
+--     M2PA       SS7 MTP2-User Peer-to-Peer Adaptation 
+--                Layer specified by the IETF SIGTRAN 
+--                working group, which provides SCTP/IP 
+--                based links for MTP3.
+--    
+--     M3UA       SS7 MTP3 User Adaptation Layer specified
+--                by RFC 3332 for MTP3 users like ISUP.
+--    
+--     RR         Round Robin.  A balancing algorithm that 
+--                evenly distributes traffic among 
+--                available servers.
+--    
+--     SCCP       Signalling Connection Control Part.  As 
+--                part of the SS7 signalling protocol, it 
+--                provides connectionless and 
+--                connection-oriented network services 
+--                above MTP Level 3.
+--    
+--    
+--     SCP        Service Control Point. An element of 
+--                an SS7-based Intelligent Network which 
+--                performs various service functions, such 
+--                as number translation, call setup 
+--                and tear down, etc.
+--    
+--     SCTP       Stream Control Transmission Protocol.  
+--                A protocol designed by the SigTran 
+--                working group of the IETF to transport
+--                messages reliably over IP networks(RFC
+--                2960).
+--                It has been specifically designed with
+--                PSTN signalling in mind, but is meant to
+--                be a general IP transport protocol.
+--    
+--     SG         Signalling Gateway.
+--     SIM        Subscriber Identity Module
+--    
+--     SME        Short Message Entity.  An entity that may
+--                send or receive short messages, and may 
+--                be fixed or mobile.
+--                
+--     SM         Short Message 
+--    
+--     SMD-PP     Short Message Delivery Point to Point.  
+--     
+--     SMS        Short Message Service, as defined in 
+--                GSM and IS-41-D.
+--                
+--     SMS-MO     Short Message Service Mobile Originated.  
+--     
+--     SMS-MT     Short Message Service Mobile Terminated.
+--     
+--     SMSC       Short Message Service Center.  Network 
+--                element responsible for relaying and 
+--                store-and-forwarding of short messages.  
+--    
+--     SRI        Send Routing Information or Send Routing 
+--                Information for Short Messages.  Refers 
+--                to the procedure by which an SMSC 
+--                requests the HLR to send current routing
+--                information for a particular mobile user.
+--                
+--     SRI-SM     Send Routing Information Short Message 
+--    
+--     SSP        Service Switching Point.  An element of
+--                an SS7-based Intelligent Network that 
+--                performs call origination, termination, 
+--                or tandem switching.
+--    
+--     STP        Signal Transfer Point.  An element of 
+--                an SS7-based Intelligent Network that 
+--                performs routing of the SS7 signalling.
+--    
+--     SUA        SS7 SCCP User Adaptation Layer specified
+--                by IETF SIGTRAN for SCCP users, like 
+--                GSM MAP, UMTS RANAP, CDMA IS-41, 
+--                CDMA IS-634, IN INAP, CAMEL CAP.
+--    
+--     TCAP       Transaction Capability Application Part.  
+--                The application layer of the SS7 
+--                signalling protocol.
+--    
+--     WRR        Weighted Round Robin.  A variation of 
+--                the round robin algorithm that uses 
+--                server weights to allow uneven 
+--                distribution of traffic among a set 
+--                of available servers.
+--    
+--    Multi-layer processing consists of four basic phases
+--    as follows.
+--    
+--    Global Title Processing
+--    Trigger Processing(primary and secondary)
+--    Rule Set Processing
+--    Result group Processing
+--    
+--    
+--    Example scenario.
+--    
+--    The SMS messages sent by origin SME (typically a 
+--    mobile handset) and sent to the MSC controlling the 
+--    area in which the origin SME resides.  The MSC then 
+--    initiates a dialogue with the home SMSC specified 
+--    by the origin SME to route the SMS MO message.
+--    
+--    SMS MO traffic will arrive as an SCCP packet, and 
+--    the Routing Indicator(RI) may specify either 
+--    'route-on-global-title' (RI=GT) or 
+--    'route-on-subsystem' (RI=PC/SSN).  The destination
+--     GT will be used to locate the global title address
+--     that applies to the destination address.  
+--     
+--     Triggers are applied directly to global title 
+--     addresses.  Therefore, trigger processing consists
+--     of checking for the existence of primary trigger 
+--     and then processing of secondary triggers. 
+--     
+--     If the message matches a trigger then rule set 
+--     processing can be performed to determine what 
+--     will be modified in message and how the message
+--     will be routed.  The messages may be sent to new 
+--     destination address, application server, 
+--     point-code or result group. Or it could be forwarded
+--     without any modification (CONTINUE) or it could be 
+--     dropped (BLOCK).
+--     
+--     Result processing balances the delivery of messages
+--     to Point-codes or application servers based on 
+--     Weighted Round Robin(WRR).
+--     
+--     ********************************************
+--  RevDate
+--    200409220000Z
+--  RevDescr
+--    Modification and additions to support following 
+--     changes.
+--     
+--     - minimum and maximum digits parameter for global
+--       title addresses.
+--     
+--     - nature of address and numbering plan parameters
+--       on address tables
+--       
+--     - origination International Mobile Station Identity
+--       parameters
+--       
+--     - multiple message dialogs
+--       
+--     
+--     Updated cmlrRuleInputParameters object to support
+--     new parameters and added following objects.
+--     
+--        cmlrRuleDestSmeMinDigits      
+--        cmlrRuleDestSmeMaxDigits      
+--        cmlrRuleDestSmeTableNai       
+--        cmlrRuleDestSmeTableNp        
+--        cmlrRuleDestSmscMinDigits     
+--        cmlrRuleDestSmscMaxDigits     
+--        cmlrRuleOrigSmeMinDigits      
+--        cmlrRuleOrigSmeMaxDigits      
+--        cmlrRuleOrigSmeTableNai       
+--        cmlrRuleOrigSmeTableNp        
+--        cmlrRuleOrigImsiGta           
+--        cmlrRuleOrigImsiNai           
+--        cmlrRuleOrigImsiNp            
+--        cmlrRuleOrigImsiMinDigits     
+--        cmlrRuleOrigImsiMaxDigits 
+--        cmlrRuleOrigImsiTable         
+--        cmlrRuleOrigSmscMinDigits     
+--        cmlrRuleOrigSmscMaxDigits     
+--  RevDate
+--    200404140000Z
+--  RevDescr
+--    Allow rules to specify matches origination
+--     short message entity addresses. Added 'origSmeTable' 
+--     to cmlrRuleInputParameters object.  Added 
+--     cmlrRuleOrigAddressTable object to cmlrRuleTable 
+--     table.
+--  RevDate
+--    200403230000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoMlrMIBNotifs OBJECT IDENTIFIER ::= { ciscoMlrMIB 0 }
+ciscoMlrMIBObjects OBJECT IDENTIFIER ::= { ciscoMlrMIB 1 }
+ciscoMlrMIBConform OBJECT IDENTIFIER ::= { ciscoMlrMIB 2 }
+cmlrScalars     OBJECT IDENTIFIER ::= { ciscoMlrMIBObjects 0 }
+ciscoMlrMIBCompliances OBJECT IDENTIFIER ::= { ciscoMlrMIBConform 1 }
+ciscoMlrMIBGroups OBJECT IDENTIFIER ::= { ciscoMlrMIBConform 2 }
+
+CmlrAddressDigits ::= OCTET STRING(SIZE(0..32))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The configured digits of A-address or B-address
+--     specified in the format indicated by CmlrAddressType. 
+--     All values are entered in binary and represent digits
+--     All values are encoded as hexidecimal values and represent
+--     the following characters by address type are as follows.
+--     
+--     CmlrAddressType: 'bch'
+--        GSM:
+--        Encoding   Character
+--        0000-1001  0-9
+--        1010       *
+--        1011       #
+--        1100       a
+--        1101       b
+--        1110       c
+--        1111       filler
+--    
+--        ANSI-41
+--        0000-1001  0-9
+--        1010       Spare
+--        1011       Code 11
+--        1100       Code 12
+--        1101       *
+--        1110       #
+--        1111       ST (or filler) 
+--        
+--     CmlrAddressType: 'gmsDa'
+--          
+--                |0  0  0  0  1  1  1  1  b7
+--        b b b b |0  0  1  1  0  0  1  1  b6
+--        4 3 2 1 |0  1  0  1  0  1  0  1  b5
+--        ===================================
+--        0 0 0 0 |@  .  SP 0  ¡  P  ¿  p
+--        0 0 0 1 |£  _  !  1  A  Q  a  q
+--        0 0 1 0 |$  F  DQ 2  B  R  b  r
+--        0 0 1 1 |¥  G  #  3  C  S  c  s
+--        0 1 0 0 |è  .  ¤  4  D  T  d  t
+--        0 1 0 1 |é  .  %  5  E  U  e  u
+--        0 1 1 0 |ù  .  &  6  F  V  f  v
+--        0 1 1 1 |ì  .  '  7  G  W  g  w
+--        1 0 0 0 |ò  S  (  8  H  X  h  x
+--        1 0 0 1 |Ç  T  )  9  I  Y  i  y    
+--        1 0 1 0 |LF .  *  :  J  Z  j  z
+--        1 0 1 1 |Ø  1) +  ;  K  Ä  k  ä
+--        1 1 0 0 |ø  Æ  ,  <  L  Ö  l  ö
+--        1 1 0 1 |CR æ  -  =  M  Ñ  m  ñ
+--        1 1 1 0 |Å  ß  .  >  N  Ü  n  .
+--        1 1 1 1 |å  É  /  ?  O  §  o  à
+--    
+--        'SP' - Space
+--        'LF' - Line Feed
+--        'DQ' - Double quote
+--        '.'  = Special characters outside standard ASCII
+--        See  6.2.1 GSM 7 bit Default Alphabet Table.
+--    
+--      The string will consists of N Octets were the
+--      first n-1 octets represent the hexadecimal address.
+--      The last Octet specifies the number of bits used 
+--      to match the calling address.
+--    
+--      For example, when CmlrAddressType is Binary Coded 
+--      Hexadecimal the following entries illustrate why the
+--      trailing number of match bits is required.
+--    
+--    
+--      '081000000000000000000C' match '081'
+--      '0810000000000000000010' match '0810'
+--  Refer
+--    GSM 04.08 Table 10.5.118,ANSI T1.114.5 Figure 8
+--     and ETSI TS 123 038 V5.0.0 (2002-03)
+
+CmlrAddressType ::= INTEGER {
+        bch(1),
+        gsmDa(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    List of possible table types. 
+--    
+--     'bch'     : Binary Coded Hexadecimal
+--     'gsmDa'  : GSM 7 bit Default Alphabet
+
+CmlrId ::= Gauge(0..65535)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A numeric identifier used to specify an entry in a list.
+--     Zero is a special value used to indicate no entry.
+
+CmlrName ::= OCTET STRING(SIZE(0..20))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The configured name used to identify various
+--     tables used by MLR.
+--    
+--     An octet string specified by an administrator that
+--     must be in human-readable form.  The names must
+--     conform to the allowed characters that can be 
+--     specified via Command Line Interface(CLI).  The 
+--     names cannot contain control character and should 
+--     not contain leading or trailing white space.
+
+CmlrResultOctet ::= OCTET STRING(SIZE(0..64|255))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An octet string that contains various types of output
+--     from a rule set.  The information in this object will
+--     be formatted as follows.
+--     
+--     CmlrResultType:
+--        None    : Octet string with length of zero.
+--        asname  : Application Server name formatted as 
+--                  CItpTcXuaName. 
+--        group   : Result group formatted as CmlrName.
+--        gt      : The global title address formatted as
+--                  CItpTcGtaLongDisplay 
+--        pc      : Not applicable.
+--        block   : Octet string with length of zero.
+--        continue: Octet string with length of zero.
+--        address : The address table name specified by
+--                  the cmlrAddressTableName object.
+--        ruleset : The ruleset table name specified by
+--                  the cmlrRuleSetName object.
+--    
+--     An octet string specified by an administrator that
+--     must be in human-readable form.  The names must
+--     conform to the allowed characters that can be 
+--     specified via Command Line Interface(CLI).  The 
+--     names cannot contain control character and should 
+--     not contain leading or trailing white space.
+
+CmlrResultParameters ::= OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   network(0)
+        --   octet(1)
+        --   tranType(2)
+        --   gti(3)
+        --   np(4)
+        --   nai(5)
+        --   pc(6)
+        --   ssn(7)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    In order to specify the results of MLR  
+--     statements different values in the packet can be 
+--     modified. These values are determined by a combination
+--     of variant and operation type. This object indicates 
+--     which objects will be used to form a result action
+--     as follows.
+--     
+--     'network'   : specifies network
+--     'octet'     : specifies octet string
+--     'tranType'  : specifies translation type
+--     'gti'       : specifies global title indicator
+--     'np'        : specifies numbering plan
+--     'nai'       : specifies nature of address 
+--     'pc'        : specifies point-code
+--     'ssn'       : specifies subsystem number
+
+CmlrResultType ::= INTEGER {
+        none(1),
+        asname(2),
+        group(3),
+        gt(4),
+        pc(5),
+        pcSsn(6),
+        block(7),
+        continue(8),
+        address(9),
+        ruleset(10)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    List of possible result types.
+--     'none'    : Result not specified.
+--     'asname'  : Message will be routed to a particular 
+--                 destination M3UA or SUA Application Server(AS).
+--     'group'   : Message will be routed using information 
+--                 specified in result group.
+--     'gt'      : Message will be routed using SCCP global title. 
+--     'pc'      : Message will be routed using the specified 
+--                 destination point code.
+--     'pcSsn'   : Message will be routed using the specified 
+--                 destination point code and subsystem number.
+--     'block'   : Message will be discarded.
+--     'continue': Message signal units will be processed by the 
+--                 normal SCCP routing. 
+--     'address' : Address table will be search to allow MSU
+--                 to be routed or modified based on address 
+--                 information.
+--     'ruleset' : Message processed by ruleset to allow MSU
+--                 to be routed or modified based on information 
+--                 specified in MSU.
+
+CmlrRuleProtocol ::= INTEGER {
+        none(1),
+        gsmMap(2),
+        ansi41(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The list of possible protocol types.
+--     'none'   : Protocol not specified and will default to value 
+--                based on variant or other configuration 
+--                information.
+--     'gsmMap' : Global system for mobile communications Mobile 
+--                Application Part operations should be matched by
+--                this rule.
+--     'ansi41' : Indicates that only ANSI-41 operations
+--                should be matched by this rule.
+
+CmlrRuleSetName ::= OCTET STRING(SIZE(0..20))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The configured name used to identify a set of rules
+--     within an specified network.
+--    
+--     An octet string specified by an administrator that
+--     must be in human-readable form.  The names must
+--     conform to the allowed characters that can be 
+--     specified via Command Line Interface(CLI).  The 
+--     names cannot contain control character and should 
+--     not contain leading or trailing white space.
+
+CmlrMinimumDigits ::= Gauge(1..20)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Minimum number of digits that global title 
+--     address can contain and match rule.  The minimum 
+--     number of digits must be greater than or equal to 
+--     the length of the specified address.  This parameter
+--     does not apply when the global title address length
+--     is set to zero.
+
+CmlrMaximumDigits ::= Gauge(1..20)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Maximum number of digits that global title 
+--     address can contain and match rule.  The maximum 
+--     number of digits must be greater than or equal to 
+--     the length of the specified address.  Also, the 
+--     maximum number of digits must be greater than or
+--     equal to minimum number of digits.   This parameter
+--     does not apply when the global title address length
+--     is set to zero.
+
+cmlrTableLoadNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A control to enable or disable ciscoMlrTableLoad
+         notifications as follows:
+        'true'  Indicates that the ciscoMlrTableLoad
+               notification should be generated when the load
+               operations is started or completed.  That is,
+               the notification generation is enabled.
+        'false' Indicates that ciscoMlrTableLoad notification
+               generation is disabled."
+    DEFVAL { false }
+    ::= { cmlrScalars 1 }
+
+cmlrInstTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmlrInstTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that is used to provide information and measurements
+         related to multi-layer routing per per signalling point."
+    ::= { ciscoMlrMIBObjects 1 }
+
+cmlrInstTableEntry OBJECT-TYPE
+    SYNTAX CmlrInstTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table provides information on each 
+         signalling pointer supported by this device. Each
+         entry provides information on modification to the
+         configuration statements related to multi-layer 
+         routing and general measurements."
+    INDEX { cgspInstNetwork }
+    ::= { cmlrInstTable 1 }
+
+CmlrInstTableEntry ::= SEQUENCE {
+    cmlrInstLastChanged TimeStamp,
+    cmlrInstLastLoadTime TimeStamp,
+    cmlrInstLoadStatus CItpTcTableLoadStatus,
+    cmlrInstLastURL CItpTcURL,
+    cmlrInstRoutedCounts Counter,
+    cmlrInstAbortCounts Counter,
+    cmlrInstContinueCounts Counter,
+    cmlrInstSmsMoCounts Counter,
+    cmlrInstSmsMtCounts Counter,
+    cmlrInstSriSmCounts Counter,
+    cmlrInstSmdPpCounts Counter,
+    cmlrInstAlertScCounts Counter,
+    cmlrInstSmsRequestCounts Counter,
+    cmlrInstSmsNotifCounts Counter,
+    cmlrInstUnsupSCCPmsgTypeCounts Counter,
+    cmlrInstUnsupSegSCCPmsgCounts Counter,
+    cmlrInstUnsupportedMsgCounts Counter,
+    cmlrInstParsingErrorCounts Counter,
+    cmlrInstNoResultCounts Counter,
+    cmlrInstResultContinueCounts Counter,
+    cmlrInstNoServerDiscardCounts Counter,
+    cmlrInstResultGttCounts Counter,
+    cmlrInstUnparsedCounts Counter,
+    cmlrInstResultBlockCounts Counter,
+    cmlrInstGTImismatchCounts Counter,
+    cmlrInstAddrConvFailureCounts Counter,
+    cmlrInstDestUnavailableCounts Counter,
+    cmlrInstFailedTrigMatchCounts Counter,
+    cmlrInstDiscontinuityTime TimeStamp,
+    cmlrInstNoServerContinueCounts Counter,
+    cmlrInstResultAsCounts Counter,
+    cmlrInstResultPcCounts Counter,
+    cmlrInstResultPcSsnCounts Counter
+    }
+
+cmlrInstLastChanged OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last
+         creation or deletion of an entry in the Multi-Layer
+         routing table defined for this signalling point.
+         If the local network management subsystem is 
+         re-initialized, then this object contains the 
+         sysUpTime at the time when this occurred.  This value 
+         can be used to prevent unnecessary walks of the
+         various take supporting multi-layer routing."
+    ::= { cmlrInstTableEntry 1 }
+
+cmlrInstLastLoadTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last
+         load of the Multi-Layer Routing table using file
+         format for this signalling point."
+    ::= { cmlrInstTableEntry 2 }
+
+cmlrInstLoadStatus OBJECT-TYPE
+    SYNTAX CItpTcTableLoadStatus
+--    Rsyntax INTEGER {
+--        loadNotRequested(1),
+--        loadInProgress(2),
+--        loadComplete(3),
+--        loadCompleteWithErrors(4),
+--        loadFailed(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the current load or status from
+         the prior load operation.  This object will have
+         a value of loadInProgress while the load operation
+         is in progress.  The cmlrInstLastLoadTime contains
+         a timestamp indicating when the load operation is
+         completed."
+    ::= { cmlrInstTableEntry 3 }
+
+cmlrInstLastURL OBJECT-TYPE
+    SYNTAX CItpTcURL
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The last URL used to load MLR table."
+    ::= { cmlrInstTableEntry 4 }
+
+cmlrInstRoutedCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of times a packet was routed by
+         MLR.  This value is incremented when packet is routed
+         with result type of 'asname', 'gt', 'pc' or 'pcSsn'."
+    ::= { cmlrInstTableEntry 5 }
+
+cmlrInstAbortCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units that could not be processed 
+         because of invalid data or were explicitly blocked as a 
+         result of MLR processing. The message signalling units
+         will be discarded."
+    ::= { cmlrInstTableEntry 6 }
+
+cmlrInstContinueCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units that were passed back to
+         normal SCCP processing."
+    ::= { cmlrInstTableEntry 7 }
+
+cmlrInstSmsMoCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units with operation type 
+         GSM-MAP SMS-MO."
+    ::= { cmlrInstTableEntry 8 }
+
+cmlrInstSmsMtCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units with operation type 
+         GSM-MAP SMS-MT."
+    ::= { cmlrInstTableEntry 9 }
+
+cmlrInstSriSmCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units with operation type 
+         GSM-MAP SRI-SM."
+    ::= { cmlrInstTableEntry 10 }
+
+cmlrInstSmdPpCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units with operation type 
+         ANSI-41 SMD-PP."
+    ::= { cmlrInstTableEntry 11 }
+
+cmlrInstAlertScCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units with operation type 
+         GSM-MAP AlertSC."
+    ::= { cmlrInstTableEntry 12 }
+
+cmlrInstSmsRequestCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units with operation type
+         ANSI-41 SMSRequest."
+    ::= { cmlrInstTableEntry 13 }
+
+cmlrInstSmsNotifCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units with operation type
+         ANSI-41 SMSNotification."
+    ::= { cmlrInstTableEntry 14 }
+
+cmlrInstUnsupSCCPmsgTypeCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received with unsupported
+         SCCP message type. This object counts are also included
+         in the cmlrInstContinueCounts object."
+    ::= { cmlrInstTableEntry 15 }
+
+cmlrInstUnsupSegSCCPmsgCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received with unsupported
+         segmented SCCP message. This object counts are also 
+         included in the cmlrInstContinueCounts object."
+    ::= { cmlrInstTableEntry 16 }
+
+cmlrInstUnsupportedMsgCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that could not be
+         processed because the messages contained an unsupported
+         command type or contents of messages was unsupported. 
+         This object counts are also included in the 
+         cmlrInstContinueCounts object."
+    ::= { cmlrInstTableEntry 17 }
+
+cmlrInstParsingErrorCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that could not be
+         processed because of a parsing error. This object counts
+         are also included in the cmlrInstContinueCounts object."
+    ::= { cmlrInstTableEntry 18 }
+
+cmlrInstNoResultCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that matched a 
+         trigger or rule that did not specify a result. This object
+         counts are also included in the 
+         cmlrInstContinueCounts object."
+    ::= { cmlrInstTableEntry 19 }
+
+cmlrInstResultContinueCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that matched a 
+         trigger or rule that specified continue for the result. 
+         This object counts are also included in the 
+         cmlrInstContinueCounts object."
+    ::= { cmlrInstTableEntry 20 }
+
+cmlrInstNoServerDiscardCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that matched a 
+         trigger or rule that specified a result or result group
+         directing MSU to application server.  However, the 
+         application server was unavailable. This object counts
+         are also included in the cmlrInstAbortCounts object."
+    ::= { cmlrInstTableEntry 21 }
+
+cmlrInstResultGttCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that matched a 
+         trigger or rule that specified GTT for the result.  This 
+         object counts are also included in the 
+         cmlrInstContinueCounts object.
+         "
+    ::= { cmlrInstTableEntry 22 }
+
+cmlrInstUnparsedCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that could not be 
+         parsed due to some type of resource shortage. This object 
+         counts are also included in the cmlrInstAbortCounts object."
+    ::= { cmlrInstTableEntry 23 }
+
+cmlrInstResultBlockCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that matched a 
+         trigger or rule that specified a result of block. This 
+         object counts are also included in the cmlrInstAbortCounts
+         object."
+    ::= { cmlrInstTableEntry 24 }
+
+cmlrInstGTImismatchCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that could not
+         be routed because of mis-match between GTI values. 
+         This object counts are also included in the 
+         cmlrInstAbortCounts object."
+    ::= { cmlrInstTableEntry 25 }
+
+cmlrInstAddrConvFailureCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that could not
+         be routed because GTT address failed to convert. This 
+         object counts are also included in the 
+         cmlrInstAbortCounts object."
+    ::= { cmlrInstTableEntry 26 }
+
+cmlrInstDestUnavailableCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that specified
+         a result PC or PC and SSN and the destination point-code 
+         was unavailable. This object counts are also included 
+         in the cmlrInstAbortCounts object."
+    ::= { cmlrInstTableEntry 27 }
+
+cmlrInstFailedTrigMatchCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that was
+         processed and failed to mathc any trigger. This can
+         occur when a primary trigger specifies secondary triggers
+         and they fail to match. This object counts are also
+         included in the cmlrInstContinueCounts object."
+    ::= { cmlrInstTableEntry 28 }
+
+cmlrInstDiscontinuityTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime on the most recent occasion at
+         which the configuration was modified in such a way
+         to force a discontinuity.  All counters under this 
+         instance in the following tables will be reset when
+         configuration is replaced.
+        
+          - cmlrTriggerTable
+          - cmlrSubTriggerTable
+          - cmlrAddressTable
+          - cmlrRuleTable
+        
+         If no such discontinuities have occurred since the last 
+         re-initialization of the local management subsystem, 
+         then this object contains a zero value."
+    ::= { cmlrInstTableEntry 29 }
+
+cmlrInstNoServerContinueCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that matched a 
+         trigger or rule that specified a result or result group
+         directing MSU to application server.  However, the 
+         application server was unavailable. This object counts
+         are also included in the cmlrInstContinueCounts object."
+    ::= { cmlrInstTableEntry 30 }
+
+cmlrInstResultAsCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that matched a 
+         trigger or rule that specified result type of Application
+         server. This object counts are also included in the 
+         cmlrInstRoutedCounts object."
+    ::= { cmlrInstTableEntry 31 }
+
+cmlrInstResultPcCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that matched a 
+         trigger or rule that specified result type Pointcode.  
+         This object counts are also included in the 
+         cmlrInstRoutedCounts object."
+    ::= { cmlrInstTableEntry 32 }
+
+cmlrInstResultPcSsnCounts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of message signal units received that matched a 
+         trigger or rule that specified pointcode and subsystem
+         number.  This object counts are also included in the 
+         cmlrInstRoutedCounts object."
+    ::= { cmlrInstTableEntry 33 }
+
+cmlrTriggerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmlrTriggerTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that is used to configure specific routing keys
+         to act as trigger for multi-layer routing.  Entries are
+         added to this table via cmlrTriggerRowStatus in 
+         accordance with the RowStatus convention."
+    ::= { ciscoMlrMIBObjects 2 }
+
+cmlrTriggerTableEntry OBJECT-TYPE
+    SYNTAX CmlrTriggerTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry define a trigger to be used to perform 
+         non-standard routing of message signalling units. Each 
+         trigger entry contains information used to select traffic
+         for further processing. Therefore, the information used
+         to activate trigger must be unique.  In addition, 
+         information referenced in the routing keys must be defined
+         using objects from CISCO-ITP-GSCCP-MIB or 
+         CISCO-ITP-GRT-MIB management information bases."
+    INDEX { cgspInstNetwork, cmlrTableName, cmlrTriggerNumber }
+    ::= { cmlrTriggerTable 1 }
+
+CmlrTriggerTableEntry ::= SEQUENCE {
+    cmlrTableName CmlrName,
+    cmlrTriggerNumber CmlrId,
+    cmlrTriggerParameters OCTET STRING,
+    cmlrTriggerGt CItpTcGtaLongDisplay,
+    cmlrTriggerTransType CgsccpGttTransType,
+    cmlrTriggerGti CgsccpGttGlobalTitleInd,
+    cmlrTriggerNp CItpTcNumberingPlan,
+    cmlrTriggerNai CItpTcNAI,
+    cmlrTriggerPc CItpTcPointCode,
+    cmlrTriggerSsn CItpTcSubSystemNumber,
+    cmlrTriggerDpc CItpTcPointCode,
+    cmlrTriggerOpc CItpTcPointCode,
+    cmlrTriggerOpcMask CItpTcPointCodeMask,
+    cmlrTriggerSi CItpTcServiceIndicator,
+    cmlrTriggerNetwork CItpTcNetworkName,
+    cmlrTriggerRuleset CmlrRuleSetName,
+    cmlrTriggerActive TruthValue,
+    cmlrTriggerStartDateAndTime DateAndTime,
+    cmlrTriggerEndDateAndTime DateAndTime,
+    cmlTriggerPreliminaryMatchCounts Counter,
+    cmlrTriggerMatchCounts Counter,
+    cmlrTriggerRowStatus RowStatus
+    }
+
+cmlrTableName OBJECT-TYPE
+    SYNTAX CmlrName
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A name used to define a collection of multi-layer 
+         routing statements."
+    ::= { cmlrTriggerTableEntry 1 }
+
+cmlrTriggerNumber OBJECT-TYPE
+    SYNTAX CmlrId
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the index for a list of triggers
+         specified per routing table. "
+    ::= { cmlrTriggerTableEntry 2 }
+
+cmlrTriggerParameters OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..3))
+        -- BITS are:
+        --   block(0)
+        --   continue(1)
+        --   matchAll(2)
+        --   cdpa(3)
+        --   cgpa(4)
+        --   pc(5)
+        --   gt(6)
+        --   tt(7)
+        --   gti(8)
+        --   np(9)
+        --   nai(10)
+        --   ssn(11)
+        --   pid(12)
+        --   network(13)
+        --   ruleset(14)
+        --   dpc(15)
+        --   opc(16)
+        --   opcMask(17)
+        --   si(18)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The following options define the source and 
+         processing of triggers.
+         
+         'block'   : Indicates that message signal units will be 
+                     dropped when they match the specified trigger.
+                               
+                     When sub-trigger(secondary triggers) exist 
+                     the option will be ignored.
+                     
+         'continue' : Indicates that message signal units will be 
+                     processed by the normal SCCP routing. 
+                     The continue, block and ruleset are mutually
+                     exclusive.
+                     
+         'matchAll': Indicates the trigger will match all 
+                     message signal unit.
+                               
+         'cdpa'    : Indicates that the trigger is found within
+                     the SCCP called party address field(cdpa).
+                     
+         'cgpa'    : Indicates that the trigger is found within
+                     the SCCP calling party address field(cgpa).
+                     
+         'pc'      : Indicates that the trigger will be matched if 
+                     it contains the specified point-code.  The 
+                     point-code within the SCCP Cdpa or CgPa will
+                     be inspected first.  If the point code is not 
+                     present, then the DPC in the routing label is 
+                     used if CdPA, and the OPC is used for CgPA.
+                     
+         'gt'      : Indicates that the Cgpa or CdPA trigger is to
+                     be applied to packet when routing indicator 
+                     specifies global title translation(RI=GT).
+                     
+         'tt'      : Indicates that the translation type has been
+                     specified in the cmlrTriggerTransType object.
+                     
+         'gti'     : Indicates that the global title indicator has 
+                     been specified in the cmlrTriggerGti 
+                     object.           
+                     
+         'np'      : Indicates that the numbering plan has been 
+                     specified in the cmlrTriggerNp object.
+                                 
+         'nai      : Indicates that the nature of specified address 
+                     has been specified in the cmlrTriggerNai object.
+                     
+         'ssn'     : Indicates that the subsystem number has been  
+                     in the cmlrTriggerSsn object.
+                     
+         'network' : Indicates the network name has been specified 
+                     in the cmlrTriggerNetwork object.
+                     
+         'ruleset' : Indicates the set of rules to be processed as
+                     specified in the cmlrTriggerRuleset object.
+                     
+         'dpc'    : Indicates that the destination point-code is 
+                    one of MTP3 trigger parameters.  The DPC is 
+                    specified in the cmlrTriggerDpc object.
+                    
+         'opc'    : Indicates that the origination point-code is 
+                    one of MTP3 trigger parameters.  The OPC is 
+                    specified in the cmlrTriggerOpc object.
+                    
+         'opcMask': Indicates that the origination point-code is 
+                    qualified with a mask. 
+                    one of MTP3 trigger parameters.  The OPC is 
+                    specified in the cmlrTriggerOpc object.
+                    
+         'si':      Indicates that the service indicator has 
+                    been specified in the cmlrTriggerSi object"
+    DEFVAL { '000000'h }
+    ::= { cmlrTriggerTableEntry 3 }
+
+cmlrTriggerGt OBJECT-TYPE
+    SYNTAX CItpTcGtaLongDisplay
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The global title address to be matched when either the 
+         'cdpa' or 'cgpa' bits are set in the cmlrTriggerParameters
+         object.  This object will return a string of zero length
+         when the cmlrTriggerParameters 'pc' bit is set."
+    DEFVAL { ''H }
+    ::= { cmlrTriggerTableEntry 4 }
+
+cmlrTriggerTransType OBJECT-TYPE
+    SYNTAX CgsccpGttTransType
+--    Rsyntax Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The translation type specified within the address in the
+         message signal unit.  This object will default to value 
+         based on variant unless the 'tt' bit is set in 
+         cmlrTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrTriggerTableEntry 5 }
+
+cmlrTriggerGti OBJECT-TYPE
+    SYNTAX CgsccpGttGlobalTitleInd
+--    Rsyntax Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The global title indicator value for the global tile address
+         specified within the message signal unit. This object will
+         default to value based on variant unless the 'gti' bit is 
+         set in cmlrTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrTriggerTableEntry 6 }
+
+cmlrTriggerNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan of the specified global title address.
+         This object will default to value based on variant unless
+         the 'np' bit is set in cmlrTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrTriggerTableEntry 7 }
+
+cmlrTriggerNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Nature of Address Indicator (NAI) for GTT Selector.  This 
+         object will default to value based on variant unless the 
+         'nai' bit is set in cmlrTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrTriggerTableEntry 8 }
+
+cmlrTriggerPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The point-code in variant-specific format.  This
+         object only has meaning when the 'pc' bit is 
+         set in the cmlrTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrTriggerTableEntry 9 }
+
+cmlrTriggerSsn OBJECT-TYPE
+    SYNTAX CItpTcSubSystemNumber
+--    Rsyntax Gauge(0|2..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The subsystem number to be matched when the when the 'pc' 
+         bit is set in the cmlrTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrTriggerTableEntry 10 }
+
+cmlrTriggerDpc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The destination MTP3 point-code to be matched when the when
+         the 'dpc' bit is set in the cmlrTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrTriggerTableEntry 11 }
+
+cmlrTriggerOpc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The origination MTP3 point-code to be matched when the when
+         the 'opc' bit is set in the cmlrTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrTriggerTableEntry 12 }
+
+cmlrTriggerOpcMask OBJECT-TYPE
+    SYNTAX CItpTcPointCodeMask
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The origination MTP3 point-code mask to be applied in 
+         combination with cmlrTriggerOpc object.  The mask will 
+         be applied when 'opcMask' bit is set in the 
+         cmlrTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrTriggerTableEntry 13 }
+
+cmlrTriggerSi OBJECT-TYPE
+    SYNTAX CItpTcServiceIndicator
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        snmm(0),
+--        sntm(1),
+--        spare2(2),
+--        sccp(3),
+--        tup(4),
+--        isup(5),
+--        dupc(6),
+--        dupf(7),
+--        mtup(8),
+--        bisup(9),
+--        sisup(10),
+--        spare11(11),
+--        spare12(12),
+--        spare13(13),
+--        spare14(14),
+--        spare15(15)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Service Indicator to be matched when the when 
+         the 'si' bit is set in the cmlrTriggerParameters object."
+    DEFVAL { snmm }
+    ::= { cmlrTriggerTableEntry 14 }
+
+cmlrTriggerNetwork OBJECT-TYPE
+    SYNTAX CItpTcNetworkName
+--    Rsyntax OCTET STRING(SIZE(0..19))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The network name is used to indicate the network
+         in which the ruleset will be invoked.  This
+         object only has meaning when the 'network' bit is 
+         set in the cmlrTriggerParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrTriggerTableEntry 15 }
+
+cmlrTriggerRuleset OBJECT-TYPE
+    SYNTAX CmlrRuleSetName
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the ruleset table that should be used if
+         the trigger is matched and not overruled by a 
+         secondary trigger ruleset.  This object only has
+         meaning when the 'ruleset' bit is set in the 
+         cmlrTriggerParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrTriggerTableEntry 16 }
+
+cmlrTriggerActive OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether this trigger is active.
+         The trigger will be active when the corresponding 
+         GTA entry exists and has been linked to trigger.
+         'true'  - Trigger is active and will be processed.
+         'false' - Trigger is inactive and will not be processed."
+    ::= { cmlrTriggerTableEntry 17 }
+
+cmlrTriggerStartDateAndTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The local date and time when this trigger and sub-triggers
+         will become active.  When all bytes of octet string are
+         set to zero then cmlrInstStartDateAndTime does not apply."
+    DEFVAL { '0000000000000000'H }
+    ::= { cmlrTriggerTableEntry 18 }
+
+cmlrTriggerEndDateAndTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The local date and time this trigger and sub-triggers
+         will become inactive.  When all bytes of octet string are
+         set to zero then cmlrInstEndDateAndTime does not apply."
+    DEFVAL { '0000000000000000'H }
+    ::= { cmlrTriggerTableEntry 19 }
+
+cmlTriggerPreliminaryMatchCounts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This counter indicates that a packet has matched the 
+         contents of the primary trigger.  This counter indicates
+         which triggers are causing packets to be processed by
+         multi-layer routing.   Whether the trigger is fully 
+         matched will be indicated by the cmlrTriggerMatchCounts
+         object. It is important to note that in the case where 
+         secondary triggers do not exist the 
+         cmlTriggerPreliminaryMatchCounts and cmlrTriggerMatchCounts
+         will be the same."
+    ::= { cmlrTriggerTableEntry 20 }
+
+cmlrTriggerMatchCounts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This counter indicates that a packet has matched the trigger
+         and the result action was performed. When a primary trigger
+         has secondary triggers this counter indicates that the 
+         primary matched and at least one of the secondary triggers 
+         matched."
+    ::= { cmlrTriggerTableEntry 21 }
+
+cmlrTriggerRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used by a management station to create or 
+         delete the row entry in cmlrTriggerTable following
+         the RowStatus textual convention."
+    ::= { cmlrTriggerTableEntry 22 }
+
+cmlrSubTriggerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmlrSubTriggerTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that is used to define additional triggers
+         that work in combination with values specified in 
+         specific cmlrTriggerTable.  Entries are
+         added to this table via cmlrSubTriggerRowStatus in 
+         accordance with the RowStatus convention."
+    ::= { ciscoMlrMIBObjects 3 }
+
+cmlrSubTriggerTableEntry OBJECT-TYPE
+    SYNTAX CmlrSubTriggerTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in the cmlrSubTriggerTable works in 
+         conjunction with a entry in cmlrTriggerTable.  
+         The trigger address specified in cmlrSubTriggerTable 
+         is a secondary address and both the primary address
+         in the cmlrTriggerTable and the secondary address
+         must match for the packet to be routed using the 
+         specified ruleset.
+        
+         If the corresponding entry in the cmlrTriggerTableEntry
+         is deleted all entries under the scope for the 
+         primary trigger will be deleted from this table.
+         
+         It is important to note that when cmlrTriggerBlock is 
+         set to 'true' sub-triggers cannot be created under the
+         specified trigger(cmlrTriggerNumber)."
+    INDEX { cgspInstNetwork, cmlrTableName, cmlrTriggerNumber, cmlrSubTriggerNumber }
+    ::= { cmlrSubTriggerTable 1 }
+
+CmlrSubTriggerTableEntry ::= SEQUENCE {
+    cmlrSubTriggerNumber CmlrId,
+    cmlrSubTriggerParameters OCTET STRING,
+    cmlrSubTriggerGt CItpTcGtaLongDisplay,
+    cmlrSubTriggerTransType CgsccpGttTransType,
+    cmlrSubTriggerGti CgsccpGttGlobalTitleInd,
+    cmlrSubTriggerNp CItpTcNumberingPlan,
+    cmlrSubTriggerNai CItpTcNAI,
+    cmlrSubTriggerPc CItpTcPointCode,
+    cmlrSubTriggerSsn CItpTcSubSystemNumber,
+    cmlrSubTriggerNetwork CItpTcNetworkName,
+    cmlrSubTriggerRuleset CmlrRuleSetName,
+    cmlrSubTriggerMatchCounts Counter,
+    cmlrSubTriggerRowStatus RowStatus
+    }
+
+cmlrSubTriggerNumber OBJECT-TYPE
+    SYNTAX CmlrId
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the index for a list of secondary
+         triggers specified per primary trigger."
+    ::= { cmlrSubTriggerTableEntry 1 }
+
+cmlrSubTriggerParameters OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   block(0)
+        --   continue(1)
+        --   matchAll(2)
+        --   cdpa(3)
+        --   cgpa(4)
+        --   pc(5)
+        --   gt(6)
+        --   tt(7)
+        --   gti(8)
+        --   np(9)
+        --   nai(10)
+        --   ssn(11)
+        --   pid(12)
+        --   network(13)
+        --   ruleset(14)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The following options define the source and 
+         processing of sub-triggers(secondary trigger).
+         
+         'block'   : Indicates that message signal units will be 
+                     dropped when they match the specified 
+                     secondary trigger.
+                     
+         'continue' : Indicates that message signal units will be 
+                     processed by the normal SCCP routing. 
+                     The continue, block and ruleset are mutually
+                     exclusive. 
+                               
+         'matchAll': Indicates the secondary trigger will match all 
+                     message signal unit.
+                               
+         'cdpa'    : Indicates that the secondary trigger is found 
+                     within the SCCP called party address
+                     field(cdpa).
+                     
+         'cgpa'    : Indicates that the secondary trigger is found 
+                     within the SCCP calling party address 
+                     field(cgpa).
+                     
+         'pc'      : Indicates that the secondary trigger will be 
+                     matched if it contains the specified point-code.
+                     The point-code within the SCCP Cdpa or CgPa will
+                     be inspected first.  If the point code is not 
+                     present, then the DPC in the routing label is 
+                     used if CdPA, and the OPC is used for CgPA.
+                     
+         'gt'      : Indicates that the Cgpa or CdPA secondary trigger 
+                     is to be applied to packet when routing indicator 
+                     specifies global title translation(RI=GT).
+        
+         'tt'      : Indicates that the translation type has been
+                     specified in the cmlrSubTriggerTransType object.
+                     
+         'gti'     : Indicates that the global title indicator has 
+                     been specified in the cmlrSubTriggerGti 
+                     object.           
+                     
+         'np'      : Indicates that the numbering plan has been 
+                     specified in the cmlrSubTriggerNp object.
+                                 
+         'nai'     : Indicates that the nature of specified address 
+                     has been specified in the cmlrSubTriggerNai 
+                     object.
+                     
+         'ssn'     : Indicates that the subsystem number has been  
+                     in the cmlrSubTriggerSsn object.
+                     
+         'network' : Indicates the network name has been specified 
+                     in the cmlrSubTriggerNetwork object.
+                     
+         'ruleset' : Indicates the set of rules to be processed as
+                     specified in the cmlrSubTriggerRuleset object."
+    DEFVAL { '0000'h }
+    ::= { cmlrSubTriggerTableEntry 2 }
+
+cmlrSubTriggerGt OBJECT-TYPE
+    SYNTAX CItpTcGtaLongDisplay
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The global title address to be matched when either the 
+         'cdpa' or 'cgpa' bits are set in the 
+         cmlrSubTriggerParameters object.  This object will return
+         a string of zero length when the cmlrSubTriggerParameters
+         'pc' bit is set."
+    DEFVAL { ''H }
+    ::= { cmlrSubTriggerTableEntry 4 }
+
+cmlrSubTriggerTransType OBJECT-TYPE
+    SYNTAX CgsccpGttTransType
+--    Rsyntax Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The translation type specified within the address in the
+         message signal unit.  This object will default to value 
+         based on variant unless the 'tt' bit is set in 
+         cmlrSubTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrSubTriggerTableEntry 5 }
+
+cmlrSubTriggerGti OBJECT-TYPE
+    SYNTAX CgsccpGttGlobalTitleInd
+--    Rsyntax Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The global title indicator value for the global tile address
+         specified within the message signal unit. This object will
+         default to value based on variant unless the 'gti' bit is 
+         set in cmlrSubTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrSubTriggerTableEntry 6 }
+
+cmlrSubTriggerNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan of the specified global title address.
+         This object will default to value based on variant unless
+         the 'np' bit is set in cmlrSubTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrSubTriggerTableEntry 7 }
+
+cmlrSubTriggerNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of specified address.  This object will default
+         to value based on variant unless the 'nai' bit is set in
+         cmlrSubTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrSubTriggerTableEntry 8 }
+
+cmlrSubTriggerPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The point-code in variant-specific format.  This
+         object only has meaning when the 'pc' bit is 
+         set in the cmlrSubTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrSubTriggerTableEntry 9 }
+
+cmlrSubTriggerSsn OBJECT-TYPE
+    SYNTAX CItpTcSubSystemNumber
+--    Rsyntax Gauge(0|2..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The subsystem number to be matched when the when the 'pc' bit
+         is set in the cmlrSubTriggerParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrSubTriggerTableEntry 10 }
+
+cmlrSubTriggerNetwork OBJECT-TYPE
+    SYNTAX CItpTcNetworkName
+--    Rsyntax OCTET STRING(SIZE(0..19))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The network name is used to indicate the network
+         in which the ruleset will be invoked.  This
+         object only has meaning when the 'network' bit is 
+         set in the cmlrSubTriggerParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrSubTriggerTableEntry 11 }
+
+cmlrSubTriggerRuleset OBJECT-TYPE
+    SYNTAX CmlrRuleSetName
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the ruleset table that should be used if
+         the trigger is matched and not overruled by a 
+         secondary trigger ruleset.  This object only has
+         meaning when the 'ruleset' bit is set in the 
+         cmlrSubTriggerParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrSubTriggerTableEntry 12 }
+
+cmlrSubTriggerMatchCounts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of times secondary trigger was matched."
+    ::= { cmlrSubTriggerTableEntry 13 }
+
+cmlrSubTriggerRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used by a management station to create or 
+         delete the row entry in cmlrSubTriggerTable following
+         the RowStatus textual convention."
+    ::= { cmlrSubTriggerTableEntry 14 }
+
+cmlrAddressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmlrAddressTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table used to create a collection of addresses that
+         can be searched for exact or best matches.
+        
+         Entries are added to this table via cmlrAddressRowStatus in 
+         accordance with the RowStatus convention."
+    ::= { ciscoMlrMIBObjects 4 }
+
+cmlrAddressTableEntry OBJECT-TYPE
+    SYNTAX CmlrAddressTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in the cmlrAddressTable is used to search
+         for matches within a messages signalling unit. 
+         Message signalling that match a particular rule can
+         be directed to cmlrAddressTable to allow MSU to be
+         directed or modified based on address information. 
+         The table is searched using information specified in
+         the rule in cmlrRuleTable Table."
+    INDEX { cgspInstNetwork, cmlrAddressTableName, cmlrAddressType, cmlrAddressDigits, cmlrAddressExactMatch }
+    ::= { cmlrAddressTable 1 }
+
+CmlrAddressTableEntry ::= SEQUENCE {
+    cmlrAddressTableName CmlrName,
+    cmlrAddressType CmlrAddressType,
+    cmlrAddressDigits CmlrAddressDigits,
+    cmlrAddressExactMatch TruthValue,
+    cmlrAddressResultParameters CmlrResultParameters,
+    cmlrAddressResultNetwork CItpTcNetworkName,
+    cmlrAddressResultType CmlrResultType,
+    cmlrAddressResultOctet CmlrResultOctet,
+    cmlrAddressResultTransType CgsccpGttTransType,
+    cmlrAddressResultGti CgsccpGttGlobalTitleInd,
+    cmlrAddressResultNp CItpTcNumberingPlan,
+    cmlrAddressResultNai CItpTcNAI,
+    cmlrAddressResultPc CItpTcPointCode,
+    cmlrAddressResultSsn CItpTcSubSystemNumber,
+    cmlrAddressMatchCounts Counter,
+    cmlrAddressRowStatus RowStatus
+    }
+
+cmlrAddressTableName OBJECT-TYPE
+    SYNTAX CmlrName
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A name used to define a collection of addresses used to
+         route and modify messages signalling units."
+    ::= { cmlrAddressTableEntry 1 }
+
+cmlrAddressType OBJECT-TYPE
+    SYNTAX CmlrAddressType
+--    Rsyntax INTEGER {
+--        bch(1),
+--        gsmDa(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of addresses in the address tables. 
+         The different types will be used to determine
+         how to format and convert cmlrAddressDigits."
+    ::= { cmlrAddressTableEntry 2 }
+
+cmlrAddressDigits OBJECT-TYPE
+    SYNTAX CmlrAddressDigits
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The digits of the address in following  formats as
+         indicated by cmlrAddressType object.
+          'hexadecimal' - The digits are hexadecimal digits specified
+                          in ASCII as follows.
+                          '0123456789ABCDEF'"
+    ::= { cmlrAddressTableEntry 3 }
+
+cmlrAddressExactMatch OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates that the address specified by 
+         cmlrAddressDigits object must exactly match value
+         in message signalling unit.
+         
+         'true'  - Exact match is specified.
+         'false' - Best match is specified."
+    ::= { cmlrAddressTableEntry 4 }
+
+cmlrAddressResultParameters OBJECT-TYPE
+    SYNTAX CmlrResultParameters
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           network(0)
+--           octet(1)
+--           tranType(2)
+--           gti(3)
+--           np(4)
+--           nai(5)
+--           pc(6)
+--           ssn(7)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Many of the result parameter used in the processing of 
+         address table have default values.  These values are
+         determined by a combination of variant and operation
+         type. This object will be provide information which
+         parameter used in setting results have been specified
+         as follows.
+         
+         'network'   : cmlrAddressSetResultNetwork
+         'octet'     : cmlrAddressSetResultOctet
+         'tranType'  : cmlrAddressResultTransType
+         'gti'       : cmlrAddressResultGti      
+         'np'        : cmlrAddressResultNp       
+         'nai'       : cmlrAddressResultNai      
+         'pc'        : cmlrAddressResultPc 
+         'ssn'       : cmlrAddressResultSsn"
+    DEFVAL { '00'h }
+    ::= { cmlrAddressTableEntry 5 }
+
+cmlrAddressResultNetwork OBJECT-TYPE
+    SYNTAX CItpTcNetworkName
+--    Rsyntax OCTET STRING(SIZE(0..19))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The network name is used to indicate the network in which
+         the result operation will be performed."
+    ::= { cmlrAddressTableEntry 6 }
+
+cmlrAddressResultType OBJECT-TYPE
+    SYNTAX CmlrResultType
+--    Rsyntax INTEGER {
+--        none(1),
+--        asname(2),
+--        group(3),
+--        gt(4),
+--        pc(5),
+--        pcSsn(6),
+--        block(7),
+--        continue(8),
+--        address(9),
+--        ruleset(10)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specified the type of information to be placed into the 
+         message signal unit or how the it will be processed."
+    DEFVAL { none }
+    ::= { cmlrAddressTableEntry 7 }
+
+cmlrAddressResultOctet OBJECT-TYPE
+    SYNTAX CmlrResultOctet
+--    Rsyntax OCTET STRING(SIZE(0..64|255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Information to be placed in the message signal
+         unit based on the value specified by the 
+         cmlrAddressSetResultType object.  When the 
+         cmlrAddressSetResultType object is set to 'pc'
+         or 'none' this object will not be used in the
+         result processing and will have a length of 
+         zero."
+    DEFVAL { ''H }
+    ::= { cmlrAddressTableEntry 8 }
+
+cmlrAddressResultTransType OBJECT-TYPE
+    SYNTAX CgsccpGttTransType
+--    Rsyntax Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The translation type specified within the address in the
+         message signal unit. This object only applies when the 
+         cmlrAddressSetResultType is set to 'gt' value."
+    DEFVAL { 0 }
+    ::= { cmlrAddressTableEntry 9 }
+
+cmlrAddressResultGti OBJECT-TYPE
+    SYNTAX CgsccpGttGlobalTitleInd
+--    Rsyntax Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The global title indicator value for the global tile address
+         specified within the message signal unit.  This object only
+         applies when the cmlrAddressSetResultType is set to 
+         'gt' value."
+    DEFVAL { 0 }
+    ::= { cmlrAddressTableEntry 10 }
+
+cmlrAddressResultNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan for the global tile address specified
+         within the message signal unit.  This object only applies 
+         when the cmlrAddressSetResultType is set to 'gt' value."
+    DEFVAL { 0 }
+    ::= { cmlrAddressTableEntry 11 }
+
+cmlrAddressResultNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of specified address for the global tile 
+         address specified within the message signal unit.  This 
+         object only applies when the cmlrAddressSetResultType is 
+         set to 'gt' value."
+    DEFVAL { 0 }
+    ::= { cmlrAddressTableEntry 12 }
+
+cmlrAddressResultPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The point-code to be place in the message signal unit.  This 
+         object only applies when the cmlrAddressResultType is set 
+         to 'pc' value."
+    DEFVAL { 0 }
+    ::= { cmlrAddressTableEntry 13 }
+
+cmlrAddressResultSsn OBJECT-TYPE
+    SYNTAX CItpTcSubSystemNumber
+--    Rsyntax Gauge(0|2..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The subsystem number to be place in the message signal unit.  
+         This object only applies when the cmlrAddressResultType is set 
+         to 'ssn' value."
+    DEFVAL { 0 }
+    ::= { cmlrAddressTableEntry 14 }
+
+cmlrAddressMatchCounts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of times address was matched. This counter
+         is only incremented when rule matches."
+    ::= { cmlrAddressTableEntry 15 }
+
+cmlrAddressRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used by a management station to create or 
+         delete the row entry in cmlrAddressTable following
+         the RowStatus textual convention."
+    ::= { cmlrAddressTableEntry 16 }
+
+cmlrRuleSetTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmlrRuleSetTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that is used to specify attributes of an
+         application-layer message to be matched and the resulting
+         behavior for handling the message.  Entries are added to 
+         this table via cmlrRuleSetRowStatus in accordance with the
+         RowStatus convention."
+    ::= { ciscoMlrMIBObjects 5 }
+
+cmlrRuleSetTableEntry OBJECT-TYPE
+    SYNTAX CmlrRuleSetTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a set of addresses
+         used to perform non-standard routing of messages 
+         signalling units.."
+    INDEX { cgspInstNetwork, cmlrRuleSetName }
+    ::= { cmlrRuleSetTable 1 }
+
+CmlrRuleSetTableEntry ::= SEQUENCE {
+    cmlrRuleSetName CmlrRuleSetName,
+    cmlrRuleSetSegmented TruthValue,
+    cmlrRuleSetProtocol CmlrRuleProtocol,
+    cmlrRuleSetSearchType INTEGER,
+    cmlrRuleSetStartDateAndTime DateAndTime,
+    cmlrRuleSetEndDateAndTime DateAndTime,
+    cmlrRuleSetRowStatus RowStatus
+    }
+
+cmlrRuleSetName OBJECT-TYPE
+    SYNTAX CmlrRuleSetName
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A name used to define a set rules used to transform
+         traffic."
+    ::= { cmlrRuleSetTableEntry 1 }
+
+cmlrRuleSetSegmented OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether segmented messages will be
+         processed by rules contained in this ruleset.
+         'true'  - Segmented messages will be processed.
+         'false' - Segmented messages will not be processed."
+    DEFVAL { false }
+    ::= { cmlrRuleSetTableEntry 2 }
+
+cmlrRuleSetProtocol OBJECT-TYPE
+    SYNTAX CmlrRuleProtocol
+--    Rsyntax INTEGER {
+--        none(1),
+--        gsmMap(2),
+--        ansi41(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used to establish a default protocol
+         type for all rules within the rule set.  If this
+         object is set to 'none'  will default to protocol
+         specified by variant."
+    DEFVAL { gsmMap }
+    ::= { cmlrRuleSetTableEntry 3 }
+
+cmlrRuleSetSearchType OBJECT-TYPE
+    SYNTAX INTEGER {
+        seq(1),
+        bestMatch(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " Defines how the rules with the ruleset will be search
+          as follows.
+          
+          'seq'  : Rules will be processed in ascending order 
+                   based on the value of the cmlrRuleNumber
+                   object 
+          'bestMatch'  : Rules will be processed using a combination
+                   of operation and order number to reduce cost of 
+                   locating rule providing best match."
+    DEFVAL { seq }
+    ::= { cmlrRuleSetTableEntry 4 }
+
+cmlrRuleSetStartDateAndTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The local date and time when this trigger and sub-triggers
+         will become active.  When the value is null then the
+         cmlrInstStartDateAndTime does not apply. "
+    DEFVAL { '0000000000000000'H }
+    ::= { cmlrRuleSetTableEntry 5 }
+
+cmlrRuleSetEndDateAndTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The local date and time this trigger and sub-triggers
+         will become inactive.  When the value is null then the
+         cmlrInstEndDateAndTime does not apply. "
+    DEFVAL { '0000000000000000'H }
+    ::= { cmlrRuleSetTableEntry 6 }
+
+cmlrRuleSetRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used by a management station to create or 
+         delete the row entry in cmlrRuleSetTable following
+         the RowStatus textual convention."
+    ::= { cmlrRuleSetTableEntry 7 }
+
+cmlrRuleTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmlrRuleTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table that is used to specify attributes of an
+         application-layer message to be matched and the resulting
+         behavior for handling the message.  Entries are
+         added to this table via cmlrRuleRowStatus in 
+         accordance with the RowStatus convention."
+    ::= { ciscoMlrMIBObjects 6 }
+
+cmlrRuleTableEntry OBJECT-TYPE
+    SYNTAX CmlrRuleTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entries in this table are searched in the specified order
+         defined but cmlrRuleNumber object
+            
+         -----------------------------------
+         | operation | ANSI-41 | GSP-MAP    |
+         -----------------------------------|
+         | alertsc   |         |    X       |
+         | smdpp     |   X     |            |
+         | sms-mo    |         |    X       | 
+         | sms-mt    |         |    X       | 
+         | smsnot    |   X     |            |
+         | smsreq    |   X     |            |
+         | sri-sm    |         |    X       |
+         ---------- -------------------------
+        
+         Rule parameters by operation
+         ----------------------------------------------
+         | operation |   sme   |  smsc   |   |   |port|
+         |           |---------|---------|   |   |----|
+         |           |dest|orig|orig|dest|pid|tid|dest|
+         ---------------------------------------------|
+         | smdPp     |  X |  X |    |    |   | X |    |
+         | smsReq    |  X |    |    |    |   | X |    |
+         | smsNotify |  X |    |    |    |   | X |    |
+         | smsMo     |  X |  X |    |  X | X |   |  X |
+         | smsMt     |  X |  X |  X |    | X |   |  X |
+         | sriSm     |  X |    |  X |    |   |   |    |
+         | altertSc  |  X |    |    |  X |   |   |    |
+         | all       |    |    |    |    |   |   |    |
+         ----------------------------------------------
+         
+         Parameters format by operation
+         ------------------------------------------------------------
+         | operation |digit |                    |                  |
+         |           |length|dest-sme-addr-type  |dest-sme-addr-type|
+         ------------------------------------------------------------
+         |alertSc    |1-16  |noa/np defaults to  | specific np/noa  |
+         |           |      |International/E.164 |                  |
+         |           |      |                    |                  |
+         |smdPp      |1-20  |                    |                  |
+         |           |      |                    |                  |
+         |smsMo      |1-20  |noa/np defaults to  | specific np/noa  |
+         |           |      |International/E.164 |                  |
+         |           |      |                    |                  |
+         |smsMt      |1-20  |noa/np defaults to  | specific np/noa  |
+         |           |      |International/E.164 |                  |
+         |           |      |                    |                  |
+         |smsNotif   |1-20  |                    |                  |
+         |           |      |                    |                  |
+         |smsReq     |1-20  |                    |                  |
+         |           |      |                    |                  |
+         |sriSm      |1-16  |noa/np defaults to  | specific np/noa  |
+         |           |      |International/E.164 |                  |
+         |           |      |                    |                  |
+         ------------------------------------------------------------"
+    INDEX { cgspInstNetwork, cmlrRuleSetName, cmlrRuleNumber }
+    ::= { cmlrRuleTable 1 }
+
+CmlrRuleTableEntry ::= SEQUENCE {
+    cmlrRuleNumber CmlrId,
+    cmlrRuleOperationType INTEGER,
+    cmlrRuleProtocol CmlrRuleProtocol,
+    cmlrRuleInputParameters OCTET STRING,
+    cmlrRuleDestPort Gauge,
+    cmlrRuleDestSmeGta CItpTcGtaLongDisplay,
+    cmlrRuleDestSmeNai CItpTcNAI,
+    cmlrRuleDestSmeNp CItpTcNumberingPlan,
+    cmlrRuleDestSmscGta CItpTcGtaLongDisplay,
+    cmlrRuleDestSmscNai CItpTcNAI,
+    cmlrRuleDestSmscNp CItpTcNumberingPlan,
+    cmlrRuleOrigSmeGta CItpTcGtaLongDisplay,
+    cmlrRuleOrigSmeNai CItpTcNAI,
+    cmlrRuleOrigSmeNp CItpTcNumberingPlan,
+    cmlrRuleOrigSmscGta CItpTcGtaLongDisplay,
+    cmlrRuleOrigSmscNai CItpTcNAI,
+    cmlrRuleOrigSmscNp CItpTcNumberingPlan,
+    cmlrRuleProtocolId Gauge,
+    cmlrRuleTeleserviceId Gauge,
+    cmlrRuleAddressTable CmlrName,
+    cmlrRuleResultParameters CmlrResultParameters,
+    cmlrRuleResultNetwork CItpTcNetworkName,
+    cmlrRuleResultType CmlrResultType,
+    cmlrRuleResultOctet CmlrResultOctet,
+    cmlrRuleResultTransType CgsccpGttTransType,
+    cmlrRuleResultGti CgsccpGttGlobalTitleInd,
+    cmlrRuleResultNp CItpTcNumberingPlan,
+    cmlrRuleResultNai CItpTcNAI,
+    cmlrRuleResultPc CItpTcPointCode,
+    cmlrRuleResultSsn CItpTcSubSystemNumber,
+    cmlrRuleMatchCounts Counter,
+    cmlrRuleRowStatus RowStatus,
+    cmlrRuleOrigAddressTable CmlrName,
+    cmlrRuleDestSmeMinDigits CmlrMinimumDigits,
+    cmlrRuleDestSmeMaxDigits CmlrMaximumDigits,
+    cmlrRuleDestSmeTableNai CItpTcNAI,
+    cmlrRuleDestSmeTableNp CItpTcNumberingPlan,
+    cmlrRuleDestSmscMinDigits CmlrMinimumDigits,
+    cmlrRuleDestSmscMaxDigits CmlrMaximumDigits,
+    cmlrRuleOrigSmeMinDigits CmlrMinimumDigits,
+    cmlrRuleOrigSmeMaxDigits CmlrMaximumDigits,
+    cmlrRuleOrigSmeTableNai CItpTcNAI,
+    cmlrRuleOrigSmeTableNp CItpTcNumberingPlan,
+    cmlrRuleOrigImsiGta CItpTcGtaLongDisplay,
+    cmlrRuleOrigImsiNai CItpTcNAI,
+    cmlrRuleOrigImsiNp CItpTcNumberingPlan,
+    cmlrRuleOrigImsiMinDigits CmlrMinimumDigits,
+    cmlrRuleOrigImsiMaxDigits CmlrMaximumDigits,
+    cmlrRuleOrigImsiTable CmlrName,
+    cmlrRuleOrigSmscMinDigits CmlrMinimumDigits,
+    cmlrRuleOrigSmscMaxDigits CmlrMaximumDigits
+    }
+
+cmlrRuleNumber OBJECT-TYPE
+    SYNTAX CmlrId
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the index for a list of secondary
+         triggers specified per routing table.  The trigger will be 
+         processed in ascending order."
+    ::= { cmlrRuleTableEntry 1 }
+
+cmlrRuleOperationType OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        unknown(0),
+        alertSc(1),
+        smdPp(2),
+        smsMo(3),
+        smsMt(4),
+        smsReg(5),
+        sriSm(6),
+        smsNotify(7),
+        all(255)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The list of possible operation types.
+         'unknown'    : undefined operation type.
+         'alertSc'    : Used to identify AlertServiceCenter request
+                        messages in GSM MAP.
+        
+         'smdPp'      : Used to identify SMS DeliveryPointToPoint 
+                        request messages for the GSM MAP and ANSI-41.
+                        
+         'smsMo'      : Used to identify SMS MO request messages 
+                        for the GSM MAP and ANSI-41.                  
+                        
+         'smsMt'      : Used to identify SMS MT request messages 
+                        for the GSM MAP and ANSI-41.                  
+                        
+         'smsReq'     : Used to identify the SMSRequest request messages
+                        within ANSI-41.
+         
+         'sriSm'      : Used to identify SRI SM request messages 
+                        in GSM MAP and SMSRequest messages 
+                        in ANSI-41.
+                        
+         'smsNotify'  : Used to identify Alert Service Center 
+                        messages in GSM MAP and SMSNotification
+                        messages in ANSI-41.
+                        
+         'all'        : Used to identify a match of any valid 
+                        operation code."
+    ::= { cmlrRuleTableEntry 2 }
+
+cmlrRuleProtocol OBJECT-TYPE
+    SYNTAX CmlrRuleProtocol
+--    Rsyntax INTEGER {
+--        none(1),
+--        gsmMap(2),
+--        ansi41(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Protocol used to examine message.
+         'none'   : Will use protocol specified in cmlrRuleSetProtocol 
+                    object.
+         'gsmMap' : Global system for mobile communications 
+                         Mobile Application Part operations should 
+                         be matched by this rule.
+         'is41'   : Indicates that only ANSI-41 operations
+                    should be matched by this rule."
+    ::= { cmlrRuleTableEntry 3 }
+
+cmlrRuleInputParameters OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..6))
+        -- BITS are:
+        --   destPort(0)
+        --   destSmeGta(1)
+        --   destSmeExact(2)
+        --   destSmeNai(3)
+        --   destSmeNp(4)
+        --   destSmeImsi(5)
+        --   destSmeMin(6)
+        --   destSmscGta(7)
+        --   destSmscExact(8)
+        --   destSmscNai(9)
+        --   destSmscNp(10)
+        --   origSmeGta(11)
+        --   origSmeExact(12)
+        --   origSmeNai(13)
+        --   origSmeNp(14)
+        --   origSmscGta(15)
+        --   origSmscExact(16)
+        --   origSmscNai(17)
+        --   origSmscNp(18)
+        --   pid(19)
+        --   tid(20)
+        --   default(21)
+        --   destSmeTable(22)
+        --   origSmeTable(23)
+        --   destSmeMinDigits(24)
+        --   destSmeMaxDigits(25)
+        --   destSmeTableImsi(26)
+        --   destSmeTableNai(27)
+        --   destSmeTableNp(28)
+        --   destSmscMinDigits(29)
+        --   destSmscMaxDigits(30)
+        --   origSmeMinDigits(31)
+        --   origSmeMaxDigits(32)
+        --   origSmeTableNai(33)
+        --   origSmeTableNp(34)
+        --   origImsiGta(35)
+        --   origImsiExact(36)
+        --   origImsiNai(37)
+        --   origImsiNp(38)
+        --   origImsiMinDigits(39)
+        --   origImsiMaxDigits(40)
+        --   origImsiUnknown(41)
+        --   origImsiTable(42)
+        --   origSmscMinDigits(43)
+        --   origSmscMaxDigits(44)
+        --   multiMessageDialog(45)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Many of the parameter used in the processing of rules
+         have default values.  These values are determined
+         by a combination of variant and operation type. This
+         object will be provide information which parameter has
+         been specified as follows.
+         
+         'destPort'    : Indicates that the destination Port number
+                         is specified in the cmlrRuleDestPort 
+                         object.
+        
+         'destSmeGta'  : Indicates that a global title address is 
+                         specified in the cmlrRuleDestSmeGta object.
+        
+         'destSmeExact': Indicates that the cmlrRuleDestSmeGta 
+                         address must be an exact match.
+        
+         'destSmeNai'  : Indicates that the nature of specified 
+                         address is specified in the 
+                         cmlrRuleDestSmeNai object.
+                              
+         'destSmeNp'   : Indicates that the numbering plan is 
+                         specified in the cmlrRuleDestSmeNp object.
+                             
+         'destSmeImsi' : Indicates that the address specified in the 
+                         International Mobile Subscriber 
+                         Identification address. This indicator
+                         applies to the cmlrRuleDestSmeGta object.
+        
+         'destSmeMin'  : Indicates that the address specified in the 
+                         Mobile Identification Number. This indicator
+                         applies to the cmlrRuleDestSmeGta object.
+                             
+         'destSmscGta' : Indicates that a global title address is 
+                         specified in the cmlrRuleDestSmscGta object.
+        
+         'destSmscExact':Indicates that the cmlrRuleDestSmscGta 
+                         address must be an exact match.
+                       
+        
+         'destSmscNai' : Indicates that the nature of specified 
+                         address is specified in the 
+                         cmlrRuleDestSmscNai object.
+                              
+        'destSmscNp'  : Indicates that the numbering plan is 
+                        specified in the cmlrRuleDestSmscNp object.
+                             
+        'origSmeGta'  : Indicates that a global title address is 
+                        specified in the cmlrRuleOrigSmeGta object.
+        
+        'origSmeExact': Indicates that the cmlrRuleOrigSmeGta 
+                        address must be an exact match.
+               
+        
+        'origSmeNai'  : Indicates that the nature of specified
+                        address is specified in the 
+                        cmlrRuleOrigSmeNai object.
+                             
+        'origSmeNp'   : Indicates that the numbering plan is 
+                        specified in the cmlrRuleOrigSmeNp object.
+        
+        'origSmscGta' : Indicates that a global title address is
+                        specified in the cmlrRuleOrigSmscGta object.
+        
+        'origSmscExact':Indicates that the cmlrRuleOrigSmeGta 
+                        address must be an exact match.
+        
+        'origSmscNai' : Indicates that the nature of specified 
+                        address is specified in the 
+                        cmlrRuleOrigSmscNai object.
+                             
+        'origSmscNp'  : Indicates that the numbering plan is 
+                        specified in the cmlrRuleOrigSmscNp object.
+                             
+        'pid'         : Indicates that the Protocol Identifier has 
+                        been specified in the cmlrRuleProtocolId 
+                        object.
+                                
+        'tid'         : Indicates that the Teleservice Identifier 
+                        has been specified in the 
+                        cmlrRuleTeleserviceId object.
+                                
+        'default'     : Indicates the processing of messages that 
+                        match the specified operation_name only. 
+        
+        'destSmeTable': A table of destination short message entity
+                        addresses.  The name of the table is 
+                        specified in the cmlrRuleAddressTable object.
+                        
+        'origSmeTable': A table of origination short message entity
+                        addresses.  The name of the table is
+                        specified in the cmlrRuleOrigAddressTable
+                        object.
+                        
+        'destSmeMinDigits' 
+                      : Minimum number global title address digits 
+                        specified in the cmlrRuleDestSmeGta object 
+                        using the cmlrRuleDestSmeMinDigits object.
+                        
+        'destSmeMaxDigits' 
+                      : Maximum number global title address digits 
+                        specified in the cmlrRuleDestSmeGta object 
+                        using the cmlrRuleDestSmeMaxDigits object.
+                        
+        'destSmeTableImsi'
+                      : Indicates that the addresses specified in the 
+                        cmlrRuleAddressTable are International Mobile 
+                        Subscriber Identification addresses. 
+                       
+        'destSmeTableNai'
+                      : Indicates that the all nature of specified 
+                        address is specified in the 
+                        cmlrRuleDestSmeTableNai object.
+                        
+        'destSmeTableNp'
+                      : Indicates that the numbering plan is 
+                        specified in the cmlrRuleDestSmeTableNp 
+                        object.
+                             
+        'destSmscMinDigits' 
+                      : Minimum number global title address digits 
+                        specified in the cmlrRuleDestSmscGta object 
+                        using the cmlrRuleDestSmscMinDigits object.
+                        
+        'destSmscMaxDigits' 
+                      : Maximum number global title address digits 
+                        specified in the cmlrRuleDestSmscGta object 
+                        using the cmlrRuleDestSmscMaxDigits object.
+                        
+        'origSmeMinDigits'
+                      : Minimum number global title address digits 
+                        specified in the cmlrRuleOrigSmeGta object 
+                        using the cmlrRuleOrigSmeMinDigits object.
+                        
+        'origSmeMaxDigits'
+                      : Maximum number global title address digits 
+                        specified in the cmlrRuleOrigSmeGta object 
+                        using the cmlrRuleOrigSmeMaxDigits object.
+                  
+        'origSmeTableNai'
+                      : Indicates that the all nature of specified 
+                        address is specified in the 
+                        cmlrRuleOrigSmeTableNai object.
+                        
+        'origSmeTableNp'
+                      : Indicates that the numbering plan is 
+                        specified in the cmlrRuleOrigSmeTableNp 
+                        object.
+                             
+        'origImsiGta' : Indicates that a global title address is 
+                         specified in the cmlrRuleDestSmeGta object.
+        
+        'origImsiExact'
+                      : Indicates that the cmlrRuleDestSmeGta 
+                        address must be an exact match.
+        
+        'origImsiNai' : Indicates that the nature of specified 
+                        address is specified in the 
+                        cmlrRuleDestSmeNai object.
+                              
+        'origImsiNp'  : Indicates that the numbering plan is 
+                        specified in the cmlrRuleDestSmeNp object.
+        
+        'origImsiMinDigits'
+                      : Minimum number global title address digits 
+                        specified in the cmlrRuleOrigImsiGta 
+                        object using the cmlrRuleOrigImsiMinDigits 
+                        object.
+                        
+        'origImsiMaxDigits'
+                      : Maximum number global title address digits 
+                        specified in the cmlrRuleOrigImsiGta object 
+                        using the cmlrRuleOrigImsiMaxDigits object.
+                        
+        'origImsiUnknown' 
+                      : Indicates that the rule can match when packets
+                        do not contain the origination IMSI address. 
+                        That is,  when the address is unknown or 
+                        unspecified.  The IMSI address is only 
+                        specified in map version 3. Therefore, the 
+                        packets using version 1 or 2 when 
+                        match when this parameter is specified.
+        
+        'origImsiTable' 
+                      : A table of origination IMSI addresses. The 
+                        name of the table is specified in the 
+                        cmlrRuleOrigImsiTable object.
+                        
+        'origSmscMinDigits'
+                      : Minimum number global title address digits 
+                        specified in the cmlrRuleOrigSmscGta object 
+                        using the cmlrRuleOrigSmscMinDigits object.
+                        
+        'origSmscMaxDigits'
+                      : Maximum number global title address digits 
+                        specified in the cmlrRuleOrigSmscGta object 
+                        using the cmlrRuleOrigSmscMaxDigits object.
+                        
+        'multiMessageDialog'
+                      : Indicates that this rules applies to packet 
+                        that are part of multiple message dialogs."
+    DEFVAL { '000000000000'h }
+    ::= { cmlrRuleTableEntry 4 }
+
+cmlrRuleDestPort OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A destination application port number.   The value of the 
+         port number maps to the values specified in the User
+         Data Header (UDH) of the SMS message. 
+        
+         This object only applies when the 'destPort' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 5 }
+
+cmlrRuleDestSmeGta OBJECT-TYPE
+    SYNTAX CItpTcGtaLongDisplay
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The destination short message entity global title address.
+                
+         When the length of the global title address is zero it 
+         specified a wildcard match and all global title will 
+         match GTA clause of rule.
+         
+         This object only applies when the 'destSmeGta' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrRuleTableEntry 6 }
+
+cmlrRuleDestSmeNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of specified address for the destination short 
+         message entity global title address specified within the
+         message signal unit.  
+                        
+         This object only applies when the 'destSmeNai' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 7 }
+
+cmlrRuleDestSmeNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan for the destination short message
+         entity global title address specified within the message
+         signal unit.  
+                        
+         This object only applies when the 'destSmeNp' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 8 }
+
+cmlrRuleDestSmscGta OBJECT-TYPE
+    SYNTAX CItpTcGtaLongDisplay
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The destination short message service center global title 
+         address.
+                        
+         When the length of the global title address is zero it 
+         specified a wildcard match and all global title will 
+         match GTA clause of rule.
+         
+         This object only applies when the 'destSmscGta' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrRuleTableEntry 9 }
+
+cmlrRuleDestSmscNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of specified address for the destination short 
+         message service center global title address specified 
+         within the message signal unit.  
+                        
+         This object only applies when the 'destSmscNai' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 10 }
+
+cmlrRuleDestSmscNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan for the destination short message 
+         service center  global title address specified within the 
+         message signal unit.  
+                        
+         This object only applies when the 'destSmscNp' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 11 }
+
+cmlrRuleOrigSmeGta OBJECT-TYPE
+    SYNTAX CItpTcGtaLongDisplay
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The origination short message entity global title address.
+                        
+         When the length of the global title address is zero it 
+         specified a wildcard match and all global title will 
+         match GTA clause of rule.
+         
+         This object only applies when the 'origSmeGta' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrRuleTableEntry 12 }
+
+cmlrRuleOrigSmeNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of specified address for the origination short 
+         message entity global title address specified within the
+         message signal unit.  
+                        
+         This object only applies when the 'origSmeNai' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 13 }
+
+cmlrRuleOrigSmeNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan for the origination short message
+         entity global title address specified within the message
+         signal unit.  
+                        
+         This object only applies when the 'origSmeNp' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 14 }
+
+cmlrRuleOrigSmscGta OBJECT-TYPE
+    SYNTAX CItpTcGtaLongDisplay
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The origination short message service center global title 
+         address.
+                        
+         When the length of the global title address is zero it 
+         specified a wildcard match and all global title will 
+         match GTA clause of rule.
+         
+         This object only applies when the 'origSmscGta' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrRuleTableEntry 15 }
+
+cmlrRuleOrigSmscNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of specified address for the origination short 
+         message service center global title address specified 
+         within the message signal unit.  
+                        
+         This object only applies when the 'origSmscNai' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 16 }
+
+cmlrRuleOrigSmscNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan for the origination short message 
+         service center  global title address specified within the 
+         message signal unit.  
+                        
+         This object only applies when the 'origSmscNp' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 17 }
+
+cmlrRuleProtocolId OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The protocol identifier value used for the 'smsMo and 
+         'smsMt' operations specified by the 
+          cmlrRuleParmsOperationType object.
+         
+         The value of the cmlrRuleParmsMatchPid object maps to the 
+         values specified  for the TP-PID SMS parameter.
+                        
+         This object only applies when the 'pid' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 18 }
+
+cmlrRuleTeleserviceId OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Teleservice identifier value for the following types
+        of operations specified by the cmlrRuleParmsOperationType
+         object.
+            'smdPp'
+            'smsMo' 
+            'smsMt' 
+            'smsNotify' 
+         The value of the cmlrRuleParmsMatchTid object maps to the 
+         values  specified for the SMS_TeleserviceIdentifier 
+         parameter in ANSI-41.
+                        
+         This object only applies when the 'tid' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 19 }
+
+cmlrRuleAddressTable OBJECT-TYPE
+    SYNTAX CmlrName
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the entry in the cmlrAddressTable that will be
+         searched for matches. The table will be search for the 
+         following types of addresses based on values set in the
+         cmlrRuleInputParameters object. 
+        
+         This object only applies when the 'destSmeTable' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrRuleTableEntry 20 }
+
+cmlrRuleResultParameters OBJECT-TYPE
+    SYNTAX CmlrResultParameters
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           network(0)
+--           octet(1)
+--           tranType(2)
+--           gti(3)
+--           np(4)
+--           nai(5)
+--           pc(6)
+--           ssn(7)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Many of the parameter used in the processing of rules
+         have default values.  These values are determined
+         by a combination of variant and operation type. This
+         object will be provide information on which parameter 
+         have been specified as follows.
+         
+         'network'   : cmlrRuleSetResultNetwork
+         'octet'     : cmlrRuleSetResultOctet
+         'tranType'  : cmlrRuleResultTransType
+         'gti'       : cmlrRuleResultGti      
+         'np'        : cmlrRuleResultNp       
+         'nai'       : cmlrRuleResultNai      
+         'pc'        : cmlrRuleResultPc 
+         'ssn'       : cmlrRuleResultSsn"
+    DEFVAL { '00'h }
+    ::= { cmlrRuleTableEntry 21 }
+
+cmlrRuleResultNetwork OBJECT-TYPE
+    SYNTAX CItpTcNetworkName
+--    Rsyntax OCTET STRING(SIZE(0..19))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The network name is used to indicate the network in which
+         the result operation will be performed."
+    ::= { cmlrRuleTableEntry 22 }
+
+cmlrRuleResultType OBJECT-TYPE
+    SYNTAX CmlrResultType
+--    Rsyntax INTEGER {
+--        none(1),
+--        asname(2),
+--        group(3),
+--        gt(4),
+--        pc(5),
+--        pcSsn(6),
+--        block(7),
+--        continue(8),
+--        address(9),
+--        ruleset(10)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specified the type of information to be placed 
+         into the message signal unit or how the it
+         will be processed."
+    DEFVAL { none }
+    ::= { cmlrRuleTableEntry 23 }
+
+cmlrRuleResultOctet OBJECT-TYPE
+    SYNTAX CmlrResultOctet
+--    Rsyntax OCTET STRING(SIZE(0..64|255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Information to be placed in the message signal
+         unit based on the value specified by the 
+         cmlrRuleSetResultType object.  When the 
+         cmlrRuleSetResultType object is set to 'pc'
+         or 'none' this object will not be used in the
+         result processing and will have a length of 
+         zero."
+    DEFVAL { ''H }
+    ::= { cmlrRuleTableEntry 24 }
+
+cmlrRuleResultTransType OBJECT-TYPE
+    SYNTAX CgsccpGttTransType
+--    Rsyntax Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The translation type specified within the  address in the
+         message signal unit. This object only applies when the 
+         cmlrRuleSetResultType is set to 'gt' value."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 25 }
+
+cmlrRuleResultGti OBJECT-TYPE
+    SYNTAX CgsccpGttGlobalTitleInd
+--    Rsyntax Gauge(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The global title indicator value for the global tile address
+         specified within the message signal unit.  This object only
+         applies when the cmlrRuleSetResultType is set to 
+         'gt' value."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 26 }
+
+cmlrRuleResultNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan for the global tile address specified
+         within the message signal unit.  This object only applies 
+         when the cmlrRuleSetResultType is set to 'gt' value."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 27 }
+
+cmlrRuleResultNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of specified address for the global tile 
+         address specified within the message signal unit.  This 
+         object only applies when the cmlrRuleSetResultType is 
+         set to 'gt' value."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 28 }
+
+cmlrRuleResultPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The point-code to be place in the message signal unit.  This 
+         object only applies when the cmlrRuleResultType is set 
+         to 'pc' value."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 29 }
+
+cmlrRuleResultSsn OBJECT-TYPE
+    SYNTAX CItpTcSubSystemNumber
+--    Rsyntax Gauge(0|2..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The subsytem number to be place in the message signal unit.  
+         This object only applies when the cmlrRuleResultType is set 
+         to 'ssn' value."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 30 }
+
+cmlrRuleMatchCounts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Count of the number of times this rule was matched."
+    ::= { cmlrRuleTableEntry 31 }
+
+cmlrRuleRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used by a management station to create or 
+         delete the row entry in cmlrRuleTable following
+         the RowStatus textual convention."
+    ::= { cmlrRuleTableEntry 32 }
+
+cmlrRuleOrigAddressTable OBJECT-TYPE
+    SYNTAX CmlrName
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the entry in the cmlrAddressTable that will be
+         searched for matches. The table will be search for the 
+         following types of addresses based on values set in the
+         cmlrRuleInputParameters object. 
+        
+         This object only applies when the 'origSmeTable' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrRuleTableEntry 33 }
+
+cmlrRuleDestSmeMinDigits OBJECT-TYPE
+    SYNTAX CmlrMinimumDigits
+--    Rsyntax Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the minimum number of digits that the global 
+         title address specified by the cmlrRuleDestSmeGta object
+         can contain for rule to match.
+        
+         This object only applies when the 'destSmeMinDigits' bit is
+         set in the cmlrRuleInputParameters object."
+    ::= { cmlrRuleTableEntry 34 }
+
+cmlrRuleDestSmeMaxDigits OBJECT-TYPE
+    SYNTAX CmlrMaximumDigits
+--    Rsyntax Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of digits that the global 
+         title address specified by the cmlrRuleDestSmeGta object
+         can contain for rule to match.
+        
+         This object only applies when the 'destSmeMaxDigits' bit is
+         set in the cmlrRuleInputParameters object."
+    ::= { cmlrRuleTableEntry 35 }
+
+cmlrRuleDestSmeTableNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of specified address for the global tile 
+         address specified within the message signal unit.  This 
+         object only applies when the 'destSmeTableNai' bit is
+         set in the cmlrRuleInputParameters object.
+         When operation type, cmlrRuleOperationType is 'smsMt'
+         this object does not apply."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 36 }
+
+cmlrRuleDestSmeTableNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan for the destination short message 
+         service center global title address specified within the 
+         message signal unit.  
+                        
+         This object only applies when the 'destSmeTableNp' bit is
+         set in the cmlrRuleInputParameters object. 
+         
+         When operation type, cmlrRuleOperationType is 'smsMt'
+         this object does not apply."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 37 }
+
+cmlrRuleDestSmscMinDigits OBJECT-TYPE
+    SYNTAX CmlrMinimumDigits
+--    Rsyntax Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the minimum number of digits that the global 
+         title address specified by the cmlrRuleDestSmscGta object
+         can contain for rule to match.
+        
+         This object only applies when the 'destSmscMinDigits' bit is
+         set in the cmlrRuleInputParameters object."
+    ::= { cmlrRuleTableEntry 38 }
+
+cmlrRuleDestSmscMaxDigits OBJECT-TYPE
+    SYNTAX CmlrMaximumDigits
+--    Rsyntax Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of digits that the global 
+         title address specified by the cmlrRuleDestSmscGta object
+         can contain for rule to match.
+        
+         This object only applies when the 'destSmscMaxDigits' bit is
+         set in the cmlrRuleInputParameters object."
+    ::= { cmlrRuleTableEntry 39 }
+
+cmlrRuleOrigSmeMinDigits OBJECT-TYPE
+    SYNTAX CmlrMinimumDigits
+--    Rsyntax Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the minimum number of digits that the global 
+         title address specified by the cmlrRuleOrigSmeGta object
+         can contain for rule to match.
+        
+         This object only applies when the 'origSmeMinDigits' bit is
+         set in the cmlrRuleInputParameters object."
+    ::= { cmlrRuleTableEntry 40 }
+
+cmlrRuleOrigSmeMaxDigits OBJECT-TYPE
+    SYNTAX CmlrMaximumDigits
+--    Rsyntax Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of digits that the global 
+         title address specified by the cmlrRuleOrigSmeGta can
+         contain for rule to match.
+        
+         This object only applies when the 'origSmeMaxDigits' bit is
+         set in the cmlrRuleInputParameters object."
+    ::= { cmlrRuleTableEntry 41 }
+
+cmlrRuleOrigSmeTableNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of specified address for the global tile 
+         address specified within the message signal unit.  This 
+         object only applies when the 'origSmeTableNai' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 42 }
+
+cmlrRuleOrigSmeTableNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan for the destination short message 
+         service center global title address specified within the 
+         message signal unit.  
+                        
+         This object only applies when the 'origSmeTableNp' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 43 }
+
+cmlrRuleOrigImsiGta OBJECT-TYPE
+    SYNTAX CItpTcGtaLongDisplay
+--    Rsyntax OCTET STRING(SIZE(0..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The origination short message entity global title address.
+                
+         When the length of the global title address is zero it 
+         specified a wildcard match and all global title will 
+         match GTA clause of rule.
+         
+         This object only applies when the 'origImsiGta' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrRuleTableEntry 44 }
+
+cmlrRuleOrigImsiNai OBJECT-TYPE
+    SYNTAX CItpTcNAI
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The nature of specified address for the origination short 
+         message entity global title address specified within the
+         message signal unit.  
+                        
+         This object only applies when the 'origImsiNai' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 45 }
+
+cmlrRuleOrigImsiNp OBJECT-TYPE
+    SYNTAX CItpTcNumberingPlan
+--    Rsyntax INTEGER(0..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The numbering plan for the origination short message
+         entity global title address specified within the message
+         signal unit.  
+                        
+         This object only applies when the 'origImsiNp' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { 0 }
+    ::= { cmlrRuleTableEntry 46 }
+
+cmlrRuleOrigImsiMinDigits OBJECT-TYPE
+    SYNTAX CmlrMinimumDigits
+--    Rsyntax Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the minimum number of digits that the global 
+         title address specified by the cmlrRuleOrigImsiGta object
+         can contain for rule to match.
+        
+         This object only applies when the 'origImsiMinDigits' bit is
+         set in the cmlrRuleInputParameters object."
+    ::= { cmlrRuleTableEntry 47 }
+
+cmlrRuleOrigImsiMaxDigits OBJECT-TYPE
+    SYNTAX CmlrMaximumDigits
+--    Rsyntax Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of digits that the global 
+         title address specified by the cmlrRuleOrigImsiGta object
+         can contain for rule to match.
+        
+         This object only applies when the 'origImsiMaxDigits' bit is
+         set in the cmlrRuleInputParameters object."
+    ::= { cmlrRuleTableEntry 48 }
+
+cmlrRuleOrigImsiTable OBJECT-TYPE
+    SYNTAX CmlrName
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the entry in the cmlrAddressTable that will be
+         searched for matches.  The table will be search for the 
+         following types of addresses based on values set in the
+         cmlrRuleInputParameters object.  
+        
+         This object only applies when the 'origImsiTable' bit is
+         set in the cmlrRuleInputParameters object."
+    DEFVAL { ''H }
+    ::= { cmlrRuleTableEntry 49 }
+
+cmlrRuleOrigSmscMinDigits OBJECT-TYPE
+    SYNTAX CmlrMinimumDigits
+--    Rsyntax Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the minimum number of digits that the global 
+         title address specified by the cmlrRuleOrigSmscGta 
+         object can contain for rule to match.
+        
+         This object only applies when the 'origSmscMinDigits' 
+         bit is set in the cmlrRuleInputParameters object."
+    ::= { cmlrRuleTableEntry 50 }
+
+cmlrRuleOrigSmscMaxDigits OBJECT-TYPE
+    SYNTAX CmlrMaximumDigits
+--    Rsyntax Gauge(1..20)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of digits that the global 
+         title address specified by the cmlrRuleOrigSmscGta object
+         can contain for rule to match.
+        
+         This object only applies when the 'origSmscMaxDigits' bit is
+         set in the cmlrRuleInputParameters object."
+    ::= { cmlrRuleTableEntry 51 }
+
+cmlrResultSetTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmlrResultSetTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table used to identify a group of results and define
+         parameter that apply to all result within the group. 
+         
+         Entries are added to this table via cmlrResultSetRowStatus 
+         object in accordance with the RowStatus convention."
+    ::= { ciscoMlrMIBObjects 8 }
+
+cmlrResultSetTableEntry OBJECT-TYPE
+    SYNTAX CmlrResultSetTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is used to define a collection of results."
+    INDEX { cgspInstNetwork, cmlrResultSetName }
+    ::= { cmlrResultSetTable 1 }
+
+CmlrResultSetTableEntry ::= SEQUENCE {
+    cmlrResultSetName CmlrName,
+    cmlrResultSetUnavailDiscard TruthValue,
+    cmlrResultSetRowStatus RowStatus
+    }
+
+cmlrResultSetName OBJECT-TYPE
+    SYNTAX CmlrName
+--    Rsyntax OCTET STRING(SIZE(0..20))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A name used to define a result group."
+    ::= { cmlrResultSetTableEntry 1 }
+
+cmlrResultSetUnavailDiscard OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When all results in a group are unavailable this
+         object defines whether to discard packet or to return 
+         packet to SCCP layer for normal processing.
+         
+         'true'  Packet will be discarded.
+        
+         'false' Packet will be returned to SCCP layer for normal 
+                 processing."
+    DEFVAL { true }
+    ::= { cmlrResultSetTableEntry 2 }
+
+cmlrResultSetRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used by a management station to create or 
+         delete the row entry in cmlrResultSetTable following
+         the RowStatus textual convention."
+    ::= { cmlrResultSetTableEntry 3 }
+
+cmlrResultTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmlrResultTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table used to identify a group of destination resources
+         The result group lists the appropriate destination 
+         resources, and the mechanism used to select a single 
+         destination for a given packet.  State information is 
+         determined for each possible destination.  Congested 
+         resources will only be used if no available, non-congested
+         destinations exist.  Only available destinations are 
+         considered for routing.
+         
+         Entries are added to this table via cmlrResultRowStatus 
+         object in accordance with the RowStatus convention."
+    ::= { ciscoMlrMIBObjects 9 }
+
+cmlrResultTableEntry OBJECT-TYPE
+    SYNTAX CmlrResultTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is used to define a collection of 
+         multi-layer routing statements."
+    INDEX { cgspInstNetwork, cmlrResultSetName, cmlrResultNumber }
+    ::= { cmlrResultTable 1 }
+
+CmlrResultTableEntry ::= SEQUENCE {
+    cmlrResultNumber CmlrId,
+    cmlrResultType CmlrResultType,
+    cmlrResultNetwork CItpTcNetworkName,
+    cmlrResultOctet CmlrResultOctet,
+    cmlrResultPc CItpTcPointCode,
+    cmlrResultSsn CItpTcSubSystemNumber,
+    cmlrResultWeight INTEGER,
+    cmlrResultCounts Counter,
+    cmlrResultRowStatus RowStatus
+    }
+
+cmlrResultNumber OBJECT-TYPE
+    SYNTAX CmlrId
+--    Rsyntax Gauge(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the index for a list of results
+         specified per result group. "
+    ::= { cmlrResultTableEntry 1 }
+
+cmlrResultType OBJECT-TYPE
+    SYNTAX CmlrResultType
+--    Rsyntax INTEGER {
+--        none(1),
+--        asname(2),
+--        group(3),
+--        gt(4),
+--        pc(5),
+--        pcSsn(6),
+--        block(7),
+--        continue(8),
+--        address(9),
+--        ruleset(10)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Result type used to route MSU."
+    DEFVAL { none }
+    ::= { cmlrResultTableEntry 2 }
+
+cmlrResultNetwork OBJECT-TYPE
+    SYNTAX CItpTcNetworkName
+--    Rsyntax OCTET STRING(SIZE(0..19))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The network name is used to indicate the network in which
+         the result parameters exist."
+    ::= { cmlrResultTableEntry 3 }
+
+cmlrResultOctet OBJECT-TYPE
+    SYNTAX CmlrResultOctet
+--    Rsyntax OCTET STRING(SIZE(0..64|255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specified the information used to route the MSU
+         based on cmlrResultType object."
+    DEFVAL { ''H }
+    ::= { cmlrResultTableEntry 4 }
+
+cmlrResultPc OBJECT-TYPE
+    SYNTAX CItpTcPointCode
+--    Rsyntax Gauge(0..16777216)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A destination point code that must exist in the MTP3
+         routing table, and its state is extracted from MTP3 
+         for availability purposes.  This object only has 
+         applies when the  cmlrResultType has the 'pc' value.
+         Otherwise, this object will return zero value."
+    DEFVAL { 0 }
+    ::= { cmlrResultTableEntry 5 }
+
+cmlrResultSsn OBJECT-TYPE
+    SYNTAX CItpTcSubSystemNumber
+--    Rsyntax Gauge(0|2..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The subsystem number to be inserted into MSU. This 
+         object only has applies when the cmlrResultType has
+         the 'pcSsn' value.
+         Otherwise, this object will return zero value."
+    DEFVAL { 0 }
+    ::= { cmlrResultTableEntry 6 }
+
+cmlrResultWeight OBJECT-TYPE
+    SYNTAX INTEGER(0..10)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the weight applied to the weighted 
+         round robin distribution algorithm used for multi-layer 
+         result group.  An integer value in the range of 0 to 10.  
+         A value of ten indicates the resource should be selected 
+         ten times more than a resource assigned a weight of one."
+    DEFVAL { 0 }
+    ::= { cmlrResultTableEntry 7 }
+
+cmlrResultCounts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times this entry was invoked."
+    ::= { cmlrResultTableEntry 8 }
+
+cmlrResultRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object is used by a management station to create or 
+         delete the row entry in cmlrResultsTable following
+         the RowStatus textual convention."
+    ::= { cmlrResultTableEntry 9 }
+
+ciscoMlrTableLoad TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoMlrMIB
+    VARIABLES {
+        cgspEventSequenceNumber, cgspCLLICode, cmlrInstLoadStatus, 
+        cmlrInstLastURL }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated whenever a load 
+         operation is started or completed.  Route table
+         configurations can be loaded by CLI requests. 
+         In addition, route tables can loaded using
+         configuration statements.  This allows mlr
+         tables to be reloaded whenever a device restarts."
+    ::= 1
+
+ciscoMlrTableGroup OBJECT IDENTIFIER ::= { ciscoMlrMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Mult-layer routing feature.
+--  objects
+--    cmlrTableLoadNotifEnabled, cmlrInstLastChanged, 
+--    cmlrInstLastLoadTime, cmlrInstLoadStatus, cmlrInstLastURL, 
+--    cmlrInstRoutedCounts, cmlrInstAbortCounts, 
+--    cmlrInstContinueCounts, cmlrInstSmsMoCounts, 
+--    cmlrInstSmsMtCounts, cmlrInstSriSmCounts, cmlrInstSmdPpCounts, 
+--    cmlrInstAlertScCounts, cmlrInstSmsRequestCounts, 
+--    cmlrInstSmsNotifCounts, cmlrInstUnsupSCCPmsgTypeCounts, 
+--    cmlrInstUnsupSegSCCPmsgCounts, cmlrInstUnsupportedMsgCounts, 
+--    cmlrInstParsingErrorCounts, cmlrInstNoResultCounts, 
+--    cmlrInstResultContinueCounts, cmlrInstNoServerDiscardCounts, 
+--    cmlrInstResultGttCounts, cmlrInstUnparsedCounts, 
+--    cmlrInstResultBlockCounts, cmlrInstGTImismatchCounts, 
+--    cmlrInstAddrConvFailureCounts, cmlrInstDestUnavailableCounts, 
+--    cmlrInstFailedTrigMatchCounts, cmlrInstDiscontinuityTime, 
+--    cmlrInstNoServerContinueCounts, cmlrInstResultAsCounts, 
+--    cmlrInstResultPcCounts, cmlrInstResultPcSsnCounts
+
+ciscoMlrTriggerGroup OBJECT IDENTIFIER ::= { ciscoMlrMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to Multi-layer triggers.
+--  objects
+--    cmlrTriggerParameters, cmlrTriggerGt, cmlrTriggerTransType, 
+--    cmlrTriggerGti, cmlrTriggerNp, cmlrTriggerNai, cmlrTriggerPc, 
+--    cmlrTriggerSsn, cmlrTriggerDpc, cmlrTriggerOpc, 
+--    cmlrTriggerOpcMask, cmlrTriggerSi, cmlrTriggerNetwork, 
+--    cmlrTriggerRuleset, cmlrTriggerActive, 
+--    cmlrTriggerStartDateAndTime, cmlrTriggerEndDateAndTime, 
+--    cmlTriggerPreliminaryMatchCounts, cmlrTriggerMatchCounts, 
+--    cmlrTriggerRowStatus, cmlrSubTriggerParameters, 
+--    cmlrSubTriggerGt, cmlrSubTriggerTransType, cmlrSubTriggerGti, 
+--    cmlrSubTriggerNp, cmlrSubTriggerNai, cmlrSubTriggerPc, 
+--    cmlrSubTriggerSsn, cmlrSubTriggerNetwork, 
+--    cmlrSubTriggerRuleset, cmlrSubTriggerMatchCounts, 
+--    cmlrSubTriggerRowStatus
+
+ciscoMlrAddressGroup OBJECT IDENTIFIER ::= { ciscoMlrMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to Multi-layer Addresses.
+--  objects
+--    cmlrAddressResultParameters, cmlrAddressResultNetwork, 
+--    cmlrAddressResultType, cmlrAddressResultOctet, 
+--    cmlrAddressResultTransType, cmlrAddressResultGti, 
+--    cmlrAddressResultNp, cmlrAddressResultNai, 
+--    cmlrAddressResultPc, cmlrAddressResultSsn, 
+--    cmlrAddressMatchCounts, cmlrAddressRowStatus
+
+ciscoMlrRuleSetGroup OBJECT IDENTIFIER ::= { ciscoMlrMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects related to Multi-layer rule sets.
+--  objects
+--    cmlrRuleSetSegmented, cmlrRuleSetProtocol, 
+--    cmlrRuleSetSearchType, cmlrRuleSetStartDateAndTime, 
+--    cmlrRuleSetEndDateAndTime, cmlrRuleSetRowStatus, 
+--    cmlrRuleOperationType, cmlrRuleProtocol, 
+--    cmlrRuleInputParameters, cmlrRuleDestPort, cmlrRuleDestSmeGta, 
+--    cmlrRuleDestSmeNai, cmlrRuleDestSmeNp, cmlrRuleDestSmscGta, 
+--    cmlrRuleDestSmscNai, cmlrRuleDestSmscNp, cmlrRuleOrigSmeGta, 
+--    cmlrRuleOrigSmeNai, cmlrRuleOrigSmeNp, cmlrRuleOrigSmscGta, 
+--    cmlrRuleOrigSmscNai, cmlrRuleOrigSmscNp, cmlrRuleProtocolId, 
+--    cmlrRuleTeleserviceId, cmlrRuleAddressTable, 
+--    cmlrRuleResultParameters, cmlrRuleResultNetwork, 
+--    cmlrRuleResultType, cmlrRuleResultOctet, 
+--    cmlrRuleResultTransType, cmlrRuleResultGti, cmlrRuleResultNp, 
+--    cmlrRuleResultNai, cmlrRuleResultPc, cmlrRuleResultSsn, 
+--    cmlrRuleMatchCounts, cmlrRuleRowStatus
+
+ciscoMlrResultGroup OBJECT IDENTIFIER ::= { ciscoMlrMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Multi-layer results 
+--     feature.
+--  objects
+--    cmlrResultSetUnavailDiscard, cmlrResultSetRowStatus, 
+--    cmlrResultNetwork, cmlrResultType, cmlrResultOctet, 
+--    cmlrResultPc, cmlrResultSsn, cmlrResultWeight, 
+--    cmlrResultCounts, cmlrResultRowStatus
+
+ciscoMlrRuleSetGroupRev1 OBJECT IDENTIFIER ::= { ciscoMlrMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects related to Multi-layer rule sets.
+--  objects
+--    cmlrRuleSetSegmented, cmlrRuleSetProtocol, 
+--    cmlrRuleSetSearchType, cmlrRuleSetStartDateAndTime, 
+--    cmlrRuleSetEndDateAndTime, cmlrRuleSetRowStatus, 
+--    cmlrRuleOperationType, cmlrRuleProtocol, 
+--    cmlrRuleInputParameters, cmlrRuleDestPort, cmlrRuleDestSmeGta, 
+--    cmlrRuleDestSmeNai, cmlrRuleDestSmeNp, cmlrRuleDestSmscGta, 
+--    cmlrRuleDestSmscNai, cmlrRuleDestSmscNp, cmlrRuleOrigSmeGta, 
+--    cmlrRuleOrigSmeNai, cmlrRuleOrigSmeNp, cmlrRuleOrigSmscGta, 
+--    cmlrRuleOrigSmscNai, cmlrRuleOrigSmscNp, cmlrRuleProtocolId, 
+--    cmlrRuleTeleserviceId, cmlrRuleAddressTable, 
+--    cmlrRuleResultParameters, cmlrRuleResultNetwork, 
+--    cmlrRuleResultType, cmlrRuleResultOctet, 
+--    cmlrRuleResultTransType, cmlrRuleResultGti, cmlrRuleResultNp, 
+--    cmlrRuleResultNai, cmlrRuleResultPc, cmlrRuleResultSsn, 
+--    cmlrRuleMatchCounts, cmlrRuleRowStatus, 
+--    cmlrRuleOrigAddressTable
+
+ciscoMlrRuleSetGroupRev2 OBJECT IDENTIFIER ::= { ciscoMlrMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to Multi-layer rule sets.
+--  objects
+--    cmlrRuleSetSegmented, cmlrRuleSetProtocol, 
+--    cmlrRuleSetSearchType, cmlrRuleSetStartDateAndTime, 
+--    cmlrRuleSetEndDateAndTime, cmlrRuleSetRowStatus, 
+--    cmlrRuleOperationType, cmlrRuleProtocol, 
+--    cmlrRuleInputParameters, cmlrRuleDestPort, cmlrRuleDestSmeGta, 
+--    cmlrRuleDestSmeNai, cmlrRuleDestSmeNp, cmlrRuleDestSmscGta, 
+--    cmlrRuleDestSmscNai, cmlrRuleDestSmscNp, cmlrRuleOrigSmeGta, 
+--    cmlrRuleOrigSmeNai, cmlrRuleOrigSmeNp, cmlrRuleOrigSmscGta, 
+--    cmlrRuleOrigSmscNai, cmlrRuleOrigSmscNp, cmlrRuleProtocolId, 
+--    cmlrRuleTeleserviceId, cmlrRuleAddressTable, 
+--    cmlrRuleResultParameters, cmlrRuleResultNetwork, 
+--    cmlrRuleResultType, cmlrRuleResultOctet, 
+--    cmlrRuleResultTransType, cmlrRuleResultGti, cmlrRuleResultNp, 
+--    cmlrRuleResultNai, cmlrRuleResultPc, cmlrRuleResultSsn, 
+--    cmlrRuleMatchCounts, cmlrRuleRowStatus, 
+--    cmlrRuleOrigAddressTable, cmlrRuleDestSmeMinDigits, 
+--    cmlrRuleDestSmeMaxDigits, cmlrRuleDestSmeTableNai, 
+--    cmlrRuleDestSmeTableNp, cmlrRuleDestSmscMinDigits, 
+--    cmlrRuleDestSmscMaxDigits, cmlrRuleOrigSmeMinDigits, 
+--    cmlrRuleOrigSmeMaxDigits, cmlrRuleOrigSmeTableNai, 
+--    cmlrRuleOrigSmeTableNp, cmlrRuleOrigImsiGta, 
+--    cmlrRuleOrigImsiNai, cmlrRuleOrigImsiNp, 
+--    cmlrRuleOrigImsiMinDigits, cmlrRuleOrigImsiMaxDigits, 
+--    cmlrRuleOrigImsiTable, cmlrRuleOrigSmscMinDigits, 
+--    cmlrRuleOrigSmscMaxDigits
+
+ciscoMlrNotificationsGroup OBJECT IDENTIFIER ::= { ciscoMlrMIBGroups 6 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Mult-layer routing notification objects.
+--  notifications
+--    ciscoMlrTableLoad
+
+ciscoMlrMIBCompliance OBJECT IDENTIFIER ::= { ciscoMlrMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco CISCO-ITP-MLR-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoMlrTableGroup
+--   MandGroup
+--    ciscoMlrTriggerGroup
+--   MandGroup
+--    ciscoMlrAddressGroup
+--   MandGroup
+--    ciscoMlrRuleSetGroup
+--   MandGroup
+--    ciscoMlrResultGroup
+--   MandGroup
+--    ciscoMlrNotificationsGroup
+--   ObjVar
+--    cmlrTriggerParameters
+--   ObjVar
+--    cmlrTriggerGt
+--   ObjVar
+--    cmlrTriggerTransType
+--   ObjVar
+--    cmlrTriggerGti
+--   ObjVar
+--    cmlrTriggerNp
+--   ObjVar
+--    cmlrTriggerNai
+--   ObjVar
+--    cmlrTriggerPc
+--   ObjVar
+--    cmlrTriggerSsn
+--   ObjVar
+--    cmlrTriggerDpc
+--   ObjVar
+--    cmlrTriggerOpc
+--   ObjVar
+--    cmlrTriggerOpcMask
+--   ObjVar
+--    cmlrTriggerSi
+--   ObjVar
+--    cmlrTriggerNetwork
+--   ObjVar
+--    cmlrTriggerRuleset
+--   ObjVar
+--    cmlrTriggerStartDateAndTime
+--   ObjVar
+--    cmlrTriggerEndDateAndTime
+--   ObjVar
+--    cmlrTriggerRowStatus
+--   ObjVar
+--    cmlrSubTriggerParameters
+--   ObjVar
+--    cmlrSubTriggerGt
+--   ObjVar
+--    cmlrSubTriggerTransType
+--   ObjVar
+--    cmlrSubTriggerGti
+--   ObjVar
+--    cmlrSubTriggerNp
+--   ObjVar
+--    cmlrSubTriggerNai
+--   ObjVar
+--    cmlrSubTriggerPc
+--   ObjVar
+--    cmlrSubTriggerSsn
+--   ObjVar
+--    cmlrSubTriggerNetwork
+--   ObjVar
+--    cmlrSubTriggerRuleset
+--   ObjVar
+--    cmlrSubTriggerRowStatus
+--   ObjVar
+--    cmlrRuleSetSegmented
+--   ObjVar
+--    cmlrRuleSetProtocol
+--   ObjVar
+--    cmlrRuleSetSearchType
+--   ObjVar
+--    cmlrRuleSetStartDateAndTime
+--   ObjVar
+--    cmlrRuleSetEndDateAndTime
+--   ObjVar
+--    cmlrRuleSetRowStatus
+--   ObjVar
+--    cmlrRuleOperationType
+--   ObjVar
+--    cmlrRuleProtocol
+--   ObjVar
+--    cmlrRuleInputParameters
+--   ObjVar
+--    cmlrRuleDestPort
+--   ObjVar
+--    cmlrRuleDestSmeGta
+--   ObjVar
+--    cmlrRuleDestSmeNai
+--   ObjVar
+--    cmlrRuleDestSmeNp
+--   ObjVar
+--    cmlrRuleDestSmscGta
+--   ObjVar
+--    cmlrRuleDestSmscNai
+--   ObjVar
+--    cmlrRuleDestSmscNp
+--   ObjVar
+--    cmlrRuleOrigSmeGta
+--   ObjVar
+--    cmlrRuleOrigSmeNai
+--   ObjVar
+--    cmlrRuleOrigSmeNp
+--   ObjVar
+--    cmlrRuleOrigSmscGta
+--   ObjVar
+--    cmlrRuleOrigSmscNai
+--   ObjVar
+--    cmlrRuleOrigSmscNp
+--   ObjVar
+--    cmlrRuleProtocolId
+--   ObjVar
+--    cmlrRuleTeleserviceId
+--   ObjVar
+--    cmlrRuleResultParameters
+--   ObjVar
+--    cmlrRuleAddressTable
+--   ObjVar
+--    cmlrRuleResultNetwork
+--   ObjVar
+--    cmlrRuleResultType
+--   ObjVar
+--    cmlrRuleResultOctet
+--   ObjVar
+--    cmlrRuleResultTransType
+--   ObjVar
+--    cmlrRuleResultGti
+--   ObjVar
+--    cmlrRuleResultNp
+--   ObjVar
+--    cmlrRuleResultNai
+--   ObjVar
+--    cmlrRuleResultPc
+--   ObjVar
+--    cmlrRuleResultSsn
+--   ObjVar
+--    cmlrRuleRowStatus
+--   ObjVar
+--    cmlrResultSetUnavailDiscard
+--   ObjVar
+--    cmlrResultSetRowStatus
+--   ObjVar
+--    cmlrResultNetwork
+--   ObjVar
+--    cmlrResultType
+--   ObjVar
+--    cmlrResultOctet
+--   ObjVar
+--    cmlrResultPc
+--   ObjVar
+--    cmlrResultSsn
+--   ObjVar
+--    cmlrResultWeight
+--   ObjVar
+--    cmlrResultRowStatus
+
+ciscoMlrMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoMlrMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco CISCO-ITP-MLR-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoMlrTableGroup
+--   MandGroup
+--    ciscoMlrTriggerGroup
+--   MandGroup
+--    ciscoMlrAddressGroup
+--   MandGroup
+--    ciscoMlrRuleSetGroupRev1
+--   MandGroup
+--    ciscoMlrResultGroup
+--   MandGroup
+--    ciscoMlrNotificationsGroup
+--   ObjVar
+--    cmlrTriggerParameters
+--   ObjVar
+--    cmlrTriggerGt
+--   ObjVar
+--    cmlrTriggerTransType
+--   ObjVar
+--    cmlrTriggerGti
+--   ObjVar
+--    cmlrTriggerNp
+--   ObjVar
+--    cmlrTriggerNai
+--   ObjVar
+--    cmlrTriggerPc
+--   ObjVar
+--    cmlrTriggerSsn
+--   ObjVar
+--    cmlrTriggerDpc
+--   ObjVar
+--    cmlrTriggerOpc
+--   ObjVar
+--    cmlrTriggerOpcMask
+--   ObjVar
+--    cmlrTriggerSi
+--   ObjVar
+--    cmlrTriggerNetwork
+--   ObjVar
+--    cmlrTriggerRuleset
+--   ObjVar
+--    cmlrTriggerStartDateAndTime
+--   ObjVar
+--    cmlrTriggerEndDateAndTime
+--   ObjVar
+--    cmlrTriggerRowStatus
+--   ObjVar
+--    cmlrSubTriggerParameters
+--   ObjVar
+--    cmlrSubTriggerGt
+--   ObjVar
+--    cmlrSubTriggerTransType
+--   ObjVar
+--    cmlrSubTriggerGti
+--   ObjVar
+--    cmlrSubTriggerNp
+--   ObjVar
+--    cmlrSubTriggerNai
+--   ObjVar
+--    cmlrSubTriggerPc
+--   ObjVar
+--    cmlrSubTriggerSsn
+--   ObjVar
+--    cmlrSubTriggerNetwork
+--   ObjVar
+--    cmlrSubTriggerRuleset
+--   ObjVar
+--    cmlrSubTriggerRowStatus
+--   ObjVar
+--    cmlrRuleSetSegmented
+--   ObjVar
+--    cmlrRuleSetProtocol
+--   ObjVar
+--    cmlrRuleSetSearchType
+--   ObjVar
+--    cmlrRuleSetStartDateAndTime
+--   ObjVar
+--    cmlrRuleSetEndDateAndTime
+--   ObjVar
+--    cmlrRuleSetRowStatus
+--   ObjVar
+--    cmlrRuleOperationType
+--   ObjVar
+--    cmlrRuleProtocol
+--   ObjVar
+--    cmlrRuleInputParameters
+--   ObjVar
+--    cmlrRuleDestPort
+--   ObjVar
+--    cmlrRuleDestSmeGta
+--   ObjVar
+--    cmlrRuleDestSmeNai
+--   ObjVar
+--    cmlrRuleDestSmeNp
+--   ObjVar
+--    cmlrRuleDestSmscGta
+--   ObjVar
+--    cmlrRuleDestSmscNai
+--   ObjVar
+--    cmlrRuleDestSmscNp
+--   ObjVar
+--    cmlrRuleOrigSmeGta
+--   ObjVar
+--    cmlrRuleOrigSmeNai
+--   ObjVar
+--    cmlrRuleOrigSmeNp
+--   ObjVar
+--    cmlrRuleOrigSmscGta
+--   ObjVar
+--    cmlrRuleOrigSmscNai
+--   ObjVar
+--    cmlrRuleOrigSmscNp
+--   ObjVar
+--    cmlrRuleProtocolId
+--   ObjVar
+--    cmlrRuleTeleserviceId
+--   ObjVar
+--    cmlrRuleResultParameters
+--   ObjVar
+--    cmlrRuleAddressTable
+--   ObjVar
+--    cmlrRuleResultNetwork
+--   ObjVar
+--    cmlrRuleResultType
+--   ObjVar
+--    cmlrRuleResultOctet
+--   ObjVar
+--    cmlrRuleResultTransType
+--   ObjVar
+--    cmlrRuleResultGti
+--   ObjVar
+--    cmlrRuleResultNp
+--   ObjVar
+--    cmlrRuleResultNai
+--   ObjVar
+--    cmlrRuleResultPc
+--   ObjVar
+--    cmlrRuleResultSsn
+--   ObjVar
+--    cmlrRuleRowStatus
+--   ObjVar
+--    cmlrRuleOrigAddressTable
+--   ObjVar
+--    cmlrResultSetUnavailDiscard
+--   ObjVar
+--    cmlrResultSetRowStatus
+--   ObjVar
+--    cmlrResultNetwork
+--   ObjVar
+--    cmlrResultType
+--   ObjVar
+--    cmlrResultOctet
+--   ObjVar
+--    cmlrResultPc
+--   ObjVar
+--    cmlrResultSsn
+--   ObjVar
+--    cmlrResultWeight
+--   ObjVar
+--    cmlrResultRowStatus
+
+ciscoMlrMIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoMlrMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco CISCO-ITP-MLR-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoMlrTableGroup
+--   MandGroup
+--    ciscoMlrTriggerGroup
+--   MandGroup
+--    ciscoMlrAddressGroup
+--   MandGroup
+--    ciscoMlrRuleSetGroupRev2
+--   MandGroup
+--    ciscoMlrResultGroup
+--   MandGroup
+--    ciscoMlrNotificationsGroup
+--   ObjVar
+--    cmlrTriggerParameters
+--   ObjVar
+--    cmlrTriggerGt
+--   ObjVar
+--    cmlrTriggerTransType
+--   ObjVar
+--    cmlrTriggerGti
+--   ObjVar
+--    cmlrTriggerNp
+--   ObjVar
+--    cmlrTriggerNai
+--   ObjVar
+--    cmlrTriggerPc
+--   ObjVar
+--    cmlrTriggerSsn
+--   ObjVar
+--    cmlrTriggerDpc
+--   ObjVar
+--    cmlrTriggerOpc
+--   ObjVar
+--    cmlrTriggerOpcMask
+--   ObjVar
+--    cmlrTriggerSi
+--   ObjVar
+--    cmlrTriggerNetwork
+--   ObjVar
+--    cmlrTriggerRuleset
+--   ObjVar
+--    cmlrTriggerStartDateAndTime
+--   ObjVar
+--    cmlrTriggerEndDateAndTime
+--   ObjVar
+--    cmlrTriggerRowStatus
+--   ObjVar
+--    cmlrSubTriggerParameters
+--   ObjVar
+--    cmlrSubTriggerGt
+--   ObjVar
+--    cmlrSubTriggerTransType
+--   ObjVar
+--    cmlrSubTriggerGti
+--   ObjVar
+--    cmlrSubTriggerNp
+--   ObjVar
+--    cmlrSubTriggerNai
+--   ObjVar
+--    cmlrSubTriggerPc
+--   ObjVar
+--    cmlrSubTriggerSsn
+--   ObjVar
+--    cmlrSubTriggerNetwork
+--   ObjVar
+--    cmlrSubTriggerRuleset
+--   ObjVar
+--    cmlrSubTriggerRowStatus
+--   ObjVar
+--    cmlrRuleSetSegmented
+--   ObjVar
+--    cmlrRuleSetProtocol
+--   ObjVar
+--    cmlrRuleSetSearchType
+--   ObjVar
+--    cmlrRuleSetStartDateAndTime
+--   ObjVar
+--    cmlrRuleSetEndDateAndTime
+--   ObjVar
+--    cmlrRuleSetRowStatus
+--   ObjVar
+--    cmlrRuleOperationType
+--   ObjVar
+--    cmlrRuleProtocol
+--   ObjVar
+--    cmlrRuleInputParameters
+--   ObjVar
+--    cmlrRuleDestPort
+--   ObjVar
+--    cmlrRuleDestSmeGta
+--   ObjVar
+--    cmlrRuleDestSmeNai
+--   ObjVar
+--    cmlrRuleDestSmeNp
+--   ObjVar
+--    cmlrRuleDestSmscGta
+--   ObjVar
+--    cmlrRuleDestSmscNai
+--   ObjVar
+--    cmlrRuleDestSmscNp
+--   ObjVar
+--    cmlrRuleOrigSmeGta
+--   ObjVar
+--    cmlrRuleOrigSmeNai
+--   ObjVar
+--    cmlrRuleOrigSmeNp
+--   ObjVar
+--    cmlrRuleOrigSmscGta
+--   ObjVar
+--    cmlrRuleOrigSmscNai
+--   ObjVar
+--    cmlrRuleOrigSmscNp
+--   ObjVar
+--    cmlrRuleProtocolId
+--   ObjVar
+--    cmlrRuleTeleserviceId
+--   ObjVar
+--    cmlrRuleResultParameters
+--   ObjVar
+--    cmlrRuleAddressTable
+--   ObjVar
+--    cmlrRuleResultNetwork
+--   ObjVar
+--    cmlrRuleResultType
+--   ObjVar
+--    cmlrRuleResultOctet
+--   ObjVar
+--    cmlrRuleResultTransType
+--   ObjVar
+--    cmlrRuleResultGti
+--   ObjVar
+--    cmlrRuleResultNp
+--   ObjVar
+--    cmlrRuleResultNai
+--   ObjVar
+--    cmlrRuleResultPc
+--   ObjVar
+--    cmlrRuleResultSsn
+--   ObjVar
+--    cmlrRuleRowStatus
+--   ObjVar
+--    cmlrRuleOrigAddressTable
+--   ObjVar
+--    cmlrRuleDestSmeMinDigits
+--   ObjVar
+--    cmlrRuleDestSmeMaxDigits
+--   ObjVar
+--    cmlrRuleDestSmeTableNai
+--   ObjVar
+--    cmlrRuleDestSmeTableNp
+--   ObjVar
+--    cmlrRuleDestSmscMinDigits
+--   ObjVar
+--    cmlrRuleDestSmscMaxDigits
+--   ObjVar
+--    cmlrRuleOrigSmeMinDigits
+--   ObjVar
+--    cmlrRuleOrigSmeMaxDigits
+--   ObjVar
+--    cmlrRuleOrigSmeTableNai
+--   ObjVar
+--    cmlrRuleOrigSmeTableNp
+--   ObjVar
+--    cmlrRuleOrigImsiGta
+--   ObjVar
+--    cmlrRuleOrigImsiNai
+--   ObjVar
+--    cmlrRuleOrigImsiNp
+--   ObjVar
+--    cmlrRuleOrigImsiMinDigits
+--   ObjVar
+--    cmlrRuleOrigImsiMaxDigits
+--   ObjVar
+--    cmlrRuleOrigImsiTable
+--   ObjVar
+--    cmlrRuleOrigSmscMinDigits
+--   ObjVar
+--    cmlrRuleOrigSmscMaxDigits
+--   ObjVar
+--    cmlrResultSetUnavailDiscard
+--   ObjVar
+--    cmlrResultSetRowStatus
+--   ObjVar
+--    cmlrResultNetwork
+--   ObjVar
+--    cmlrResultType
+--   ObjVar
+--    cmlrResultOctet
+--   ObjVar
+--    cmlrResultPc
+--   ObjVar
+--    cmlrResultSsn
+--   ObjVar
+--    cmlrResultWeight
+--   ObjVar
+--    cmlrResultRowStatus
+
+
+END
+

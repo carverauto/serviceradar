@@ -1,0 +1,232 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-IMGSEC-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- IMGSEC management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-IMGSEC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprImgsecKeyType,
+    CfprPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprImgsecObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        IMGSEC management information model package"
+    ::= { ciscoFirepowerMIBObjects 38 }
+
+cfprImgsecKeyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprImgsecKeyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Key managed object table"
+    ::= { cfprImgsecObjects 1 }
+
+cfprImgsecKeyEntry OBJECT-TYPE
+    SYNTAX           CfprImgsecKeyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprImgsecKeyTable table."
+    INDEX { cfprImgsecKeyInstanceId }
+    ::= { cfprImgsecKeyTable 1 }
+
+CfprImgsecKeyEntry ::= SEQUENCE {
+    cfprImgsecKeyInstanceId                                          CfprManagedObjectId,
+    cfprImgsecKeyDn                                                  CfprManagedObjectDn,
+    cfprImgsecKeyRn                                                  SnmpAdminString,
+    cfprImgsecKeyType                                                CfprImgsecKeyType,
+    cfprImgsecKeyValue                                               SnmpAdminString
+}
+
+cfprImgsecKeyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprImgsecKeyEntry 1 }
+
+cfprImgsecKeyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Key:dn managed object property"
+    ::= { cfprImgsecKeyEntry 2 }
+
+cfprImgsecKeyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Key:rn managed object property"
+    ::= { cfprImgsecKeyEntry 3 }
+
+cfprImgsecKeyType OBJECT-TYPE
+    SYNTAX       CfprImgsecKeyType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Key:type managed object property"
+    ::= { cfprImgsecKeyEntry 4 }
+
+cfprImgsecKeyValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Key:value managed object property"
+    ::= { cfprImgsecKeyEntry 5 }
+
+cfprImgsecPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprImgsecPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Policy managed object table"
+    ::= { cfprImgsecObjects 2 }
+
+cfprImgsecPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprImgsecPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprImgsecPolicyTable table."
+    INDEX { cfprImgsecPolicyInstanceId }
+    ::= { cfprImgsecPolicyTable 1 }
+
+CfprImgsecPolicyEntry ::= SEQUENCE {
+    cfprImgsecPolicyInstanceId                                       CfprManagedObjectId,
+    cfprImgsecPolicyDn                                               CfprManagedObjectDn,
+    cfprImgsecPolicyRn                                               SnmpAdminString,
+    cfprImgsecPolicyDescr                                            SnmpAdminString,
+    cfprImgsecPolicyIntId                                            SnmpAdminString,
+    cfprImgsecPolicyName                                             SnmpAdminString,
+    cfprImgsecPolicyPolicyLevel                                      Gauge32,
+    cfprImgsecPolicyPolicyOwner                                      CfprPolicyPolicyOwner
+}
+
+cfprImgsecPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprImgsecPolicyEntry 1 }
+
+cfprImgsecPolicyDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Policy:dn managed object property"
+    ::= { cfprImgsecPolicyEntry 2 }
+
+cfprImgsecPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Policy:rn managed object property"
+    ::= { cfprImgsecPolicyEntry 3 }
+
+cfprImgsecPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Policy:descr managed object property"
+    ::= { cfprImgsecPolicyEntry 4 }
+
+cfprImgsecPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Policy:intId managed object property"
+    ::= { cfprImgsecPolicyEntry 5 }
+
+cfprImgsecPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Policy:name managed object property"
+    ::= { cfprImgsecPolicyEntry 6 }
+
+cfprImgsecPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Policy:policyLevel managed
+        object property"
+    ::= { cfprImgsecPolicyEntry 7 }
+
+cfprImgsecPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower imgsec:Policy:policyOwner managed
+        object property"
+    ::= { cfprImgsecPolicyEntry 8 }
+
+END

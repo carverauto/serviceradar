@@ -1,0 +1,373 @@
+-- MIB created 1/15/101 14:36:04, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-PIM-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-PIM-MIB.my"
+
+IMPORTS
+    Counter32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    pimInterfaceStatus, pimRPSetHoldTime
+            FROM PIM-MIB;
+
+ciscoPimMIB OBJECT IDENTIFIER ::= { ciscoMgmt 184 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200011020000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA 95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--     EMail: cs-ipmulticast@cisco.com 
+--  Descr
+--    This MIB module defines the cisco specific variables
+--    for Protocol Independent Multicast (PIM) management. 
+--    These definitions are an extension of those defined in
+--    the IETF PIM MIB (RFC 2934).
+--  RevDate
+--    200011020000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoPimMIBObjects OBJECT IDENTIFIER ::= { ciscoPimMIB 1 }
+cpim            OBJECT IDENTIFIER ::= { ciscoPimMIBObjects 1 }
+ciscoPimMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoPimMIB 2 }
+ciscoPimMIBNotifications OBJECT IDENTIFIER ::= { ciscoPimMIBNotificationPrefix 0 }
+ciscoPimMIBNotificationObjects OBJECT IDENTIFIER ::= { ciscoPimMIBNotificationPrefix 1 }
+ciscoPimMIBConformance OBJECT IDENTIFIER ::= { ciscoPimMIB 3 }
+ciscoPimMIBCompliances OBJECT IDENTIFIER ::= { ciscoPimMIBConformance 1 }
+ciscoPimMIBGroups OBJECT IDENTIFIER ::= { ciscoPimMIBConformance 2 }
+
+cpimInvalidRegisterMsgsRcvd OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A count of the number of invalid PIM Register messages
+        received by this device. A PIM Register message is
+        termed invalid if 
+        o the encapsulated IP header is malformed,
+        o the destination of the PIM Register message is not the
+          RP (Rendezvous Point) for the group in question,
+        o the source/DR (Designated Router) address is not a valid
+          unicast address."
+    ::= { cpim 1 }
+
+cpimInvalidJoinPruneMsgsRcvd OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A count of the number of invalid PIM Join/Prune
+        messages received by this device. A PIM Join/Prune
+        message is termed invalid if
+        
+        o the RP specified in the packet is not the RP for
+          the group in question."
+    ::= { cpim 2 }
+
+cpimLastErrorType OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        invalidRegister(2),
+        invalidJoinPrune(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the last invalid message that was received by
+        this device."
+    ::= { cpim 3 }
+
+cpimLastErrorOriginType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Represents the type of address stored in
+        cpimLastErrorOrigin. The value of this object is
+        irrelevant if the value of cpimLastErrorType is none(1)."
+    ::= { cpim 4 }
+
+cpimLastErrorOrigin OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the Network Layer Address of the
+        source that originated the last invalid packet. The type
+        of address stored depends on the value in
+        cpimLastErrorOriginType. 
+        
+        The value of this object represents the Network Layer
+        Address of the Designated Router (DR) whenever the value
+        of cpimLastErrorGroup is a zero-length address, 
+        for eg. when encapsulated IP header is malformed.
+        
+        The value of this object is irrelevant if the value of
+        cpimLastErrorType is none(1)."
+    ::= { cpim 5 }
+
+cpimLastErrorGroupType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Represents the type of address stored in
+        cpimLastErrorGroup. The value of this object is unknown(0)
+        if there is a problem in the packet received from the
+        DR.
+        
+        The value of this object is irrelevant if the value of
+        cpimLastErrorType is none(1)."
+    ::= { cpim 6 }
+
+cpimLastErrorGroup OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP multicast group address to which the last invalid
+        packet was addressed. The type of address stored
+        depends on the value in cpimLastErrorGroupType. 
+        
+        The value of this object is a zero-length InetAddress if
+        there is a problem in the packet received from the DR,
+        for eg. a malformed encapsulated IP header. 
+        
+        The value of this object is irrelevant if the value of
+        cpimLastErrorType is none(1)."
+    ::= { cpim 7 }
+
+cpimLastErrorRPType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Represents the type of address stored in
+        cpimLastErrorRP. The value of this object is irrelevant
+        if the value of cpimLastErrorType is none(1)."
+    ::= { cpim 8 }
+
+cpimLastErrorRP OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The address of the RP, as per the last invalid
+        packet. The type of address stored depends on the value in
+        cpimLastErrorRPType. 
+        
+        The value of this object is irrelevant if the value of
+        cpimLastErrorType is none(1)."
+    ::= { cpim 9 }
+
+cpimRPMappingChangeType OBJECT-TYPE
+    SYNTAX INTEGER {
+        newMapping(1),
+        deletedMapping(2),
+        modifiedOldMapping(3),
+        modifiedNewMapping(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Describes the operation that resulted in generation
+        of cpimRPMappingChange notification.
+        
+        o newMapping, as the name suggests indicates that a new
+          mapping has been added into the pimRPSetTable, 
+        o deletedMapping indicates that a mapping has been 
+          deleted from the pimRPSetTable, and,
+        o modifiedXXXMapping indicates that an RP mapping (which
+          already existed in the table) has been modified.
+          The two modifications types i.e. modifiedOldMapping
+          and modifiedNewMapping, are defined to differentiate
+          the notification generated before modification from
+          that generated after modification."
+    ::= { ciscoPimMIBNotificationObjects 1 }
+
+ciscoPimInterfaceUp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPimMIBNotificationPrefix
+    VARIABLES {
+        pimInterfaceStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ciscoPimInterfaceUp notification signifies the 
+        restoration of a PIM interface. This notification
+        should be generated whenever pimInterfaceStatus
+        transitions into the 'active' state.
+        pimInterfaceStatus identifies the interface which 
+        was involved in the generation of this notification."
+    ::= 1
+
+ciscoPimInterfaceDown TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPimMIBNotificationPrefix
+    VARIABLES {
+        pimInterfaceStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ciscoPimInterfaceDown notification signifies the loss
+        of a PIM interface. This notification should be generated 
+        whenever an entry is about to be deleted from the
+        PimInterfaceTable.
+        pimInterfaceStatus identifies the interface which 
+        was involved in the generation of this notification."
+    ::= 2
+
+ciscoPimRPMappingChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPimMIBNotificationPrefix
+    VARIABLES {
+        pimRPSetHoldTime, cpimRPMappingChangeType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ciscoPimRPMappingChange notification signifies a change
+        in the RP Mapping on the device in question. A change in RP
+        Mapping could be because of addition of new entries to the
+        RP Mapping cache, deletion of existing entries, or a
+        modification to an existing mapping. The type of change is
+        indicated by cpimRPMappingChangeType. pimRPSetHoldTime 
+        is used to identify the row in the pimRPSetTable that is
+        responsible for the generation of this notification.
+        
+        In case of modification to existing entries, a
+        notification should be generated once before the
+        modification (with cpimRPMappingChangeType set to
+        modifiedOldMapping) and once after modification (with 
+        cpimRPMappingChangeType set to modifiedNewMapping).
+        
+        NOTE: A high frequency of RP Mapping change could result
+        in a large number of ciscoPimRPMappingChange notifications
+        being generated. Hence, in environments where the
+        possibility of a high frequency of RP Mapping change
+        exists, enable this notification with utmost care."
+    ::= 3
+
+ciscoPimInvalidRegister TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPimMIBNotificationPrefix
+    VARIABLES {
+        cpimLastErrorOriginType, cpimLastErrorOrigin, 
+        cpimLastErrorGroupType, cpimLastErrorGroup, 
+        cpimLastErrorRPType, cpimLastErrorRP, 
+        cpimInvalidRegisterMsgsRcvd }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ciscoPimInvalidRegister notification signifies that 
+        an invalid Register message was received by this device.
+        
+        This notification is generated whenever the 
+        cpimInvalidRegisterMsgsRcvd counter is incremented.
+        cpimLastErrorOrigin, cpimLastErrorGroup, and
+        cpimLastErrorRP should signify the source address, group
+        address and the RP address in the invalid register
+        packet."
+    ::= 4
+
+ciscoPimInvalidJoinPrune TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPimMIBNotificationPrefix
+    VARIABLES {
+        cpimLastErrorOriginType, cpimLastErrorOrigin, 
+        cpimLastErrorGroupType, cpimLastErrorGroup, 
+        cpimLastErrorRPType, cpimLastErrorRP, 
+        cpimInvalidJoinPruneMsgsRcvd }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ciscoPimInvalidJoinPrune notification signifies the
+        receipt of an invalid join/prune message.             
+        
+        This notification is generated whenever the
+        cpimInvalidJoinPruneMsgsRcvd counter is incremented.
+        cpimLastErrorOrigin, cpimLastErrorGroup, and
+        cpimLastErrorRP should signify the source address, group
+        address and the RP address in the invalid join/prune
+        packet."
+    ::= 5
+
+ciscoPimSparseMIBGroup OBJECT IDENTIFIER ::= { ciscoPimMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to support management of PIM 
+--    Sparse mode on Cisco devices.
+--  objects
+--    cpimInvalidRegisterMsgsRcvd, cpimInvalidJoinPruneMsgsRcvd, 
+--    cpimLastErrorType, cpimLastErrorOriginType, 
+--    cpimLastErrorOrigin, cpimLastErrorGroupType, 
+--    cpimLastErrorGroup, cpimLastErrorRPType, cpimLastErrorRP
+
+ciscoPimNotificationObjectGroup OBJECT IDENTIFIER ::= { ciscoPimMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that are supported only for
+--    notification purpose.
+--  objects
+--    cpimRPMappingChangeType
+
+ciscoPimSparseMIBCompliance OBJECT IDENTIFIER ::= { ciscoPimMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for devices running PIM Sparse
+--    Mode and implementing the CISCO PIM MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoPimSparseMIBGroup
+--   MandGroup
+--    ciscoPimNotificationObjectGroup
+
+
+END
+

@@ -1,0 +1,741 @@
+-- *****************************************************************
+-- CISCO-NHRP-EXT-MIB.my : Cisco NHRP Extension MIB.
+--   
+-- November 2008, Manish Kumar
+--   
+-- Copyright (c) 2008-2009 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-NHRP-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    nhrpClientRegUniqueness,
+    nhrpClientNhsInternetworkAddr,
+    nhrpClientNhsInternetworkAddrType,
+    nhrpClientNhsNbmaAddrType,
+    nhrpClientNhsNbmaAddr,
+    nhrpClientNhsNbmaSubaddr,
+    nhrpClientIndex,
+    nhrpClientInternetworkAddrType,
+    nhrpClientInternetworkAddr,
+    nhrpClientNbmaAddrType,
+    nhrpClientNbmaAddr,
+    nhrpClientNbmaSubaddr,
+    nhrpClientHoldTime,
+    nhrpClientNhsInUse,
+    nhrpServerNhcPrefixLength,
+    nhrpServerNhcInternetworkAddrType,
+    nhrpServerNhcInternetworkAddr,
+    nhrpServerNhcNbmaAddrType,
+    nhrpServerNhcNbmaAddr,
+    nhrpServerNhcNbmaSubaddr,
+    nhrpServerIndex,
+    nhrpServerInternetworkAddrType,
+    nhrpServerInternetworkAddr,
+    nhrpServerNbmaAddrType,
+    nhrpServerNbmaAddr,
+    nhrpServerNbmaSubaddr,
+    nhrpServerNhcInUse,
+    nhrpServerCacheUniqueness,
+    nhrpClientStatEntry,
+    nhrpServerStatEntry,
+    nhrpCacheNextHopInternetworkAddr,
+    nhrpCacheNbmaAddrType,
+    nhrpCacheNbmaAddr,
+    nhrpCacheNbmaSubaddr,
+    nhrpCacheType
+        FROM NHRP-MIB
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ifIndex,
+    ifName
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoNhrpExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "200811210000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-dmvpn@cisco.com"
+    DESCRIPTION
+        "This MIB module is an extension of the NHRP MIB module as
+        defined in RFC 2677. It defines notifications associated with
+        critical events in the Next Hop Resolution Protocol, NHRP, as
+        defined in RFC 2332. This module also contains information about
+        Cisco proprietary enhancements to the protocol.
+
+        Glossary of terms used in this MIB:
+
+            NBMA                Non-Broadcast Multi-Access
+
+            NHRP                Next Hop Resolution Protocol
+
+            Internetwork layer  The media-independent layer(IP in case
+                                of TCP/IP networks)
+
+            Subnetwork layer    The media-dependent layer underlying
+                                the internetwork layer, including the
+                                NBMA technology
+
+            NHC                 Next Hop Client - An entity which 
+                                initiates NHRP requests of various
+                                types to obtain access to NHRP service.
+
+            NHS                 Next Hop Server - An entity providing 
+                                the NHRP service within the NBMA cloud.
+
+            NHRC                Next Hop Registration Client - An
+                                entity which initiates NHRP 
+                                registration requests.
+
+            NHRS                Next Hop Registration Server - An
+                                entity for which an NHRP registration 
+                                request is destined.
+
+            NHP                 Next Hop Peer - Any two NHRP entities in
+                                an NBMA network which are not related by
+                                an NHRS-NHRC relationship(either of them
+                                has not registered with the other) are
+                                NHPs to each other.
+
+            Client              Unless explicitly stated or obvious 
+                                from context, a client refers to an NHC
+
+            Server              Unless explicitly stated or obvious 
+                                from context, a server refers to an NHS
+
+            Station             A station refers to a host or router
+                                which contains an NHRP entity(NHC/NHS)
+
+        NHRC and NHRS are relevant to a client server model based on
+        registrations alone, in which NHRC is a client and NHRS is a
+        server.
+
+        In case the use of any term is not clear from context or not
+        explicitly stated, they mean the same as in RFC 2332 and 
+        RFC 2677.
+
+        REFERENCE:
+        [1] RFC 2332 - NBMA Next Hop Resolution Protocol (NHRP)
+        [2] RFC 2677 - Definitions of Managed Objects for the NBMA 
+                       Next Hop Resolution Protocol (NHRP)"
+    REVISION        "200811210000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 680 }
+
+
+
+CiscoNhrpErrorCode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is used to indicate the error code
+        associated with failures as part of NHRP protocol messages
+        exchanged in an NBMA network. The values of the enumeration
+        have been chosen to match the values returned as error codes
+        in an NHRP packet. The enumeration can take the following 
+        values.
+
+           -- This indicates that the responder couldn't process an
+           -- extension in the NHRP packet.
+           unrecogExtension(1)              Unrecognized extension
+           -- This indicates that an NHRP packet is being forwarded
+           -- in a loop.
+           loopDetected(3)                  NHRP loop detected
+           -- This indicates that the NHS has refused the NHRP
+           -- Registration/Resolution Request attempt for
+           -- administrative reasons.
+           adminProhibited(4)               Administrative reasons
+           -- This indicates that the NHS can't serve a station due to
+           -- lack of resources.
+           insufficientResources(5)         Insufficient resources
+           -- This indicates that the protocol address of interest is 
+           -- not reachable.
+           addressUnreachable(6)            Protocol address
+                                            unreachable
+           -- This indicates that a generic packet processing error has
+           -- occurred(e.g.failed checksum, invalid protocol type,
+        etc).
+           protocolError(7)                 Protocol Error
+           -- This indicates that the SDU size of the NHRP packet
+           -- exceeds the MTU size of the NBMA network.
+           sduSizeExceeded(8)               NHRP SDU size exceeded
+           -- This indicates that an extension in a packet is
+           -- inappropriate for that packet type.
+           invalidExtension(9)              Inappropriate packet type
+           -- This indicates that a client received an NHRP resolution
+           -- reply for a request which it didn't make.
+           invalidResReply(10)              Invalid NHRP resolution
+                                            reply received
+           -- This indicates that a received packet failed an
+           -- authentication test.
+           authFailure(11)                  Authentication failure
+           -- This indicates that there were absolutely no
+           -- internetworking layer address to NBMA address bindings
+           -- found in the responding NHS's cache.
+           noAddressBinding(12)             No address binding present
+           -- This indicates that there were one or more
+           -- internetworking layer address to NBMA address bindings 
+           -- found in the responding NHS's cache but none of them had 
+           -- the uniqueness bit set.
+           bindingNotUnique(13)             Address binding not unique
+           -- This indicates that the client tried to register a 
+           -- protocol address to NBMA address binding with the 
+           -- uniqueness bit on and the protocol address already exists
+           -- in the NHS's cache(with the uniqueness bit set).
+           uniqueInternetworkAddrRegd(14)   Protocol address(with
+                                            uniqueness bit set) already
+                                            in cache
+           -- This indicates that the hop count of an NHRP packet has
+           -- been exceeded.
+           hopCountExceeded(15)             Hop count exceeded
+           -- This indicates an error that doesn't fall into one of the
+           -- above categories.
+           other(256)                       Other errors"
+
+    REFERENCE
+        "Sec.5.2.2, 5.2.4 and 5.2.7 of NHRP specification(RFC
+        2332)
+        (April 1998)"
+    SYNTAX          INTEGER  {
+                        unrecogExtension(1),
+                        loopDetected(3),
+                        adminProhibited(4),
+                        insufficientResources(5),
+                        addressUnreachable(6),
+                        protocolError(7),
+                        sduSizeExceeded(8),
+                        invalidExtension(9),
+                        invalidResReply(10),
+                        authFailure(11),
+                        noAddressBinding(12),
+                        bindingNotUnique(13),
+                        uniqueInternetworkAddrRegd(14),
+                        hopCountExceeded(15),
+                        other(256)
+                    }
+
+CiscoNextHopDownReasonCode ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is used to indicate the reason code for
+        a next hop(NHRS or NHRC or NHP) going down, as perceived by
+        another NHRP entity. It can take the following values.
+
+           -- This indicates administrative reasons such as manual
+           -- deletion of address binding information.
+           administrative(1)        Administrative reasons
+           -- This indicates that an NHRC's attempt to register with
+           -- an NHRS has failed. The reason for this failure can be
+           -- retrieved from cneNHRPException object.
+           registrationFailure(2)   NHRC's attempt to register failed
+           -- This indicates that an attempt to resolve(or to get
+           -- resolved) a destination address failed. The reason for
+           -- this failure can be retrieved from cneNHRPException
+           -- object.
+           resolutionFailure(3)     Address resolution failed
+           -- This indicates that the address binding information was 
+           -- deleted as a consequence of a receipt of a purge request.
+           purgeReceived(4)         Received a purge request from the
+                                    peer
+           -- This indicates that the address binding information
+           -- expired normally.
+           normalExpiry(5)          Address binding information expired
+                                    normally
+           -- This indicates that the status of the next hop being down
+           -- was learnt from an external entity.
+           external(6)              Learnt from an external entity
+           -- This indicates that the reason for declaring the next hop
+           -- down is not one of the above.
+           other(7)                 Other reasons"
+    SYNTAX          INTEGER  {
+                        administrative(1),
+                        registrationFailure(2),
+                        resolutionFailure(3),
+                        purgeReceived(4),
+                        normalExpiry(5),
+                        external(6),
+                        other(7)
+                    }
+cneNotifs  OBJECT IDENTIFIER
+    ::= { ciscoNhrpExtMIB 0 }
+
+cneObjects  OBJECT IDENTIFIER
+    ::= { ciscoNhrpExtMIB 1 }
+
+cneConform  OBJECT IDENTIFIER
+    ::= { ciscoNhrpExtMIB 2 }
+
+cneGeneralObjects  OBJECT IDENTIFIER
+    ::= { cneObjects 1 }
+
+cneClientObjects  OBJECT IDENTIFIER
+    ::= { cneObjects 2 }
+
+cneServerObjects  OBJECT IDENTIFIER
+    ::= { cneObjects 3 }
+
+cneNotificationControlObjects  OBJECT IDENTIFIER
+    ::= { cneObjects 4 }
+
+
+cneNextHopDownReason OBJECT-TYPE
+    SYNTAX          CiscoNextHopDownReasonCode
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the reason for the NHRP entity to
+        declare a next hop(NHRS or NHRC or NHP) as down." 
+    ::= { cneGeneralObjects 1 }
+
+cneNHRPException OBJECT-TYPE
+    SYNTAX          CiscoNhrpErrorCode
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the error code associated with the
+        protocol message exchange for the error notification
+        generated." 
+    ::= { cneGeneralObjects 2 }
+
+cneClientStatExtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CneClientStatExtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table extends nhrpClientStatTable to provide additional
+        statistics related to NHRP clients."
+    ::= { cneClientObjects 1 }
+
+cneClientStatExtEntry OBJECT-TYPE
+    SYNTAX          CneClientStatExtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in cneClientStatExtTable
+        table and provides additional statistics related to an NHRP
+        client."
+    AUGMENTS           { nhrpClientStatEntry  } 
+ 
+    ::= { cneClientStatExtTable 1 }
+
+CneClientStatExtEntry ::= SEQUENCE {
+        cneClientStatRedirectRx Counter32
+}
+
+cneClientStatRedirectRx OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of NHRP Redirects received
+        by the client.
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, at NHRP Client
+        re-initialization and at other times as indicated by the value
+        of nhrpClientStatDiscontinuityTime." 
+    ::= { cneClientStatExtEntry 1 }
+ 
+
+
+cneServerStatExtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CneServerStatExtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table extends nhrpServerStatTable to provide additional
+        statistics related to NHRP servers."
+    ::= { cneServerObjects 1 }
+
+cneServerStatExtEntry OBJECT-TYPE
+    SYNTAX          CneServerStatExtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in cneServerStatExtTable
+        table and provides additional statistics related to an NHRP
+        server."
+    AUGMENTS           { nhrpServerStatEntry  } 
+ 
+    ::= { cneServerStatExtTable 1 }
+
+CneServerStatExtEntry ::= SEQUENCE {
+        cneServerStatRedirectTx Counter32
+}
+
+cneServerStatRedirectTx OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of NHRP Redirects sent by
+        the server.
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, at NHRP Client
+        re-initialization and at other times as indicated by the value
+        of nhrpServerStatDiscontinuityTime." 
+    ::= { cneServerStatExtEntry 1 }
+ 
+
+
+cneNotifEnable OBJECT-TYPE
+    SYNTAX          BITS {
+                        nextHopRegServerUp(0),
+                        nextHopRegServerDown(1),
+                        nextHopRegClientUp(2),
+                        nextHopRegClientDown(3),
+                        nextHopPeerUp(4),
+                        nextHopPeerDown(5),
+                        rateLimitExceeded(6)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to control the generation of notifications
+        defined in this MIB. The bits when set to 1 or 0 respectively
+        enable or disable the corresponding notification. The mapping
+        between the bits and the notifications are as follows.
+
+        nextHopRegServerUp(0):   This bit enables/disables the 
+                                 cneNotifNextHopRegServerUp
+        notification.
+        nextHopRegServerDown(1): This bit enables/disables the 
+                                 cneNotifNextHopRegServerDown
+        notification.
+        nextHopRegClientUp(2):   This bit enables/disables the 
+                                 cneNotifNextHopRegClientUp
+        notification.
+        nextHopRegClientDown(3): This bit enables/disables the 
+                                 cneNotifNextHopRegClientDown
+        notification.
+        nextHopPeerUp(4):        This bit enables/disables the 
+                                 cneNotifNextHopPeerUp notification.
+        nextHopPeerDown(5):      This bit enables/disables the 
+                                 cneNotifNextHopPeerDown notification.
+        rateLimitExceeded(6):    This bit enables/disables the 
+                                 cneNotifRateLimitExceeded
+        notification."
+    DEFVAL          { { nextHopRegServerUp , nextHopRegServerDown , nextHopRegClientUp , nextHopRegClientDown , rateLimitExceeded } } 
+    ::= { cneNotificationControlObjects 1 }
+
+cneNotifNextHopRegServerUp NOTIFICATION-TYPE
+    OBJECTS         {
+                        nhrpClientInternetworkAddrType,
+                        nhrpClientInternetworkAddr,
+                        nhrpClientNbmaAddrType,
+                        nhrpClientNbmaAddr,
+                        nhrpClientNbmaSubaddr,
+                        nhrpClientNhsInternetworkAddrType,
+                        nhrpClientNhsInternetworkAddr,
+                        nhrpClientNhsNbmaAddrType,
+                        nhrpClientNhsNbmaAddr,
+                        nhrpClientNhsNbmaSubaddr,
+                        nhrpClientHoldTime,
+                        nhrpClientRegUniqueness,
+                        nhrpClientNhsInUse
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification signifies that the SNMP entity, acting as an
+        agent, has detected that one of its NHRP entities, acting as an
+        NHRC, has successfully registered with an NHRS to which it was 
+        not already registered."
+   ::= { cneNotifs 1 }
+
+cneNotifNextHopRegServerDown NOTIFICATION-TYPE
+    OBJECTS         {
+                        nhrpClientInternetworkAddrType,
+                        nhrpClientInternetworkAddr,
+                        nhrpClientNbmaAddrType,
+                        nhrpClientNbmaAddr,
+                        nhrpClientNbmaSubaddr,
+                        nhrpClientNhsInternetworkAddrType,
+                        nhrpClientNhsInternetworkAddr,
+                        nhrpClientNhsNbmaAddrType,
+                        nhrpClientNhsNbmaAddr,
+                        nhrpClientNhsNbmaSubaddr,
+                        cneNextHopDownReason,
+                        cneNHRPException
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification signifies that the SNMP entity, acting as an
+        agent, has detected that that one of its NHRP entities, acting 
+        as a NHRC, has detected(by repeated registration retries or 
+        learnt from some other source(e.g. from a lower layer protocol))
+        that the NHRS it was registered to, or was trying to register 
+        to, is operationally down(from the NHRC's perspective).
+        This notification doesn't indicate that the concerned NHRP 
+        server is down or unreachable or not even that it is unable to
+        provide (other)NHRP services. It just indicates that the NHRC 
+        couldn't register successfully with the NHRS.
+        This notification will be be sent only once for a down  event 
+        i.e. two consecutive cneNotifNextHopRegServerDown notifications
+        (for the same NHRS) must always be interspersed by a 
+        cneNotifNextHopRegServerUp notification(for the same NHRS)."
+   ::= { cneNotifs 2 }
+
+cneNotifNextHopRegClientUp NOTIFICATION-TYPE
+    OBJECTS         {
+                        nhrpServerInternetworkAddrType,
+                        nhrpServerInternetworkAddr,
+                        nhrpServerNbmaAddrType,
+                        nhrpServerNbmaAddr,
+                        nhrpServerNbmaSubaddr,
+                        nhrpServerNhcInternetworkAddrType,
+                        nhrpServerNhcInternetworkAddr,
+                        nhrpServerNhcNbmaAddrType,
+                        nhrpServerNhcNbmaAddr,
+                        nhrpServerNhcNbmaSubaddr,
+                        nhrpServerNhcPrefixLength,
+                        nhrpServerNhcInUse,
+                        nhrpServerCacheUniqueness
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification signifies that the SNMP entity, acting as an
+        agent, has detected that one of its NHRP entities, acting as an
+        NHRS perceives that an NHRP entity(an NHRC), which was not 
+        already registered, has just now successfully registered."
+   ::= { cneNotifs 3 }
+
+cneNotifNextHopRegClientDown NOTIFICATION-TYPE
+    OBJECTS         {
+                        nhrpServerInternetworkAddrType,
+                        nhrpServerInternetworkAddr,
+                        nhrpServerNbmaAddrType,
+                        nhrpServerNbmaAddr,
+                        nhrpServerNbmaSubaddr,
+                        nhrpServerNhcInternetworkAddrType,
+                        nhrpServerNhcInternetworkAddr,
+                        nhrpServerNhcNbmaAddrType,
+                        nhrpServerNhcNbmaAddr,
+                        nhrpServerNhcNbmaSubaddr,
+                        nhrpServerNhcPrefixLength,
+                        nhrpServerCacheUniqueness,
+                        cneNextHopDownReason,
+                        cneNHRPException
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification signifies that the SNMP entity, acting as an
+        agent, has detected that one of its NHRP entities, acting as an
+        NHRS perceives that an NHRP entity, acting as an NHRC, is no 
+        more registered or failed to register.
+        This notification will be be sent only once for a down event 
+        i.e. two consecutive cneNotifNextHopRegClientDown notifications
+        (for the same NHRC) must always be interspersed by a 
+        cneNotifNextHopRegclientUp notification(for the same NHRC)."
+   ::= { cneNotifs 4 }
+
+cneNotifNextHopPeerUp NOTIFICATION-TYPE
+    OBJECTS         {
+                        nhrpClientInternetworkAddrType,
+                        nhrpClientInternetworkAddr,
+                        nhrpClientNbmaAddrType,
+                        nhrpClientNbmaAddr,
+                        nhrpClientNbmaSubaddr,
+                        nhrpCacheNextHopInternetworkAddr,
+                        nhrpCacheNbmaAddrType,
+                        nhrpCacheNbmaAddr,
+                        nhrpCacheNbmaSubaddr,
+                        nhrpCacheType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification signifies that the SNMP entity, acting as an
+        agent, has detected that one of its NHRP entities perceives that
+        it has learnt the protocol-to-NBMA address binding information
+        for an NBMA next hop(which it didn't have). An NHRP entity might
+        learn the same address binding information for a next hop peer
+        as part of multiple address resolutions; this notification 
+        should be sent only when it first learns this address binding
+        information."
+   ::= { cneNotifs 5 }
+
+cneNotifNextHopPeerDown NOTIFICATION-TYPE
+    OBJECTS         {
+                        nhrpClientInternetworkAddrType,
+                        nhrpClientInternetworkAddr,
+                        nhrpClientNbmaAddrType,
+                        nhrpClientNbmaAddr,
+                        nhrpClientNbmaSubaddr,
+                        nhrpCacheNextHopInternetworkAddr,
+                        nhrpCacheNbmaAddrType,
+                        nhrpCacheNbmaAddr,
+                        nhrpCacheNbmaSubaddr,
+                        cneNextHopDownReason,
+                        cneNHRPException
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification signifies that the SNMP entity, acting as an
+        agent, has detected that one of its NHRP entities perceives that
+        it has lost the protocol-to-NBMA address binding information for
+        an NBMA next hop(which it earlier had).
+        An NHRP entity might maintain multiple cache entries, with the 
+        same address binding information, for the same next hop peer
+        (corresponding to different destinations reachable via this next
+        hop peer); This notification will be be sent only when the 
+        address binding information is lost meaning only when all such 
+        entries are deleted.
+        This notification will be be sent only once for a 'down' event 
+        i.e. two consecutive cneNotifNextHopPeerDown notifications
+        (for the same NHP) must always be interspersed by a
+        cneNotifNextHopUp notification(for the same NHP)."
+   ::= { cneNotifs 6 }
+
+cneNotifRateLimitExceeded NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifIndex,
+                        ifName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification signifies that the
+        SNMP entity, acting in an agent role, has detected that one of
+        its NHRP entities(identified by the ifIndex) has been very
+        frequently reaching the threshold on the rate of NHRP protocol
+        messages exchanged in an NBMA network. It is left to each
+        individual implementation to determine the threshold frequency
+        of this event(threshold being reached on the rate of NHRP
+        protocol messages exchanged) which should result in a
+        notification.
+        The ifIndex object in this notification represents the use of a
+        generic ifIndex which reflects a specific NBMA subnetwork
+        related interface as determined by an implementation."
+    REFERENCE
+        "Sec.3.1.1(for ifIndex only) of RFC 2677 (August 1999)"
+   ::= { cneNotifs 7 }
+cneCompliances  OBJECT IDENTIFIER
+    ::= { cneConform 1 }
+
+cneGroups  OBJECT IDENTIFIER
+    ::= { cneConform 2 }
+
+
+cneCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the entities that implement the
+        ciscoNhrpExtMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cneNotificationControlGroup,
+                        cneGeneralNotificationGroup,
+                        cneGeneralGroup
+                    }
+
+    GROUP           cneClientNotificationGroup
+    DESCRIPTION
+        "This group must be supported only by stations that are NHRP
+        clients."
+
+    GROUP           cneServerNotificationGroup
+    DESCRIPTION
+        "This group must be supported only by stations that are NHRP
+        servers."
+
+    GROUP           cneClientGroup
+    DESCRIPTION
+        "This group must be supported only by stations that are NHRP
+        clients."
+
+    GROUP           cneServerGroup
+    DESCRIPTION
+        "This group must be supported only by stations that are NHRP
+        servers."
+    ::= { cneCompliances 1 }
+
+cneGeneralGroup OBJECT-GROUP
+    OBJECTS         {
+                        cneNHRPException,
+                        cneNextHopDownReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects provides information that is applicable
+        to both NHRP clients and servers."
+    ::= { cneGroups 1 }
+
+cneClientGroup OBJECT-GROUP
+    OBJECTS         { cneClientStatRedirectRx }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects provides information specific to NHRP
+        clients."
+    ::= { cneGroups 2 }
+
+cneServerGroup OBJECT-GROUP
+    OBJECTS         { cneServerStatRedirectTx }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects provides information specific to NHRP
+        servers."
+    ::= { cneGroups 3 }
+
+cneNotificationControlGroup OBJECT-GROUP
+    OBJECTS         { cneNotifEnable }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects is required to control the generation
+        of notifications by NHRP agents."
+    ::= { cneGroups 4 }
+
+cneGeneralNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cneNotifRateLimitExceeded,
+                        cneNotifNextHopPeerUp,
+                        cneNotifNextHopPeerDown
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects defines notifications generated by both
+        NHRP clients and servers."
+    ::= { cneGroups 5 }
+
+cneClientNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cneNotifNextHopRegServerUp,
+                        cneNotifNextHopRegServerDown
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects defines notifications generated by NHRP
+        clients."
+    ::= { cneGroups 6 }
+
+cneServerNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cneNotifNextHopRegClientUp,
+                        cneNotifNextHopRegClientDown
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects defines notifications generated by NHRP
+        servers."
+    ::= { cneGroups 7 }
+
+END

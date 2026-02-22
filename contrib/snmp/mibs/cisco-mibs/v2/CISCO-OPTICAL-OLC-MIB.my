@@ -1,0 +1,910 @@
+-- *****************************************************************
+-- CISCO-OPTICAL-OLC-MIB.my
+-- OPTICAL LINE CONTROLLER MIB
+--   
+-- Jan 2023 NCS1010 Team
+--   
+-- Copyright (c) 2023 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-OPTICAL-OLC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    TEXTUAL-CONVENTION,
+    DisplayString,
+    TruthValue,
+    TimeStamp
+        FROM SNMPv2-TC
+    ifIndex,
+    InterfaceIndex,
+    ifName
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoOpticalOlcMIB MODULE-IDENTITY
+    LAST-UPDATED    "202212050000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ncs1k@cisco.com"
+
+    DESCRIPTION
+        "This MIB module defines the managed objects for  optical line 
+        controller applications parameters. Max positive integer value
+        will be displayed for NA values. 
+        Glossary:
+	OLC       : Optical Line Controller
+        GAIN      : Optical Amplifier Gain
+        TX        : Transmit
+        RX        : Receive
+        dB        : Decibel
+        dBm       : Decibel-milliwatt."
+    REVISION        "202211030000Z"
+    DESCRIPTION
+        "- Added new Optical OLC MIB- First version"
+    ::= { ciscoMgmt 1057 }
+
+CiscoOpticalOlcRamanTuningStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the Raman Tuning Status.
+        Valid values are -        
+		startup(1)                : Raman-Tuning current state is in startup.
+		disabled(2)               : Raman-Tuning current state is Disabled.
+		blocked(3)                : Raman-Tuning current state is Blocked.
+		failed(4)                 : Raman-Tuning current state is Failed.
+		measurementInProgress(5)  : Raman-Tuning current state is measurement in progress.
+		calculationInProgress(6)  : Raman-Tuning current state is calculation in progress.
+		optimizationInProgress(7) : Raman-Tuning current state is optimization in progress.
+		tuned(8)                  : Raman-Tuning current state is Tuned."
+    SYNTAX          INTEGER  {
+                        startup(1),
+                        disabled(2),
+                        blocked(3),
+                        failed(4),
+                        measurementInProgress(5),
+                        calculationInProgress(6),
+                        optimizationInProgress(7),
+                        tuned(8)
+                    }
+
+CiscoOpticalOlcRamanTuningFailReason ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the Raman Tuning fail reason.
+        Valid values are -        
+		measurement(1)    : Raman-Tuning has failed because of failure in measurement collection.
+		calculation(2)    : Raman-Tuning has failed because of failure in calculation.
+		optimization(3)   : Raman-Tuning has failed because of failure in optimization."
+    SYNTAX          INTEGER  {
+                        measurement(1),  
+                        calculation(2),  
+                        optimization(3)                        
+                    }
+
+CiscoOpticalOlcApcBlockReason ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the Apc block reason.
+        Valid values are -        
+		hw-fail(1)                         : APC is blocked due to node reporting hardware failure.
+		edfa-shutdown(2)                   : APC is blocked due to EDFA shutdown on node.
+		apr-enabled(3)                     : APC is blocked because of APR enabled on node.
+		user-disabled(4)                   : APC is blocked because of APC disabled by user on node.
+		edfa-apr(5)                        : APC is blocked because of EDFA in APR  on node.
+		gain-estimation-in-progress(6)     : APC is blocked because of Gain estimation in progress on node.
+		band-failure(7)                    : APC is blocked because of Band Failure.
+		partial-topology(8)                : APC is blocked because of Partial topology.
+		node-blocked(9)                    : APC is blocked because of Node blocked in the domain."
+    SYNTAX          INTEGER  {
+		        hw-fail(1),
+		        edfa-shutdown(2),
+		        apr-enabled(3),
+		        user-disabled(4),
+		        edfa-apr(5),
+		        gain-estimation-in-progress(6),
+		        band-failure(7),
+		        partial-topology(8),
+	 	        node-blocked(9)
+                    }
+
+CiscoOpticalOlcPower ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+         "This value indicates the optical power value.
+        An integer value that represents the power in
+        1/100ths of dB. 
+        Example: 
+        The value 800 represents a power of 8.0 dB."
+    SYNTAX          Integer32
+	
+CiscoOpticalOlcGainInDb ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value represent the gain setting.
+        An integer value that represents the gain level in
+        1/100ths of dB. 
+        Example: 
+        The value 800 represents an gain level of 8.0 dB."
+    SYNTAX          Integer32
+
+CiscoOpticalOlcPSDInDbm ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value represent the power spectral density.
+        An integer value that represents the power spectral density in
+        1/100ths of dBm. 
+        Example: 
+        The value 800 represents a PSD Value of 8.0 dBm per 12.5GHz."
+    SYNTAX          Integer32 (-4000..2300)
+
+CiscoOpticalOlcGainEstStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the Status of Gain Estimator Application.
+        Valid values are -        
+		blocked(1)                : Gain Estimator current state is Blocked.
+		disabled(2)               : Gain Estimator current state is Disabled.
+		operational(3)            : Gain Estimator current state is Operational.
+		idle(4 )                  : Gain Estimator current state is Idle."
+    SYNTAX          INTEGER  {
+                        blocked (1),    
+                        disabled( 2),   
+                        operational(3),
+                        idle (4)
+                    }
+					
+CiscoOpticalOlcApcAgentDirection ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the APC agent direction.
+        Valid values are -        
+		Transmit (1)               : APC agent in TX direction.
+		Receive(2)                 : APC agent in RX direction"
+    SYNTAX          INTEGER  {
+                        transmit (1),    
+                        receive (2)
+                    }
+					
+CiscoOpticalOlcApcInternalState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the APC agent internal state.
+        Valid values are -        
+		blocked(1)                : APC node is Blocked.
+		idle (2)                  : APC node in Idle state.
+		oor (3)                   : APC node in Out Of Range state.
+		discrepancy (4)           : APC node reporting Discrepancy.
+		correcting (5)            : APC node in Correcting state.
+		channel-startup (6)       : APC node in starting up channel."
+    SYNTAX          INTEGER  {
+                       blocked (1),    
+                       idle (2),
+                       oor (3),
+                       discrepancy (4),
+                       correcting (5),
+                       channel-startup (6)
+                    }
+
+CiscoOpticalOlcApcManagerState ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the APC manager state.
+        Valid values are -        
+		disabled(1)           : APC current state is Disabled.
+		idle (2)              : APC current state is Idle.
+		blocked (3)           : APC current state is Blocked.
+		working (4)           : APC current state is Working.
+		enable (5)            : APC current state is Enabled.
+		paused (6)            : APC current state is Paused."
+    SYNTAX          INTEGER  {
+                       disabled (1),    
+                       idle (2),
+                       blocked (3),
+                       working (4),
+                       enable (5),
+                       paused (6)
+                    }
+
+CiscoOpticalOlcBandStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the band status.
+        Valid values are -
+
+        unknown(1)    : Band in Unknown status
+        active(2)     : Band in Active status
+	failed(3)     : Band in Failed status
+	recovering(4) : Band in Recovering status"
+    SYNTAX          INTEGER  {
+                        unknown(1),   
+                        active(2),    
+                        failed(3),    
+                        recovering(4)
+                    }
+					
+CiscoOpticalOlcBandPSDType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the PSD type.
+        Valid values are -
+
+        unknown-band-psd(1)  : Unknown Configured PSD for Single Band
+        single-band-psd(2)   : Configured PSD for Single Band
+        dual-band-psd(3)     : Configured PSD for Dual Band "
+    SYNTAX          INTEGER  {
+                        unknown-band-psd(1), 
+                        single-band-psd(2),  
+                        dual-band-psd(3) 
+                    }
+					
+-- Textual Conventions definition will be defined before this line
+
+ciscoOpticalOlcMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoOpticalOlcMIB 1 }
+
+cooOlcData  OBJECT IDENTIFIER
+    ::= { ciscoOpticalOlcMIBObjects 1 }
+
+-- Spanloss definition will be defined after this line
+cooOlcSpanLossTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOlcSpanLossEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for OLC application
+	Span Loss related attributes."
+    ::= { cooOlcData 1 }
+
+cooOlcSpanLossEntry OBJECT-TYPE
+    SYNTAX          CooOlcSpanLossEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on OLC span loss 
+        application related attributes."
+    INDEX           { ifIndex }   
+    ::= { cooOlcSpanLossTable 1 }
+
+CooOlcSpanLossEntry ::= SEQUENCE {
+		cooOlcRxSpanLoss                         CiscoOpticalOlcPower,
+		cooOlcApparentRxSpanLoss                 CiscoOpticalOlcPower,
+		cooOlcRxSpanLossPumpsOff                 CiscoOpticalOlcPower,
+		cooOlcRxSpanLossPumpsOffTimeStamp        OCTET STRING,
+		cooOlcEstimatedRxSpanLoss                CiscoOpticalOlcPower,
+		cooOlcTxSpanLoss                         CiscoOpticalOlcPower,
+		cooOlcApparentTxSpanLoss                 CiscoOpticalOlcPower,
+		cooOlcTxSpanLossPumpsOff                 CiscoOpticalOlcPower,
+		cooOlcTxSpanLossPumpsOffTimeStamp        OCTET STRING,
+		cooOlcEstimatedTxSpanLoss                CiscoOpticalOlcPower 
+}
+
+cooOlcRxSpanLoss OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPower
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the receive power span loss in
+        1/100 dB on optical OLC." 
+    ::= { cooOlcSpanLossEntry 1 }
+	
+cooOlcApparentRxSpanLoss OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPower
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the apparent receive power span loss in
+        1/100 dB on optical OLC." 
+    ::= { cooOlcSpanLossEntry 2 }
+	
+cooOlcRxSpanLossPumpsOff OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPower
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the receive power span loss Pumps Off in
+        1/100 dB on optical OLC." 
+    ::= { cooOlcSpanLossEntry 3 }
+	
+cooOlcRxSpanLossPumpsOffTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the timestamp for
+        Rx Spanloss Pumps Off." 
+    ::= { cooOlcSpanLossEntry 4 }
+	
+cooOlcEstimatedRxSpanLoss OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPower
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the estimated receive span loss in
+        1/100 dB on optical OLC." 
+    ::= { cooOlcSpanLossEntry 5 }
+
+cooOlcTxSpanLoss OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPower
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the transmit span loss in
+        1/100 dB on optical OLC." 
+    ::= { cooOlcSpanLossEntry 6 }
+	
+cooOlcApparentTxSpanLoss OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPower
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the apparent transmit span loss in
+        1/100 dB on optical OLC." 
+    ::= { cooOlcSpanLossEntry 7 }
+	
+cooOlcTxSpanLossPumpsOff OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPower
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the transmit span loss pumps off in
+        1/100 dB on optical OLC." 
+    ::= { cooOlcSpanLossEntry 8 }
+	
+cooOlcTxSpanLossPumpsOffTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the timestamp for
+        Tx Spanloss PumpsOff." 
+    ::= { cooOlcSpanLossEntry 9 }
+	
+cooOlcEstimatedTxSpanLoss OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPower
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the estimated transmit span loss in
+        1/100 dB on optical OLC." 
+    ::= { cooOlcSpanLossEntry 10 }
+	
+-- Raman tuning definition will be defined after this line	
+
+cooOlcRamanTuningTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOlcRamanTuningEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for OLC Application Raman Tuning
+        related attributes."
+    ::= { cooOlcData 2 }
+
+cooOlcRamanTuningEntry OBJECT-TYPE
+    SYNTAX          CooOlcRamanTuningEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing  management information for OLC application
+		Raman tuning related attributes."
+    INDEX           { ifIndex }   
+    ::= { cooOlcRamanTuningTable 1 }
+
+CooOlcRamanTuningEntry ::= SEQUENCE {
+		cooOlcRamanTuningStatus                  CiscoOpticalOlcRamanTuningStatus,
+		cooOlcRamanTuningBlockedReason           DisplayString,
+		cooOlcRamanTuningFailedReason            CiscoOpticalOlcRamanTuningFailReason,
+		cooOlcTuningCompleteTimeStamp            OCTET STRING,
+		cooOlcEstimatedMaxPossibleGain           CiscoOpticalOlcGainInDb,
+		cooOlcRamanGainTarget                    CiscoOpticalOlcGainInDb,
+		cooOlcGainAchievedOnTuningComplete       CiscoOpticalOlcGainInDb		
+}
+
+cooOlcRamanTuningStatus OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcRamanTuningStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Raman Tuning Status." 
+    ::= { cooOlcRamanTuningEntry 1 }
+
+cooOlcRamanTuningBlockedReason OBJECT-TYPE
+    SYNTAX          DisplayString (SIZE (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Raman Tuning blocked reason." 
+    ::= { cooOlcRamanTuningEntry 2 }
+
+cooOlcRamanTuningFailedReason OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcRamanTuningFailReason
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Raman Tuning fail reason." 
+    ::= { cooOlcRamanTuningEntry 3 }
+
+cooOlcTuningCompleteTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Raman Tuning Complete timestamp." 
+    ::= { cooOlcRamanTuningEntry 4 }
+
+cooOlcEstimatedMaxPossibleGain OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcGainInDb
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the estimated maximum possible GAIN in
+        1/100 dB." 
+    ::= { cooOlcRamanTuningEntry 5 }
+
+cooOlcRamanGainTarget OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcGainInDb
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the GAIN target in
+        1/100 dB." 
+    ::= { cooOlcRamanTuningEntry 6 }
+	
+cooOlcGainAchievedOnTuningComplete OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcGainInDb
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the achieved target in
+        1/100 dBm." 
+    ::= { cooOlcRamanTuningEntry 7 }
+
+-- Gain Estimator definition will be defined after this line	
+
+cooOlcGainEstimatorTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOlcGainEstimatorEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for OLC Gain Estimator
+        related attributes."
+    ::= { cooOlcData 3 }
+
+cooOlcGainEstimatorEntry OBJECT-TYPE
+    SYNTAX          CooOlcGainEstimatorEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information of OLC optical layer
+        gain estimator related attributes."
+    INDEX           { ifIndex  	}   
+    ::= { cooOlcGainEstimatorTable 1 }
+
+CooOlcGainEstimatorEntry ::= SEQUENCE {
+		cooOlcEgressGainEstStatus           CiscoOpticalOlcGainEstStatus,
+		cooOlcEgressEstimatedGain           CiscoOpticalOlcGainInDb,
+		cooOlcEgressEstimatedGainMode       OCTET STRING,
+		cooOlcEgressGainEstTimeStamp        OCTET STRING,
+		cooOlcIngressGainEstStatus          CiscoOpticalOlcGainEstStatus,
+		cooOlcIngressEstimatedGain          CiscoOpticalOlcGainInDb,
+		cooOlcIngressEstimatedGainMode      OCTET STRING,
+		cooOlcIngressGainEstTimeStamp       OCTET STRING
+}
+
+cooOlcEgressGainEstStatus OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcGainEstStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Egress Gain Estimator status." 
+    ::= { cooOlcGainEstimatorEntry 1 }
+	
+cooOlcEgressEstimatedGain OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcGainInDb
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the Egress Estimated GAIN in
+        1/100 dB." 
+    ::= { cooOlcGainEstimatorEntry 2 }	
+	
+cooOlcEgressEstimatedGainMode OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Egress Gain Estimator mode." 
+    ::= { cooOlcGainEstimatorEntry 3 }
+
+cooOlcEgressGainEstTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Egress Gain Estimation timestamp." 
+    ::= { cooOlcGainEstimatorEntry 4 }
+
+cooOlcIngressGainEstStatus OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcGainEstStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Ingress Gain Estimator status." 
+    ::= { cooOlcGainEstimatorEntry 5 }
+	
+cooOlcIngressEstimatedGain OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcGainInDb
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the Ingress Estimated GAIN in
+        1/100 dB." 
+    ::= { cooOlcGainEstimatorEntry 6 }	
+	
+cooOlcIngressEstimatedGainMode OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Ingress Gain Estimator mode." 
+    ::= { cooOlcGainEstimatorEntry 7 }
+
+cooOlcIngressGainEstTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Ingress Gain Estimation timestamp." 
+    ::= { cooOlcGainEstimatorEntry 8 }
+	
+-- APC Regulation Info definition will be defined after this line	
+
+cooOlcApcTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOlcApcEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for OLC APC information
+        related attributes."
+    ::= { cooOlcData 4 }
+
+cooOlcApcEntry OBJECT-TYPE
+    SYNTAX          CooOlcApcEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on OLC optical layer
+        APC Application related attributes."
+    INDEX           { ifIndex,
+                      cooOlcApcAgentDirection
+                    }   
+    ::= { cooOlcApcTable 1 }
+
+CooOlcApcEntry ::= SEQUENCE {
+		cooOlcApcAgentDirection               CiscoOpticalOlcApcAgentDirection,
+		cooOlcApcDomainManager                IpAddress,
+                cooOlcApcDomainManagerState           CiscoOpticalOlcApcManagerState,
+                cooOlcApcDomainManagerBlockedReason   CiscoOpticalOlcApcBlockReason,
+		cooOlcApcInternalState                CiscoOpticalOlcApcInternalState,
+		cooOlcApcBlockedReason                CiscoOpticalOlcApcBlockReason,
+		cooOlcApcPsdMin                       CiscoOpticalOlcPSDInDbm,
+		cooOlcApcGainRange                    OCTET STRING,
+		cooOlcApcLastCorrectionTimeStamp      OCTET STRING		
+}
+		
+cooOlcApcAgentDirection OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcApcAgentDirection
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the APC regulation info direction (TX/RX)." 
+    ::= { cooOlcApcEntry 1 }
+	
+cooOlcApcDomainManager OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the APC Domain manager Router ID." 
+    ::= { cooOlcApcEntry 2 }
+
+cooOlcApcDomainManagerState OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcApcManagerState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the APC manager state." 
+    ::= { cooOlcApcEntry 3 }
+
+cooOlcApcDomainManagerBlockedReason OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcApcBlockReason
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the APC Domain manager block reason." 
+    ::= { cooOlcApcEntry 4 }
+
+cooOlcApcInternalState OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcApcInternalState
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the APC agent internal state." 
+    ::= { cooOlcApcEntry 5 }
+
+cooOlcApcBlockedReason OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcApcBlockReason
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the APC block reason." 
+    ::= { cooOlcApcEntry 6 }
+	
+cooOlcApcPsdMin OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPSDInDbm
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the APC agent PSD minimum value (dBm/12.5 GHz)." 
+    ::= { cooOlcApcEntry 7 }
+	
+cooOlcApcGainRange OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the APC agent Gain range configured." 
+    ::= { cooOlcApcEntry 8 }
+	
+cooOlcApcLastCorrectionTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the TimeStamp for last correction by APC." 
+    ::= { cooOlcApcEntry 9 }
+	
+-- Olc Neighbour Info definition will be defined after this line	
+
+cooOlcNeighbourTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOlcNeighbourEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for Neighbour
+        related attributes."
+    ::= { cooOlcData 5 }
+
+cooOlcNeighbourEntry OBJECT-TYPE
+    SYNTAX          CooOlcNeighbourEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on OLC optical layer
+        neighbour information."
+    INDEX           { ifIndex  	}   
+    ::= { cooOlcNeighbourTable 1 }
+
+CooOlcNeighbourEntry ::= SEQUENCE {
+                 cooOlcNbrIpAddr         IpAddress,  
+                 cooOlcNbrInterface      InterfaceIndex
+}
+
+cooOlcNbrIpAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the neighbour IP address." 
+    ::= { cooOlcNeighbourEntry 1 }
+
+cooOlcNbrInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the neighbour interface name." 
+    ::= { cooOlcNeighbourEntry 2 }
+	
+-- Olc Partner Info definition will be defined after this line	
+cooOlcPartnerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOlcPartnerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for Partner
+        related attributes."
+    ::= { cooOlcData 6 }
+
+cooOlcPartnerEntry OBJECT-TYPE
+    SYNTAX          CooOlcPartnerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on OLC optical layer
+        partner information."
+    INDEX           { ifIndex  	}   
+    ::= { cooOlcPartnerTable 1 }
+
+CooOlcPartnerEntry ::= SEQUENCE {
+              cooOlcPartnerIpAddr         IpAddress,  
+              cooOlcPartnerInterface      OCTET STRING
+}
+
+cooOlcPartnerIpAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the partner IP address." 
+    ::= { cooOlcPartnerEntry 1 }
+
+cooOlcPartnerInterface OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the partner interface name." 
+    ::= { cooOlcPartnerEntry 2 }
+	
+-- Olc Partner Band Loss Info definition will be defined after this line	
+
+cooOlcPartnerBandLossTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOlcPartnerBandLossEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for OLC Partner Band Loss information
+        related attributes."
+    ::= { cooOlcData 7 }
+
+cooOlcPartnerBandLossEntry OBJECT-TYPE
+    SYNTAX          CooOlcPartnerBandLossEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on OLC optical layer
+        partner band loss related attributes."
+    INDEX           { ifIndex  	}   
+    ::= { cooOlcPartnerBandLossTable 1 }
+
+CooOlcPartnerBandLossEntry ::= SEQUENCE {
+                cooOlcPathLoss                        CiscoOpticalOlcPower,
+                cooOlcPatchcordLoss                   CiscoOpticalOlcPower,
+                cooOlcLossMeasurementTimeStamp        OCTET STRING
+}
+		
+cooOlcPathLoss OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPower
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Partner Path Loss
+         in 1/100 dB." 
+    ::= { cooOlcPartnerBandLossEntry 1 }
+
+cooOlcPatchcordLoss OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcPower
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the OLC Partner Patchcord Loss 
+         in 1/100 dB." 
+    ::= { cooOlcPartnerBandLossEntry 2 }
+
+cooOlcLossMeasurementTimeStamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object represents the TimeStamp of Path and Patchord 
+         losses calculation." 
+    ::= { cooOlcPartnerBandLossEntry 3 }	
+
+-- Olc Application  Band Status Info definition will be defined after this line	
+
+cooOlcBandStatusTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CooOlcBandStatusEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for OLC Band Status information
+        related attributes."
+    ::= { cooOlcData 8 }
+
+cooOlcBandStatusEntry OBJECT-TYPE
+    SYNTAX          CooOlcBandStatusEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on OLC optical layer
+        band status attributes."
+    INDEX           { ifIndex,
+                      cooOlcNodeNum
+                    }   
+    ::= { cooOlcBandStatusTable 1 }
+
+CooOlcBandStatusEntry ::= SEQUENCE {
+                cooOlcNodeNum              Integer32,
+                cooOlcNodeRID              IpAddress,
+                cooOlcBandStatus           CiscoOpticalOlcBandStatus,
+                cooOlcBandPSD              CiscoOpticalOlcBandPSDType
+}
+
+cooOlcNodeNum OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents Olc Node RID number." 
+    ::= { cooOlcBandStatusEntry 1 }
+	
+cooOlcNodeRID OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents OSPF RID IP address." 
+    ::= { cooOlcBandStatusEntry 2 }
+
+cooOlcBandStatus OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcBandStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the Band Status." 
+    ::= { cooOlcBandStatusEntry 3 }
+
+cooOlcBandPSD OBJECT-TYPE
+    SYNTAX          CiscoOpticalOlcBandPSDType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the Band PSD Type." 
+    ::= { cooOlcBandStatusEntry 4 }
+	
+END
+
+
+ 
+

@@ -1,0 +1,2014 @@
+-- *****************************************************************
+-- CISCO-WIRELESS-DOCS-EXT-MIB.my:
+--          Cisco Wireless DOCS extension MIB file
+--
+-- January 2000, Saradha Srinivasan 
+--
+-- Copyright (c) 2000 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-WIRELESS-DOCS-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Integer32,
+        Counter32,
+        IpAddress
+                FROM SNMPv2-SMI
+        TruthValue,
+        DisplayString,
+        MacAddress,
+        TimeStamp, 
+        RowStatus,
+        TimeInterval
+                FROM SNMPv2-TC
+        OBJECT-GROUP,
+        MODULE-COMPLIANCE
+                FROM SNMPv2-CONF
+        ifIndex
+                FROM IF-MIB
+        cwdIfHeServiceEntry,
+        cwdIfHeSuStatusEntry, 
+        cwdIfHeSuStatusIndex,
+        cwdIfHeMacEntry,
+        cwdIfHeSuStatusMacAddress,
+        cwdIfHeSuStatusIpAddress,
+        cwdIfHeSuStatusDownChanIfIndex,
+        cwdIfHeSuStatusUpChanIfIndex,
+        cwdIfHeSuStatusServiceId,
+        cwdIfQosProfileEntry,
+        cwdIfQosProfIndex
+                FROM CISCO-WIRELESS-DOCS-IF-MIB 
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoWirelessDocsExtMIB MODULE-IDENTITY
+        LAST-UPDATED  "200007171003Z"
+        ORGANIZATION  "Cisco Systems, Inc."
+        CONTACT-INFO
+                  "Cisco Systems
+                     Customer Service
+
+             Postal: Cisco Systems
+                     170 West Tasman Drive
+                     San Jose, CA 95134
+                     U.S.A.
+             Phone:  +1 800 553-NETS 
+             E-mail: wireless-nms@cisco.com"
+        DESCRIPTION
+          "This MIB module defines Cisco-specific objects that
+            add to the functionality defined in 
+            CISCO-WIRELESS-DOCS-IF-MIB. 
+           These objects configure the scheduler that supports
+	    Quality of Service (QoS) of MCNS/DOCSIS compliant
+	    Radio Frequency (RF) interfaces in Wireless 
+            Headends (HE)."
+        REVISION      "200007171003Z"
+        DESCRIPTION
+          "Initial version"
+        ::= { ciscoMgmt 169 }
+
+ciscoWirelessDocsExtMIBObjects  OBJECT IDENTIFIER ::= 
+                                       { ciscoWirelessDocsExtMIB 1 }
+
+cwdxQosCtrlObjects OBJECT IDENTIFIER ::= { ciscoWirelessDocsExtMIBObjects 1 }
+cwdxQosQueueObjects OBJECT IDENTIFIER ::= { ciscoWirelessDocsExtMIBObjects 2 }
+cwdxHeSuCpeObjects OBJECT IDENTIFIER ::= { ciscoWirelessDocsExtMIBObjects 3 }
+cwdxQosProfileExtObjects OBJECT IDENTIFIER ::= 
+                                    { ciscoWirelessDocsExtMIBObjects 4 }
+
+
+--
+-- Scheduler QoS Control Group  
+--
+-- This group contains objects that configure how the scheduler
+-- controls traffic. In addition, it contains objects to monitor
+-- the scheduler's admission and rate control.
+--
+-- For each Service ID, there is one Quality of Service profile 
+-- associated with it. The QoS profile limits the request (upstream)/
+-- packet (downstream) size for the Service ID and also defines the 
+-- minimum guaranteed upstream bandwidth. Each SU's request 
+-- associated with a Service ID needs to follow the Quality of 
+-- Service profile constraints. 
+--
+
+--
+-- Quality of Service control upstream table
+--
+-- Quality of Service control objects for the upstream interface
+--
+-- This table contains objects to configure upstream admission control
+-- based on available upstream bandwidth. This table also contains
+-- objects that show the status of the scheduler.
+  
+
+cwdxQosCtrlUpTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CwdxQosCtrlUpEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "For each upstream interface, this table maintains a number 
+            of objects related to Quality of Service scheduler.
+            These objects are used to control SU registration."
+        ::= { cwdxQosCtrlObjects 1 }
+
+cwdxQosCtrlUpEntry OBJECT-TYPE
+        SYNTAX      CwdxQosCtrlUpEntry 
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "A list of attributes for each upstream MAC scheduler 
+             that supports Quality of Service.  Entries in this table
+             exist for each ifEntry with ifType of 
+             propDocsWirelessUpstream(nnn)."
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724), 
+             section 6.4 and appendix C.
+            
+             cwdIfQosProfileTable and cwdIfHeServiceTable in 
+             CISCO-WIRELESS-DOCS-IF-MIB.my."
+        INDEX { ifIndex }
+        ::= { cwdxQosCtrlUpTable 1 }
+
+CwdxQosCtrlUpEntry ::= SEQUENCE {
+            cwdxQosCtrlUpAdmissionCtrl        TruthValue,
+            cwdxQosCtrlUpMaxRsvdBWPercent     Integer32,
+            cwdxQosCtrlUpAdmissionRejects     Counter32,
+            cwdxQosCtrlUpReservedBW           Integer32,
+            cwdxQosCtrlUpMaxVirtualBW         Integer32
+        }
+
+cwdxQosCtrlUpAdmissionCtrl OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+          "The admission control status for this upstream entry.
+
+             When this object is set to 'true',  the upstream scheduler
+             will check the virtual reserved bandwidth remaining 
+             before giving admission to this new SU. If there 
+             is not enough reserved bandwidth to serve the SU's minimum
+             guaranteed bandwidth, the registration request will be 
+             rejected.  
+
+             This object is set to 'false' to disable admission control.
+             That is, there will be no checking for bandwidth capacity and 
+             the upstream interface scheduler just admits SU registration 
+             requests."   
+        ::= { cwdxQosCtrlUpEntry 1 }
+
+cwdxQosCtrlUpMaxRsvdBWPercent OBJECT-TYPE
+        SYNTAX      Integer32 (10..1000)
+        UNITS     "percent"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+          "The percentage of upstream maximum reserved bandwidth to the 
+             raw bandwidth if the admission control is enabled on this 
+             upstream. 
+
+             For example, if the upstream interface has raw bandwidth 
+             1,600,000 bits/second and cwdxQosCtrlUpMaxRsvdBWPercent is 200 
+             percent, then this upstream scheduler will set the maximum of 
+             virtual reserved bandwidth capacity to 3,200,000 bits/second 
+             (1,600,000 * 2) to serve Subscriber-units with minimum guaranteed 
+             upstream bandwidth.  
+
+             The default value is 100 percent (that is, maximum reserved 
+             bandwidth is the raw bandwidth.) Whenever the admission control 
+             is changed (on to off, off to on), this value will be reset to 
+             the default value 100.  
+    
+             If the admission control is disabled, the value will be reset 
+             to 100 (the default value)."  
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification 
+             (SP-RFI-I04-980724). section 6.4 and appendix C."
+        ::= { cwdxQosCtrlUpEntry 2 }
+
+cwdxQosCtrlUpAdmissionRejects OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The count of SU registration requests rejected on this 
+             upstream interface. The rejection is due to insufficient
+             available bandwidth for this SU. The requests are rejected
+             only when cwdxQosCtrlUpAdmissionCtrl is 'true' on this
+             upstream interface."
+        ::= { cwdxQosCtrlUpEntry 3 }
+ 
+cwdxQosCtrlUpReservedBW OBJECT-TYPE
+        SYNTAX      Integer32 (0..102400000)
+        UNITS     "bits/second"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The current total reserved bandwidth in bits per second of this 
+             upstream interface.  It is the sum of all SUs' minimum 
+             guaranteed bandwidth in bits per second currently supported 
+             on this upstream."  
+        ::= { cwdxQosCtrlUpEntry 4 }
+
+cwdxQosCtrlUpMaxVirtualBW OBJECT-TYPE
+        SYNTAX      Integer32 (0..102400000)
+        UNITS     "bits/second"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The maximum virtual bandwidth capacity of this upstream interface
+             if the admission control is enabled. It is the raw bandwidth 
+             in bits per second times the percentage. If the admission 
+             control is disabled, then this object will contain the value 
+             zero."  
+        ::= { cwdxQosCtrlUpEntry 5 }
+
+--
+-- Rate Limiting table
+--
+-- After a SU is registered, upstream and downstream schedulers
+-- will control the bandwidth request/packet size to ensure the Quality of 
+-- Service and fairness by a rate limiting algorithm.  This table
+-- contains attributes related to the rate limiting algorithms.
+--
+
+cwdxQosIfRateLimitTable  OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CwdxQosIfRateLimitEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+         "This table describes the attributes of rate limiting for 
+            schedulers in upstream and downstream interfaces that 
+            support Quality of Service.  The rate limiting process is 
+            to ensure the Quality of Service and fairness."
+       ::= { cwdxQosCtrlObjects 2 }
+
+cwdxQosIfRateLimitEntry OBJECT-TYPE
+       SYNTAX      CwdxQosIfRateLimitEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+          "List of the rate limiting attributes for upstream and 
+             downstream interfaces schedulers that support Quality of 
+             Service. Entries in this table exist for each ifEntry with 
+             ifType of propDocsWirelessUpstream(nnn) and 
+             propDocsWirelessDownstream(nnn)."
+       REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724),
+             section 6.4 and appendix C.
+
+             cwdIfQosProfileTable and cwdIfHeServiceTable in
+             CISCO-DOCS-WIRELESS-IF-MIB.my."
+       INDEX { ifIndex }
+       ::= { cwdxQosIfRateLimitTable 1 } 
+
+CwdxQosIfRateLimitEntry ::= SEQUENCE {
+           cwdxQosIfRateLimitAlgo       INTEGER,
+           cwdxQosIfRateLimitExpWgt      Integer32,
+           cwdxQosIfRateLimitShpMaxDelay         INTEGER,
+           cwdxQosIfRateLimitShpGranularity      INTEGER
+       }
+
+cwdxQosIfRateLimitAlgo OBJECT-TYPE
+       SYNTAX       INTEGER {
+           noRateLimit(1),      -- rate limiting process is disabled
+           oneSecBurst(2),      -- Bursty 1 second token bucket algorithm
+           carLike(3),          -- Average token usage algorithm (CAR-like)
+           wgtExPacketDiscard(4), -- Weighted excess packet discard
+                                  -- algorithm
+           shaping(5)            -- token bucket algorithm with shaping
+       }
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+         "To ensure fairness, at the upstream, the HE will throttle
+            the rate of bandwidth  grants, such that the flow never 
+            gets more than its provisioned peak rate in bps. 
+            Similarly at the downstream, HE controls the packets 
+            sent such that flow never gets more than its provisioned
+            peak rate in bps.
+ 
+            There are two directions for every Service Id (Sid) traffic: 
+            downstream and upstream. Each direction is called a service
+            flow here and is assigned one token bucket with chosen
+            algorithm. 
+
+            The enumerations for the rate limiting algorithm are:
+             noRateLimit(1): The rate limiting is disabled. No rate
+                             limiting.
+             oneSecBurst(2): Bursty 1 second token bucket algorithm.
+             carLike(3)    : Average token usage (CAR-like) algorithm 
+             wgtExPacketDiscard(4) : Weighted excess packet discard 
+                                     algorithm.
+             shaping(5): token bucket algorithm with shaping
+
+            Upstream supports all the above except 
+             wgtExtPacketDiscard(4).
+
+            Downstream supports all the above rate-limiting algorithms.
+
+            Token bucket algorithm with shaping is the
+            default algorithm for upstream.
+
+            Bursty 1 second token bucket algorithm is the 
+            default algorithm for downstream.
+
+            Each algorithm is described as below:
+              No rate limiting: 
+                The rate limiting process is disabled and no checking 
+                against the maximum bandwidth allowed. 
+
+              Bursty 1 second token bucket rate limiting algorithm: 
+                In this algorithm, at the start of every 1 second interval, 
+                a service flow's token usage is reset to 0, and every time 
+                the modem for that service flow sends a request (upstream) / 
+                packet (downstream) the upstream/downstream bandwidth 
+                token usage is incremented by the size of the 
+                request/packet sent. As long as the service flow's bandwidth 
+                token usage is less than the maximum bandwidth in bits 
+                per second (peak rate limit) its QoS service class 
+                allows, the request/packets will not be restricted. 
+                Once the service flow has sent more than its peak rate in the 
+                one second interval, it is prevented from sending more 
+                data by rejecting request (upstream) or dropping 
+                packets (downstream). This is expected to slow down
+                the higher layer sources. The token usage counter gets 
+                reset to 0 after the 1 second interval has elapsed. The 
+                modem for that service flow is free to send more data up to the 
+                peak rate limit in the new 1 second interval that follows.  
+
+              Average token usage (Cisco CAR like) algorithm: 
+                This algorithm maintains a continuous average of the 
+                burst token usage of a service flow. There is no sudden 
+                refilling of tokens every 1 second interval. Every time a 
+                request/packet is to be handled, the scheduler tries to see 
+                how much time has elapsed since last transmission, and 
+                computes the number of tokens accumulated by this service flow 
+                at its QoS class peak rate. If burst usage of the service flow 
+                is less than tokens accumulated, the burst usage is reset to 0 
+                and request/packet is forwarded. If the service flow has 
+                accumulated fewer tokens than its burst usage, the burst usage 
+                shows an outstanding balance usage after decrementing by the 
+                tokens accumulated. In such cases, the request/packet is still 
+                forwarded, provided the service flow's outstanding usage does 
+                not exceed peak rate limit of its QoS class. If outstanding 
+                burst usage exceeds the peak rate of the class, the service 
+                flow is given some token credit up to a certain maximum credit 
+                limit and the request/packet is forwarded. The request/packet 
+                is dropped when outstanding usage exceeds peak rate and maximum 
+                credit has been used up by this service flow. This algorithm 
+                tracks long term average bandwidth usage of the service flow 
+                and controls this average usage at the peak rate limit.
+
+              Weighted excess packet discard algorithm:
+                This rate limiting algorithm is only available as an option 
+                for downstream rate limiting. The algorithm is to maintain an 
+                weighted exponential moving average of the loss rate of a 
+                service flow over time. The loss rate, expressed in packets, 
+                represents the number of packets that can be sent from this 
+                service flow in a one second interval before a packet will 
+                be dropped. At every one second interval, the loss rate gets 
+                updated using the ratio between the flow peak rate (in bps) 
+                in its QoS profile and the service flow actual usage (in bps). 
+                If the service flow begins to send more than its peak rate 
+                continuously, the number of packets it can send in an one 
+                second interval before experiencing a drop will slowly keep 
+                reducing until SU for that service flow slows down 
+                as indicated by actual usage less or equal to the peak rate. 
+
+              Token bucket algorithm with shaping:
+                 If there is no QoS class peak rate limit, forward the 
+                 request/packet without delay. If there is a QoS peak rate 
+                 limit, every time a request/packet is to be handled, the 
+                 scheduler determines the number of bandwidth tokens that this 
+                 service flow has accumulated over the elapsed time at its 
+                 QoS class peak rate and increments the tokens counter of the 
+                 service flow accordingly.  The scheduler limits the token 
+                 count to the maximum transmit burst (token bucket depth).  
+                 If token count is greater than the number of tokens required 
+                 to handle current request/packet, decrement token count by 
+                 size of request/packet and forwards the request/packet 
+                 without delay.  If token count is less than the size of 
+                 request/packet, compute the shaping delay time after 
+                 which the deficit number of tokens would be available. If 
+                 shaping delay time is less than the maximum shaping delay, 
+                 decrement tokens count by size of request/packet and 
+                 forward this request/packet with the shaping delay in the 
+                 shaping delay queue. When the delay time expires, the 
+                 request/packet is forwarded. If shaping delay time is 
+                 greater than the maximum shaping delay that the subsequent 
+                 shaper can handle, the request/packet is dropped. Users can
+                 use cwdxQosIfRateLimitShpMaxDelay to configure the maximum 
+                 shaping delay and cwdxQosIfRateLimitShpGranularity to 
+                 configure the shaping granularity."
+       ::= { cwdxQosIfRateLimitEntry 1 }
+
+cwdxQosIfRateLimitExpWgt OBJECT-TYPE
+       SYNTAX      Integer32 (1..4)
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+         "Weight for exponential moving average of loss rate,
+            when using weighted excess packet discard algorithm.
+            The higher values of the weight make the algorithm
+            more sensitive to the recent bandwidth usage by the Sid. 
+        
+            The default value is 1. Whenever the rate limiting
+            algorithm is changed to weighted excess packet discard 
+            algorithm, this value will be reset to the default 1.
+
+            If the rate limiting algorithm is not weighted excess 
+            packet discard algorithm, the value will be always the 
+            default value 1. You will not be able to set it to
+            anything other than 1 when it is not weighted excess
+            packet discard algorithm."
+       ::= { cwdxQosIfRateLimitEntry 2 }
+
+cwdxQosIfRateLimitShpMaxDelay OBJECT-TYPE
+       SYNTAX       INTEGER {
+           na(1),   
+           msec128(2),  
+           msec256(3),  
+           msec512(4),  
+           msec1024(5)  
+       }
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+         "The maximum shaping delay in milliseconds. That is, the maximum 
+            amount of time for which the HE will allow buffering of any
+            rate exceeded flow. If the max buffering delay is large, 
+            then grants/packets of the flow will be buffered for a
+            longer period of time even though the flow is rate exceeded.
+            This means fewer chances of drops for such rate exceeded 
+            flow. However, too large a max shaping delay can result in
+            quick drainage of packet buffers at the HE, since several 
+            packets will be in the shaping (delay) queue waiting for 
+            their proper transmission time. Another important point to
+            note is that delaying a flow's packets (especially TCP 
+            flows) for extended periods of time may be counter-
+            productive, since the higher protocol layers may assume
+            a packet loss after a certain amount of time.
+ 
+            The maximum shaping delay is only applied to rate limit 
+            algorithm: Token bucket algorithm with shaping.  If the rate
+            limit algorithm is not Token bucket algorithm with shaping,
+            the value is always na(1) which is not applicable. In this
+            case, you will be allowed to set the value to na(1) only.
+
+            If the token count is less than the size of request/packet, HE 
+            computes the shaping delay time after which the deficit number of 
+            tokens would be available. If the shaping delay time is greater 
+            than the maximum shaping delay, the request/packet will be
+            dropped.  
+
+            The enumerations for cwdxQosIfRateLimitShpMaxDelay  are:
+              na(1): maximum shaping delay is not applied to the current 
+                     rate limit algorithm
+             msec128(2): maximum shaping delay is 128 milliseconds  
+             msec256(3): maximum shaping delay is 256 milliseconds 
+             msec512(4): maximum shaping delay is 512 milliseconds 
+            msec1024(5): maximum shaping delay is 1024 milliseconds 
+
+            At the downstream, cwdxQosIfRateLimitShpMaxDelay
+            is configurable and the default value is msec128(2).
+            Whenever the downstream rate limit algorithm is changed
+            to Token bucket algorithm with shaping from other rate
+            limit algorithm, the value will be reset to the default 
+            value. 
+
+            At the upstream, cwdxQosIfRateLimitShpMaxDelay is not 
+            configurable and it is read-only value."
+       ::= { cwdxQosIfRateLimitEntry 3 }
+
+cwdxQosIfRateLimitShpGranularity OBJECT-TYPE
+       SYNTAX       INTEGER {
+           na(1), 
+           msec1(2),  
+           msec2(3),  
+           msec4(4),  
+           msec8(5),  
+           msec16(6)  
+       }
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+         "The width in milliseconds of each element in shaping 
+            delay queue, that is, the shaping granularity.
+
+            The shaping granularity is only applied to rate limit
+            algorithm: Token bucket algorithm with shaping. It 
+            controls how accurately the algorithm quantizes the shaping 
+            delay for a rate exceeded flow. If granularity is large, several 
+            shaping delay values will all be quantized to the same element 
+            in the queue resulting in less accurate rate shaping for the flows 
+            in bits/sec. On the other hand, choosing too small granularity 
+            causes more memory to be used for the shaper block, and also 
+            can cost a bit more in runtime overhead.
+ 
+            If the rate limit algorithm is not Token bucket algorithm with 
+            shaping, the value is always na(1) which is not applicable.
+            Setting to any thing other than na(1) will be rejected.
+
+            The enumerations for shaping granularity are:
+              na(1): shaping granularity is not applied to the current 
+                     rate limit algorithm
+               msec1(2): shaping granularity in 1 milliseconds 
+               msec2(3): shaping granularity in 2 milliseconds 
+               msec4(4): shaping granularity in 4 milliseconds 
+               msec8(5): shaping granularity in 8 milliseconds 
+              msec16(6): shaping granularity in 16 milliseconds  
+
+            At the downstream, this object  is configurable and the
+            default value is msec4(4). Whenever the downstream rate limit 
+            algorithm is changed to Token bucket algorithm with shaping 
+            from other rate limit algorithm, the value will be reset to the 
+            default value. When the algorithm is Token bucket algorithm
+            with shaping and set to same algorithm again the value will
+            not be reset to default value. 
+
+            At the upstream, this object is not configurable and 
+            it is read-only value."
+       ::= { cwdxQosIfRateLimitEntry 4 }
+
+--
+-- He Service Extension Table 
+-- 
+-- This table extends the information about a Service ID in 
+-- cwdIfHeServiceTable. 
+--
+-- For each Service ID, there is one Quality of Service profile 
+-- associated with it and the profile limitsthe request/packet size
+-- ratio for the Service ID. This table shows downstream traffic
+-- statistics. It also counts requests and packets that exceeded 
+-- the limits set in the QOS profile for each SID. 
+--
+
+cwdxHeServiceExtTable  OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CwdxHeServiceExtEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+         "The list contains the additional attributes of a single Service
+            ID that provided by cwdIfHeServiceEntry."
+       ::= { cwdxQosCtrlObjects 3 }
+
+cwdxHeServiceExtEntry OBJECT-TYPE
+        SYNTAX      CwdxHeServiceExtEntry 
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "Additional objects for cwdIfHeServiceTable entry including 
+             downstream traffic statistics and excess counts against the 
+             Quality of Service limits for each Service ID."
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724),
+             section 6.4 and appendix C.
+
+             cwdIfQosProfileTable and cwdIfHeServiceTable in
+             CISCO-WIRELESS-DOCS-IF-MIB.my."
+        AUGMENTS { cwdIfHeServiceEntry }
+        ::= { cwdxHeServiceExtTable 1 }
+
+CwdxHeServiceExtEntry ::= SEQUENCE {
+            cwdxIfHeServiceOutOctets       Counter32,
+            cwdxIfHeServiceOutPackets      Counter32,
+            cwdxQosMaxUpBWExcessRequests     Counter32,
+            cwdxQosMaxDownBWExcessPackets    Counter32
+        }
+
+cwdxIfHeServiceOutOctets OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The cumulative number of Packet Data octets sent for this 
+             Service ID." 
+        ::= { cwdxHeServiceExtEntry 1 }
+
+cwdxIfHeServiceOutPackets OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The cumulative number of Packet data packets sent for this 
+             Service ID."
+        ::= { cwdxHeServiceExtEntry 2 }
+
+
+cwdxQosMaxUpBWExcessRequests OBJECT-TYPE
+        SYNTAX      Counter32 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The number of upstream bandwidth requests which exceeds the
+             maximum upstream bandwidth allowed for a service defined 
+             in the Quality of Service profile associated with this Sid. 
+             The request which exceeds the maximum upstream bandwidth 
+             allowed will be rejected by the upstream's rate limiting 
+             process using one of the rate limiting algorithm. 
+
+             Note that the value of this counter cannot be directly used 
+             to know the number of upstream packets that got dropped at 
+             the SU.  A single upstream packet drop of a SU 
+             can result in up to 16 increments in this counter, since the 
+             SU keeps retrying and keeps getting bandwidth request 
+             drops at HE if it has consumed its peak rate." 
+        REFERENCE
+          "cwdIfQosProfMaxUpBandwidth object in 
+             CISCO-WIRELESS-DOCS-IF-MIB.my."
+        ::= { cwdxHeServiceExtEntry 3 }
+
+cwdxQosMaxDownBWExcessPackets OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The number of downstream bandwidth packets which exceeds the
+             maximum downstream bandwidth allowed for a service defined
+             in the Quality of Service profile associated with this Sid. 
+             The packet which exceeds the maximum downstream bandwidth 
+             allowed will be dropped by the downstream's rate limiting 
+             process using one of the rate limiting algorithm."
+        REFERENCE
+          "cwdIfQosProfMaxDownBandwidth object in 
+             CISCO-WIRELESS-DOCS-IF-MIB.my."
+        ::= { cwdxHeServiceExtEntry 4 }
+
+
+--
+-- Scheduler QoS Queue Group
+--
+-- To ensure Quality of Service and fairness, the scheduler
+-- maintains a set of queues for different services and puts  
+-- SU requests/packets for that Sid in a different 
+-- queue according to the Quality of Service profile of the 
+-- Sid.  Each queue has a name and order within the queue set.  
+-- The scheduler will serve the requests/packets in higher 
+-- order queue before serving the requests/packets in lower
+-- order queue. 
+--
+
+--
+-- Scheduler bandwidth request queues table 
+--
+-- This table displays the attributes for these queues in a 
+-- interface scheduler that supports Quality of Service.
+--
+
+cwdxBWQueueTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CwdxBWQueueEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "This table describes the attributes of queues  
+             in wireless interfaces schedulers that support 
+             Quality of Service."
+        ::= { cwdxQosQueueObjects 1 }
+
+cwdxBWQueueEntry OBJECT-TYPE
+        SYNTAX      CwdxBWQueueEntry 
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "The list of queue attributes in upstream and downstream
+             interfaces schedulers that supports Quality of Service. 
+             Entries in this table exist for each ifEntry with ifType of 
+             propDocsWirelessUpstream(nnn) and 
+             propDocsWirelessDownstream(nnn)."
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724), 
+             section 6.4 and appendix C."
+        INDEX { ifIndex,cwdxBWQueueNameCode }
+        ::= { cwdxBWQueueTable 1 }
+
+CwdxBWQueueEntry ::= SEQUENCE {
+            cwdxBWQueueNameCode                 INTEGER,
+            cwdxBWQueueOrder                    Integer32,
+            cwdxBWQueueNumServedBeforeYield     Integer32,
+            cwdxBWQueueType                     INTEGER,
+            cwdxBWQueueMaxDepth                 Integer32,
+            cwdxBWQueueDepth                    Integer32,
+            cwdxBWQueueDiscards                 Counter32
+        } 
+
+cwdxBWQueueNameCode OBJECT-TYPE 
+        SYNTAX       INTEGER {
+            cirQ(1),   -- Committed Information Rate queue
+            tbeQ(2)    -- TIERED BEST EFFORT queue
+        }
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "The name code for the queue.
+              cirQ: CIR queue. The queue is for Committed Information Rate 
+                    (CIR) type of service which serves Service IDs which have 
+                    minimum guaranteed rate in its QoS profile. 
+              tbeQ: TBE queue. The queue is for TIERED BEST EFFORT type 
+                    service which serves Service IDs which does not have 
+                    minimum guaranteed rate in its QoS profile."
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724), 
+             section 6.4 and appendix C."
+        ::= { cwdxBWQueueEntry 1 }
+        
+cwdxBWQueueOrder OBJECT-TYPE
+        SYNTAX      Integer32 (0..10)
+        MAX-ACCESS read-only
+        STATUS      current
+        DESCRIPTION
+          "The relative order of this queue to the other queues within the 
+             wireless interface. The smaller number has higher order. That is,
+             0 is the highest order and 10 is the lowest order.  The 
+             scheduler will serve the requests in higher order queue up to 
+             the number of requests defined in cwdxBWQueueNumServedBeforeYield 
+             before serving requests in the next higher order queue.  
+             The queues with higher priority will not be serviced 
+             (once the QueueNumServedBeforeYield number has been hit)
+             until all remaining queues are processed.
+
+             If there are n queues on this interface, the queue order will 
+             be 0 to n-1 and maximum number of requests defined as 
+             cwdxBWQueueNumServedBeforeYield in order 0 queue will be served 
+             before the requests in order 1 queue to be served."
+        ::= { cwdxBWQueueEntry 2 }
+
+cwdxBWQueueNumServedBeforeYield OBJECT-TYPE
+        SYNTAX      Integer32 (0..50)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The maximum number of requests/packets the scheduler can serve 
+             before yielding to another queue. The value 0 means all requests
+             must be served before yielding to another queue."
+        ::= { cwdxBWQueueEntry 3 }
+
+
+cwdxBWQueueType OBJECT-TYPE
+        SYNTAX      INTEGER {
+            unknown(1),
+            other(2),
+            fifo(3),
+            priority(4)
+        }
+        MAX-ACCESS read-only
+        STATUS      current
+        DESCRIPTION
+          "The queuing type which decides the position of a request/packet
+             within the queue.
+               unknown : queue type unknown. 
+               other   : not fifo, and not priority.
+               fifo    : first in first out.
+               priority: each bandwidth request has a priority and the 
+                         position of the request within the queue depends 
+                         on its priority."
+        ::= { cwdxBWQueueEntry 4 }
+
+
+cwdxBWQueueMaxDepth OBJECT-TYPE
+        SYNTAX      Integer32 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The maximum number of requests/packets which the queue can 
+             support."
+        ::= { cwdxBWQueueEntry 5 }
+
+
+cwdxBWQueueDepth OBJECT-TYPE
+        SYNTAX      Integer32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The current number of requests/packets in the queue."
+        ::= { cwdxBWQueueEntry 6 }
+
+
+cwdxBWQueueDiscards OBJECT-TYPE
+        SYNTAX      Counter32 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The number of requests/packets discarded because of queue
+             overflow (queue depth > queue maximum depth)." 
+        ::= { cwdxBWQueueEntry 7 }
+
+
+--
+-- HE  Customer Premises Equipments (CPE) Group
+--
+-- This group contains tables in HE for information about  
+-- Customer Premises Equipment (CPE) that connect to SUs. 
+--
+
+--
+-- Customer Premises Equipments (CPE) Table
+--
+-- For the information of CPE maintained in HE. 
+--
+
+cwdxCpeTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CwdxCpeEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+         "This table contains information about  
+            Customer Premises Equipments (CPE)."
+       ::= { cwdxHeSuCpeObjects 1 }
+
+cwdxCpeEntry OBJECT-TYPE
+        SYNTAX      CwdxCpeEntry 
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+         "The list contains information for  a Customer Premises 
+            Equipment (CPE) connected to SUs. An entry exists for 
+            each Customer Premises Equipment connected to a 
+            subscriber-unit supported by HE."
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724.)
+             cwdIfHeSuStatusTable, cwdIfHeServiceTable in 
+             CISCO-DOCS-WIRELESS-IF-MIB.my."
+        INDEX { cwdxCpeStatusIndex, cwdxCpeMacAddress }
+        ::= { cwdxCpeTable 1 }
+
+CwdxCpeEntry ::= SEQUENCE {
+            cwdxCpeStatusIndex          INTEGER,
+            cwdxCpeMacAddress           MacAddress,
+            cwdxCpeIpAddress            IpAddress,
+            cwdxCpeAccessGroup          DisplayString 
+        }
+
+cwdxCpeStatusIndex OBJECT-TYPE 
+        SYNTAX      INTEGER(1..2147483647)
+        MAX-ACCESS  not-accessible 
+        STATUS      current
+        DESCRIPTION
+          "Index to an entry in cwdIfHeSuStatusTable identifying 
+             status of the SU (which the CPE connects to.)"
+        ::= { cwdxCpeEntry 1 }
+
+cwdxCpeMacAddress OBJECT-TYPE
+        SYNTAX      MacAddress
+        MAX-ACCESS  not-accessible 
+        STATUS      current
+        DESCRIPTION
+          "The Mac address to identify a Customer Premises Equipment."
+        ::= { cwdxCpeEntry 2 }
+
+cwdxCpeIpAddress  OBJECT-TYPE
+        SYNTAX      IpAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "Ip address of the Customer Premises Equipment." 
+        ::= { cwdxCpeEntry 3 }
+
+
+cwdxCpeAccessGroup OBJECT-TYPE    
+        SYNTAX      DisplayString 
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+          "ASCII text to identify the Access Group for a  CPE. 
+             Access Group is to filter the upstream traffic for that
+             CPE."
+        ::= { cwdxCpeEntry 4 }
+
+--
+cwdxSuMappingTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CwdxSuMappingEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+         "This table contains a mapping between the SU Mac Address
+            and the cwdIfHeSuStatusIndex which identifies a row
+            in cwdIfHeSuStatusTable which lists the attributes of
+            an SU."  
+       ::= { cwdxHeSuCpeObjects 2 }
+
+cwdxSuMappingEntry OBJECT-TYPE
+        SYNTAX      CwdxSuMappingEntry 
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+         "There exists an entry in this table for every SU 
+            connected to the HE. Each entry contains a mapping
+            from the SU's mac address to the cwdIfHeSuStatusIndex." 
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724.)
+             cwdIfHeSuStatusTable, cwdIfHeServiceTable in 
+             CISCO-DOCS-WIRELESS-IF-MIB.my."
+        INDEX { cwdxSuMappingMacAddress }
+        ::= { cwdxSuMappingTable 1 }
+
+CwdxSuMappingEntry ::= SEQUENCE {
+            cwdxSuMappingMacAddress	      MacAddress,
+            cwdxSuMappingStatusIndex          INTEGER
+        }
+
+cwdxSuMappingMacAddress OBJECT-TYPE
+        SYNTAX      MacAddress
+        MAX-ACCESS  not-accessible 
+        STATUS      current
+        DESCRIPTION
+          "The Mac address to identify a Subscriber-unit."
+        ::= { cwdxSuMappingEntry 2 }
+
+cwdxSuMappingStatusIndex OBJECT-TYPE 
+        SYNTAX      INTEGER(1..2147483647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "Index to an entry in cwdIfHeSuStatusTable identifying 
+             status of the SU."
+        ::= { cwdxSuMappingEntry 1 }
+
+
+-- HE SU status extension table
+--
+-- This table extends the SU status information in cwdIfHeSuStatusTable
+--
+
+cwdxHeSuStatusExtTable  OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CwdxHeSuStatusExtEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+         "The list contains the additional SU status information."
+       ::= { cwdxHeSuCpeObjects 3 }
+
+cwdxHeSuStatusExtEntry OBJECT-TYPE
+        SYNTAX      CwdxHeSuStatusExtEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "Additional objects for cwdIfHeSuStatusTable entry."
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724.)
+             cwdIfHeSuStatusTable in DOCS-IF-MIB.my."
+        AUGMENTS { cwdIfHeSuStatusEntry }
+        ::= { cwdxHeSuStatusExtTable 1 }
+
+CwdxHeSuStatusExtEntry ::= SEQUENCE {
+            cwdxHeSuStatusValue             INTEGER,
+            cwdxIfHeSuStatusOnlineTimes     Counter32,
+            cwdxIfHeSuStatusPercentOnline   Integer32,
+            cwdxIfHeSuStatusMinOnlineTime   TimeInterval,
+            cwdxIfHeSuStatusAvgOnlineTime   TimeInterval,
+            cwdxIfHeSuStatusMaxOnlineTime   TimeInterval,
+            cwdxIfHeSuStatusMinOfflineTime  TimeInterval,
+            cwdxIfHeSuStatusAvgOfflineTime  TimeInterval,
+            cwdxIfHeSuStatusMaxOfflineTime  TimeInterval,
+            cwdxIfHeSuStatusDynSidCount     INTEGER
+        }
+
+cwdxHeSuStatusValue OBJECT-TYPE
+        SYNTAX       INTEGER {
+            offline(1),         
+            others(2),          
+            initRangingRcvd(3), 
+            initDhcpReqRcvd(4), 
+            onlineNetAccessDisabled(5), 
+            onlineKekAssigned(6),  
+            onlineTekAssigned(7), 
+            rejectBadMic(8),      
+            rejectBadCos(9),    
+            kekRejected(10),    
+            tekRejected(11),     
+            online(12),
+            initTftpPacketRcvd(13),
+            initTodRequestRcvd(14)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "Current Subscriber-unit connectivity state. The object extends 
+             states in cwdIfHeSuStatusValue in more detail. 
+
+             The enumerations are:
+             offline(1)           : SU considered offline.
+             others(2)            : states is in cwdIfHeSuStatusValue.
+             initRangingRcvd(3)   : SU sent initial ranging.
+             initDhcpReqRcvd(4)   : dhcp request received.
+             onlineNetAccessDisabled(5): SU registered, but network
+                                         access for the SU is disabled.
+             onlineKekAssigned(6) : SU registered, BPI enabled and KEK
+                                    assigned.
+             onlineTekAssigned(7) : SU registered, BPI enabled and TEK
+                                    assigned.
+             rejectBadMic(8)      : SU did attempt to register but
+                                    registration was refused due to bad mic.
+             rejectBadCos(9)      : SU did attempt to register but
+                                    registration was refused due to bad COS.
+             kekRejected(10)      : KEK SU key assignment rejected.
+             tekRejected(11)      : TEK SU key assignment rejected.
+             online(12)           : SU registered, enabled for data.
+             initTftpPacketRcvd(13): tftp packet received and option file 
+                                     transfer started. 
+             initTodRquestRcvd(14): Time of the Day (TOD) request received.
+
+             The ranging, rangingAborted, rangingComplete, and ipComplete 
+             states in cwdIfHeSuStatusValue are all represented 
+             by the 'others' value in this object. 
+
+             The registrationComplete state in cwdIfHeSuStatusValue 
+             could be online, onlineNetAccessDisabled, onlineKekAssigned, or 
+             onlineTekAssigned in this object.  
+
+             The accessDenied state in cwdIfHeSuStatusValue could be 
+             rejectBadMic, rejectBadCos in this object for the possible
+             reasons of Subscriber-unit registration abort.
+
+             The HE only reports states it is able to detect."
+        ::= { cwdxHeSuStatusExtEntry 1 }
+
+cwdxIfHeSuStatusOnlineTimes OBJECT-TYPE
+        SYNTAX      Counter32 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The number of times that the SU changes the connectivity 
+             state from 'offline' to 'online' over the time period from 
+             the SU's first ranging message received by HE until now.
+
+             The SU is considered as 'online' when the value for 
+             cwdxHeSuStatusValue is any of the values: online(5), 
+             onlineNetAccessDisabled(6), onlineKekAssigned(7), and 
+             onlineTekAssigned(8), and the SU is considered as 'offline' 
+             for other values for cwdxHeSuStatusValue."
+        REFERENCE
+          "cwdxHeSuStatusValue object."
+        ::= { cwdxHeSuStatusExtEntry 2 }
+
+cwdxIfHeSuStatusPercentOnline OBJECT-TYPE
+        SYNTAX      Integer32 (0..10000)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The percentage of time that the SU stays 'online' over 
+             the time period from the SU's first ranging message 
+             received by HE until now. 
+
+             The value for this object is 100 times bigger than the real 
+             percentage value. For example, 32.15% will be value 3215.
+
+             The SU is considered as 'online' when the value for 
+             cwdxHeSuStatusValue is any of the values: online(5), 
+             onlineNetAccessDisabled(6), onlineKekAssigned(7), and 
+             onlineTekAssigned(8), and the SU is considered as 
+             'offline' for other values for cwdxHeSuStatusValue."
+        REFERENCE
+          "cwdxHeSuStatusValue object."
+        ::= { cwdxHeSuStatusExtEntry 3 }
+
+cwdxIfHeSuStatusMinOnlineTime OBJECT-TYPE
+        SYNTAX      TimeInterval
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The minimum period of time the SU stayed 'online' over
+             the time period from the SU's first ranging message 
+             received by HE until now.
+
+             The SU is considered as 'online' when the value for 
+             cwdxHeSuStatusValue is any of the values: online(5), 
+             onlineNetAccessDisabled(6), onlineKekAssigned(7), and 
+             onlineTekAssigned(8), and the SU is considered as 
+             'offline' for other values for cwdxHeSuStatusValue."
+        REFERENCE
+          "cwdxHeSuStatusValue object."
+        ::= { cwdxHeSuStatusExtEntry 4 }
+
+
+cwdxIfHeSuStatusAvgOnlineTime OBJECT-TYPE
+        SYNTAX      TimeInterval
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The average period of time the SU stayed 'online' over
+             the time period from the SU's first ranging message 
+             received by HE until now.
+
+             The SU is considered as 'online' when the value for 
+             cwdxHeSuStatusValue is any of the values: online(5), 
+             onlineNetAccessDisabled(6), onlineKekAssigned(7), and 
+             onlineTekAssigned(8), and the SU is considered as 
+             'offline' for other values for cwdxHeSuStatusValue."
+        REFERENCE
+          "cwdxHeSuStatusValue object."
+        ::= { cwdxHeSuStatusExtEntry 5 }
+
+cwdxIfHeSuStatusMaxOnlineTime OBJECT-TYPE
+        SYNTAX      TimeInterval
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The maximum period of time the SU stayed 'online' over
+             the time period from the SU's first ranging message 
+             received by HE until now.
+
+             The SU is considered as 'online' when the value for 
+             cwdxHeSuStatusValue is any of the values: online(5), 
+             onlineNetAccessDisabled(6), onlineKekAssigned(7), and 
+             onlineTekAssigned(8), and the SU is considered as 
+             'offline' for other values for cwdxHeSuStatusValue."
+        REFERENCE
+          "cwdxHeSuStatusValue object."
+        ::= { cwdxHeSuStatusExtEntry 6 }
+
+cwdxIfHeSuStatusMinOfflineTime OBJECT-TYPE
+        SYNTAX      TimeInterval
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The minimum period of time SU stayed 'offline' over
+             the time period from the SU's first ranging message 
+             received by HE until now.
+
+             The SU is considered as 'online' when the value for 
+             cwdxHeSuStatusValue is any of the values: online(5), 
+             onlineNetAccessDisabled(6), onlineKekAssigned(7), and 
+             onlineTekAssigned(8), and the SU is considered as 
+             'offline' for other values for cwdxHeSuStatusValue."
+        REFERENCE
+          "cwdxHeSuStatusValue object."
+        ::= { cwdxHeSuStatusExtEntry 7 }
+
+
+cwdxIfHeSuStatusAvgOfflineTime OBJECT-TYPE
+        SYNTAX      TimeInterval
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The average period of time the SU stayed 'offline' over
+             the time period from the SU's first ranging message 
+             received by HE until now.
+
+             The SU is considered as 'online' when the value for 
+             cwdxHeSuStatusValue is any of the values: online(5), 
+             onlineNetAccessDisabled(6), onlineKekAssigned(7), and 
+             onlineTekAssigned(8), and the SU is considered as 
+             'offline' for other values for cwdxHeSuStatusValue."
+        REFERENCE
+          "cwdxHeSuStatusValue object."
+        ::= { cwdxHeSuStatusExtEntry 8 }
+
+cwdxIfHeSuStatusMaxOfflineTime OBJECT-TYPE
+        SYNTAX      TimeInterval
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The maximum period of time the SU stayed 'offline' over
+             the time period from the SU's first ranging message 
+             received by HE until now.
+
+             The SU is considered as 'online' when the value for 
+             cwdxHeSuStatusValue is any of the values: online(5), 
+             onlineNetAccessDisabled(6), onlineKekAssigned(7), and 
+             onlineTekAssigned(8), and the SU is considered as 
+             'offline' for other values for cwdxHeSuStatusValue."
+        REFERENCE
+          "cwdxHeSuStatusValue object."
+        ::= { cwdxHeSuStatusExtEntry 9 }
+
+cwdxIfHeSuStatusDynSidCount OBJECT-TYPE
+        SYNTAX      INTEGER(0..16383)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "The number of active dynamic sids on this SU." 
+        ::= { cwdxHeSuStatusExtEntry 10 }
+--
+-- HE MAC extension Table
+--
+-- This table extends the attributes for HE MAC interface.
+--
+-- This table includes attributes of the Subscriber-unit notification 
+-- enabling/disabling and the interval of Subscriber-unit notification sent 
+-- by the HE for a Subscriber-unit that the Mac interface supports.
+--
+       
+cwdxHeMacExtTable  OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CwdxHeMacExtEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+         "This table contains the additions attributes of a HE MAC
+            interface that provided by cwdIfHeMacTable."  
+       ::= { cwdxHeSuCpeObjects 4 }
+
+cwdxHeMacExtEntry OBJECT-TYPE
+        SYNTAX      CwdxHeMacExtEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "Additional objects for cwdIfHeMacTable entry including
+             the Subscriber-unit notification enable/disable and the
+             interval of Subscriber-unit notification sent by the HE
+             for a Subscriber-unit that the Mac interface supports.
+             An entry in this table exists for each ifEntry with an 
+             ifType of propDocsWirelessMacLayer(nnn)."
+        REFERENCE
+          "cwdIfHeMacTable in CISCO-WIRELESS-DOCS-IF-MIB.my."
+        AUGMENTS { cwdIfHeMacEntry }
+        ::= { cwdxHeMacExtTable 1 }
+
+CwdxHeMacExtEntry ::= SEQUENCE {
+            cwdxHeSuOnOffTrapEnable       TruthValue,
+            cwdxHeSuOnOffTrapInterval     Integer32,
+            cwdxHeSuDefaultMaxCpes        Integer32,
+            cwdxHeTotalSusRegistered      Integer32,
+            cwdxHeTotalSusOffline         Integer32
+            
+        }
+
+cwdxHeSuOnOffTrapEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+          "An indication of whether the cwdxHeSuOnOffNotification 
+             is enabled. The default value is false(2)."
+        ::= { cwdxHeMacExtEntry 1 }
+        
+cwdxHeSuOnOffTrapInterval OBJECT-TYPE
+        SYNTAX      Integer32 (0..86400)
+        UNITS     "seconds"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+          "The interval for cwdxHeSuOnOffNotification sent by HE for
+             one online/offline state change if cwdxHeSuOnOffTrapEnable 
+             is true. 
+
+             If there are more than one state changes to online/offline 
+             for a Subscriber-unit during this interval, only one 
+             cwdxHeSuOnOffNotification is sent by HE for the first 
+             state change to online and one cwdxHeSuOnOffNotification 
+             for the first state changing to offline if 
+             cwdxHeSuOnOffTrapEnable is true.
+
+             This is to avoid too many notifications sent for a 
+             SU online/offline state changes during a short period
+             of time. 
+
+             If the value is 0, then cwdxHeSuOnOffNotification will be 
+             sent for every state change to online/offline for a  
+             SU if cwdxHeSuOnOffTrapEnable is true.  
+
+             This object's value will be retained even if the 
+             cwdxHeSuOnOffTrapEnable value changes.  Thus disabling
+             notifications will not result in this object's value
+             being reset tot he default value.
+
+             The default value is 600 seconds."
+        ::= { cwdxHeMacExtEntry 2 }
+
+cwdxHeSuDefaultMaxCpes OBJECT-TYPE
+        SYNTAX      Integer32 (0..255)
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+          "The default maximum number of permitted CPEs per SU 
+             in this wireless interface. A SU can override this 
+             value by setting the object cwdxHeSuMaxCpeNumber
+             in the cwdxHeSuTable.  
+
+             The value 0 means no maximum limit.
+
+             The default value for this object is 0.
+
+             Setting the value will not affect the already connected
+             CPEs to the SUs in this wireless interface."
+        ::= { cwdxHeMacExtEntry 3 }
+
+cwdxHeTotalSusRegistered OBJECT-TYPE
+        SYNTAX      Integer32 (0..2147483647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "Total number of SUs that successfully registered at 
+            least once with this HE. This count will be decremented
+            whenever the SUs are aged out at the HE."
+        ::= { cwdxHeMacExtEntry 4 }
+
+cwdxHeTotalSusOffline OBJECT-TYPE
+        SYNTAX      Integer32 (0..2147483647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+          "Total number of SU's that are offline at this time. 
+           The SU is considered as 'online' when the value for
+            cwdxHeSuStatusValue is any of the values: online(5),
+            onlineNetAccessDisabled(6), onlineKekAssigned(7), and
+            onlineTekAssigned(8), and the SU is considered as
+            'offline' for other values for cwdxHeSuStatusValue."
+        ::= { cwdxHeMacExtEntry 5 }
+
+           
+--
+-- HE SU channel override operation table and the related
+-- objects 
+--
+-- An HE operator may perform downstream/upstream load balancing
+-- or failure recovery using cwdxHeSuChOverTable.  An entry 
+-- in this table is an operation from HE to generate downstream 
+-- frequency and upstream channel override fields in the RNG-RSP message 
+-- sent to a Subscriber-unit.  A RNG-RSP message is sent to a Subscriber-unit 
+-- during initial maintenance opportunity. 
+--
+-- This operation causes the HE to place an entry for the 
+-- SU specified into the override request queue.  The link is 
+-- then broken by deleting the SU from its polling list.  When 
+-- the SU attempts initial ranging, the override request 
+-- causes downstream frequency and upstream channel override 
+-- fields to be inserted into the RNG-RSP message.  
+--
+
+cwdxHeSuChOverTimeExpiration OBJECT-TYPE
+        SYNTAX      Integer32 (1..86400)
+        UNITS     "minutes"
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+          "The time period to expire a HE channel override operation. 
+             Within the time period, if the HE cannot send out a 
+             RNG-RSP message with channel override fields to a 
+             SU specified in the operation, the HE will abort 
+             the operation. The possible reason is that the 
+             SU does not repeat the initial ranging. 
+
+             The change to this object will not affect the already active 
+             operations in this cwdxHeSuChOverTable.   
+              
+             Once the operation completes, the management station should
+             retrieve the values of the cwdxHeSuChOverState 
+             object of interest, and should then delete the entry
+             from cwdxHeSuChOverTable.  In order to prevent old 
+             entries from clogging the table, entries will be aged out, 
+             but an entry will never be deleted within 15 minutes of 
+             completing."
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724),
+             6.3.2.5.3 Overriding Channels."
+      ::= { cwdxHeSuCpeObjects 5 }
+ 
+
+cwdxHeSuChOverTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CwdxHeSuChOverEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+         "A table of HE operation entries to instruct Subscriber-units
+            to move to a new downstream and/or upstream channel. 
+
+            An entry in this table is an operation that has been 
+            initiated from HE to generates downstream frequency and/or 
+            upstream channel override fields in the RNG-RSP message sent 
+            to a Subscriber-unit.  A RNG-RSP message is sent to a 
+            SU during initial maintenance opportunity. 
+
+            This operation causes the HE to place an entry for the 
+            SU specified into the override request queue.  The link is 
+            then broken by deleting the SU from its polling list.  When 
+            the SU attempts initial ranging, the override request 
+            causes downstream frequency and upstream channel override 
+            fields to be inserted into the RNG-RSP message."
+      ::= { cwdxHeSuCpeObjects 6 }
+
+cwdxHeSuChOverEntry OBJECT-TYPE
+        SYNTAX      CwdxHeSuChOverEntry 
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "An HE operation entry to instruct a Subscriber-unit to move
+            to a new downstream and/or upstream channel.
+ 
+            There can be more than one entry per Subscriber-unit,
+            so there is a time stamp for each entry to show the time
+            when this operation is initiated. 
+
+            A management station wishing to create an entry should
+            first generate a pseudo-random serial number to be used
+            as the index to this sparse table.  The station should
+            then create the associated instance of the row status
+            object. It must also, either in the same or in successive
+            PDUs, create the associated instance of the command and
+            parameter objects. It should also modify the default values
+            for any of the parameter objects if the defaults are not
+            appropriate.
+
+            Once the appropriate instances of all the command
+            objects have been created, either by an explicit SNMP
+            set request or by default, the row status should be set
+            to active to initiate the operation. Note that this entire
+            procedure may be initiated via a single set request which
+            specifies a row status  of createAndGo as well as specifies
+            valid values for the non-defaulted parameter objects.
+
+            Once an operation has been activated, it cannot be stopped.
+            That is, it will run until either the HE has generated 
+            downstream frequency and/or upstream channel override fields 
+            in the RNG-RSP message sent to a Subscriber-unit or time out. 
+            In either case, the operation is completed. During this
+            time the row cannot be destroyed.
+
+            Once the operation is completed, the real result of the 
+            operation to the Subscriber-unit cannot be known from this table.
+            The result of the Subscriber-unit's downstream frequency and the 
+            upstream channel id can be checked from other MIB tables.  
+            For example, cwdIfHeServiceTable from 
+            CISCO-WIRELESS-DOCS-IF-MIB can be used to check
+            whether the Subscriber-unit's downstream frequency
+            and upstream channel id are changed.  Please note that even
+            though HE has generated downstream frequency and/or 
+            upstream channel override fields in the RNG-RSP message sent
+            to a SUs if the SU cannot lock at the instructed downstream
+            frequency or no upstream channel id could be used, it may
+            reconnect back to the original downstream frequency and
+            upstream channel id. 
+            
+            Once the operation completes, the management station should
+            retrieve the values of the cwdxHeSuChOverState 
+            objects of interest, and should then delete the entry.  
+            In order to prevent old entries from clogging the table, 
+            entries will be aged out, but an entry will never be deleted 
+            within 15 minutes of completing."
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724),
+             6.3.2.5.3 Overriding Channels."
+        INDEX { cwdxHeSuChOverSerialNumber }
+        ::= { cwdxHeSuChOverTable 1 }
+
+CwdxHeSuChOverEntry ::= SEQUENCE {
+            -- index
+            cwdxHeSuChOverSerialNumber     Integer32,
+            -- operation items
+            cwdxHeSuChOverMacAddress       MacAddress,  
+            cwdxHeSuChOverDownFrequency    Integer32,  
+            cwdxHeSuChOverUpChannelId      Integer32, 
+            cwdxHeSuChOverTrapOnCompletion TruthValue,
+            -- status items
+            cwdxHeSuChOverOpInitiatedTime  TimeStamp,
+            cwdxHeSuChOverState            INTEGER,
+            cwdxHeSuChOverRowStatus        RowStatus
+        } 
+
+cwdxHeSuChOverSerialNumber OBJECT-TYPE
+        SYNTAX     Integer32 (1..2147483647)
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+          "Object which specifies a unique entry in the
+             table. A management station wishing to initiate a
+             channel override operation should use a pseudo-random 
+             value for this object when creating or modifying an 
+             instance of a cwdxHeSuChOverEntry."
+        ::= { cwdxHeSuChOverEntry 1 }
+
+cwdxHeSuChOverMacAddress OBJECT-TYPE
+        SYNTAX     MacAddress
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+          "The mac address of the Subscriber-unit that the HE instructs to
+             move to a new downstream and/or upstream channel.  
+
+             This column must be set to a valid Mac address currently in
+             the HE in order for this entry's row status to be set to
+             active successfully." 
+        ::= { cwdxHeSuChOverEntry 2 }
+        
+cwdxHeSuChOverDownFrequency  OBJECT-TYPE
+        SYNTAX     Integer32 (0..1000000000)
+        UNITS    "hertz"
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+          "The new downstream frequency which the Subscriber-unit is 
+             instructed to move to.  The value 0 is to ask the HE not to
+             override the downstream frequency."  
+        DEFVAL { 0 }
+        ::= { cwdxHeSuChOverEntry 3 }
+
+cwdxHeSuChOverUpChannelId  OBJECT-TYPE
+        SYNTAX     Integer32 (-1..255)
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+          "The new channel Id which the Subscriber-unit is instructed to 
+             move to.  The value -1 is to ask the HE not to override
+             the upstream channel Id."
+        DEFVAL { -1 }
+        ::= { cwdxHeSuChOverEntry 4 }
+
+cwdxHeSuChOverTrapOnCompletion OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+          "Specifies whether or not a cwdxHeSuChOverNotification 
+             should be issued on completion of the operation.  If such a 
+             notification is desired, it is the responsibility of the 
+             management entity to ensure that the SNMP administrative model 
+             is configured in such a way as to allow the notification to be 
+             delivered."
+        DEFVAL { false }
+        ::= { cwdxHeSuChOverEntry 5 }
+
+cwdxHeSuChOverOpInitiatedTime OBJECT-TYPE
+        SYNTAX     TimeStamp
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+          "The value of sysUpTime at which the operation was initiated.  
+             Since it is possible to have more than one entry in this 
+             table for a Subscriber-unit, this object can help to distinguish 
+             the entries for the same Subscriber-unit." 
+        ::= { cwdxHeSuChOverEntry 6 }
+
+cwdxHeSuChOverState  OBJECT-TYPE
+        SYNTAX     INTEGER {
+            messageSent(1),
+            commandNotActive(2),
+            noOpNeeded(3),
+            suNotFound(4),
+            waitToSendMessage(5),    
+            timeOut(6)   
+        }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+          "The status of the specified channel override operation.
+             The enumerations are:
+               messageSent(1): the HE has sent a RNG-RSP message 
+                           with channel override to the Subscriber-unit. 
+               commandNotActive(2): the command is not in active mode
+                                    due to this entry's row status is not
+                                    in active yet.
+               noOpNeeded(3): The downstream frequency and the upstream 
+                            channel Id in this entry are the same as 
+                            original ones when this entry's row status
+                            is set to active, so HE does not need to 
+                            do any operation.  
+               SuNotFound(4): The SU is not found in the HE
+                                 at the time when the command becomes
+                                 active.
+               waitToSendMessage(5): specified the operation is active
+                                     and HE is waiting to send
+                                     a RNG-RSP message with channel 
+                                     override to the Subscriber-unit.
+               timeOut(6): specified the operation is timed out.
+                           That is, the HE cannot send a RNG-RSP message 
+                           with channel override to the Subscriber-unit within 
+                           the time specified in the object of 
+                           cwdxHeSuChOverTimeExpiration. 
+                           The possible reason is that the Subscriber-unit
+                           does not repeat the initial ranging. 
+
+                The possible state change diagram is as below: 
+                [commandNotActive ->] waitToSendMessage -> 
+                    messageSent or timeOut. 
+                [commandNotActive ->] noOpNeeded or SuNotFound."
+        REFERENCE
+          "Data-Over-Cable Service Interface Specifications (DOCSIS)
+             Radio Frequency Interface Specification (SP-RFI-I04-980724),
+             6.3.2.5.3 Overriding Channels."
+        ::= { cwdxHeSuChOverEntry 7 }
+
+cwdxHeSuChOverRowStatus OBJECT-TYPE
+        SYNTAX     RowStatus
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+          "The status of this table entry.  
+
+             This value for cwdxHeSuChOverMacAddress must be valid Mac 
+             address currently in the HE in order for the row 
+             status to be set to active successfully. 
+                
+             Once the row status becomes active and state becomes 
+             waitToSendMessage, the entry cannot not be changed except 
+             to delete the entry by setting the row status to destroy(6) 
+             and since the operation cannot be stopped, the destroy(6) 
+             will just cause the SNMP agent to hide the entry from 
+             application and the SNMP agent will delete the entry 
+             right after the operation is completed."
+        ::= { cwdxHeSuChOverEntry 8 }
+
+--
+-- HE Subscriber-unit (SU) Table
+--
+-- This table contains attributes or configurable parameters 
+-- for Subscriber-units from a HE.   
+--
+-- An HE operator can use this table to report a Subscriber-unit's  
+-- attributes or configure a Subscriber-unit by a Subscriber-unit's 
+-- MAC address.
+--
+
+cwdxHeSuTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF CwdxHeSuEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+         "This table contains attributes or configurable parameters 
+            for Subscriber-units from a HE." 
+       ::= { cwdxHeSuCpeObjects 7 }
+
+cwdxHeSuEntry OBJECT-TYPE
+        SYNTAX      CwdxHeSuEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+         "The list contains a SU's attributes or 
+            configurable parameters from a HE."
+        INDEX { cwdIfHeSuStatusIndex }
+        ::= { cwdxHeSuTable 1 } 
+
+CwdxHeSuEntry ::= SEQUENCE {
+            cwdxHeSuMaxCpeNumber     Integer32
+        }
+
+cwdxHeSuMaxCpeNumber OBJECT-TYPE
+        SYNTAX      Integer32 (-1..255)
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+          "The maximum number of permitted CPEs connecting to the
+             SU. 
+
+             The value -1 means to use the default value of maximum 
+             hosts per SU in the HE wireless interface which the SU 
+             connects to and the value is defined in 
+             cwdxHeSuDefaultMaxCpes in the cwdxHeMacExtTable. 
+
+             The value 0 means no maximum limit.
+
+             The default value is -1.
+
+             Setting the value will not affect the already connected
+             CPEs to the SU."
+        ::= { cwdxHeSuEntry 1 }
+
+--
+-- Quality of Service Extension table
+--
+
+cwdxQosProfileExtTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CwdxQosProfileExtEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "This table contains additional attributes to the Qos
+             profiles that exists in cwdIfQosProfileTable in
+             CISCO-WIRELESS-DOCS-IF-MIB."
+        ::= { cwdxQosProfileExtObjects 1 }
+
+cwdxQosProfileExtEntry OBJECT-TYPE
+        SYNTAX      CwdxQosProfileExtEntry 
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "Each row extends the existing row in the 
+             cwdIfQosProfileTable with additional QOS parameters."
+        AUGMENTS { cwdIfQosProfileEntry }
+        ::= { cwdxQosProfileExtTable 1 }
+
+CwdxQosProfileExtEntry ::= SEQUENCE {
+            cwdxQosProfGrantInterval        INTEGER,
+            cwdxQosProfGrantSize            INTEGER,
+            cwdxQosProfName                 DisplayString,
+            cwdxQosProfTosOverwriteMask     INTEGER,
+            cwdxQosProfTosOverwriteValue    INTEGER 
+        }
+
+cwdxQosProfGrantInterval OBJECT-TYPE
+        SYNTAX           INTEGER (0..65535)
+        UNITS          "milliseconds"
+        MAX-ACCESS       read-create
+        STATUS           current
+        DESCRIPTION
+          "The value of this parameter specifies the interval
+             between successive data grant opportunities for a
+             service flow. This object is required for 
+             Unsolicited Grant and Unsolicited Grant with 
+             Activity Detection Service Flows. This object is
+             optional for Real-Time Polling Service Flows."
+        REFERENCE
+          "Data over Cable Radio Frequency Interface Specification,
+             SP-RFIv1.1-I02-990731 Appendix M.1.2" 
+        DEFVAL{ 20 }
+        ::= { cwdxQosProfileExtEntry 1 }
+
+cwdxQosProfGrantSize OBJECT-TYPE
+        SYNTAX       INTEGER (0..65535)
+        UNITS      "bytes"
+        MAX-ACCESS   read-create
+        STATUS       current
+        DESCRIPTION
+      "This parameter specifies the unsolicited grant size."
+        REFERENCE
+          "Data over Cable Radio Frequency Interface Specification,
+             SP-RFIv1.1-I02-990731 Appendix M.1.2" 
+        DEFVAL{ 229 }
+        ::= { cwdxQosProfileExtEntry 2 }
+
+cwdxQosProfName     OBJECT-TYPE
+        SYNTAX      DisplayString(SIZE(0..64))
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+          "This object is a string used to describe this Qos
+             Profile. It has informational significance only."
+        DEFVAL{ "" }
+        ::= { cwdxQosProfileExtEntry 3 }
+
+cwdxQosProfTosOverwriteMask OBJECT-TYPE
+        SYNTAX           INTEGER (0..255)
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+          "This object is the bit mask (8 bit wide) for 
+            tos-overwrite feature. The  
+            cwdxQosProfTosOverwriteValue is written where the
+            mark bits are set to 1.   
+           Tos-overwrite allows the HE to mark egress IP packets
+            (from the HE) with a specific TOS value. This relieves
+            the subscriber unit from marking upstream packets with
+            a specific TOS and is most useful when a subscriber 
+            unit is supplied by a third party vendor who may not
+            have the option of applying a TOS to an IP packet.
+           Each packet received from an SU that matches this QoS
+            profile will be tagged with the TOS-overwrite value
+            at the cwdxQosProfTosOverwriteMask and sent to the
+            network."
+        DEFVAL { 0 }
+        ::= { cwdxQosProfileExtEntry 4 }
+
+cwdxQosProfTosOverwriteValue OBJECT-TYPE
+        SYNTAX           INTEGER (0..255)
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+          "This object is the byte value for tos-overwrite. The
+            cwdxQosProfTosOverwriteValue is written where the mark
+            bits are set to 1.
+           Each packet received from an SU that matches this QoS
+            profile will be tagged with the
+            cwdxQosProfTosOverwriteValue value at the
+            cwdxQosProfTosOverwriteMask and sent to the 
+            network."
+        DEFVAL { 0 }
+        ::= { cwdxQosProfileExtEntry 5 }
+
+
+cwdxQosIpTosRatelimitTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CwdxQosIpTosRatelimitEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "Describes the Ip-precedence attached to every
+            Qos Profile identified by a row in 
+            cwdIfQosProfileTable in CISCO-WIRELESS-DOCS-IF-MIB."
+        ::= { cwdxQosProfileExtObjects 2 }
+
+cwdxQosIpTosRatelimitEntry OBJECT-TYPE
+        SYNTAX      CwdxQosIpTosRatelimitEntry 
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+          "Describes the Ip Precedence parameters. For every 
+            QOS profile entry in the cwdIfQosProfileTable, 
+            there will be seven corresponding rows in this 
+            cwdxQosIpTosRatelimitTable.
+            
+           The default value of 0 will be assigned to
+            cwdxQosIpTosRatelimitMaxDownRate for all the
+            rows."
+        INDEX {cwdIfQosProfIndex, cwdxQosIpTosRatelimitIndex }
+        ::= { cwdxQosIpTosRatelimitTable 1 }
+
+CwdxQosIpTosRatelimitEntry ::= SEQUENCE {
+            cwdxQosIpTosRatelimitIndex        INTEGER,
+            cwdxQosIpTosRatelimitMaxDownRate  INTEGER 
+        }
+
+cwdxQosIpTosRatelimitIndex OBJECT-TYPE
+        SYNTAX           INTEGER (1..8)
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+          "The index value along with the primary index of 
+            cwdIfQosProfIndex which uniquely identifies an entry
+            in the cwdxQosIpTosRatelimitEntry."
+        ::= { cwdxQosIpTosRatelimitEntry 1 }
+
+cwdxQosIpTosRatelimitMaxDownRate OBJECT-TYPE
+        SYNTAX       INTEGER (0..100000000)
+        UNITS      "bps"
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+          "Maximum downstream rate that can be allowed with
+            this IP precedence."
+        ::= { cwdxQosIpTosRatelimitEntry 2 }
+
+--
+-- The Cisco DOCS Extension MIB Notifications 
+--
+
+ciscoWirelessDocsExtNotificationsPrefix   OBJECT IDENTIFIER
+                          ::= { ciscoWirelessDocsExtMIB 2 }
+ciscoWirelessDocsExtNotifications         OBJECT IDENTIFIER
+                          ::= { ciscoWirelessDocsExtNotificationsPrefix 0 }
+
+
+cwdxHeSuOnOffNotification NOTIFICATION-TYPE
+       OBJECTS    { cwdIfHeSuStatusMacAddress,
+                    cwdIfHeSuStatusIpAddress,
+                    cwdIfHeSuStatusDownChanIfIndex,
+                    cwdIfHeSuStatusUpChanIfIndex,
+                    cwdIfHeSuStatusServiceId,
+                    cwdxHeSuStatusValue 
+                  }
+       STATUS  current
+       DESCRIPTION
+         "This notification indicates that the SU coming online
+            and going offline. A notification will be sent from HE for 
+            a SU status changing to online or offline
+            within the interval specified in cwdxHeSuOnOffTrapInterval."
+       ::= { ciscoWirelessDocsExtNotifications 1 }
+
+
+cwdxHeSuChOverNotification NOTIFICATION-TYPE
+       OBJECTS    { cwdxHeSuChOverMacAddress,
+                    cwdxHeSuChOverDownFrequency,
+                    cwdxHeSuChOverUpChannelId,
+                    cwdxHeSuChOverOpInitiatedTime,
+                    cwdxHeSuChOverState
+                  }
+       STATUS  current
+       DESCRIPTION
+         "This notification is sent at the completion of a HE 
+            channel override operation if 
+            cwdxHeSuChOverTrapOnCompletion is true in the
+            original entry.
+
+            Once a channel override operation has been activated, it 
+            cannot be stopped.  That is, it will run until either the 
+            HE has generated downstream frequency and/or upstream 
+            channel override fields in the RNG-RSP message sent to a 
+            HE or cwdxHeSuChOverTimeExpiration time expired.
+            In either case, the operation is completed. State in the 
+            cwdxHeSuChOverState object will tell in which 
+            condition the operation is completed."
+       ::= { ciscoWirelessDocsExtNotifications 2 }
+
+
+
+
+--
+-- The Cisco DOCS Extension MIB Conformance Statements 
+--
+
+--
+-- Conformance statement
+--
+
+ciscoWirelessDocsExtConformance  OBJECT IDENTIFIER 
+    ::= { ciscoWirelessDocsExtMIB 3 }
+cwdxDocsExtCompliances               OBJECT IDENTIFIER 
+    ::= { ciscoWirelessDocsExtConformance 1 }
+cwdxDocsExtGroups                    OBJECT IDENTIFIER 
+    ::= { ciscoWirelessDocsExtConformance 2 }
+
+
+-- compliance statements
+
+cwdxDocsExtCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+          "The compliance statement for devices that implement MCNS
+             compliant Radio Frequency Interfaces and DOCSIS features."
+        MODULE  -- this module
+                MANDATORY-GROUPS {
+                        cwdxQosCtrlGroup, 
+                        cwdxQosQueueGroup,
+                        cwdxHeSuCpeGroup 
+                }
+
+        OBJECT     cwdxHeSuChOverTimeExpiration
+        MIN-ACCESS read-only
+        DESCRIPTION
+                 "Write access is not required."
+        ::= { cwdxDocsExtCompliances 1 }
+
+
+-- MIB groupings
+
+cwdxQosCtrlGroup OBJECT-GROUP
+        OBJECTS {
+        cwdxQosCtrlUpAdmissionCtrl,
+        cwdxQosCtrlUpMaxRsvdBWPercent,
+        cwdxQosCtrlUpAdmissionRejects,
+        cwdxQosCtrlUpReservedBW,
+        cwdxQosCtrlUpMaxVirtualBW,
+        cwdxQosIfRateLimitAlgo,
+        cwdxQosIfRateLimitExpWgt,
+        cwdxQosIfRateLimitShpMaxDelay,
+        cwdxQosIfRateLimitShpGranularity,
+        cwdxIfHeServiceOutOctets,
+        cwdxIfHeServiceOutPackets,
+        cwdxQosMaxUpBWExcessRequests,
+        cwdxQosMaxDownBWExcessPackets,
+        cwdxQosProfGrantInterval,
+        cwdxQosProfGrantSize,
+        cwdxQosProfName,
+        cwdxQosProfTosOverwriteMask,
+        cwdxQosProfTosOverwriteValue,
+        cwdxQosIpTosRatelimitMaxDownRate
+        }
+        STATUS    current
+        DESCRIPTION
+          "Group of objects implemented in HE wireless 
+             interfaces for states of the scheduler supporting 
+             Data-Over-Cable Service Interface Specifications (DOCSIS)
+             1.0 Quality of Service (QoS)."
+        ::= { cwdxDocsExtGroups 1 }
+
+cwdxQosQueueGroup OBJECT-GROUP
+        OBJECTS {
+        cwdxBWQueueOrder,
+        cwdxBWQueueNumServedBeforeYield,
+        cwdxBWQueueType,
+        cwdxBWQueueMaxDepth,
+        cwdxBWQueueDepth,
+        cwdxBWQueueDiscards
+        }
+        STATUS    current
+        DESCRIPTION
+          "Group of objects implemented in HE wireless interfaces 
+             for the queuing states of the scheduler supporting 
+             Data-Over-Cable Service Interface Specifications 
+             (DOCSIS) 1.0 Quality of Service (QoS). Each upstream scheduler 
+             maintains a queue set, but the downstream schedulers does not 
+             in DOCSIS 1.0 QoS. So only each upstream has an entry for 
+             DOCSIS 1.0 QoS support."
+        ::= { cwdxDocsExtGroups 2 }
+
+cwdxHeSuCpeGroup OBJECT-GROUP
+        OBJECTS {
+        cwdxCpeIpAddress,
+        cwdxCpeAccessGroup,
+        cwdxSuMappingStatusIndex,
+        cwdxHeSuStatusValue,
+        cwdxIfHeSuStatusOnlineTimes,
+        cwdxIfHeSuStatusPercentOnline,
+        cwdxIfHeSuStatusMinOnlineTime,
+        cwdxIfHeSuStatusAvgOnlineTime,
+        cwdxIfHeSuStatusMaxOnlineTime,
+        cwdxIfHeSuStatusMinOfflineTime,
+        cwdxIfHeSuStatusAvgOfflineTime,
+        cwdxIfHeSuStatusMaxOfflineTime,
+        cwdxIfHeSuStatusDynSidCount,
+        cwdxHeSuOnOffTrapEnable,
+        cwdxHeSuOnOffTrapInterval,
+        cwdxHeSuDefaultMaxCpes,
+        cwdxHeTotalSusRegistered, 
+        cwdxHeTotalSusOffline,
+        cwdxHeSuChOverTimeExpiration,
+        cwdxHeSuChOverMacAddress,
+        cwdxHeSuChOverDownFrequency,
+        cwdxHeSuChOverUpChannelId,
+        cwdxHeSuChOverTrapOnCompletion,
+        cwdxHeSuChOverOpInitiatedTime,
+        cwdxHeSuChOverState,
+        cwdxHeSuChOverRowStatus,
+        cwdxHeSuMaxCpeNumber
+        }
+        STATUS    current
+        DESCRIPTION
+          "Group of objects implemented in HE for managing and 
+             monitoring Customer Premises Equipments."
+        ::= { cwdxDocsExtGroups 3 }
+
+
+END

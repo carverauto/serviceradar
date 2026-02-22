@@ -1,0 +1,1543 @@
+-- *****************************************************************
+-- CISCO-SESS-BORDER-CTRLR-STATS-MIB.my
+--   
+-- Copyright (c) 2010 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-SESS-BORDER-CTRLR-STATS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter64,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    CiscoSbcPeriodicStatsInterval,
+    csbCallStatsInstanceIndex,
+    csbCallStatsServiceIndex
+        FROM CISCO-SESS-BORDER-CTRLR-CALL-STATS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSbcStatsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201009150000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: sbc-dev@cisco.com"
+    DESCRIPTION
+        "The main purpose of this MIB is to define the statistics
+        information for Session Border Controller application. This MIB
+        categorizes the statistics information into following types:
+        1. RADIUS Messages Statistics - Represents statistics of
+           various RADIUS messages for RADIUS servers with which the
+           client (SBC) shares a secret.
+
+        2. Rf Billing Statistics- Represents Rf billing statistics 
+           information which monitors the messages sent per-realm over
+           IMS Rx interface by Rf billing manager(SBC).
+
+        3. SIP Statistics - Represents SIP requests and various SIP
+           responses on a SIP adjacency in a given interval.
+
+        The Session Border Controller (SBC) enables direct IP-to-IP
+        interconnect between multiple administrative domains for
+        session-based services providing protocol inter-working,
+        security, and admission control and management. The SBC is a
+        voice over IP (VoIP) device that sits on the border of a 
+        network and controls call admission to that network. 
+
+        The primary purpose of an SBC is to protect the interior of the
+        network from excessive call load and malicious traffic.
+        Additional functions provided by the SBC include media bridging
+        and billing services. 
+
+        Periodic Statistics - Represents the SBC call statistics 
+        information for a particular time interval. E.g. you can 
+        specify that you want to retrieve statistics for a summary 
+        period of the current or previous 5 minutes, 15 minutes, hour, 
+        or day. The statistics for 5 minutes are divided into five 
+        minute intervals past the hour - that is, at 0 minutes, 5 
+        minutes, 10 minutes... past the hour.  When you retrieve 
+        statistics for the current five minute period, you will be 
+        given statistics from the start of the interval to the current
+        time. When you retrieve statistics for the previous five 
+        minutes, you will be given the statistics for the entirety of 
+        the previous interval. For example, if it is currently 12:43
+        -  the current 5 minute statistics cover 12:40 - 12:43
+
+        -  the previous 5 minute statistics cover 12:35 - 12:40
+
+        The other intervals work similarly.  15 minute statistics are 
+        divided into 15 minute intervals past the hour (0 minutes, 15 
+        minutes, 30 minutes, 45 minutes).  Hourly statistics are divided
+        into intervals on the hour. Daily statistics are divided into
+        intervals at 0:00 each day. Therefore, if you retrieve the 
+        statistics at 12:43 for each of these intervals, the periods
+        covered are as follows.  
+        -     current 15 minutes: 12:30 - 12:43
+
+        -     previous 15 minutes: 12:15 - 12:30
+
+        -     current hour: 12:00 - 12:43
+
+        -     last hour: 11:00 - 12:00
+
+        -     current day: 00:00 - 12:43
+
+        -     last day: 00:00 (the day before) - 00:00.
+
+
+        GLOSSARY
+        SBC: Session Border Controller
+
+        CSB: CISCO Session Border Controller
+
+        Adjacency: An adjacency contains the system information to be
+        transmitted to next HOP.
+
+        ACR: Accounting Request
+
+        ACA: Accounting Accept
+
+        AVP: Attribute-Value Pairs
+
+        REFERENCES
+        1. CISCO Session Border Controller Documents and FAQ
+        http://zed.cisco.com/confluence/display/SBC/SBC"
+    REVISION        "201009150000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 757 }
+
+
+
+CiscoSbcSIPMethod ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents the various SIP Methods."
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        ack(2),
+                        bye(3),
+                        cancel(4),
+                        info(5),
+                        invite(6),
+                        message(7),
+                        notify(8),
+                        options(9),
+                        prack(10),
+                        refer(11),
+                        register(12),
+                        subscribe(13),
+                        update(14)
+                    }
+
+CiscoSbcRadiusClientType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents the type of RADIUS client."
+    SYNTAX          INTEGER  {
+                        authentication(1),
+                        accounting(2)
+                    }
+ciscoSbcStatsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSbcStatsMIB 0 }
+
+ciscoSbcStatsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSbcStatsMIB 1 }
+
+ciscoSbcStatsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSbcStatsMIB 2 }
+
+
+csbRadiusStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbRadiusStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table has the reporting statistics of various RADIUS
+        messages for RADIUS servers with which the client (SBC) shares a
+        secret. Each entry in this table is identified by a 
+        value of csbRadiusStatsEntIndex. The other indices of this table
+        are csbCallStatsInstanceIndex defined in 
+        csbCallStatsInstanceTable and csbCallStatsServiceIndex defined
+        in csbCallStatsTable."
+    ::= { ciscoSbcStatsMIBObjects 1 }
+
+csbRadiusStatsEntry OBJECT-TYPE
+    SYNTAX          CsbRadiusStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the csbRadiusStatsTable. There is an
+        entry in this table for each RADIUS server, as identified by a 
+        value of csbRadiusStatsEntIndex. The other indices of this 
+        table are csbCallStatsInstanceIndex defined in 
+        csbCallStatsInstanceTable and csbCallStatsServiceIndex defined
+        in csbCallStatsTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbRadiusStatsEntIndex
+                    } 
+    ::= { csbRadiusStatsTable 1 }
+
+CsbRadiusStatsEntry ::= SEQUENCE {
+        csbRadiusStatsEntIndex      Unsigned32,
+        csbRadiusStatsClientName    SnmpAdminString,
+        csbRadiusStatsClientType    CiscoSbcRadiusClientType,
+        csbRadiusStatsSrvrName      SnmpAdminString,
+        csbRadiusStatsAcsReqs       Counter64,
+        csbRadiusStatsAcsRtrns      Counter64,
+        csbRadiusStatsAcsAccpts     Counter64,
+        csbRadiusStatsAcsRejects    Counter64,
+        csbRadiusStatsAcsChalls     Counter64,
+        csbRadiusStatsActReqs       Counter64,
+        csbRadiusStatsActRetrans    Counter64,
+        csbRadiusStatsActRsps       Counter64,
+        csbRadiusStatsMalformedRsps Counter64,
+        csbRadiusStatsBadAuths      Counter64,
+        csbRadiusStatsPending       Gauge32,
+        csbRadiusStatsTimeouts      Counter64,
+        csbRadiusStatsUnknownType   Counter64,
+        csbRadiusStatsDropped       Counter64
+}
+
+csbRadiusStatsEntIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the index of the RADIUS client entity
+        that this server is configured on. This index is assigned 
+        arbitrarily by the engine and is not saved over reboots." 
+    ::= { csbRadiusStatsEntry 1 }
+
+csbRadiusStatsClientName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the client name of the RADIUS client to
+        which that these statistics apply." 
+    ::= { csbRadiusStatsEntry 2 }
+
+csbRadiusStatsClientType OBJECT-TYPE
+    SYNTAX          CiscoSbcRadiusClientType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type(authentication or accounting)
+        of the RADIUS clients configured on SBC." 
+    ::= { csbRadiusStatsEntry 3 }
+
+csbRadiusStatsSrvrName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the server name of the RADIUS server to
+        which that these statistics apply." 
+    ::= { csbRadiusStatsEntry 4 }
+
+csbRadiusStatsAcsReqs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS Access-Request
+        packets sent to this server.  This does not include
+        retransmissions." 
+    ::= { csbRadiusStatsEntry 5 }
+
+csbRadiusStatsAcsRtrns OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS Access-Request
+        packets retransmitted to this RADIUS server." 
+    ::= { csbRadiusStatsEntry 6 }
+
+csbRadiusStatsAcsAccpts OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS Access-Accept
+        packets (valid or invalid) received from this server." 
+    ::= { csbRadiusStatsEntry 7 }
+
+csbRadiusStatsAcsRejects OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS Access-Reject
+        packets (valid or invalid) received from this server." 
+    ::= { csbRadiusStatsEntry 8 }
+
+csbRadiusStatsAcsChalls OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS Access-Challenge
+        packets (valid or invalid) received from this server." 
+    ::= { csbRadiusStatsEntry 9 }
+
+csbRadiusStatsActReqs OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS Accounting-Request
+        packets sent to this server. This does not include
+        retransmissions." 
+    ::= { csbRadiusStatsEntry 10 }
+
+csbRadiusStatsActRetrans OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS Accounting-Request
+        packets retransmitted to this RADIUS server." 
+    ::= { csbRadiusStatsEntry 11 }
+
+csbRadiusStatsActRsps OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS Accounting-Response
+        packets (valid or invalid) received from this server." 
+    ::= { csbRadiusStatsEntry 12 }
+
+csbRadiusStatsMalformedRsps OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of malformed RADIUS response
+        packets received from this server.  Malformed packets include
+        packets with an invalid length. Bad authenticators, Signature
+        attributes and unknown types are not included as malformed
+        access responses." 
+    ::= { csbRadiusStatsEntry 13 }
+
+csbRadiusStatsBadAuths OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS response packets
+        containing invalid authenticators or Signature attributes
+        received from this server." 
+    ::= { csbRadiusStatsEntry 14 }
+
+csbRadiusStatsPending OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS request packets
+        destined for this server that have not yet timed out or received
+        a response. This variable is incremented when a request is sent
+        and decremented on receipt of the response or on a timeout or
+        retransmission." 
+    ::= { csbRadiusStatsEntry 15 }
+
+csbRadiusStatsTimeouts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS request timeouts to
+        this server.  After a timeout the client may retry to a
+        different server or give up. A retry to a different server is
+        counted as a request as well as a timeout." 
+    ::= { csbRadiusStatsEntry 16 }
+
+csbRadiusStatsUnknownType OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS packets of unknown
+        type which were received from this server." 
+    ::= { csbRadiusStatsEntry 17 }
+
+csbRadiusStatsDropped OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RADIUS packets which were
+        received from this server and dropped for some other reason." 
+    ::= { csbRadiusStatsEntry 18 }
+ 
+
+
+csbRfBillRealmStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbRfBillRealmStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the Rf billing statistics information
+        which monitors the messages sent per-realm by Rf billing 
+        manager(SBC). SBC sends Rf billing data using Diameter as a
+        transport protocol. Rf billing uses only ACR and ACA Diameter
+        messages for the transport of billing data. The
+        Accounting-Record-Type AVP on the ACR message labels the type 
+        of the accounting request. The following types are used by Rf
+        billing.
+        1.   For session-based charging, the types Start (session
+        begins), Interim (session is modified) and Stop (session ends)
+        are used.
+        2.   For event-based charging, the type Event is used when a
+        chargeable event occurs outside the scope of a session.
+
+        Each row of this table is identified by a value of
+        csbRfBillRealmStatsIndex and csbRfBillRealmStatsRealmName.
+        The other indices of this table are csbCallStatsInstanceIndex
+        defined in csbCallStatsInstanceTable and 
+        csbCallStatsServiceIndex defined in csbCallStatsTable."
+    ::= { ciscoSbcStatsMIBObjects 2 }
+
+csbRfBillRealmStatsEntry OBJECT-TYPE
+    SYNTAX          CsbRfBillRealmStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the csbRfBillRealmStatsTable. There
+        is an entry in this table for each realm, as identified by a 
+        value of csbRfBillRealmStatsIndex and 
+        csbRfBillRealmStatsRealmName. The other indices of this
+        table are csbCallStatsInstanceIndex defined in
+        csbCallStatsInstanceTable and csbCallStatsServiceIndex defined
+        in csbCallStatsTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbRfBillRealmStatsIndex,
+                        csbRfBillRealmStatsRealmName
+                    } 
+    ::= { csbRfBillRealmStatsTable 1 }
+
+CsbRfBillRealmStatsEntry ::= SEQUENCE {
+        csbRfBillRealmStatsIndex            Unsigned32,
+        csbRfBillRealmStatsRealmName        SnmpAdminString,
+        csbRfBillRealmStatsTotalStartAcrs   Unsigned32,
+        csbRfBillRealmStatsTotalInterimAcrs Unsigned32,
+        csbRfBillRealmStatsTotalStopAcrs    Unsigned32,
+        csbRfBillRealmStatsTotalEventAcrs   Unsigned32,
+        csbRfBillRealmStatsSuccStartAcrs    Unsigned32,
+        csbRfBillRealmStatsSuccInterimAcrs  Unsigned32,
+        csbRfBillRealmStatsSuccStopAcrs     Unsigned32,
+        csbRfBillRealmStatsSuccEventAcrs    Unsigned32,
+        csbRfBillRealmStatsFailStartAcrs    Unsigned32,
+        csbRfBillRealmStatsFailInterimAcrs  Unsigned32,
+        csbRfBillRealmStatsFailStopAcrs     Unsigned32,
+        csbRfBillRealmStatsFailEventAcrs    Unsigned32
+}
+
+csbRfBillRealmStatsIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..31)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the billing method instance index. The
+        range of valid values for this field is 0 - 31." 
+    ::= { csbRfBillRealmStatsEntry 1 }
+
+csbRfBillRealmStatsRealmName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the realm for which these statistics are
+        collected. The length of this object is zero when value is not
+        assigned to it." 
+    ::= { csbRfBillRealmStatsEntry 2 }
+
+csbRfBillRealmStatsTotalStartAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the combined sum of successful and failed
+        Start ACRs since start of day or the last time the statistics
+        were reset." 
+    ::= { csbRfBillRealmStatsEntry 3 }
+
+csbRfBillRealmStatsTotalInterimAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the combined sum of successful and failed
+        Interim ACRs since start of day or the last time the statistics
+        were reset." 
+    ::= { csbRfBillRealmStatsEntry 4 }
+
+csbRfBillRealmStatsTotalStopAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the combined sum of successful and failed
+        Stop ACRs since start of day or the last time the statistics
+        were reset." 
+    ::= { csbRfBillRealmStatsEntry 5 }
+
+csbRfBillRealmStatsTotalEventAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the combined sum of successful and failed
+        Event ACRs since start of day or the last time the statistics
+        were reset." 
+    ::= { csbRfBillRealmStatsEntry 6 }
+
+csbRfBillRealmStatsSuccStartAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of successful Start ACRs
+        since start of day or the last time the statistics were reset." 
+    ::= { csbRfBillRealmStatsEntry 7 }
+
+csbRfBillRealmStatsSuccInterimAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of successful Interim
+        ACRs since start of day or the last time the statistics were
+        reset." 
+    ::= { csbRfBillRealmStatsEntry 8 }
+
+csbRfBillRealmStatsSuccStopAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of successful Stop ACRs
+        since start of day or the last time the statistics were reset." 
+    ::= { csbRfBillRealmStatsEntry 9 }
+
+csbRfBillRealmStatsSuccEventAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of successful Event ACRs
+        since start of day or the last time the statistics were reset." 
+    ::= { csbRfBillRealmStatsEntry 10 }
+
+csbRfBillRealmStatsFailStartAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of failed Start ACRs
+        since start of day or the last time the statistics were reset." 
+    ::= { csbRfBillRealmStatsEntry 11 }
+
+csbRfBillRealmStatsFailInterimAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of failed Interim ACRs
+        since start of day or the last time the statistics were reset." 
+    ::= { csbRfBillRealmStatsEntry 12 }
+
+csbRfBillRealmStatsFailStopAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of failed Stop ACRs
+        since start of day or the last time the statistics were reset." 
+    ::= { csbRfBillRealmStatsEntry 13 }
+
+csbRfBillRealmStatsFailEventAcrs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "ACRs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of failed Event ACRs
+        since start of day or the last time the statistics were reset." 
+    ::= { csbRfBillRealmStatsEntry 14 }
+ 
+
+
+csbSIPMthdCurrentStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbSIPMthdCurrentStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table reports count of SIP request and various SIP
+        responses  for each SIP method on a SIP adjacency in a given
+        interval. Each entry in this table represents a SIP method, its
+        incoming and outgoing count, individual incoming and outgoing 
+        count of various SIP responses for this method on a SIP
+        adjacency in a given interval. To understand the meaning of 
+        interval please refer <Periodic Statistics> section in 
+        description of ciscoSbcStatsMIB.  
+        This table is indexed on csbSIPMthdCurrentStatsAdjName,
+        csbSIPMthdCurrentStatsMethod and 
+        csbSIPMthdCurrentStatsInterval. The other indices of this
+        table are csbCallStatsInstanceIndex defined in 
+        csbCallStatsInstanceTable and csbCallStatsServiceIndex defined
+        in csbCallStatsTable."
+    ::= { ciscoSbcStatsMIBObjects 3 }
+
+csbSIPMthdCurrentStatsEntry OBJECT-TYPE
+    SYNTAX          CsbSIPMthdCurrentStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the csbSIPMthdCurrentStatsTable. Each row
+        describes a SIP method and various responses count for this
+        method on a given SIP adjacency and given interval. This table
+        is indexed on csbSIPMthdCurrentStatsAdjName,
+        csbSIPMthdCurrentStatsMethod and 
+        csbSIPMthdCurrentStatsInterval. The other indices of this
+        table are csbCallStatsInstanceIndex defined in 
+        csbCallStatsInstanceTable and csbCallStatsServiceIndex defined
+        in csbCallStatsTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbSIPMthdCurrentStatsAdjName,
+                        csbSIPMthdCurrentStatsMethod,
+                        csbSIPMthdCurrentStatsInterval
+                    } 
+    ::= { csbSIPMthdCurrentStatsTable 1 }
+
+CsbSIPMthdCurrentStatsEntry ::= SEQUENCE {
+        csbSIPMthdCurrentStatsAdjName    SnmpAdminString,
+        csbSIPMthdCurrentStatsMethod     CiscoSbcSIPMethod,
+        csbSIPMthdCurrentStatsInterval   CiscoSbcPeriodicStatsInterval,
+        csbSIPMthdCurrentStatsMethodName SnmpAdminString,
+        csbSIPMthdCurrentStatsReqIn      Gauge32,
+        csbSIPMthdCurrentStatsReqOut     Gauge32,
+        csbSIPMthdCurrentStatsResp1xxIn  Gauge32,
+        csbSIPMthdCurrentStatsResp1xxOut Gauge32,
+        csbSIPMthdCurrentStatsResp2xxIn  Gauge32,
+        csbSIPMthdCurrentStatsResp2xxOut Gauge32,
+        csbSIPMthdCurrentStatsResp3xxIn  Gauge32,
+        csbSIPMthdCurrentStatsResp3xxOut Gauge32,
+        csbSIPMthdCurrentStatsResp4xxIn  Gauge32,
+        csbSIPMthdCurrentStatsResp4xxOut Gauge32,
+        csbSIPMthdCurrentStatsResp5xxIn  Gauge32,
+        csbSIPMthdCurrentStatsResp5xxOut Gauge32,
+        csbSIPMthdCurrentStatsResp6xxIn  Gauge32,
+        csbSIPMthdCurrentStatsResp6xxOut Gauge32
+}
+
+csbSIPMthdCurrentStatsAdjName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the SIP adjacency for which
+        stats related with SIP request and all kind of corresponding SIP
+        responses are reported. The object acts as an index of the
+        table." 
+    ::= { csbSIPMthdCurrentStatsEntry 1 }
+
+csbSIPMthdCurrentStatsMethod OBJECT-TYPE
+    SYNTAX          CiscoSbcSIPMethod
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the SIP method Request. The object acts
+        as an index of the table." 
+    ::= { csbSIPMthdCurrentStatsEntry 2 }
+
+csbSIPMthdCurrentStatsInterval OBJECT-TYPE
+    SYNTAX          CiscoSbcPeriodicStatsInterval
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the interval for which the periodic
+        statistics information is to be displayed. The interval
+        values can be 5 minutes, 15 minutes, 1 hour , 1 Day. This 
+        object acts as an index for the table." 
+    ::= { csbSIPMthdCurrentStatsEntry 3 }
+
+csbSIPMthdCurrentStatsMethodName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the text representation of the SIP
+        method request. E.g. INVITE, ACK, BYE etc." 
+    ::= { csbSIPMthdCurrentStatsEntry 4 }
+
+csbSIPMthdCurrentStatsReqIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total incoming SIP message requests
+        of this type on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 5 }
+
+csbSIPMthdCurrentStatsReqOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total outgoing SIP message requests
+        of this type on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 6 }
+
+csbSIPMthdCurrentStatsResp1xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 1xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 7 }
+
+csbSIPMthdCurrentStatsResp1xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 1xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 8 }
+
+csbSIPMthdCurrentStatsResp2xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 2xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 9 }
+
+csbSIPMthdCurrentStatsResp2xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 2xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 10 }
+
+csbSIPMthdCurrentStatsResp3xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 3xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 11 }
+
+csbSIPMthdCurrentStatsResp3xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 3xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 12 }
+
+csbSIPMthdCurrentStatsResp4xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 4xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 13 }
+
+csbSIPMthdCurrentStatsResp4xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 4xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 14 }
+
+csbSIPMthdCurrentStatsResp5xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 5xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 15 }
+
+csbSIPMthdCurrentStatsResp5xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 5xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 16 }
+
+csbSIPMthdCurrentStatsResp6xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 6xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 17 }
+
+csbSIPMthdCurrentStatsResp6xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 6xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdCurrentStatsEntry 18 }
+ 
+
+
+csbSIPMthdHistoryStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbSIPMthdHistoryStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provide historical count of SIP request and various
+        SIP responses for each SIP method on a SIP adjacency in various
+        interval length defined by the csbSIPMthdHistoryStatsInterval
+        object. Each entry in this table represents a SIP method, its
+        incoming and outgoing count, individual incoming and outgoing 
+        count of various SIP responses for this method on a SIP
+        adjacency in a given interval. The possible values of interval
+        will be previous 5 minutes, previous 15 minutes, previous 1 hour
+        and previous day. To understand the meaning of interval please
+        refer <Periodic Statistics> description of ciscoSbcStatsMIB.
+        This table is indexed on csbSIPMthdHistoryStatsAdjName,
+        csbSIPMthdHistoryStatsMethod and 
+        csbSIPMthdHistoryStatsInterval. The other indices of this
+        table are csbCallStatsInstanceIndex defined in 
+        csbCallStatsInstanceTable and csbCallStatsServiceIndex defined
+        in csbCallStatsTable."
+    ::= { ciscoSbcStatsMIBObjects 4 }
+
+csbSIPMthdHistoryStatsEntry OBJECT-TYPE
+    SYNTAX          CsbSIPMthdHistoryStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the csbSIPMthdHistoryStatsTable. The
+        entries in this table are updated as interval completes in
+        the csbSIPMthdCurrentStatsTable table and the data is 
+        moved from that table to this one.
+        This table is indexed on csbSIPMthdHistoryStatsAdjName,
+        csbSIPMthdHistoryStatsMethod and
+        csbSIPMthdHistoryStatsInterval. The other indices of this 
+        table are csbCallStatsInstanceIndex defined in
+        csbCallStatsInstanceTable and csbCallStatsServiceIndex
+        defined in csbCallStatsTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbSIPMthdHistoryStatsAdjName,
+                        csbSIPMthdHistoryStatsMethod,
+                        csbSIPMthdHistoryStatsInterval
+                    } 
+    ::= { csbSIPMthdHistoryStatsTable 1 }
+
+CsbSIPMthdHistoryStatsEntry ::= SEQUENCE {
+        csbSIPMthdHistoryStatsAdjName    SnmpAdminString,
+        csbSIPMthdHistoryStatsMethod     CiscoSbcSIPMethod,
+        csbSIPMthdHistoryStatsInterval   CiscoSbcPeriodicStatsInterval,
+        csbSIPMthdHistoryStatsMethodName SnmpAdminString,
+        csbSIPMthdHistoryStatsReqIn      Gauge32,
+        csbSIPMthdHistoryStatsReqOut     Gauge32,
+        csbSIPMthdHistoryStatsResp1xxIn  Gauge32,
+        csbSIPMthdHistoryStatsResp1xxOut Gauge32,
+        csbSIPMthdHistoryStatsResp2xxIn  Gauge32,
+        csbSIPMthdHistoryStatsResp2xxOut Gauge32,
+        csbSIPMthdHistoryStatsResp3xxIn  Gauge32,
+        csbSIPMthdHistoryStatsResp3xxOut Gauge32,
+        csbSIPMthdHistoryStatsResp4xxIn  Gauge32,
+        csbSIPMthdHistoryStatsResp4xxOut Gauge32,
+        csbSIPMthdHistoryStatsResp5xxIn  Gauge32,
+        csbSIPMthdHistoryStatsResp5xxOut Gauge32,
+        csbSIPMthdHistoryStatsResp6xxIn  Gauge32,
+        csbSIPMthdHistoryStatsResp6xxOut Gauge32
+}
+
+csbSIPMthdHistoryStatsAdjName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the SIP adjacency for which
+        stats related with SIP request and all kind of corresponding SIP
+        responses are reported. The object acts as an index of the
+        table." 
+    ::= { csbSIPMthdHistoryStatsEntry 1 }
+
+csbSIPMthdHistoryStatsMethod OBJECT-TYPE
+    SYNTAX          CiscoSbcSIPMethod
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the SIP method Request. The object acts
+        as an index of the table." 
+    ::= { csbSIPMthdHistoryStatsEntry 2 }
+
+csbSIPMthdHistoryStatsInterval OBJECT-TYPE
+    SYNTAX          CiscoSbcPeriodicStatsInterval
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the interval for which the historical
+        statistics information is to be displayed. The interval
+        values can be previous 5 minutes, previous 15 minutes, 
+        previous 1 hour and previous 1 Day. This object acts as an 
+        index for the table." 
+    ::= { csbSIPMthdHistoryStatsEntry 3 }
+
+csbSIPMthdHistoryStatsMethodName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the text representation of the SIP
+        method request. E.g. INVITE, ACK, BYE etc." 
+    ::= { csbSIPMthdHistoryStatsEntry 4 }
+
+csbSIPMthdHistoryStatsReqIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total incoming SIP message requests
+        of this type on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 5 }
+
+csbSIPMthdHistoryStatsReqOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total outgoing SIP message requests
+        of this type on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 6 }
+
+csbSIPMthdHistoryStatsResp1xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 1xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 7 }
+
+csbSIPMthdHistoryStatsResp1xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 1xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 8 }
+
+csbSIPMthdHistoryStatsResp2xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 2xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 9 }
+
+csbSIPMthdHistoryStatsResp2xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 2xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 10 }
+
+csbSIPMthdHistoryStatsResp3xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 3xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 11 }
+
+csbSIPMthdHistoryStatsResp3xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 3xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 12 }
+
+csbSIPMthdHistoryStatsResp4xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 4xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 13 }
+
+csbSIPMthdHistoryStatsResp4xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 4xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 14 }
+
+csbSIPMthdHistoryStatsResp5xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 5xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 15 }
+
+csbSIPMthdHistoryStatsResp5xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 5xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 16 }
+
+csbSIPMthdHistoryStatsResp6xxIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 6xx responses for this method
+        received on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 17 }
+
+csbSIPMthdHistoryStatsResp6xxOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total 6xx responses for this method
+        sent on this SIP adjacency." 
+    ::= { csbSIPMthdHistoryStatsEntry 18 }
+ 
+
+
+csbSIPMthdRCCurrentStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbSIPMthdRCCurrentStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table reports SIP method request and response code
+        statistics for each method and response code combination on
+        given SIP adjacency in a given interval. To understand the 
+        meaning of interval please refer <Periodic Statistics> section
+        in description of ciscoSbcStatsMIB. An exact lookup will return
+        a row only  if -
+        1) detailed response code statistics are turned on in SBC
+        2) response code  messages sent or received is non zero for 
+           given SIP adjacency, method and interval.
+        Also an inexact lookup will only return rows for messages with
+        non-zero counts, to protect the user from large numbers of rows 
+        for response codes which have not been received or sent."
+    ::= { ciscoSbcStatsMIBObjects 5 }
+
+csbSIPMthdRCCurrentStatsEntry OBJECT-TYPE
+    SYNTAX          CsbSIPMthdRCCurrentStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the csbSIPMthdRCCurrentStatsTable. Each
+        entry in this table represents a method and response code
+        combination. Each entry in this table is identified by a value
+        of csbSIPMthdRCCurrentStatsAdjName,
+        csbSIPMthdRCCurrentStatsMethod,
+        csbSIPMthdRCCurrentStatsRespCode and
+        csbSIPMthdRCCurrentStatsInterval. The other indices of this
+        table are csbCallStatsInstanceIndex defined in
+        csbCallStatsInstanceTable and csbCallStatsServiceIndex defined
+        in csbCallStatsTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbSIPMthdRCCurrentStatsAdjName,
+                        csbSIPMthdRCCurrentStatsMethod,
+                        csbSIPMthdRCCurrentStatsRespCode,
+                        csbSIPMthdRCCurrentStatsInterval
+                    } 
+    ::= { csbSIPMthdRCCurrentStatsTable 1 }
+
+CsbSIPMthdRCCurrentStatsEntry ::= SEQUENCE {
+        csbSIPMthdRCCurrentStatsAdjName    SnmpAdminString,
+        csbSIPMthdRCCurrentStatsMethod     CiscoSbcSIPMethod,
+        csbSIPMthdRCCurrentStatsRespCode   Unsigned32,
+        csbSIPMthdRCCurrentStatsInterval   CiscoSbcPeriodicStatsInterval,
+        csbSIPMthdRCCurrentStatsMethodName SnmpAdminString,
+        csbSIPMthdRCCurrentStatsRespIn     Gauge32,
+        csbSIPMthdRCCurrentStatsRespOut    Gauge32
+}
+
+csbSIPMthdRCCurrentStatsAdjName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This identifies the name of the adjacency for which statistics
+        are reported. This object acts as an index for the table." 
+    ::= { csbSIPMthdRCCurrentStatsEntry 1 }
+
+csbSIPMthdRCCurrentStatsMethod OBJECT-TYPE
+    SYNTAX          CiscoSbcSIPMethod
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the SIP method request. This object acts
+        as an index for the table." 
+    ::= { csbSIPMthdRCCurrentStatsEntry 2 }
+
+csbSIPMthdRCCurrentStatsRespCode OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the response code for the SIP message
+        request. The range of valid values for SIP response codes is 100
+        - 999. This object acts as an index for the table." 
+    ::= { csbSIPMthdRCCurrentStatsEntry 3 }
+
+csbSIPMthdRCCurrentStatsInterval OBJECT-TYPE
+    SYNTAX          CiscoSbcPeriodicStatsInterval
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the interval for which the periodic
+        statistics information is to be displayed. The interval
+        values can be 5 min, 15 mins, 1 hour , 1 Day. This object acts
+        as an index for the table." 
+    ::= { csbSIPMthdRCCurrentStatsEntry 4 }
+
+csbSIPMthdRCCurrentStatsMethodName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the text representation of the SIP
+        method request. E.g. INVITE, ACK, BYE etc." 
+    ::= { csbSIPMthdRCCurrentStatsEntry 5 }
+
+csbSIPMthdRCCurrentStatsRespIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total SIP messages with this response
+        code this method received on this SIP adjacency." 
+    ::= { csbSIPMthdRCCurrentStatsEntry 6 }
+
+csbSIPMthdRCCurrentStatsRespOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total SIP messages with this response
+        code for this method sent on this SIP adjacency." 
+    ::= { csbSIPMthdRCCurrentStatsEntry 7 }
+ 
+
+
+csbSIPMthdRCHistoryStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbSIPMthdRCHistoryStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table reports historical data for SIP method request and
+        response code statistics for each method and response code 
+        combination in a given past interval. The possible values of 
+        interval will be previous 5 minutes, previous 15 minutes, 
+        previous 1 hour and previous day. To understand the 
+        meaning of interval please refer <Periodic Statistics> section
+        in description of ciscoSbcStatsMIB. An exact lookup will return
+        a row only  if -
+        1) detailed response code statistics are turned on in SBC
+        2) response code  messages sent or received is non zero for 
+           given SIP adjacency, method and interval.
+        Also an inexact lookup will only return rows for messages with
+        non-zero counts, to protect the user from large numbers of rows
+        for response codes which have not been received or sent."
+    ::= { ciscoSbcStatsMIBObjects 6 }
+
+csbSIPMthdRCHistoryStatsEntry OBJECT-TYPE
+    SYNTAX          CsbSIPMthdRCHistoryStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the csbSIPMthdRCHistoryStatsTable. The
+        entries in this table are updated as interval completes in
+        the csbSIPMthdRCCurrentStatsTable table and the data is 
+        moved from that table to this one. Each entry in this table 
+        is identified by a value of csbSIPMthdRCHistoryStatsAdjName, 
+        csbSIPMthdRCHistoryStatsMethod,
+        csbSIPMthdRCHistoryStatsRespCode and
+        csbSIPMthdRCHistoryStatsInterval. The other indices of this
+        table are csbCallStatsInstanceIndex defined in
+        csbCallStatsInstanceTable and csbCallStatsServiceIndex defined
+        in csbCallStatsTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbSIPMthdRCHistoryStatsAdjName,
+                        csbSIPMthdRCHistoryStatsMethod,
+                        csbSIPMthdRCHistoryStatsRespCode,
+                        csbSIPMthdRCHistoryStatsInterval
+                    } 
+    ::= { csbSIPMthdRCHistoryStatsTable 1 }
+
+CsbSIPMthdRCHistoryStatsEntry ::= SEQUENCE {
+        csbSIPMthdRCHistoryStatsAdjName    SnmpAdminString,
+        csbSIPMthdRCHistoryStatsMethod     CiscoSbcSIPMethod,
+        csbSIPMthdRCHistoryStatsMethodName SnmpAdminString,
+        csbSIPMthdRCHistoryStatsRespCode   Unsigned32,
+        csbSIPMthdRCHistoryStatsInterval   CiscoSbcPeriodicStatsInterval,
+        csbSIPMthdRCHistoryStatsRespIn     Gauge32,
+        csbSIPMthdRCHistoryStatsRespOut    Gauge32
+}
+
+csbSIPMthdRCHistoryStatsAdjName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This identifies the name of the adjacency for which statistics
+        are reported. This object acts as an index for the table." 
+    ::= { csbSIPMthdRCHistoryStatsEntry 1 }
+
+csbSIPMthdRCHistoryStatsMethod OBJECT-TYPE
+    SYNTAX          CiscoSbcSIPMethod
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the SIP method request. This object acts
+        as an index for the table." 
+    ::= { csbSIPMthdRCHistoryStatsEntry 2 }
+
+csbSIPMthdRCHistoryStatsMethodName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the text representation of the SIP
+        method request. E.g. INVITE, ACK, BYE etc." 
+    ::= { csbSIPMthdRCHistoryStatsEntry 3 }
+
+csbSIPMthdRCHistoryStatsRespCode OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the response code for the SIP message
+        request. The range of valid values for SIP response codes is 100
+        - 999. This object acts as an index for the table." 
+    ::= { csbSIPMthdRCHistoryStatsEntry 4 }
+
+csbSIPMthdRCHistoryStatsInterval OBJECT-TYPE
+    SYNTAX          CiscoSbcPeriodicStatsInterval
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the interval for which the periodic
+        statistics information is to be displayed. The interval
+        values can be previous 5 min, previous 15 mins, previous 1 
+        hour , previous 1 Day. This object acts as an index for the
+        table." 
+    ::= { csbSIPMthdRCHistoryStatsEntry 5 }
+
+csbSIPMthdRCHistoryStatsRespIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total SIP messages with this response
+        code this method received on this SIP adjacency." 
+    ::= { csbSIPMthdRCHistoryStatsEntry 6 }
+
+csbSIPMthdRCHistoryStatsRespOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total SIP messages with this response
+        code for this method sent on this SIP adjacency." 
+    ::= { csbSIPMthdRCHistoryStatsEntry 7 }
+ 
+
+csbStatsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSbcStatsMIBConform 1 }
+
+csbStatsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSbcStatsMIBConform 2 }
+
+
+csbStatsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing csbStatsMIBGroups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        csbRadiusStatsGroup,
+                        csbRfBillRealmStatsGroup,
+                        csbSIPMthdCurrentStatsGroup,
+                        csbSIPMthdHistoryStatsGroup,
+                        csbSIPMthdRCHistoryStatsGroup,
+                        csbSIPMthdRCCurrentStatsGroup
+                    }
+    ::= { csbStatsMIBCompliances 1 }
+
+-- Units of Conformance
+
+csbRadiusStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbRadiusStatsClientName,
+                        csbRadiusStatsClientType,
+                        csbRadiusStatsSrvrName,
+                        csbRadiusStatsAcsReqs,
+                        csbRadiusStatsAcsRtrns,
+                        csbRadiusStatsAcsAccpts,
+                        csbRadiusStatsAcsRejects,
+                        csbRadiusStatsAcsChalls,
+                        csbRadiusStatsActReqs,
+                        csbRadiusStatsActRetrans,
+                        csbRadiusStatsActRsps,
+                        csbRadiusStatsMalformedRsps,
+                        csbRadiusStatsBadAuths,
+                        csbRadiusStatsPending,
+                        csbRadiusStatsTimeouts,
+                        csbRadiusStatsUnknownType,
+                        csbRadiusStatsDropped
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing RADIUS messages statistics
+        for configured RADIUS servers on Cisco Session Border 
+        Controller (SBC)."
+    ::= { csbStatsMIBGroups 1 }
+
+csbRfBillRealmStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbRfBillRealmStatsRealmName,
+                        csbRfBillRealmStatsTotalStartAcrs,
+                        csbRfBillRealmStatsTotalInterimAcrs,
+                        csbRfBillRealmStatsTotalStopAcrs,
+                        csbRfBillRealmStatsTotalEventAcrs,
+                        csbRfBillRealmStatsSuccStartAcrs,
+                        csbRfBillRealmStatsSuccInterimAcrs,
+                        csbRfBillRealmStatsSuccStopAcrs,
+                        csbRfBillRealmStatsSuccEventAcrs,
+                        csbRfBillRealmStatsFailStartAcrs,
+                        csbRfBillRealmStatsFailInterimAcrs,
+                        csbRfBillRealmStatsFailStopAcrs,
+                        csbRfBillRealmStatsFailEventAcrs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing Rf billing statistics
+        information on Cisco Session Border Controller (SBC)."
+    ::= { csbStatsMIBGroups 2 }
+
+csbSIPMthdCurrentStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbSIPMthdCurrentStatsAdjName,
+                        csbSIPMthdCurrentStatsMethodName,
+                        csbSIPMthdCurrentStatsReqIn,
+                        csbSIPMthdCurrentStatsReqOut,
+                        csbSIPMthdCurrentStatsResp1xxIn,
+                        csbSIPMthdCurrentStatsResp1xxOut,
+                        csbSIPMthdCurrentStatsResp2xxIn,
+                        csbSIPMthdCurrentStatsResp2xxOut,
+                        csbSIPMthdCurrentStatsResp3xxIn,
+                        csbSIPMthdCurrentStatsResp3xxOut,
+                        csbSIPMthdCurrentStatsResp4xxIn,
+                        csbSIPMthdCurrentStatsResp4xxOut,
+                        csbSIPMthdCurrentStatsResp5xxIn,
+                        csbSIPMthdCurrentStatsResp5xxOut,
+                        csbSIPMthdCurrentStatsResp6xxIn,
+                        csbSIPMthdCurrentStatsResp6xxOut
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing statistics for a SIP method
+        and various responses count for this method on a given SIP
+        adjacency and given interval for Cisco Session Border 
+        Controller (SBC)."
+    ::= { csbStatsMIBGroups 3 }
+
+csbSIPMthdHistoryStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbSIPMthdHistoryStatsAdjName,
+                        csbSIPMthdHistoryStatsMethodName,
+                        csbSIPMthdHistoryStatsReqIn,
+                        csbSIPMthdHistoryStatsReqOut,
+                        csbSIPMthdHistoryStatsResp1xxIn,
+                        csbSIPMthdHistoryStatsResp1xxOut,
+                        csbSIPMthdHistoryStatsResp2xxIn,
+                        csbSIPMthdHistoryStatsResp2xxOut,
+                        csbSIPMthdHistoryStatsResp3xxIn,
+                        csbSIPMthdHistoryStatsResp3xxOut,
+                        csbSIPMthdHistoryStatsResp4xxIn,
+                        csbSIPMthdHistoryStatsResp4xxOut,
+                        csbSIPMthdHistoryStatsResp5xxIn,
+                        csbSIPMthdHistoryStatsResp5xxOut,
+                        csbSIPMthdHistoryStatsResp6xxIn,
+                        csbSIPMthdHistoryStatsResp6xxOut
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing historical statistics for
+        a SIP method and various responses count for this method on
+        a given SIP adjacency and given interval for Cisco Session
+        Border Controller (SBC)."
+    ::= { csbStatsMIBGroups 4 }
+
+csbSIPMthdRCCurrentStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbSIPMthdRCCurrentStatsAdjName,
+                        csbSIPMthdRCCurrentStatsMethodName,
+                        csbSIPMthdRCCurrentStatsRespIn,
+                        csbSIPMthdRCCurrentStatsRespOut
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing SIP statistics for a method
+        and response code combination for Cisco Session Border 
+        Controller (SBC)."
+    ::= { csbStatsMIBGroups 5 }
+
+csbSIPMthdRCHistoryStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbSIPMthdRCHistoryStatsAdjName,
+                        csbSIPMthdRCHistoryStatsMethodName,
+                        csbSIPMthdRCHistoryStatsRespIn,
+                        csbSIPMthdRCHistoryStatsRespOut
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing SIP historical statistics
+        for a method and response code combination for Cisco Session
+        Border Controller (SBC)."
+    ::= { csbStatsMIBGroups 6 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+

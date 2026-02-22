@@ -1,0 +1,691 @@
+-- MIB file created 22-Apr-2009 14:40:55, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-VPLS-GENERIC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-VPLS-GENERIC-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus, StorageType
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    VPNIdOrZero
+            FROM VPN-TC-STD-MIB
+    CpwVcIndexType
+            FROM CISCO-IETF-PW-TC-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+cvplsGenericMIB OBJECT IDENTIFIER ::= { ciscoExperiment 138 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200710221200Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service 
+--    
+--    Postal:  
+--    170 W Tasman Drive 
+--    San Jose, CA  95134 
+--    USA 
+--    
+--    Tel: +1 800 553-NETS 
+--    
+--    E-mail: cs-l2vpn@cisco.com
+--  Descr
+--    This MIB module contains generic managed object definitions
+--    for Virtual Private LAN Services as in [L2VPN-VPLS-LDP] and
+--    [L2VPN-VPLS-BGP]
+--    
+--    This MIB module enables the use of any underlying Pseudo Wire
+--    network.
+--    
+--    This MIB is based on the following IETF document.
+--    
+--    http://www.ietf.org/internet-drafts/draft-ietf-l2vpn-vpls-mib-00.txt
+--  RevDate
+--    200710221200Z
+--  RevDescr
+--    Initial version of this MIB
+
+cvplsNotifications OBJECT IDENTIFIER ::= { cvplsGenericMIB 0 }
+cvplsObjects    OBJECT IDENTIFIER ::= { cvplsGenericMIB 1 }
+cvplsConformance OBJECT IDENTIFIER ::= { cvplsGenericMIB 2 }
+cvplsCompliances OBJECT IDENTIFIER ::= { cvplsConformance 1 }
+cvplsGroups     OBJECT IDENTIFIER ::= { cvplsConformance 2 }
+
+cvplsConfigIndexNext OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains an appropriate value to be used
+        for cvplsConfigIndex when creating entries in the
+        cvplsConfigTable. The value 0 indicates that no
+        unassigned entries are available.  To obtain the
+        value of cvplsConfigIndex for a new entry in the
+        cvplsConfigTable, the manager issues a management
+        protocol retrieval operation to obtain the current
+        value of cvplsConfigIndex.  After each retrieval
+        operation, the agent should modify the value to
+        reflect the next unassigned index.  After a manager
+        retrieves a value the agent will determine through
+        its local policy when this index value will be made
+        available for reuse."
+    ::= { cvplsObjects 1 }
+
+cvplsConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvplsConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table specifies information for configuring
+        and monitoring Virtual Private Lan Services(VPLS)."
+    ::= { cvplsObjects 2 }
+
+cvplsConfigEntry OBJECT-TYPE
+    SYNTAX CvplsConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A row in this table represents a Virtual Private Lan
+        Service(VPLS) in a packet network. It is indexed by
+        cvplsConfigIndex, which uniquely identifies a single VPLS.
+        
+        A row is created by the operator or by the agent if a
+        VPLS service is created by non-SNMP application or
+        due to autodiscovery process.
+        
+        None of the read-create objects values can be
+        changed when cvplsConfigRowStatus is in the active(1)
+        state. Changes are allowed when the cvplsConfigRowStatus
+        is in notInService(2) or notReady(3) states only.
+        If the operator needs to change one of the values
+        for an active row the cvplsConfigRowStatus should be
+        first changed to notInService(2), the objects may
+        be changed now, and later to active(1) in order to
+        re-initiate the signaling process with the new
+        values in effect."
+    INDEX { cvplsConfigIndex }
+    ::= { cvplsConfigTable 1 }
+
+CvplsConfigEntry ::= SEQUENCE {
+    cvplsConfigIndex Gauge,
+    cvplsConfigName SnmpAdminString,
+    cvplsConfigDescr SnmpAdminString,
+    cvplsConfigAdminStatus INTEGER,
+    cvplsConfigMacLearning TruthValue,
+    cvplsConfigDiscardUnknownDest TruthValue,
+    cvplsConfigMacAging TruthValue,
+    cvplsConfigFwdFullHighWatermark Gauge,
+    cvplsConfigFwdFullLowWatermark Gauge,
+    cvplsConfigRowStatus RowStatus,
+    cvplsConfigMtu Gauge,
+    cvplsConfigVpnId VPNIdOrZero,
+    cvplsConfigServiceType INTEGER,
+    cvplsConfigStorageType StorageType
+    }
+
+cvplsConfigIndex OBJECT-TYPE
+    SYNTAX Gauge(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Unique index for the conceptual row identifying
+        a VPLS service."
+    ::= { cvplsConfigEntry 1 }
+
+cvplsConfigName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A textual name of the VPLS.
+        If there is no local name, or this object is
+        otherwise not applicable, then this object MUST
+        contain a zero-length octet string."
+    DEFVAL { "" }
+    ::= { cvplsConfigEntry 2 }
+
+cvplsConfigDescr OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A textual string containing information about the
+        VPLS service. If there is no information for this VPLS
+        service, then this object MUST contain a zero-length
+        octet string."
+    DEFVAL { "" }
+    ::= { cvplsConfigEntry 3 }
+
+cvplsConfigAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2),
+        testing(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The desired administrative state of the VPLS
+        service. If the administrative status of the
+        Vpls service is changed to enable then this
+        service is able to utilize the pseudo wire to
+        perform the tasks of a VPLS service.
+        The testing(3) state indicates that no operational
+        packets can be passed."
+    DEFVAL { down }
+    ::= { cvplsConfigEntry 4 }
+
+cvplsConfigMacLearning OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies if MAC Learning is enabled
+        in this service. If this object is true then Mac
+        Learning is enabled. If false, then Mac Learning is
+        disabled."
+    DEFVAL { true }
+    ::= { cvplsConfigEntry 6 }
+
+cvplsConfigDiscardUnknownDest OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If the value of this object is 'true', then frames
+        received with an unknown destination MAC are discarded
+        in this VPLS. If 'false', then the packets are
+        processed."
+    DEFVAL { false }
+    ::= { cvplsConfigEntry 7 }
+
+cvplsConfigMacAging OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If the value of this object is 'true'
+        then the MAC aging process is enabled in
+        this VPLS. If 'false', then the MAC aging process
+        is disabled"
+    DEFVAL { true }
+    ::= { cvplsConfigEntry 8 }
+
+cvplsConfigFwdFullHighWatermark OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    percentage
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the utilization of the
+        forwarding database for this VPLS instance at
+        which the cvplsFwdFullAlarmRaised notification
+        will be sent."
+    DEFVAL { 95 }
+    ::= { cvplsConfigEntry 10 }
+
+cvplsConfigFwdFullLowWatermark OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    percentage
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the utilization of the
+        forwarding database for this VPLS instance
+        at which the cvplsFwdFullAlarmCleared
+        notification will be sent."
+    DEFVAL { 90 }
+    ::= { cvplsConfigEntry 11 }
+
+cvplsConfigRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "For creating, modifying, and deleting this row.
+        None of the read-create objects in the
+        conceptual rows may be changed when this
+        object is in the active(1) state."
+    ::= { cvplsConfigEntry 12 }
+
+cvplsConfigMtu OBJECT-TYPE
+    SYNTAX Gauge(64..1518)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object specifies the MTU of this
+        vpls instance."
+    DEFVAL { 1518 }
+    ::= { cvplsConfigEntry 13 }
+
+cvplsConfigVpnId OBJECT-TYPE
+    SYNTAX VPNIdOrZero
+--    Rsyntax OCTET STRING(SIZE(0|7))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the IEEE 802-1990
+        VPN ID of the associated VPLS service."
+    ::= { cvplsConfigEntry 14 }
+
+cvplsConfigServiceType OBJECT-TYPE
+    SYNTAX INTEGER {
+        vlan(1),
+        ethernet(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object specifies the type of
+        service emulated by this vpls instance."
+    DEFVAL { vlan }
+    ::= { cvplsConfigEntry 15 }
+
+cvplsConfigStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable indicates the storage type for this row."
+    DEFVAL { volatile }
+    ::= { cvplsConfigEntry 16 }
+
+cvplsStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvplsStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information for monitoring
+        Virtual Private Lan Services(VPLS)."
+    ::= { cvplsObjects 3 }
+
+cvplsStatusEntry OBJECT-TYPE
+    SYNTAX CvplsStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A row in this table represents a Virtual Private Lan
+        Service(VPLS) in a packet network. It is indexed by
+        cvplsConfigIndex, which uniquely identifies a single VPLS.
+        A row in this table is automatically created by the agent
+        when a VPLS service is configured."
+    INDEX { cvplsConfigIndex }
+    ::= { cvplsStatusTable 1 }
+
+CvplsStatusEntry ::= SEQUENCE {
+    cvplsStatusOperStatus INTEGER,
+    cvplsStatusPeerCount Counter
+    }
+
+cvplsStatusOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        --?? enum value of zero may cause problems
+        other(0),
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current operational state of this VPLS Service."
+    ::= { cvplsStatusEntry 1 }
+
+cvplsStatusPeerCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the number of peers
+        present in this vpls instance."
+    ::= { cvplsStatusEntry 2 }
+
+cvplsPwBindTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvplsPwBindEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides an association between a
+        VPLS service and the corresponding Pseudo
+        Wires. A service can have more than one Pseudo
+        Wire association. Pseudo Wires are defined in
+        the pwTable"
+    ::= { cvplsObjects 4 }
+
+cvplsPwBindEntry OBJECT-TYPE
+    SYNTAX CvplsPwBindEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each row represents an association between a
+        VPLS instance and one or more Pseudo Wires
+        defined in the pwTable. Each index is unique
+        in describing an entry in this table. However
+        both indexes are required to define the one
+        to many association of service to
+        pseudowire."
+    INDEX { cvplsConfigIndex, cvplsPwBindIndex }
+    ::= { cvplsPwBindTable 1 }
+
+CvplsPwBindEntry ::= SEQUENCE {
+    cvplsPwBindIndex CpwVcIndexType,
+    cvplsPwBindConfigType INTEGER,
+    cvplsPwBindType INTEGER,
+    cvplsPwBindRowStatus RowStatus,
+    cvplsPwBindStorageType StorageType
+    }
+
+cvplsPwBindIndex OBJECT-TYPE
+    SYNTAX CpwVcIndexType
+--    Rsyntax Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Secondary Index for the conceptual row identifying
+        a pseudowire within the PwEntry which MUST
+        match an entry from the PW-STD-MIB's PwTable
+        which represents an already-provisioned
+        pseudowire that is then associated with this
+        VPLS instance."
+    ::= { cvplsPwBindEntry 1 }
+
+cvplsPwBindConfigType OBJECT-TYPE
+    SYNTAX INTEGER {
+        manual(1),
+        autodiscovery(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object indicates
+        whether the Pseudo Wire binding was created
+        manually or via autodiscovery.
+        
+        The value of this object must be
+        specified when the row is created and cannot
+        be changed while the row status is active(1)"
+    ::= { cvplsPwBindEntry 2 }
+
+cvplsPwBindType OBJECT-TYPE
+    SYNTAX INTEGER {
+        mesh(1),
+        spoke(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object indicates
+        whether the Pseudo Wire binding is of
+        type mesh or spoke.
+        
+        The value of this object must be
+        specified when the row is created and cannot
+        be changed while the row status is active(1)"
+    ::= { cvplsPwBindEntry 3 }
+
+cvplsPwBindRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "For creating, modifying, and deleting this row.
+        None of the read-create objects in the
+        conceptual rows may be changed when this
+        object is in the active(1) state"
+    ::= { cvplsPwBindEntry 4 }
+
+cvplsPwBindStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable indicates the storage type for this row."
+    DEFVAL { volatile }
+    ::= { cvplsPwBindEntry 5 }
+
+cvplsStatusNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If this object is set to true(1), then it enables
+        the emission of cvplsStatusChanged
+        notification; otherwise this notification is not
+        emitted."
+    REFERENCE
+        "See also [RFC3413] for explanation that
+            notifications are under the ultimate control of the
+            MIB module in this document."
+    DEFVAL { false }
+    ::= { cvplsObjects 5 }
+
+cvplsNotificationMaxRate OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum number of
+        notifications issued per second. If events occur
+        more rapidly, the implementation may simply fail to
+        emit these notifications during that period, or may
+        queue them until an appropriate time. A value of 0
+        means no throttling is applied and events may be
+        notified at the rate at which they occur."
+    DEFVAL { 0 }
+    ::= { cvplsObjects 6 }
+
+cvplsStatusChanged TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cvplsGenericMIB
+    VARIABLES {
+        cvplsConfigVpnId, cvplsConfigAdminStatus, 
+        cvplsStatusOperStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The cvplsStatusChanged notification is generated
+        when there is a change in the administrative or
+        operating status of a VPLS service."
+    ::= 1
+
+cvplsFwdFullAlarmRaised TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cvplsGenericMIB
+    VARIABLES {
+        cvplsConfigVpnId, cvplsConfigFwdFullHighWatermark, 
+        cvplsConfigFwdFullLowWatermark }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The cvplsFwdFullAlarmRaised notification is
+        generated when the utilization of the Forwarding
+        database is above the value specified by
+        cvplsConfigFwdFullHighWatermark."
+    ::= 2
+
+cvplsFwdFullAlarmCleared TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cvplsGenericMIB
+    VARIABLES {
+        cvplsConfigVpnId, cvplsConfigFwdFullHighWatermark, 
+        cvplsConfigFwdFullLowWatermark }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The cvplsFwdFullAlarmCleared notification is
+        generated when the utilization of the Forwarding
+        database is below the value specified by
+        cvplsConfigFwdFullLowWatermark."
+    ::= 3
+
+cvplsGroup OBJECT IDENTIFIER ::= { cvplsGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The group of objects supporting
+--    management of L2VPN VPLS services
+--  objects
+--    cvplsConfigName, cvplsConfigDescr, cvplsConfigAdminStatus, 
+--    cvplsConfigMacLearning, cvplsConfigDiscardUnknownDest, 
+--    cvplsConfigMacAging, cvplsConfigVpnId, 
+--    cvplsConfigFwdFullHighWatermark, 
+--    cvplsConfigFwdFullLowWatermark, cvplsConfigRowStatus, 
+--    cvplsConfigIndexNext, cvplsConfigMtu, cvplsConfigServiceType, 
+--    cvplsConfigStorageType, cvplsStatusOperStatus, 
+--    cvplsStatusPeerCount, cvplsStatusNotifEnable, 
+--    cvplsNotificationMaxRate
+
+cvplsPwBindGroup OBJECT IDENTIFIER ::= { cvplsGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The group of objects supporting
+--    management of
+--    Pseudo Wire (PW) Binding to VPLS.
+--  objects
+--    cvplsPwBindConfigType, cvplsPwBindType, cvplsPwBindRowStatus, 
+--    cvplsPwBindStorageType
+
+cvplsNotificationGroup OBJECT IDENTIFIER ::= { cvplsGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The group of notifications supporting
+--    the  Notifications generated for
+--    VPLS Services
+--  notifications
+--    cvplsStatusChanged, cvplsFwdFullAlarmRaised, 
+--    cvplsFwdFullAlarmCleared
+
+cvplsModuleFullCompliance OBJECT IDENTIFIER ::= { cvplsCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Compliance requirement for implementations that
+--    provide full support for CISCO-IETF-VPLS-GENERIC-MIB.
+--    Such devices can then be monitored and configured using 
+--    this MIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvplsGroup
+--   MandGroup
+--    cvplsPwBindGroup
+--   MandGroup
+--    cvplsNotificationGroup
+
+cvplsModuleReadOnlyCompliance OBJECT IDENTIFIER ::= { cvplsCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Compliance requirement for implementations that only
+--    provide read-only support for CISCO-IETF-VPLS-GENERIC-MIB.
+--    Such devices can then be monitored but cannot be
+--    configured using this MIB modules.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvplsGroup
+--   MandGroup
+--    cvplsPwBindGroup
+--   MandGroup
+--    cvplsNotificationGroup
+--   ObjVar
+--    cvplsConfigName
+--   ObjVar
+--    cvplsConfigDescr
+--   ObjVar
+--    cvplsConfigAdminStatus
+--   ObjVar
+--    cvplsConfigMacLearning
+--   ObjVar
+--    cvplsConfigDiscardUnknownDest
+--   ObjVar
+--    cvplsConfigMacAging
+--   ObjVar
+--    cvplsConfigFwdFullHighWatermark
+--   ObjVar
+--    cvplsConfigFwdFullLowWatermark
+--   ObjVar
+--    cvplsConfigRowStatus
+--   ObjVar
+--    cvplsConfigMtu
+--   ObjVar
+--    cvplsConfigServiceType
+--   ObjVar
+--    cvplsPwBindConfigType
+--   ObjVar
+--    cvplsPwBindType
+--   ObjVar
+--    cvplsPwBindRowStatus
+
+
+END
+

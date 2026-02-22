@@ -1,0 +1,910 @@
+------------------------------------------------------------------------------
+--
+-- MIB      : madgeBox					Madge Networks Ltd
+--
+-- Version  : 1.8					      November 1995
+--
+------------------------------------------------------------------------------
+--
+-- Overview :
+--
+-- The Madge box MIB defines manageable objects that are common to all  
+-- Madge products.
+--
+-- The Madge box MIB contains the following groups :-
+--
+--  madgeConfig   - This group contains general configuration information
+--		    for the device. Such as IP address / serial number /
+--		    admin status etc.
+--  madgeSecure	  - This group contains 3 tables. a list of allowed users,
+--		    a list of trap destinations and a list of current users.
+--  madgeDownload - This group contains all of the variables required to 
+--		    configure / monitor a download to a device using TFTP
+--		    or RPL. 
+--  madgeIP	  - This group provides information about the current IP
+--                  configuration of a device. It contains the current IP
+--		    address / gateway and an indication of whether the IP
+--		    address was obtained from the Config group or via BOOTP 
+--		    or RARP.
+--  madgeVersion  - This group provides version information for all hardware
+--		    or software components within a device. This MIB 
+--		    identifies the Flash banks that can be downloaded into.
+--
+------------------------------------------------------------------------------
+
+	MADGEBOX-MIB DEFINITIONS ::= BEGIN
+
+	IMPORTS
+		enterprises, IpAddress 	FROM RFC1155-SMI
+                OBJECT-TYPE             FROM RFC-1212;
+
+		DisplayString 	::= OCTET STRING
+		MacAddress 	::= OCTET STRING (SIZE (6))
+
+      	-- the MadgeBox MIB
+
+	madge		OBJECT IDENTIFIER ::= { enterprises 494 }
+	madgeBox	OBJECT IDENTIFIER ::= { madge 10 }
+
+	-- groups in the MadgeBox MIB
+
+	madgeConfig	OBJECT IDENTIFIER ::= { madgeBox 1 }
+	madgeSecure	OBJECT IDENTIFIER ::= { madgeBox 2 }
+        madgeDownload   OBJECT IDENTIFIER ::= { madgeBox 3 }
+        madgeIP         OBJECT IDENTIFIER ::= { madgeBox 4 }
+        madgeVersion    OBJECT IDENTIFIER ::= { madgeBox 5 }
+
+------------------------------------------------------------------------------
+
+        madgeConfigIPAddress OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The IP address of the device."
+		::= { madgeConfig 1 }
+
+        madgeConfigIPGateway OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The default IP gateway for the device."
+		::= { madgeConfig 2 }
+
+        madgeConfigIPSubnetMask OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The IP subnet mask of the device."
+		::= { madgeConfig 3 }
+
+	madgeConfigSerialNumber OBJECT-TYPE
+                SYNTAX MacAddress
+                ACCESS read-only
+                STATUS mandatory
+                DESCRIPTION
+                        "The burnt-in identifier of the device. This is a 
+			 unique number and in most cases maps directly to
+			 the base MAC address of the device"
+		::= { madgeConfig 4 }
+
+	madgeConfigMCodeVersion OBJECT-TYPE
+		SYNTAX OCTET STRING (SIZE (4))
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Microcode version of the device. Stored in the
+			 format :-
+
+			 first Byte - not used
+				    - microcode major version number
+				    - microcode minor version number
+			 last Byte  - microcode debug version number."
+		::= { madgeConfig 5 }
+
+	madgeConfigBCodeVersion OBJECT-TYPE
+		SYNTAX OCTET STRING (SIZE (4))
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Bootcode version of the device and the hardware
+		 	 version. Stored in the format :-
+
+			 High Byte - hardware version number
+				   - bootcode major version number
+				   - bootcode minor version number
+			 Low Byte  - bootcode debug version number."
+		::= { madgeConfig 6 }
+
+	madgeConfigMCodeFilename OBJECT-TYPE
+		SYNTAX DisplayString
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Original filename for the microcode that has
+			 been downloaded to the device."
+		::= { madgeConfig 7 }
+
+	madgeConfigDeviceHealth OBJECT-TYPE
+		SYNTAX INTEGER 	{
+				normal		(1),
+				warning		(2),
+				degraded  	(3),
+				critical  	(4)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Current health of the device
+			 Normal   - everything is fine
+			 warning  - something the user should be aware of
+			 degraded - the box is operating at reduced 
+				    functionality
+			 critical - a major problem exists with the device."
+		::= { madgeConfig 8 }
+
+	madgeConfigAdminStatus OBJECT-TYPE
+		SYNTAX INTEGER 	{
+				normal		(1),
+				reboot		(2),
+				identify  	(3),
+				test  		(4),
+				erase-config	(5),
+				erase-flash	(6),
+				tftp-ip		(7),
+				tftp-ipx	(8),
+				rpl-ipx		(9),
+				rpl-llc		(10)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The desired operating mode of the device. The mode
+			 can be changed by setting this object. If the device
+			 does not support the action it will return a bad 
+			 value error. The behaviour of these states is
+			 device specific and some of the states may latch 
+			 until the state is returned to normal.
+
+			 normal       - standard operating mode / can be used
+					to cancel a download or return the
+					device from any latching state.
+			 reboot       - force the device to reboot. The
+					device will reboot into the version
+				 	of flash identified by 
+					madgeConfigDefaultFlashVersion.
+			 identify     - force the device to identify itself
+				        by flashing lights. This state may 
+					latch.
+			 test	      - force the device to do a self test. 
+					This state may latch.
+			 erase-config - erase all configuration info 
+			 erase-flash  - erase the version of microcode stored
+					in the flash bank identifed by
+					madgeConfigEraseFlashVersion.
+			 tftp-ip      - force the device to start a TFTP
+					download over IP
+			 tftp-ipx     - force the device to start a TFTP
+					download over IPX
+			 rpl-ipx      - force the device to start a RPL 
+					download over IPX
+			 rpl-llc      - force the device to start a RPL
+					download over LLC"
+		::= { madgeConfig 9 }
+
+	madgeConfigPassword OBJECT-TYPE
+                SYNTAX DisplayString (SIZE (0..32))
+                ACCESS read-write
+                STATUS mandatory
+                DESCRIPTION
+                        "The case insensitive password for the device. Any 
+			 GET operation on this object will return PUBLIC. If 
+			 an attempt is made to set the password to a string 
+			 greater than the maximum a BAD VALUE error will be 
+			 returned" 
+		::= { madgeConfig 10 }
+
+	madgeConfigLinkTest OBJECT-TYPE
+                SYNTAX INTEGER
+                ACCESS read-write
+                STATUS mandatory
+                DESCRIPTION
+			"An object that can be written with any value to test
+			 whether a management station knows the correct device
+			 password"
+		::= { madgeConfig 11 }
+
+	madgeConfigOperStatus OBJECT-TYPE
+		SYNTAX INTEGER 	{
+				normal		(1),
+				reboot		(2),
+				identify  	(3),
+				test  		(4),
+				downloading	(5)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The current operating mode of the device. 
+			 normal       - standard operating mode
+			 reboot       - the device is rebooting
+			 identify     - the device is identifying itself
+			 test	      - the device is performing a self-test
+			 downloading  - the device is performing a download
+
+			 NOTE:This variable is only available on devices
+  			 that support version 1.2 or greater of the Box MIB"
+		::= { madgeConfig 12 }
+
+	madgeConfigEraseFlashVersion OBJECT-TYPE
+                SYNTAX INTEGER
+                ACCESS read-write
+                STATUS mandatory
+                DESCRIPTION
+			"A valid version index for the bank of flash to 
+			 erase when AdminStatus is set to erase-flash.
+
+			 NOTE:This variable is only available on devices
+  			 that support version 1.2 or greater of the Box MIB"
+		::= { madgeConfig 13 }
+
+	madgeConfigDefaultFlashVersion OBJECT-TYPE
+                SYNTAX INTEGER
+                ACCESS read-write
+                STATUS mandatory
+                DESCRIPTION
+			"The version index of the default flash bank that
+			 a device will reboot into when a standard reboot
+ 			 is performed.
+
+			 NOTE:This variable is only available on devices
+  			 that support version 1.2 or greater of the Box MIB"
+		::= { madgeConfig 14 }
+
+-- The security group
+
+	madgeSecureCurrentTableSize OBJECT-TYPE
+		SYNTAX INTEGER 	
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The size of the current users table in the device.
+			 A size of zero indicates that the table is not
+			 supported."
+		::= { madgeSecure 1 }
+
+	madgeSecureCurrentTimeout OBJECT-TYPE
+		SYNTAX INTEGER 	
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"A time in seconds used to specify how long a 
+			 management station will remain registered in 
+			 the Current Users table if no requests are received
+			 from that management station. After this time the
+			 management station will be automatically removed
+			 from the table.
+			 Devices are not required to support the writable
+			 functionality for this variable."
+		::= { madgeSecure 2 }
+
+	madgeSecureCurrentTable OBJECT-TYPE
+		SYNTAX SEQUENCE OF MadgeSecureCurrentEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"A table containing an address for all managers 
+		  	 that are currently communicating with this device"
+		::= { madgeSecure 3 }
+
+        madgeSecureCurrentEntry OBJECT-TYPE
+                SYNTAX MadgeSecureCurrentEntry
+                ACCESS not-accessible
+                STATUS mandatory
+                DESCRIPTION
+			"A entry containing an address for a manager
+		  	 that is currently communicating with this device"
+                INDEX { madgeSecureCurrentIndex }
+                ::= { madgeSecureCurrentTable 1}
+
+        MadgeSecureCurrentEntry ::= SEQUENCE  
+		{
+		madgeSecureCurrentIndex		INTEGER,
+		madgeSecureCurrentType		INTEGER,
+		madgeSecureCurrentAddress	OCTET STRING,
+		madgeSecureCurrentUpdateTime	INTEGER,
+		madgeSecureCurrentIPAddress	IpAddress
+		}
+
+	madgeSecureCurrentIndex OBJECT-TYPE
+		SYNTAX INTEGER 
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Index into the table"
+		::= { madgeSecureCurrentEntry 1 }
+
+	madgeSecureCurrentType OBJECT-TYPE
+		SYNTAX INTEGER	{
+				not-used    (1),
+				ip-address  (2),
+				ipx-address (3),
+				mac-address (4)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Identifies the format of the data stored in
+			 madgeSecureCurrentAddress
+			 not-used     - this table entry does not contain
+					valid data
+			 ip-address   - this table entry contains a valid
+					ip address
+			 ipx-address  - this table entry contains a valid 
+					ipx address
+			 mac-address  - this table entry contains a valid
+					mac address"
+		::= { madgeSecureCurrentEntry 2 }
+
+	madgeSecureCurrentAddress OBJECT-TYPE
+		SYNTAX OCTET STRING
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"An address of a management station that is 
+			 currently communicating with this device. The
+			 format of the address is determined by the
+			 associated entry in the madgeSecureCurrentType"
+		::= { madgeSecureCurrentEntry 3 }
+		
+	madgeSecureCurrentUpdateTime OBJECT-TYPE
+		SYNTAX INTEGER
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The time in seconds since the management station
+			 identified by this table entry last accessed this
+			 device. The table entry will be removed by the
+ 			 device once this UpdateTime reaches the value 
+			 specified in madgeSecureCurrentTimeout"
+		::= { madgeSecureCurrentEntry 4 }
+		
+	madgeSecureCurrentIPAddress OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"If madgeSecureCurrentType is set to ip-address,
+			 this variable returns the madgeSecureCurrentAddress
+			 encoded as an IP Address, rather than an Octet String"
+		::= { madgeSecureCurrentEntry 5 }
+
+	madgeSecureAllowedEnabled OBJECT-TYPE
+		SYNTAX INTEGER 	{
+				enabled	  (1),
+				disabled  (2)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Enable / disable the allowed users feature.
+			 enabled  - only management stations with an address
+				    in the AllowedTable will be allowed
+				    to get / set MIB variables in this device
+			 disabled - any management station is allowed to 
+				    get / set MIB variables in this device"
+		::= { madgeSecure 4 }
+		
+	madgeSecureAllowedTableSize OBJECT-TYPE
+		SYNTAX INTEGER 	
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The size of the allowed users table in the device.
+			 A size of zero indicates that the table is not
+			 supported."
+		::= { madgeSecure 5 }
+		
+	madgeSecureAllowedTable OBJECT-TYPE
+		SYNTAX SEQUENCE OF MadgeSecureAllowedEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"A table containing an address for all managers 
+		  	 that are allowed to get / set MIB variables in this
+			 device "
+		::= { madgeSecure 6 }
+
+        madgeSecureAllowedEntry OBJECT-TYPE
+                SYNTAX MadgeSecureAllowedEntry
+                ACCESS not-accessible
+                STATUS mandatory
+                DESCRIPTION
+			"An entry containing an address for a manager
+		  	 that is allowed to get / set MIB variables in this
+			 device "
+                INDEX { madgeSecureAllowedIndex }
+                ::= { madgeSecureAllowedTable 1}
+
+        MadgeSecureAllowedEntry ::= SEQUENCE  
+		{
+		madgeSecureAllowedIndex		INTEGER,
+		madgeSecureAllowedType		INTEGER,
+		madgeSecureAllowedAddress	OCTET STRING,
+		madgeSecureAllowedIPAddress	IpAddress
+		}
+
+	madgeSecureAllowedIndex OBJECT-TYPE
+		SYNTAX INTEGER 
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Index into the table"
+		::= { madgeSecureAllowedEntry 1 }
+
+	madgeSecureAllowedType OBJECT-TYPE
+		SYNTAX INTEGER	{
+				not-used    (1),
+				ip-address  (2),
+				ipx-address (3),
+				mac-address (4)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Identifies the format of the data stored in
+			 madgeSecureAllowedAddress
+			 not-used     - this table entry does not contain
+					valid data
+			 ip-address   - this table entry contains a valid
+					ip address
+			 ipx-address  - this table entry contains a valid 
+					ipx address
+			 mac-address  - this table entry contains a valid
+					mac address"
+		::= { madgeSecureAllowedEntry 2 }
+
+	madgeSecureAllowedAddress OBJECT-TYPE
+		SYNTAX OCTET STRING
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"An address of a management station that is 
+			 allowed to get / set MIB variables in this device
+			 The format of the address is determined by the
+			 associated entry in the madgeSecureAllowedType"
+		::= { madgeSecureAllowedEntry 3 }
+
+	madgeSecureAllowedIPAddress OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"If madgeSecureAllowedType is set to ip-address,
+			 this variable is equivalent to madgeSecureAllowedAddress
+			 encoded as an IP Address, rather than an Octet String"
+		::= { madgeSecureAllowedEntry 4 }
+
+	madgeSecureTrapDestEnabled OBJECT-TYPE
+		SYNTAX INTEGER 	{
+				enabled	  (1),
+				disabled  (2)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Enable / disable the trap destination feature.
+			 enabled  - any SNMP traps generated by this device
+				    will only be sent to management stations
+				    with an address in the 
+				    madgeSecureTrapDestTable
+			 disabled - any SNMP traps generated by this device
+				    will be sent to all management stations
+				    currently known by this device."
+		::= { madgeSecure 7 }
+		
+	madgeSecureTrapDestTableSize OBJECT-TYPE
+		SYNTAX INTEGER 	
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The size of the trap destinations table in the device.
+			 A size of zero indicates that this table is not 
+			 supported."
+		::= { madgeSecure 8 }
+		
+	madgeSecureTrapDestTable OBJECT-TYPE
+		SYNTAX SEQUENCE OF MadgeSecureTrapDestEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"A table containing the address for all managers 
+		  	 that are to receive SNMP traps generated by this
+			 device"
+		::= { madgeSecure 9 }
+
+        madgeSecureTrapDestEntry OBJECT-TYPE
+                SYNTAX MadgeSecureTrapDestEntry
+                ACCESS not-accessible
+                STATUS mandatory
+                DESCRIPTION
+			"An entry containing the address for a manager
+		  	 that is to receive SNMP traps generated by this
+			 device"
+                INDEX { madgeSecureTrapDestIndex }
+                ::= { madgeSecureTrapDestTable 1}
+
+        MadgeSecureTrapDestEntry ::= SEQUENCE  
+		{
+		madgeSecureTrapDestIndex	INTEGER,
+		madgeSecureTrapDestType	  	INTEGER,
+		madgeSecureTrapDestAddress 	OCTET STRING,
+		madgeSecureTrapDestIPAddress 	IpAddress
+		}
+
+	madgeSecureTrapDestIndex OBJECT-TYPE
+		SYNTAX INTEGER 
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Index into the table"
+		::= { madgeSecureTrapDestEntry 1 }
+
+	madgeSecureTrapDestType OBJECT-TYPE
+		SYNTAX INTEGER	{
+				not-used    (1),
+				ip-address  (2),
+				ipx-address (3),
+				mac-address (4)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Identifies the format of the data stored in
+			 madgeSecureTrapDestAddress
+			 not-used     - this table entry does not contain
+					valid data
+			 ip-address   - this table entry contains a valid
+					ip address
+			 ipx-address  - this table entry contains a valid 
+					ipx address
+			 mac-address  - this table entry contains a valid
+					mac address"
+		::= { madgeSecureTrapDestEntry 2 }
+
+	madgeSecureTrapDestAddress OBJECT-TYPE
+		SYNTAX OCTET STRING
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"An address for a management station that is 
+			 to receive any SNMP traps generated by this device.
+			 The format of the address is determined by the
+			 associated entry in the madgeSecureTrapDestType"
+		::= { madgeSecureTrapDestEntry 3 }
+		
+	madgeSecureTrapDestIPAddress OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"If madgeSecureTrapDestType is set to ip-address,
+			 this variable is equivalent to madgeSecureTrapDestAddress
+			 encoded as an IP Address, rather than an Octet String"
+		::= { madgeSecureTrapDestEntry 4 }
+
+-- The Download Group
+-- NOTE : This group is only available on devices that support version 1.2
+--        or greater of the Madge Box MIB
+
+        madgeDownloadIPAddress OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The IP address of the server to use for the
+			 download when using TFTP-IP"
+		::= { madgeDownload 1 }
+
+        madgeDownloadIPGateway OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The IP gateway to be used to access the server.
+			 If this variable is zero then use the default 
+			 gateway in madgeConfigIPGateway."
+		::= { madgeDownload 2 }
+
+        madgeDownloadIPXAddress OBJECT-TYPE
+		SYNTAX OCTET STRING (SIZE (12))
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The IPX address of the server to use for the
+			 download when using TFTP-IPX or RPL-IPX"
+		::= { madgeDownload 3 }
+
+        madgeDownloadNodeAddress OBJECT-TYPE
+		SYNTAX MacAddress
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The Node address of the server to use for the
+			 download when using RPL-LLC "
+		::= { madgeDownload 4 }
+
+        madgeDownloadFileName OBJECT-TYPE
+		SYNTAX DisplayString
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The filename of the microcode to download. The
+			 maximum length of this string is device specific. 
+			 If a string that is too long is written to this
+			 variable BAD VALUE will be returned."
+		::= { madgeDownload 5 }
+
+	madgeDownloadDestination OBJECT-TYPE
+		SYNTAX INTEGER 
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"The destination for the download. This will 
+			 contain the madgeVersionIndex for the download
+			 destination."
+		::= { madgeDownload 6 }
+
+	madgeDownloadState OBJECT-TYPE
+		SYNTAX INTEGER	{
+				idle			(1),
+				tftp-waiting-ip		(2),
+				tftp-running-ip		(3),
+				tftp-waiting-ipx	(4),
+				tftp-running-ipx	(5),
+				waiting-xmodem		(6),
+				running-xmodem     	(7),
+				rpl-waiting-ipx		(8),
+				rpl-running-ipx		(9),
+				rpl-waiting-llc		(10),
+				rpl-running-llc		(11)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The current state of the download"
+		::= { madgeDownload 7 }
+
+	madgeDownloadFailureCode OBJECT-TYPE
+		SYNTAX INTEGER	{
+				no-error	    (1),
+				config-error	    (2),
+				busy		    (3),
+				timeout		    (4),
+				cancelled	    (5),
+				incompatible-file   (6),
+			  	file-too-big	    (7),
+				protocol-error	    (8),
+				undefined-error	    (100),
+				file-not-found	    (101),
+				access-violation    (102),
+				out-of-memory	    (103),
+				illegal-operation   (104),
+				unknown-transfer-id (105),
+				file-already-exists (106),
+				no-such-user	    (107)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"While a download is in progress this will 
+			always be 'no-error'.  After a download is complete 
+			this indicates the success or failure of the download.
+			If it is anything other than 'no-error' then 
+			'madgedownloadStatusText' will contain a textual 
+			description of the error.  Error codes from 100 
+			upwards are errors returned from a TFTP server.  
+			Errors below this are locally generated."
+		::= { madgeDownload 8 }
+
+	madgeDownloadStatusText OBJECT-TYPE
+		SYNTAX DisplayString (SIZE(0..64))
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"A display string describing the status of the
+			 download in progress, or the reason for failure of
+			 the last download.
+			 If FailureCode = no-error then StatusText may be
+			 empty."
+		::= { madgeDownload 9 }
+
+	madgeDownloadSize OBJECT-TYPE
+		SYNTAX INTEGER
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"While a download is in progress this indicates the 
+			number of bytes transferred so far.  After the 
+			download is completed this remains at the final 
+			size downloaded."
+		::= { madgeDownload 10 }
+
+-- The IP Services Group
+-- NOTE : This group is only available on devices that support version 1.2
+--        or greater of the Madge Box MIB
+
+        madgeIPCurrentAddress OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The IP address that is currently being used by
+			 this device. The IP address could have been 
+			 obtained from madgeConfigIPAddress or by some 
+			 other means indicated by madgeIPDiscoveryMethod"
+		::= { madgeIP 1 }
+
+        madgeIPCurrentGateway OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The IP gateway that is currently being used by
+			 this device. The IP gateway could have been
+			 obtained from madgeConfigIPGateway or by some
+			 other means indicated by madgeIPDiscoveryMethod"
+		::= { madgeIP 2 }
+
+        madgeIPCurrentSubnetMask OBJECT-TYPE
+		SYNTAX IpAddress
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The IP Subnet Mask that is currently being used by
+			 this device. The IP Subnet Mask could have been
+			 obtained from madgeConfigIPSubnetMask or by some
+			 other means indicated by madgeIPDiscoveryMethod"
+		::= { madgeIP 3 }
+
+        madgeIPDiscoveryMethod OBJECT-TYPE
+		SYNTAX INTEGER	{
+				not-discovered (1),
+				via-config     (2),
+				via-bootp      (3),
+				via-rarp       (4)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The source of the currently used IP address,
+			 gateway and subnet mask."
+		::= { madgeIP 4 }
+
+        madgeIPBootpEnabled OBJECT-TYPE
+		SYNTAX INTEGER	{
+				enabled  	(1),	
+				disabled 	(2),
+				not-supported 	(3)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Enable / Disable the use of BootP for IP address
+			 discovery"
+		::= { madgeIP 5 }
+
+        madgeIPRarpEnabled OBJECT-TYPE
+		SYNTAX INTEGER	{
+				enabled  	(1),	
+				disabled 	(2),
+				not-supported 	(3)
+				}
+		ACCESS read-write
+		STATUS mandatory
+		DESCRIPTION
+			"Enable / Disable the use of Rarp for IP address
+			 discovery"
+		::= { madgeIP 6 }
+
+-- The Version Group
+-- NOTE : This group is only available on devices that support version 1.2
+--        or greater of the Madge Box MIB
+
+        madgeVersionTable OBJECT-TYPE
+		SYNTAX SEQUENCE OF MadgeVersionEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"A table containing version information for all
+			 hardware / software components in a device."
+		::= { madgeVersion 1 }
+
+        madgeVersionEntry OBJECT-TYPE
+		SYNTAX MadgeVersionEntry
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"An entry containing version information for a
+			 hardware / software component in a device."
+		INDEX {madgeVersionIndex }
+		::= { madgeVersionTable 1 }
+
+        MadgeVersionEntry ::= SEQUENCE
+		{
+		madgeVersionIndex	INTEGER,
+		madgeVersionDescription	DisplayString,
+		madgeVersionLocation	DisplayString,
+		madgeVersionNumber	OCTET STRING,
+		madgeVersionType	INTEGER
+		}
+
+	madgeVersionIndex OBJECT-TYPE
+		SYNTAX INTEGER 
+		ACCESS not-accessible
+		STATUS mandatory
+		DESCRIPTION
+			"Index into the table"
+		::= { madgeVersionEntry 1 }
+
+        madgeVersionDescription OBJECT-TYPE
+		SYNTAX DisplayString (SIZE (0..64))
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"A string containing a textual description for
+			 the component identified by this entry."
+		::= { madgeVersionEntry 2 }
+
+        madgeVersionLocation OBJECT-TYPE
+		SYNTAX DisplayString (SIZE (0..32))
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"A string containing a textual description of the
+			 location of the component identified by this entry.
+			 eg Flash Bank A	Flash ROM
+			    Boot ROM    	Boot Bank A
+			    Base Hardware	Hardware Module "
+		::= { madgeVersionEntry 3 }
+
+        madgeVersionNumber OBJECT-TYPE
+		SYNTAX OCTET STRING (SIZE (3))
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"Version number for the component. Stored in the
+			 format :-
+
+			 first Byte - major version number
+				    - minor version number
+			 last Byte  - debug version number."
+		::= { madgeVersionEntry 4 }
+
+	madgeVersionType OBJECT-TYPE
+		SYNTAX INTEGER	{
+				flash			(1),
+				boot-fixed		(2),
+				boot-updateable 	(3),
+				hardware-fixed		(4),
+				hardware-upgradeable 	(5),
+				other			(6)
+				}
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The type of object that this table entry contains
+			 version information for."
+		::= { madgeVersionEntry 5 }
+
+        madgeVersionCount OBJECT-TYPE
+		SYNTAX INTEGER
+		ACCESS read-only
+		STATUS mandatory
+		DESCRIPTION
+			"The number of entries in the version table"
+		::= { madgeVersion 2 }
+
+	END

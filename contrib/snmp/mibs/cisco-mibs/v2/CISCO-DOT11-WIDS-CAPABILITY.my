@@ -1,0 +1,119 @@
+-- *****************************************************************
+-- CISCO-DOT11-WIDS-CAPABILITY.my:  Cisco DOT11 WIDS MIB 
+-- CAPABILITIES
+--
+-- January 2005 - Prasanna Viswakumar 
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-DOT11-WIDS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+cDot11WidsCapability          MODULE-IDENTITY  
+        LAST-UPDATED          "200501240000Z"
+        ORGANIZATION          "Cisco Systems, Inc."
+        CONTACT-INFO
+                "             Cisco Systems
+                              Customer Service
+
+                              Postal: 170 W Tasman Drive
+                              San Jose, CA  95134
+                              USA
+  
+                              Tel: +1 800 553-NETS
+ 
+                              E-mail: cs-dot11@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for 
+                 CISCO-DOT11-WIDS-MIB"
+        ::= { ciscoAgentCapability 426 }
+
+--********************************************************************
+cDot11WidsCapabilityV12R0304JA AGENT-CAPABILITIES
+    
+PRODUCT-RELEASE "Cisco IOS 12.3(4) JA"
+        STATUS          current
+        DESCRIPTION     "Cisco DOT11 WIDS MIB capabilities"
+
+        SUPPORTS        CISCO-DOT11-WIDS-MIB
+        INCLUDES        { ciscoDot11WidsAuthFailGroup,
+                          ciscoDot11WidsProtectFailGroup
+                        }   
+
+        VARIATION       cDot11WidsEapolFloodInterval
+                        DESCRIPTION
+                                "The maximum value supported is
+                                60. "
+                           
+        VARIATION       cDot11WidsBlackListThreshold 
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is not supported." 
+
+        VARIATION       cDot11WidsBlackListDuration 
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is not supported." 
+
+        VARIATION       cDot11WidsFloodMaxEntriesPerIntf 
+                        ACCESS read-only
+                        DESCRIPTION
+                                "The maximum value supported is 
+                                10. "
+
+        VARIATION       cDot11WidsBlackListAttemptCount
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is not supported."
+
+        VARIATION       cDot11WidsBlackListTime
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is not supported."
+
+        VARIATION       cDot11WidsSelPairWiseCipher 
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is not supported." 
+
+
+        VARIATION       cDot11WidsTkipIcvErrors 
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is not supported." 
+
+
+        VARIATION       cDot11WidsWepReplays 
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is not supported." 
+
+
+        VARIATION       cDot11WidsWepIcvErrors 
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is not supported." 
+
+        VARIATION       cDot11WidsCkipReplays 
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is not supported." 
+
+        VARIATION       cDot11WidsCkipCmicErrors 
+                        ACCESS not-implemented
+                        DESCRIPTION
+                                "This object is not supported."
+
+::= { cDot11WidsCapability 1 }
+
+END

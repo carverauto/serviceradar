@@ -1,0 +1,115 @@
+-- *****************************************************************
+-- CISCO-IETF-DHCP-SERVER-EXT-CAPABILITY.my:  Cisco IETF DHCP Server
+-- EXT MIB AGENT-CAPABILITIES
+--   
+-- January 2005, Shobana Sampath
+--   
+-- Copyright (c) 2005, 2007 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-IETF-DHCP-SERVER-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoIetfDhcpSrvExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "200702141200Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-dhcp-mib@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for the CISCO-IETF-DHCP-SERVER-EXT-MIB."
+    REVISION        "200702141200Z"
+    DESCRIPTION
+        "Added capability definition ciscoIetfDhcpServerExtCapabilityV12R02SRC
+        for 12.2SRC."
+    REVISION        "200505240000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 438 }
+
+
+
+ciscoIetfDhcpServerExtCapabilityV62R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CNS Network Registrar 6.2"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IETF-DHCP-SERVER-EXT-MIB capabilities for
+        Cisco CNS Network Registrar 6.2"
+
+    SUPPORTS        CISCO-IETF-DHCP-SERVER-EXT-MIB
+    INCLUDES        {
+                        cDhcpv4SrvExtSystemObjects,
+                        cDhcpv4ExtCountersGroup,
+                        cDhcpv4CountersIntervalGroup,
+                        cDhcpv4FOCountersGroup,
+                        cDhcpv4FOCountersIntervalGroup
+                    }
+    ::= { ciscoIetfDhcpSrvExtCapability 1 }
+
+ciscoIetfDhcpServerExtCapabilityV12R02SRC AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2SRC"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IETF-DHCP-SERVER-EXT-MIB capabilities for
+        Cisco IOS 12.2SRC"
+
+    SUPPORTS        CISCO-IETF-DHCP-SERVER-EXT-MIB
+    INCLUDES        {
+                        cDhcpv4CfgObjectsGroup,
+                        cDhcpv4SrvExtNotifyGroup
+                    }
+    VARIATION       cDhcpv4ConfigIntervalSample
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cDhcpv4ServerDefaultRouterAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create not implemented."
+
+    VARIATION       cDhcpv4ServerIfLeaseLimitEnable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cDhcpv4ServerSubnetFreeAddressLowEnable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cDhcpv4ServerSubnetFreeAddressHighEnable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cDhcpv4ServerIfLeaseLimitDefault
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cDhcpv4ServerIfLeaseLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Write/create not implemented."
+
+    ::= { ciscoIetfDhcpSrvExtCapability 2 }
+
+END

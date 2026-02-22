@@ -1,0 +1,1186 @@
+-- *****************************************************************
+-- CISCO-SWITCH-QOS-CAPABILITY.my:
+-- Cisco CISCO-SWITCH-QOS-MIB AGENT-CAPABILITIES
+--   
+-- June 2007, Edward Pham
+--   
+-- Copyright (c) 2007-2014 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-QOS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSwitchQosCapability MODULE-IDENTITY
+    LAST-UPDATED    "201410030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-SWITCH-QOS-MIB."
+    REVISION        "201410030000Z"
+    DESCRIPTION
+        "Add ciscoSwitchQosCapNxOSV06R0210PN7K agent
+        capability statement."
+    REVISION        "201404030000Z"
+    DESCRIPTION
+        "Add ciscoSwitchQosCapV06R0002U0201PN3K agent
+        capability statement."
+    REVISION        "201310160000Z"
+    DESCRIPTION
+        "Add ciscoSwitchQosCapV5R0003U0501gPN3K and
+        ciscoSwitchQosCapV6R0002U0101PN3K agent
+        capability statement."
+    REVISION        "201109260000Z"
+    DESCRIPTION
+        "Add ciscoSwitchQosCapV15R0001SYPCat6k agent
+        capability statement."
+    REVISION        "201011170000Z"
+    DESCRIPTION
+        "Add ciscoSwitchQosCapV12R0250SYPCat6k agent
+        capability statement."
+    REVISION        "201003190000Z"
+    DESCRIPTION
+        "Add ciscoSwitchQosCapV12R0233SXI4PCat6k agent
+        capability statement."
+    REVISION        "200806040000Z"
+    DESCRIPTION
+        "Add ciscoSwitchQosCapV12R0233SXIPCat6k agent
+        capability statement."
+    REVISION        "200706290000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 541 }
+
+
+
+ciscoSwitchQosCapV12R0233SXHPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-QOS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-QOS-MIB
+    INCLUDES        {
+                        ciscoSwitchQosIfConfigGroup,
+                        ciscoSwitchQosIfStatsGroup,
+                        ciscoSwitchQosModuleStatsGroup,
+                        ciscoSwitchQosPortQueueingGroup,
+                        ciscoSwitchQosRedirectPolicingGroup,
+                        ciscoSwitchQosDscpRewriteGroup,
+                        ciscoSwitchQosMappingGroup,
+                        ciscoSwitchQosMutationGroup,
+                        ciscoSwitchQosIfCosToQueueGroup,
+                        ciscoSwitchQosIfDropConfigGroup,
+                        ciscoSwitchQosIfQueueGroup,
+                        ciscoSwitchQosMarkingStatsGroup,
+                        ciscoSwitchQosIfModeConfigGroup,
+                        ciscoSwitchQosIfCCGroup
+                    }
+    VARIATION       csqDscpRewriteEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqPoliceRedirectedTrafficEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqPortQueueingModeEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqMarkingStatisticsEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIpPrecToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingExp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingNormalBurstDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingMaxBurstDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosMutationToCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMutationToDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpMutationToExp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDscpMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfExpMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDefaultCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfTrustState
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosToQueueQueueNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosToQueueThresholdNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigDropAlgorithm
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigDropThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigMinWredThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigMaxWredThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfQueueWrrWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfQueueSizeWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfVlanBasedQosModeEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfConsistencyCheckEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    ::= { ciscoSwitchQosCapability 1 }
+
+ciscoSwitchQosCapV12R0233SXIPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                         devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-QOS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-QOS-MIB
+    INCLUDES        {
+                        ciscoSwitchQosIfConfigGroup,
+                        ciscoSwitchQosIfStatsGroup,
+                        ciscoSwitchQosModuleStatsGroup,
+                        ciscoSwitchQosPortQueueingGroup,
+                        ciscoSwitchQosRedirectPolicingGroup,
+                        ciscoSwitchQosDscpRewriteGroup,
+                        ciscoSwitchQosMappingGroup,
+                        ciscoSwitchQosMutationGroup,
+                        ciscoSwitchQosIfCosToQueueGroup,
+                        ciscoSwitchQosIfDropConfigGroup,
+                        ciscoSwitchQosIfQueueGroup,
+                        ciscoSwitchQosMarkingStatsGroup,
+                        ciscoSwitchQosIfModeConfigGroup,
+                        ciscoSwitchQosIfCCGroup,
+                        ciscoSwitchQosPolicerUsageGroup
+                    }
+    VARIATION       csqDscpRewriteEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqPoliceRedirectedTrafficEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqPortQueueingModeEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqMarkingStatisticsEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIpPrecToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingExp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingNormalBurstDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingMaxBurstDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosMutationToCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMutationToDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpMutationToExp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDscpMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfExpMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDefaultCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfTrustState
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosToQueueQueueNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosToQueueThresholdNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigDropAlgorithm
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigDropThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigMinWredThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigMaxWredThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfQueueWrrWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfQueueSizeWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfVlanBasedQosModeEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfConsistencyCheckEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    ::= { ciscoSwitchQosCapability 2 }
+
+ciscoSwitchQosCapV12R0233SXI4PCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                         devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-QOS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-QOS-MIB
+    INCLUDES        {
+                        ciscoSwitchQosIfConfigGroup,
+                        ciscoSwitchQosIfStatsGroup,
+                        ciscoSwitchQosModuleStatsGroup,
+                        ciscoSwitchQosPortQueueingGroup,
+                        ciscoSwitchQosRedirectPolicingGroup,
+                        ciscoSwitchQosDscpRewriteGroup,
+                        ciscoSwitchQosMappingGroup,
+                        ciscoSwitchQosMutationGroup,
+                        ciscoSwitchQosIfCosToQueueGroup,
+                        ciscoSwitchQosIfDropConfigGroup,
+                        ciscoSwitchQosIfQueueGroup,
+                        ciscoSwitchQosMarkingStatsGroup,
+                        ciscoSwitchQosIfModeConfigGroup,
+                        ciscoSwitchQosIfCCGroup,
+                        ciscoSwitchQosPolicerUsageGroup,
+                        ciscoSwitchQosIfDscpAssignGroup
+                    }
+    VARIATION       csqDscpRewriteEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqPoliceRedirectedTrafficEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqPortQueueingModeEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqMarkingStatisticsEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIpPrecToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingExp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingNormalBurstDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingMaxBurstDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosMutationToCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMutationToDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpMutationToExp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDscpMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfExpMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDefaultCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfTrustState
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosToQueueQueueNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosToQueueThresholdNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigDropAlgorithm
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigDropThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigMinWredThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigMaxWredThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfQueueWrrWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfQueueSizeWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfVlanBasedQosModeEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfConsistencyCheckEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDscpToQueueQueueNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDscpToQueueThresholdNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    ::= { ciscoSwitchQosCapability 3 }
+
+ciscoSwitchQosCapV12R0250SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                         devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-QOS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-QOS-MIB
+    INCLUDES        {
+                        ciscoSwitchQosIfConfigGroup,
+                        ciscoSwitchQosIfStatsGroup,
+                        ciscoSwitchQosModuleStatsGroup,
+                        ciscoSwitchQosPortQueueingGroup,
+                        ciscoSwitchQosRedirectPolicingGroup,
+                        ciscoSwitchQosDscpRewriteGroup,
+                        ciscoSwitchQosMappingGroup,
+                        ciscoSwitchQosMutationGroup,
+                        ciscoSwitchQosIfCosToQueueGroup,
+                        ciscoSwitchQosIfDropConfigGroup,
+                        ciscoSwitchQosIfQueueGroup,
+                        ciscoSwitchQosMarkingStatsGroup,
+                        ciscoSwitchQosIfModeConfigGroup,
+                        ciscoSwitchQosIfCCGroup,
+                        ciscoSwitchQosPolicerUsageGroup,
+                        ciscoSwitchQosIfDscpAssignGroup,
+                        ciscoSwitchQosModuleStatsExtGroup,
+                        ciscoSwitchQosIfStatsExtGroup
+                    }
+    VARIATION       csqDscpRewriteEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqPoliceRedirectedTrafficEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqPortQueueingModeEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqMarkingStatisticsEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIpPrecToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingExp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingNormalBurstDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMappingMaxBurstDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqCosMutationToCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqDscpMutationToDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqExpMutationToExp
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDscpMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfExpMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDefaultCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfTrustState
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosToQueueQueueNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfCosToQueueThresholdNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigDropAlgorithm
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigDropThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigMinWredThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDropConfigMaxWredThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfQueueWrrWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfQueueSizeWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfVlanBasedQosModeEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfConsistencyCheckEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDscpToQueueQueueNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    VARIATION       csqIfDscpToQueueThresholdNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    ::= { ciscoSwitchQosCapability 4 }
+
+ciscoSwitchQosCapV15R0001SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-QOS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-QOS-MIB
+    INCLUDES        {
+                        ciscoSwitchQosIfConfigGroup,
+                        ciscoSwitchQosIfStatsGroup,
+                        ciscoSwitchQosModuleStatsGroup,
+                        ciscoSwitchQosPortQueueingGroup,
+                        ciscoSwitchQosRedirectPolicingGroup,
+                        ciscoSwitchQosDscpRewriteGroup,
+                        ciscoSwitchQosMappingGroup,
+                        ciscoSwitchQosMutationGroup,
+                        ciscoSwitchQosIfCosToQueueGroup,
+                        ciscoSwitchQosIfDropConfigGroup,
+                        ciscoSwitchQosIfQueueGroup,
+                        ciscoSwitchQosMarkingStatsGroup,
+                        ciscoSwitchQosIfModeConfigGroup,
+                        ciscoSwitchQosIfCCGroup,
+                        ciscoSwitchQosPolicerUsageGroup,
+                        ciscoSwitchQosIfDscpAssignGroup,
+                        ciscoSwitchQosModuleStatsExtGroup,
+                        ciscoSwitchQosIfStatsExtGroup,
+                        ciscoSwitchQosModuleClassChangedGroup,
+                        ciscoSwitchQosTenGOnlyModeGroup,
+                        ciscoSwitchQosIfQueueModeGroup,
+                        ciscoSwitchQosIfQueueSchedulingGroup,
+                        ciscoSwitchQosIfQueueingGroup,
+                        ciscoSwitchQosIfLanQueuingGroup,
+                        ciscoSwitchQosIfQueueBufferGroup
+                    }
+    VARIATION       csqDscpRewriteEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqPoliceRedirectedTrafficEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqPortQueueingModeEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqMarkingStatisticsEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqCosToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIpPrecToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqExpToDscpDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqDscpMappingCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqDscpMappingExp
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqDscpMappingNormalBurstDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqDscpMappingMaxBurstDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqCosMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqCosMutationToCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqDscpMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqDscpMutationToDscp
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqExpMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqExpMutationToExp
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfCosMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfDscpMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfExpMutationMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfMutationRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfDefaultCos
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfTrustState
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfCosToQueueQueueNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfCosToQueueThresholdNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfDropConfigDropAlgorithm
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfDropConfigDropThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfDropConfigMinWredThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfDropConfigMaxWredThreshold
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfQueueWrrWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfQueueSizeWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfVlanBasedQosModeEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfConsistencyCheckEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfDscpToQueueQueueNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfDscpToQueueThresholdNumber
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqTenGOnlyMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfConfigQueueMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfQueueClassMapName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfIngressPolicyMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfEgressPolicyMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfDropConfigQueueBuffer
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfQueueClassMapName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfQueueScheduling
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       csqIfQueueSrrWeight
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoSwitchQosCapability 5 }
+
+ciscoSwitchQosCapV5R0003U0501gPN3K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 5.0(3)U5(1g) on Nexus 3000
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-QOS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-QOS-MIB
+    INCLUDES        {
+                        ciscoSwitchQosIfQosGroupInfoGroup,
+                        ciscoSwitchQosIfQosGroupStatsGroup
+                    }
+    ::= { ciscoSwitchQosCapability 6 }
+
+ciscoSwitchQosCapV6R0002U0101PN3K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.0(2)U1(1) on Nexus 3000
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-QOS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-QOS-MIB
+    INCLUDES        {
+                        ciscoSwitchQosIfQosGroupInfoGroup,
+                        ciscoSwitchQosIfQosGroupStatsGroup
+                    }
+    ::= { ciscoSwitchQosCapability 7 }
+    
+ciscoSwitchQosCapV06R0002U0201PN3K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.0(2)U2(1) on Nexus 3000
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-QOS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-QOS-MIB
+    INCLUDES        {
+                        ciscoSwitchQosIfQosGroupInfoGroup,
+                        ciscoSwitchQosIfQosGroupStatsGroup,
+                        ciscoSwitchQosIfPriGrpInBufUsageGroup,
+                        ciscoSwitchQosServicePoolUsageGroup,
+                        ciscoSwitchQosServicePoolCellSizeGroup
+                    }
+                    
+    VARIATION       csqIfQosGroupInfoQueueSize
+    DESCRIPTION     "Always return 0."
+
+    ::= { ciscoSwitchQosCapability 8 }
+
+ciscoSwitchQosCapNxOSV06R0210PN7K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(10) on Nexus 7000
+                     series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-QOS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-QOS-MIB
+    INCLUDES        {
+                        ciscoSwitchQosIfQosGroupInfoGroup,
+                        ciscoSwitchQosIfQosGroupStatsGroup
+                    }
+                    
+    ::= { ciscoSwitchQosCapability 9 }
+
+END

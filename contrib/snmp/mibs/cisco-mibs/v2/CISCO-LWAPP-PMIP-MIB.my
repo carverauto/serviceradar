@@ -1,0 +1,998 @@
+-- *******************************************************************
+-- CISCO-LWAPP-PMIP-MIB.my 
+-- February 2015, Suja Thangaveluchamy
+-- Copyright (c) 2015-2017 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-PMIP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32,
+    TimeTicks
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MacAddress,
+    RowStatus,
+    TimeStamp
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    cLWlanIndex
+        FROM CISCO-LWAPP-WLAN-MIB
+    cldcClientMacAddress
+        FROM CISCO-LWAPP-DOT11-CLIENT-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappPmipMIB MODULE-IDENTITY
+    LAST-UPDATED    "201704280000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            Email: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB is intended to be implemented on all those devices
+        operating as Wireless LAN Controllers (WLC) that terminate the 
+        Light Weight Access Point Protocol tunnel from light weight 
+        LWAPP Access Points.
+
+        This MIB provides configuration and status information about 
+        local mobility anchor to which the controller has joined.
+
+        The relationship between CC and the LWAPP APs can be depicted 
+        as follows:
+
+        +......+     +......+     +......+           +......+
+        +      +     +      +     +      +           +      +
+        +  LMA +     + LMA  +     + LMA  +           + LMA  +
+        +      +     +      +     +      +           +      +
+        +......+     +......+     +......+           +......+
+        ..            .             .                 .
+        ..            .             .                 .
+        .  .            .             .                 .
+        .    .            .             .                 .
+        .      .            .             .                 .
+        .        .            .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  WLC + +  WLC +     + WLC  +      +  WLC +          +  WLC +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .              .             .                 .
+        .  .              .             .                 .
+        .    .              .             .                 .
+        .      .              .             .                 .
+        .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+        .              .             .                 .
+        .  .              .             .                 .
+        .    .              .             .                 .
+        .      .              .             .                 .
+        .        .              .             .                 .
+        +......+ +......+     +......+      +......+          +......+
+        +      + +      +     +      +      +      +          +      +
+        +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+        +      + +      +     +      +      +      +          +      +
+        +......+ +......+     +......+      +......+          +......+
+
+
+        The LWAPP tunnel exists between the controller and the APs. The
+        MNs communicate with the APs through the protocol defined by 
+        the 802.11 standard.
+
+        LWAPP APs, upon bootup, discover and join one of the 
+        controllers and the controller pushes the configuration, that 
+        includes the WLAN parameters, to the LWAPP APs. The APs then 
+        encapsulate all the 802.11 frames from wireless clients inside 
+        LWAPP frames and forward the LWAPP frames to the controller.
+
+                           GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access control (MAC)
+        and physical layer ( PHY ) interface and provides access to the
+        distribution services via the wireless medium for associated 
+        clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in LWAPP frames and
+        sends it to the controller to which it is logically connected.
+
+        Wireless LAN Controller ( WLC )
+
+        The central entity that terminates the LWAPP protocol tunnel 
+        from the LWAPP APs.  Throughout this MIB, this entity also 
+        referred to as 'controller'. 
+
+        Light Weight Access Point Protocol ( LWAPP ) 
+
+        This is a generic protocol that defines the communication 
+        between the Access Points and the Central Controller. 
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless network 
+        associated with an access point. 
+
+        Proxy Mobile IP (PMIP)
+
+        PMIP is a protocol intended for providing network-based IP 
+        mobility management support to a mobile node, without requiring
+        the participation of the mobile node in any IP mobility related 
+        signaling. The mobility entities in the network will track the 
+        mobile node's movements and will initiate the mobility signaling
+        and set up the required routing state.
+
+        Local Mobility Anchor (LMA)
+
+        Local Mobility Anchor is the home agent for the mobile node in 
+        a Proxy Mobile domain. It is the topological anchor point for 
+        the mobile node's home network prefix(es) and is the entity 
+        that manages the mobile node's binding state.
+
+        Network Access Identifier(NAI)
+
+        The Network Access Identifier (NAI) is the user identity 
+        submitted by the client during network access authentication. 
+        In roaming, the purpose of the NAI is to identify the user as 
+        well as to assist in the routing of the authentication request. 
+
+        Binding Revocation Indication(BRI)
+
+        Binding Revocation Indication(BRI) is a message sent by 
+        either the LMA or the controller to revoke the bindings present.
+        LMA can send a revocation for specific NAI or NAIs belonging to 
+        the controller.
+
+        Binding Revocation Acknowledgement(BRA)
+
+        When the BRI is received, the responder must send a Binding 
+        Revocation Acknowledgement message to indicate the receipt and 
+        the status of processing of the corresponding BRI message.
+        
+        Mobile Access Gateway(MAG)
+        
+        Mobile Access Gateway (MAG) performs mobility-related
+        signaling on behalf of the mobile nodes (MN) attached 
+        to its access links. 
+
+        REFERENCE
+
+        [1] Part 11 Wireless LAN Medium Access Control ( MAC )
+        and Physical Layer ( PHY ) Specifications.
+
+        [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+        Weight Access Point Protocol.
+        
+        [3] PMIPv6 RFC 5213."
+        
+        
+    REVISION        "201704280000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 845 }
+
+
+ciscoLwappPmipMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappPmipMIB 0 }
+
+ciscoLwappPmipMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappPmipMIB 1 }
+
+ciscoLwappPmipMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappPmipMIB 2 }
+
+ciscoLwappPmipGlobal  OBJECT IDENTIFIER
+    ::= { ciscoLwappPmipMIBObjects 1 }
+
+ciscoLwappPmipConfig  OBJECT IDENTIFIER
+    ::= { ciscoLwappPmipMIBObjects 2 }
+
+ciscoLwappPmipStatistics  OBJECT IDENTIFIER
+    ::= { ciscoLwappPmipMIBObjects 3 }
+
+
+
+-- ********************************************************************
+-- Global Definitions
+-- ********************************************************************
+cLPmipDomainName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the domain name to which the controller
+        belongs." 
+    DEFVAL   { "" }
+    ::= { ciscoLwappPmipGlobal 1 }
+
+cLPmipMAGInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString 
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interface through which the LMAs
+        communicate." 
+    DEFVAL   { "management" }
+    ::= { ciscoLwappPmipGlobal 2 }
+
+cLPmipMaxBindings OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of binding updates sent by
+        the controller." 
+    DEFVAL   { 7000 }
+    ::= { ciscoLwappPmipGlobal 3 }
+
+cLPmipBindingLifeTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the lifetime of the binding entries
+        maintained by the controller." 
+    DEFVAL   { 3600 }
+    ::= { ciscoLwappPmipGlobal 4 }
+
+cLPmipBindingRefreshTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the refresh time for the binding entries
+        maintained by the controller." 
+    DEFVAL   { 300 }
+    ::= { ciscoLwappPmipGlobal 5 }
+
+cLPmipBindingInitRetxTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the initial retransmission timeout 
+        between proxy binding updates if the proxy binding 
+        acknowledgement does not arrive at the controller." 
+    DEFVAL   { 1000 }
+    ::= { ciscoLwappPmipGlobal 6 }
+
+cLPmipBindingMaxRetxTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum retransmission timeout 
+        between proxy binding updates if the proxy binding 
+        acknowledgement does not arrive at the controller." 
+    DEFVAL   { 32000 }
+    ::= { ciscoLwappPmipGlobal 7 }
+
+cLPmipReplayProtectionTimestamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum amount of time difference
+        between the timestamp in the received proxy binding 
+        acknowledgement and the current time of the day." 
+    DEFVAL   { 7 }
+    ::= { ciscoLwappPmipGlobal 8 }
+
+cLPmipBriMinDelayTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum amount of time the 
+        controller should wait before retransmitting the BRI message." 
+    DEFVAL   { 1000 }
+    ::= { ciscoLwappPmipGlobal 9 }
+
+cLPmipBriMaxDelayTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum amount of time the 
+        controller should wait before retransmitting the BRI message." 
+    DEFVAL   { 2000 }
+    ::= { ciscoLwappPmipGlobal 10 }
+
+cLPmipBriRetries OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum number of times the
+        controller retransmits the BRI message before receiving the BRA
+        message." 
+    DEFVAL   { 1 }
+    ::= { ciscoLwappPmipGlobal 11 }
+
+cLPmipMagApnName OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the MAG APN name for PMIPv6 MAG on AP."
+    DEFVAL   { "" }
+    ::= { ciscoLwappPmipGlobal 12 }
+
+cLPmipLmaTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLPmipLmaEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the information about the 
+        local mobility anchors connected to WLC."
+    ::= { ciscoLwappPmipConfig 1 }
+
+cLPmipLmaEntry OBJECT-TYPE
+    SYNTAX          CLPmipLmaEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table represents the details of 
+        local mobility anchors connected to the controller."
+    INDEX           { cLPmipLmaName } 
+    ::= { cLPmipLmaTable 1 }
+
+CLPmipLmaEntry ::= SEQUENCE {
+        cLPmipLmaName       SnmpAdminString,
+        cLPmipLmaIPAddrType InetAddressType,
+        cLPmipLmaIPAddr     InetAddress,
+        cLPmipLmaRowStatus  RowStatus
+}
+
+cLPmipLmaName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the LMA connected to the
+        controller." 
+    ::= { cLPmipLmaEntry 1 }
+
+cLPmipLmaIPAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the LMA's IP address type, made 
+        available through cLPmipLmaIPAddr." 
+    ::= { cLPmipLmaEntry 2 }
+
+cLPmipLmaIPAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the LMA's IP address." 
+    ::= { cLPmipLmaEntry 3 }
+
+cLPmipLmaRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { cLPmipLmaEntry 4 }
+ 
+
+
+cLPmipLmaStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLPmipLmaStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the information about the LMAs that are
+        connected to the controller. PBU means Proxy Binding Unit."
+    ::= { ciscoLwappPmipStatistics 1 }
+
+cLPmipLmaStatsEntry OBJECT-TYPE
+    SYNTAX          CLPmipLmaStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table provides statistical information 
+        about the LMAs that are connected to this controller."
+    INDEX           { cLPmipLmaName } 
+    ::= { cLPmipLmaStatsTable 1 }
+
+CLPmipLmaStatsEntry ::= SEQUENCE {
+                cLPmipLmaTotalBindings        Counter32,  
+                cLPmipLmaPbuSent              Counter32,
+                cLPmipLmaPbaReceived          Counter32,
+                cLPmipLmaPbriSent             Counter32, 
+                cLPmipLmaPbriReceived         Counter32,
+                cLPmipLmaPbraSent             Counter32,
+                cLPmipLmaPbraReceived         Counter32,
+                cLPmipLmaNoOfHandoff          Counter32,
+                cLPmipLmaPbuDropped           Counter32 
+        }
+
+cLPmipLmaTotalBindings OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents total number of bindings sent to the LMA
+        by the controller." 
+    ::= { cLPmipLmaStatsEntry 1 }
+
+cLPmipLmaPbuSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents total number of proxy binding units sent
+        to the LMA by the controller." 
+    ::= { cLPmipLmaStatsEntry 2 }
+
+cLPmipLmaPbaReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents total number of proxy binding
+        acknowledgements received for this LMA by the controller." 
+    ::= { cLPmipLmaStatsEntry 3 }
+
+cLPmipLmaPbriSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents total number of proxy BRIs sent by the
+        controller to the LMA." 
+    ::= { cLPmipLmaStatsEntry 4 }
+
+cLPmipLmaPbriReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents total number of proxy BRIs received from
+        the LMA by the controller." 
+    ::= { cLPmipLmaStatsEntry 5 }
+
+cLPmipLmaPbraSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents total number of proxy BRAs sent by the
+        controller to the LMA." 
+    ::= { cLPmipLmaStatsEntry 6 }
+
+cLPmipLmaPbraReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents total number of proxy BRAs received by
+        the controller from the LMA." 
+    ::= { cLPmipLmaStatsEntry 7 }
+
+cLPmipLmaNoOfHandoff OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents number of hand offs between the
+        controller and the LMA." 
+    ::= { cLPmipLmaStatsEntry 8 }
+
+cLPmipLmaPbuDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents number of proxy binding units dropped
+        between the controller and the LMA." 
+    ::= { cLPmipLmaStatsEntry 9 }
+ 
+
+
+cLPmipProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLPmipProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the information about the details of PMIP
+        profiles created on the controller."
+    ::= { ciscoLwappPmipConfig 2 }
+
+cLPmipProfileEntry OBJECT-TYPE
+    SYNTAX          CLPmipProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table represents the details of
+        PMIP profiles created on the controller."
+    INDEX           { cLPmipProfileName } 
+    ::= { cLPmipProfileTable 1 }
+
+CLPmipProfileEntry ::= SEQUENCE {
+        cLPmipProfileName SnmpAdminString
+}
+
+cLPmipProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the name of the PMIP profile." 
+    ::= { cLPmipProfileEntry 1 }
+ 
+
+
+cLPmipProfileNaiTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLPmipProfileNaiEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the information about the
+        details of PMIP profiles created in the controller."
+    ::= { ciscoLwappPmipConfig 3 }
+
+cLPmipProfileNaiEntry OBJECT-TYPE
+    SYNTAX          CLPmipProfileNaiEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table represents the details of
+        PMIP profiles created in the controller."
+    INDEX           {
+                        cLPmipProfileName,
+                        cLPmipProfileNai
+                    } 
+    ::= { cLPmipProfileNaiTable 1 }
+
+CLPmipProfileNaiEntry ::= SEQUENCE {
+        cLPmipProfileNai          SnmpAdminString,
+        cLPmipProfileApn          SnmpAdminString,
+        cLPmipProfileLmaName      SnmpAdminString,
+        cLPmipProfileNaiRowStatus RowStatus
+}
+
+cLPmipProfileNai OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the NAI string associated
+        with this profile." 
+    ::= { cLPmipProfileNaiEntry 1 }
+
+cLPmipProfileApn OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the access point node
+        connected to the controller." 
+    ::= { cLPmipProfileNaiEntry 2 }
+
+cLPmipProfileLmaName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the LMA to which the profile
+        is associated." 
+    ::= { cLPmipProfileNaiEntry 3 }
+
+cLPmipProfileNaiRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to create
+        and delete specific instances of rows in this table." 
+    ::= { cLPmipProfileNaiEntry 4 }
+ 
+
+
+cLPmipWlanTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLPmipWlanEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the generic PMIP configuration for a
+        particular WLAN in a controller."
+    ::= { ciscoLwappPmipConfig 4 }
+
+cLPmipWlanEntry OBJECT-TYPE
+    SYNTAX          CLPmipWlanEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the generic PMIP
+        configuration for a WLAN."
+    INDEX           { cLWlanIndex } 
+    ::= { cLPmipWlanTable 1 }
+
+CLPmipWlanEntry ::= SEQUENCE {
+        cLPmipWlanProfileName       SnmpAdminString,
+        cLPmipWlanMobilityType      INTEGER,
+        cLPmipWlanDefaultRealm      SnmpAdminString,
+        cLPmipWlanNaiType           INTEGER
+}
+
+cLPmipWlanProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the profile associated to
+        this WLAN." 
+    ::= { cLPmipWlanEntry 1 }
+
+cLPmipWlanMobilityType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        pmipv6(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the mobility type of the clients
+        associated to this particular WLAN.
+        none   - This specifies the mobility type as unknown.
+        pmipv6 - This specifies the mobility type as pmipv6."
+    ::= { cLPmipWlanEntry 2 }
+
+cLPmipWlanDefaultRealm OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the default realm associated
+        to this WLAN." 
+    ::= { cLPmipWlanEntry 3 }
+cLPmipWlanNaiType OBJECT-TYPE
+    SYNTAX     INTEGER {
+               hexadecimal(1),
+               decimal(2)
+               }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the PMIP NAI type
+         associated to this WLAN.
+         hexadecimal - This specifies that PMIP WLAN NAI type
+            as hexadecimal.
+         decimal     - This specifies that PMIP WLAN NAI type 
+            as decimal."
+    ::= {cLPmipWlanEntry 4}
+
+cLPmipClientInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLPmipClientInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the PMIP information of the clients
+        associated to this controller.
+        PBU means Proxy Binding Unit.
+        PBA means Proxy Binding Acknowledgement."
+    ::= { ciscoLwappPmipStatistics 2 }
+
+cLPmipClientInfoEntry OBJECT-TYPE
+    SYNTAX          CLPmipClientInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in this table represents the generic
+        information for a PMIP client."
+    INDEX           { cldcClientMacAddress } 
+    ::= { cLPmipClientInfoTable 1 }
+
+CLPmipClientInfoEntry ::= SEQUENCE {
+        cLPmipClientNai             SnmpAdminString,
+        cLPmipClientState           SnmpAdminString,
+        cLPmipClientInterface       SnmpAdminString,
+        cLPmipClientHomeAddressType InetAddressType,
+        cLPmipClientHomeAddress     InetAddress,
+        cLPmipClientAtt             INTEGER,
+        cLPmipClientLocalLinkId     MacAddress,
+        cLPmipClientLmaName         SnmpAdminString,
+        cLPmipClientLifeTime        TimeTicks,
+        cLPmipClientDomainName      SnmpAdminString,
+        cLPmipClientUpKey           Unsigned32,
+        cLPmipClientDownKey         Unsigned32
+}
+
+cLPmipClientNai OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the
+        profile, the client is associated."
+    ::= { cLPmipClientInfoEntry 1 }
+
+cLPmipClientState OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of the PMIP client:
+        null: binding doesn't exist
+        init: binding created, retransmission timer running for PBU, 
+            binding not yet accepted from LMA, Tunnel/route is
+            not yet setup
+        active:  binding accepted by LMA, refresh timer running,
+        	Tunnel/route setup complete. 
+        refreshPending: Refresh timer expired and retransmission 
+            timer running. PBU refresh sent, PBA not yet received 
+            from LMA, (Tunnel/route is already setup).
+        disconnectingSt: Dereg reply is expected.  retransmission  
+            timer is running, tunnel/route is still setup."
+    ::= { cLPmipClientInfoEntry 2 }
+
+cLPmipClientInterface OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the interface to which the client is
+        associated." 
+    ::= { cLPmipClientInfoEntry 3 }
+
+cLPmipClientHomeAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of the client's home address
+        made available through cLPmipClientHomeAddress." 
+    ::= { cLPmipClientInfoEntry 4 }
+
+cLPmipClientHomeAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the Home Address of the client." 
+    ::= { cLPmipClientInfoEntry 5 }
+
+cLPmipClientAtt OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        reserved(0),
+                        logicalNetworkInterface(1),
+                        pointToPointInterface(2),
+                        ethernet(3),
+                        wirelessLan(4),
+                        wimax(5),
+                        threeGPPGERAN(6),
+                        threeGPPUTRAN(7),
+                        threeGPPETRAN(8),
+                        threeGPP2eHRPD(9),
+                        threeGPP2HRPD(10),
+                        threeGPP21xRTT(11),
+                        threeGPP2UMB(12)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the access technology type by which the
+        client is currently attached.
+        reserved - the client got attached through unknown access 
+                    technology type and reserved.
+        logicalNetworkInterface - the client got attached through 
+                    logicalNetworkInterface access technology type.
+        pointToPointInterface - the client got attached through 
+                    pointToPointInterface access technology type.
+        ethernet - the client got attached through ethernet access 
+                    technology type.
+        wirelessLan - the client got attached through wirelessLan  
+                    access technology type.
+        wimax - the client got attached through wimax access 
+                    technology type.
+        threeGPPGERAN - the client got attached through   
+                    threeGPPGERAN(2G) access technology type.
+        threeGPPUTRAN - the client got attached through   
+                    threeGPPUTRAN(3G) access technology type.
+        threeGPPETRAN - the client got attached through   
+                    threeGPPETRAN(LTE) access technology type.
+        threeGPP2eHRPD - the client got attached through   
+                    threeGPP2eHRPD(CDMA) access technology type.
+        threeGPP2HRPD - the client got attached through threeGPP2HRPD  
+                    access technology type.
+        threeGPP21xRTT - the client got attached through threeGPP21xRTT
+                    access technology type.
+        threeGPP2UMB - the client got attached through threeGPP2UMB  
+                    access technology type." 
+    ::= { cLPmipClientInfoEntry 6 }
+
+cLPmipClientLocalLinkId OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the local link identifier of the
+        client." 
+    ::= { cLPmipClientInfoEntry 7 }
+
+cLPmipClientLmaName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the LMA to which the client is
+        connected." 
+    ::= { cLPmipClientInfoEntry 8 }
+
+cLPmipClientLifeTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the duration for which the PMIP client
+        is associated." 
+    ::= { cLPmipClientInfoEntry 9 }
+
+cLPmipClientDomainName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the domain to which the PMIP client
+        belongs." 
+    ::= { cLPmipClientInfoEntry 10 }
+
+cLPmipClientUpKey OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the upstream key of the PMIP client." 
+    ::= { cLPmipClientInfoEntry 11 }
+
+cLPmipClientDownKey OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the downstream key of the PMIP client." 
+    ::= { cLPmipClientInfoEntry 12 }
+ 
+
+-- *******************************************************************
+-- *    Compliance statements
+-- ********************************************************************
+
+ciscoLwappPmipMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappPmipMIBConform 1 }
+
+ciscoLwappPmipMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappPmipMIBConform 2 }
+
+
+ciscoLwappPmipMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement this MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoLwappPmipMIBConfigGroup,
+                        ciscoLwappPmipMIBStatusGroup
+                    }
+    ::= { ciscoLwappPmipMIBCompliances 1 }
+
+-- ********************************************************************
+-- *    Units of conformance
+-- ********************************************************************
+
+ciscoLwappPmipMIBConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLPmipDomainName,
+                        cLPmipMAGInterface,
+                        cLPmipMaxBindings,
+                        cLPmipBindingLifeTime,
+                        cLPmipBindingRefreshTime,
+                        cLPmipBindingInitRetxTime,
+                        cLPmipBindingMaxRetxTime,
+                        cLPmipReplayProtectionTimestamp,
+                        cLPmipBriMinDelayTime,
+                        cLPmipBriMaxDelayTime,
+                        cLPmipBriRetries,
+                        cLPmipMagApnName,
+                        cLPmipLmaName,
+                        cLPmipLmaIPAddrType,
+                        cLPmipLmaIPAddr,
+                        cLPmipLmaRowStatus,
+                        cLPmipProfileName,
+                        cLPmipProfileNai,
+                        cLPmipProfileApn,
+                        cLPmipProfileLmaName,
+                        cLPmipProfileNaiRowStatus,
+                        cLPmipWlanProfileName,
+                        cLPmipWlanMobilityType,
+                        cLPmipWlanDefaultRealm,
+                        cLPmipWlanNaiType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects specifies the required
+        configuration parameters for the PMIP clients."
+    ::= { ciscoLwappPmipMIBGroups 1 }
+
+ciscoLwappPmipMIBStatusGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLPmipClientNai,
+                        cLPmipClientState,
+                        cLPmipClientInterface,
+                        cLPmipClientHomeAddressType,
+                        cLPmipClientHomeAddress,
+                        cLPmipClientAtt,
+                        cLPmipClientLocalLinkId,
+                        cLPmipClientLmaName,
+                        cLPmipClientLifeTime,
+                        cLPmipClientDomainName,
+                        cLPmipClientUpKey,
+                        cLPmipClientDownKey,
+                        cLPmipLmaTotalBindings,
+                        cLPmipLmaPbuSent,
+                        cLPmipLmaPbaReceived,
+                        cLPmipLmaPbriSent,
+                        cLPmipLmaPbriReceived,
+                        cLPmipLmaPbraSent,
+                        cLPmipLmaPbraReceived,
+                        cLPmipLmaNoOfHandoff,
+                        cLPmipLmaPbuDropped
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This collection of objects specifies the required
+        status parameters for the PMIP clients."
+    ::= { ciscoLwappPmipMIBGroups 2 }
+
+END

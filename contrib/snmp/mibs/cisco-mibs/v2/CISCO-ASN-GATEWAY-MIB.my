@@ -1,0 +1,4156 @@
+-- *****************************************************************
+-- CISCO-ASN-GATEWAY-MIB.my: Cisco System Access Service network 
+-- Gateway MIB
+--   
+-- Feb 2007, Tmima Koren
+--   
+-- Copyright (c) 2007-2009 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+--   
+
+CISCO-ASN-GATEWAY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32,
+    Gauge32,
+    Counter32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    TruthValue
+        FROM SNMPv2-TC
+    CiscoAlarmSeverity,
+    EntPhysicalIndexOrZero
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoAgwMIB MODULE-IDENTITY
+    LAST-UPDATED    "200905260000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal:170 W. Tasman Drive
+            San Jose, CA  95134
+            USA
+
+
+            Tel:+1 800 553-NETS
+
+
+            E-mail:cs-asngw@cisco.com"
+    DESCRIPTION
+        "This module manages Cisco's WiMAX ASN Gateway (ASN-GW).
+        A WiMAX network supports wireless data communication through
+        WiMAX radio (802.16) technology. 
+
+        The high level architecture of a first generation WiMAX network
+        with the respective protocols for each interface is shown below:
+
+           +--------------------------------------------------------+
+           |                                                     R2 |
+        +------+        +------+         +--------+                 |
+        |      |    R1  |      |   R6    |        |                 |
+        |  MS  |--------|  BS  |---------| ASN-GW |                 |
+        |      |        |      |         |        |---+             |
+        +------+        +------+         +--------+   |             | 
+                           |                  |       |  R3      |-----|
+                       R8  |               R4 |       |----------| CSN |
+                           |                  |       |          |-----|
+        +------+        +------+         +--------+   |             |
+        |      |   R1   |      |   R6    |        |---+             |
+        |  MS  |--------|  BS  |---------| ASN-GW |                 |
+        |      |        |      |         |        |                 |
+        +------+        +------+         +--------+              R2 | 
+           |                                                        |
+           +--------------------------------------------------------+
+
+        The diagram below depicts the relation of the subscriber to the
+        session and flows:
+
+        +--------+                       -Flow (connected via data path)
+        | ASN-GW | - Subscriber -Session -Flow (connected via data path)
+        +--------+                  |    -Flow (connected via data path)
+                                    |    -Flow (connected via data path)
+                                    |
+                                    +--- (connected via signaling path)
+
+        A subscriber initiates a call from a MS. A session is created
+        between the BS and the ASN-GW for that call. Multiple flows can
+        be created for the session with different QOS parameters. For
+        example one flow can created for a voice stream and another
+        for data. Data paths are created between the BS and ASN-GW to
+        forward the data packets of the created flows.
+        When the first subscriber from any MS connected to a BS
+        initiates a call via the BS to the ASN-GW, a signaling path is
+        created between the BS and the ASN-GW. There is only one 
+        signaling path between each BS and ASN-GW. Signaling paths 
+        and base stations can be used interchangeably.
+
+        The signaling and data paths remains active as long as there are
+        subscribers connected to the ASN-GW from any MS connected to the
+        BS. If a path has no session/flow connected, it will be purged
+        after a certain period of time. This situation can occur when
+        all subscribers on a certain path are disconnected. A subscriber
+        disconnecting from a certain path does not indicate that the
+        subscriber has left the network, it could simply be handing off
+        to a different path. 
+
+        The IP addresses of the signaling and data paths can be the same
+        or different both in the BS side and in the ASN-GW side.
+
+        +--------+              +--------+
+        | Base   |              | ASN-GW |
+        | Station|              |        |
+        |        |    SigPath   |        |
+        |  IP(B1)|<............>|IP(A1)  |
+        |        |              |        |
+        |        |              |        |
+        |        |  DataPath 1  |        |
+        |  IP(B2)|<............>|IP(A2)  |
+        |        |              |        |
+        |        |  DataPath 2  |        |
+        |  IP(B3)|<............>|IP(A3)  |
+        +--------+              +--------+
+
+
+        Relationships:
+
+        Base Station        1 to many         Mobile Stations
+        ASN-GW              1 to many         Base Stations
+        Subscriber          1 to 1            Sessions   
+        Session             1 to many         Flows
+        Datapath            1 to many         Flows
+        Signaling Path      1 to 1            Base Station
+
+        Acronyms and terms:
+
+         AAA                AAA refers to a framework that specifies the
+                            protocols procedures for authentications, 
+                            authorizatitin and accounting associated 
+                            with the user, MS and subscribed serviced.
+
+         AGW                ASN-GW
+
+         ASN                ASN (Access Service network) is defined as  
+                            a complete set of network functions needed
+                            to provide radio access to a WiMAX 
+                            subscriber.
+
+         ASN-GW             ASN-Gateway is a logical entity that 
+                            represents an aggregation of Control Plane 
+                            functional entities that are either paired 
+                            with a corresponding function in the ASN 
+                            (for e.g BS instance) a resident function is
+                            the CSN or another functions in the ASN.
+                            For every MS, a BS is associated with 
+                            exactly one default ASN-GW. However,
+                            ASN-GW functions for every MS may be 
+                            distributes amongst multiple
+                            ASN-GWs located in one or more ASNs. The
+                            ASN-GW utilizes Session Redudancy to ensure
+                            a backup ASN-GW is available in case the
+                            primary ASN-GW goes down.
+
+         BS                 Base Station is a logical entity that 
+                            represents an aggregation of Control Plane 
+                            functional entities that are either paired 
+                            with a corresponding function in the ASN
+                            (e.g. BS instance), a resident function
+                            in the CSN or a function in another ASN. The
+                            ASN-GW may also perform Bearer Plane routing
+                            or bridging function.
+
+         BSID               The Base Station Identifier is a global
+                            unique identifier for a WiMAX base station.
+
+         CPE                Customer Premise Equipment.
+
+         CSN                CSN (Connectivity Service Network) is 
+                            defined as a set of network functions that 
+                            provide IP connectivity services to the 
+                            WiMAX subscribers. 
+
+         Data Path          Corresponding to each subscriber, data paths
+                            are created to foward packets between the 
+                            ASN-GW and the subscribers.
+
+         DPID               Data Path ID is used to identify the tunnel
+                            carrying MS traffic between ASN gateways or
+                            between the ASN gateway and base station.
+                            As of 8/28/07, only the GRE key is to be
+                            used as the DPID.
+
+         Flow               A service flow is a unidirectional logical
+                            flow between the network and the Subscriber
+                            Station. A service flow is created to handle
+                            a different QoS over the connection oriented
+                            MAC. A subscriber can have multiple service
+                            flows associated and each service flow is
+                            associcated with an uplink and downlink
+                            classifier. 
+
+         GRE                Generic Routing Encapsulation. Refer to
+                            RFC 1701 for more details.
+
+         LB                 Load Balancing
+
+         Messages           Messages are packets exchanged on the
+                            signaling paths.
+
+         MS                 The Mobile Station is a generalized mobile 
+                            equipment set providing connectivity between
+                            subscriber equipment and a base station (BS)
+                            The Mobile Station may be a host or a CPE 
+                            type of device that can support multiple 
+                            hosts.
+
+         MSID               The Mobile Station Identifier is the 802.16 
+                            identifier used for all subscriber stations,
+                            and is used in all the messages over R6. The
+                            identifier associates all requests from a 
+                            mobile to the ASN-GW.
+
+         Packets            Packets are datagrams fowarded over the data
+                            paths.
+
+         R1                 Communication protocol between mobile and BS
+                            as per the air interface (PHY and MAC)
+                            specifications (IEEE P802.16d/e). R1 may
+                            include additional protocols related to the
+                            management plane.
+
+         R2                 The interface between the MS and CSN 
+                            associated with Authentication, 
+                            Services Authorization, IP Host 
+                            Configuration management, and mobility
+                            management. This is a logical interface thus
+                            does not reflect a direct protocol interface
+                            between MS and CSN.
+
+         R3                 The interface between the ASN and the CSN to
+                            support AAA, policy enforcement and mobility
+                            management capabilities. It also encompasses
+                            the bearer plane methods (e.g., tunneling)
+                            to transfer IP data between the ASN and the
+                            CSN.
+
+         R4                 Communication protocol between ASN-GWs.
+                            R4 consists of a set of control and bearer
+                            plane protocols originating/terminating in
+                            various entities within the ASN that 
+                            coordinate MS mobility between ASNs. 
+                            In Release 1, R4 is the only interoperable 
+                            interface between
+                            heterogeneous or dissimilar ASNs.
+
+         R5                 Consists of a set of control plane and 
+                            bearer plane protocols for internetworking 
+                            between CSNs operated by either the home or
+                            visited NSP.
+
+         R6                 Communication protocol between ASN-GW and BS
+                            R6 consists of a set of control and bearer
+                            plane protocols for communication between 
+                            the BS and the ASN GW.
+                            The bearer plane consists of intra-ASN 
+                            data path or inter-ASN tunnels between the
+                            BS and ASN-GW.
+                            The control plane includes protocols for
+                            IP tunnel management (establish, modify, and
+                            release) in accordance with the MS mobility
+                            events. R6 may also serve as a conduit for
+                            exchange of MAC states information between
+                            neighboring BSs.
+
+         R8                 Communication protocol between base 
+                            stations.
+                            R8 consists of a set of control plane 
+                            message flows and, in some situations, 
+                            bearer plane data flows between the 
+                            base stations to ensure fast and seamless
+                            handover.
+                            Bearer plane consists of protocols that 
+                            allow the data transfer between Base 
+                            Stations involved in handover of a 
+                            certain MS.
+                            Control plane consists of the inter-BS 
+                            communication protocol defined in IEEE 
+                            802.16 and additional set of protocols 
+                            that allow controlling the data
+                            transfer between the Base Stations involved
+                            in handover of a certain MS.
+
+         Session            Session is a connection between one or more
+                            MS and a network element in order to
+                            exchange link-level frames or packets. 
+
+         SFID               The service flow is identified using a SFID
+                            (Service Flow Identifier). 
+
+         Signaling Path     A signaling path exists between the BS and
+                            ASN-GW, and is used for all signaling such 
+                            as creating, dleteing, authenticating, 
+                            as we as additional functions related to 
+                            the subscriber. 
+
+         SR                 Session Redundancy
+
+         Subscriber         The 802.16 subscriber entity connects over
+                            the 802.16 airlink, and eventually results
+                            in the creation of the subscriber object at
+                            the ASN-GW.
+
+         UHO                Unpredicitive Handoff 
+
+         PMIP               Proxy Mobile Internet Protocol 
+
+         HA                 Home Agent 
+
+        REFERENCE
+
+        [1] WIMAX Forum Network Architecture,
+            (Stage 3: Detailed Protocols and Procedures)
+            Release 1.1.1 September 14, 2007."
+    REVISION        "200905260000Z"
+    DESCRIPTION
+        "Following objects were added to cagwStateTable
+           cagwCurrentPmipEnabledSubs,
+        Following objects were added to cagwUserGrpStatistics
+           cagwUserGrpPodReqRecv,
+           cagwUserGrpPodSuccessNotifsSent,
+           cagwUserGrpPodFailureNotifsSent,
+           cagwUserGrpCoaReqRecv,
+           cagwUserGrpCoaSuccessNotifsSent,
+           cagwUserGrpCoaFailureNotifsSent,
+	   cagwUserGrpRejSession,
+         Following objects were added to cagwGlobalStatistics
+           cagwPktsDroppedMipIncomplete,
+           cagwCreatedPmipEnabledSubs,
+           cagwDeletedPmipEnabledSubs,
+           cagwPktsDropPmipStaticIpHost,
+           cagwIdleModeEntryMsBsInitiated,
+           cagwIdleModeEntryBwgInitiated,
+           cagwIdleModeEntryFailures,
+           cagwIdleModeExitMsBsInitiated,
+           cagwIdleModeExitBwgInitiated,
+           cagwIdleModeExitFailures,
+           cagwIdleModeLocUpdtPgidChange,
+           cagwIdleModeLocUpdtPowerDown,
+           cagwIdleModeLocUpdtPeriodic,
+           cagwIdleModeLocUpdtFailures,
+           cagwIdleModePageAttemptsDwnlnkData,
+           cagwIdleModePageFailuresDwnlnkData,
+           cagwIdleModePageAttemptsLocUpdt,
+           cagwIdleModePageFailuresLocUpdt,
+           cagwIdleModeDirectedPagingSuccess,
+           cagwIdleModeDirectedPagingRetries,
+           cagwIdleModeFloodPagingSuccess,
+           cagwIdleModeFloodPagingRetries,
+           cagwPodRequestsRecv,
+           cagwPodSuccessNotifsSent,
+           cagwPodFailureNotifsSent,
+           cagwCoaReqRecv,
+           cagwCoaSuccessNotifsSent,
+           cagwCoaFailureNotifsSent,
+           cagwHotlineUplinkPktDropAclDeny,
+           cagwHotlineDownlinkPktDropAclDeny,
+           cagwUplinkPktDropUsrgrpAclDeny,
+           cagwDownlinkPktDropUsrgrpAclDeny,
+           cagwDownlinkPktDropPagingAclDeny,
+         Following object were added to cagwDhcpStatistics
+           cagwDhcpProxyDiscoverPackets,
+           cagwDhcpProxyOfferPackets,   
+           cagwDhcpProxyRequestPackets,
+           cagwDhcpProxyDeclinePackets,
+           cagwDhcpProxyAckPackets,
+           cagwDhcpProxyNakPackets,
+           cagwDhcpProxyReleasePackets,
+           cagwDhcpProxyInformPackets,
+           cagwDhcpProxyLeaseQueryPackets,
+           cagwDhcpProxyUnknownPackets"
+    REVISION        "200804220000Z"
+    DESCRIPTION
+        "Following objects were added to cagwStateTable
+           cagwCurrentFramedRoutes,
+           cagwCurrentFramedRouteSubs, 
+           cagwCurrentAutoProvSessions,
+           cagwCurrentSessionsWithIpPktsRedir.
+         Following objects were added to cagwGlobalStatistics
+           cagwRejectedSessionUnapprovedBs,
+           cagwPktsDroppedStaticIpHostNotAllowed, 
+           cagwPktsDroppedMulticastBroadcast
+           cagwSlaProfileNotFound.
+         Following objects were obsoleted in cagwGlobalStatistics
+           cagwFramedRouteInserted, 
+           cagwFramedRouteInsertFailed,
+           cagwFramedRouteDeleted.
+         Following objects were added to cagwUserGrpStatistics
+           cagwUserGrpOverwritten."
+    REVISION        "200803240000Z"
+    DESCRIPTION
+        "Following objects were deprecated in cagwGlobalStatistics
+           cagwReceivedDataPkts, 
+           cagwReceivedDataBytes,
+           cagwSentDataPkts, 
+           cagwSentDataBytes. 
+         Following objects were added to cagwGlobalStatistics
+           cagwIpGreReceivedDataPkts, 
+           cagwIpGreReceivedDataBytes,       
+           cagwIpGreSentDataPkts, 
+           cagwIpGreSentDataBytes,
+           cagwEthGreReceivedDataPkts, 
+           cagwEthGreReceivedDataBytes,
+           cagwEthGreSentdDataPkts, 
+           cagwEthGreSentDataBytes,
+           cagwRejectedHosts, 
+           cagwAgedOutStaticHosts,
+           cagwSuccessfulHandoff, 
+           cagwFailedHandoff,
+           cagwSuccessfulCMACKeyUpdate, 
+           cagwFailedCMACKeyUpdate,
+           cagwSuccessfulSecurityKeyExchange, 
+           cagwFailedSecurityKeyExchange,
+           cagwIpGreReceivedRedirectedPkts, 
+           cagwIpGreReceivedRedirectedBytes,
+           cagwEthGreReceivedRedirectedPkts, 
+           cagwEthGreReceivedRedirectedBytes,
+           cagwThrottlingOfPuntsDataPktsDrops, 
+           cagwLearningUpStreamDataPktsDrops,
+           cagwPuntedDataPkts.
+        Following objects were deprecated in cagwUserGrpEntry
+           cagwUserGrpPacketsSent, 
+           cagwUserGrpBytesSent,
+           cagwUserGrpPacketsReceived, 
+           cagwUserGrpBytesReceived.
+        Following objects were added to cagwUserGrpEntry
+           cagwUserGrpIpGrePacketsSent, 
+           cagwUserGrpIpGreBytesSent,
+           cagwUserGrpIpGrePacketsReceived, 
+           cagwUserGrpIpGreBytesReceived,
+           cagwUserGrpEthGrePacketsSent, 
+           cagwUserGrpEthGreBytesSent,
+           cagwUserGrpEthGrePacketsReceived, 
+           cagwUserGrpEthGreBytesReceived
+        Following objects were made obsolete 
+           cagwPathTable.
+        Following object were added to cagwPathStatistics
+           cagwPathRev1Table
+        Following object were added to cagwStatistics
+           cagwArpStatistics."
+    REVISION        "200709260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 638 }
+
+
+ciscoAgwMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoAgwMIB 0 }
+
+ciscoAgwMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoAgwMIB 1 }
+
+ciscoAgwMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoAgwMIB 2 }
+
+cagwInstances  OBJECT IDENTIFIER
+    ::= { ciscoAgwMIBObjects 1 }
+
+cagwState  OBJECT IDENTIFIER
+    ::= { ciscoAgwMIBObjects 2 }
+
+cagwStatistics  OBJECT IDENTIFIER
+    ::= { ciscoAgwMIBObjects 3 }
+
+cagwNotifMgmt  OBJECT IDENTIFIER
+    ::= { ciscoAgwMIBObjects 4 }
+
+cagwNotifInfo  OBJECT IDENTIFIER
+    ::= { ciscoAgwMIBObjects 5 }
+
+-- agw statistics
+
+cagwGlobalStatistics  OBJECT IDENTIFIER
+    ::= { cagwStatistics 1 }
+
+cagwDhcpStatistics  OBJECT IDENTIFIER
+    ::= { cagwStatistics 2 }
+
+cagwMessageStatistics  OBJECT IDENTIFIER
+    ::= { cagwStatistics 3 }
+
+cagwUserGrpStatistics  OBJECT IDENTIFIER
+    ::= { cagwStatistics 4 }
+
+cagwPathStatistics  OBJECT IDENTIFIER
+    ::= { cagwStatistics 5 }
+
+cagwArpStatistics  OBJECT IDENTIFIER
+    ::= { cagwStatistics 6 }
+
+
+cagwInstanceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CagwInstanceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The ASN-GW Instance Table contains an entry for each
+        physical ASN Gateway."
+    ::= { cagwInstances 1 }
+
+cagwInstanceEntry OBJECT-TYPE
+    SYNTAX          CagwInstanceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "ASN-GW Instance entry."
+    INDEX           { cagwInstanceIndex } 
+    ::= { cagwInstanceTable 1 }
+
+CagwInstanceEntry ::= SEQUENCE {
+        cagwInstanceIndex                  Unsigned32,
+        cagwInstancePhysicalIndex          EntPhysicalIndexOrZero,
+        cagwInstanceDescription            SnmpAdminString,
+        cagwInstanceVersion                SnmpAdminString,
+        cagwInstanceOperState              INTEGER ,
+        cagwInstanceSessionRedundancyAdmin INTEGER 
+}
+
+cagwInstanceIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index that uniquely represents each ASN Gateway
+        per device. This index is assigned arbitrarily by
+        the engine and is not saved over reboots." 
+    ::= { cagwInstanceEntry 1 }
+
+cagwInstancePhysicalIndex OBJECT-TYPE
+    SYNTAX          EntPhysicalIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The entPhysicalIndex of the physical entity for which
+        the ASN Gateway measurements in this entry are maintained.
+        The exact type of this entity is described by its 
+        entPhysicalVendorType value." 
+    ::= { cagwInstanceEntry 2 }
+
+cagwInstanceDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Description of the physical instance of the ASN-GW." 
+    ::= { cagwInstanceEntry 3 }
+
+cagwInstanceVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ASN-GW Software Version is currently: 1.0
+        Cisco ASN GW 1.0 has the following main features:
+           - Fully support Cisco R6 Specification
+           - DHCP support
+           - EAP authentication support
+           - Multiple hosts behind a MS
+           - Uncontrolled/Controlled Handoff." 
+    ::= { cagwInstanceEntry 4 }
+
+cagwInstanceOperState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1), -- ready to pass packets
+                        down(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current operational state of the ASN-GW." 
+    ::= { cagwInstanceEntry 5 }
+
+cagwInstanceSessionRedundancyAdmin OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabled(1), -- Session Redundancy Enabled
+                        disabled(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Session Redundancy Enabled / Disabled.
+        More information about redundancy can be obtained via the 
+        CISCO-RF-MIB." 
+    ::= { cagwInstanceEntry 6 }
+ 
+
+-- agw state
+
+cagwStateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CagwStateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The State Table contains Statistics about
+        the current state of the ASN-GW."
+    ::= { cagwState 1 }
+
+cagwStateEntry OBJECT-TYPE
+    SYNTAX          CagwStateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "ASN-GW statistics entry."
+    INDEX           { cagwInstanceIndex } 
+    ::= { cagwStateTable 1 }
+
+CagwStateEntry ::= SEQUENCE {
+        cagwMaximumBaseStations    Integer32,
+        cagwMaximumSubscribers     Integer32,
+        cagwMaximumFlowsPerSession Integer32,
+        cagwCurrentBaseStations    Gauge32,
+        cagwCurrentDataPaths       Gauge32,
+        cagwCurrentSubscribers     Gauge32,
+        cagwCurrentSessions        Gauge32,
+        cagwCurrentFlows           Gauge32,
+        cagwCurrentHosts           Gauge32,
+        cagwNetworkBehindMs        Gauge32,
+        cagwPendingSignalingPkts   Gauge32,
+        cagwCurrentFramedRoutes    Gauge32,
+        cagwCurrentFramedRouteSubs  Gauge32,
+        cagwCurrentAutoProvSessions Gauge32,
+        cagwCurrentSessionsWithIpPktsRedir Gauge32,
+        cagwCurrentPmipEnabledSubs        Gauge32
+}
+
+cagwMaximumBaseStations OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "base stations"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of base stations that can be
+        concurrently supported by this ASN-GW." 
+    ::= { cagwStateEntry 1 }
+
+cagwMaximumSubscribers OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "subscribers"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of subscribers that can be
+        concurrently supported by this ASN-GW." 
+    ::= { cagwStateEntry 2 }
+
+cagwMaximumFlowsPerSession OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "flows"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of flows allowed per session." 
+    ::= { cagwStateEntry 3 }
+
+cagwCurrentBaseStations OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current number of signaling paths to all Base Stations.
+        There is one signaling path created between the ASN-GW and
+        each base station, so the current number of signaling paths
+        is equal to the number of base stations currently connected 
+        to the ASN-GW. Signaling paths and base stations are used 
+        interchangeably throughout this document." 
+    ::= { cagwStateEntry 4 }
+
+cagwCurrentDataPaths OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current number of data paths to all Base Stations." 
+    ::= { cagwStateEntry 5 }
+
+cagwCurrentSubscribers OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "subscribers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of subscribers currently connected to this ASN-GW." 
+    ::= { cagwStateEntry 6 }
+
+cagwCurrentSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of sessions currently active on this ASN-GW." 
+    ::= { cagwStateEntry 7 }
+
+cagwCurrentFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current number of flows for all sessions active
+        on this ASN-GW." 
+    ::= { cagwStateEntry 8 }
+
+cagwCurrentHosts OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hosts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current number of hosts connected to this ASN-GW." 
+    ::= { cagwStateEntry 9 }
+
+cagwNetworkBehindMs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "mobile stations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of mobile stations that may have a network
+        behind them." 
+    ::= { cagwStateEntry 10 }
+
+cagwPendingSignalingPkts OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of signaling packets currently pending
+        on this ASN-GW." 
+    ::= { cagwStateEntry 11 }
+ 
+cagwCurrentFramedRoutes OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "routes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of unique framed routes downloaded from
+        AAA and inserted into the IP routing table
+        on gateway at this instance. Insertion of framed route
+        is enabled with the help of configuration CLI 
+        under user group on gateway." 
+    ::= { cagwStateEntry 12 }
+
+cagwCurrentFramedRouteSubs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "subscribers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of subscribers using framed routes that have been
+         inserted in IP routing table on gateway." 
+    ::= { cagwStateEntry 13 }
+
+cagwCurrentAutoProvSessions  OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of auto-provisioned sessions 
+        on gateway. Auto-provisioning is disabled by default and
+        can be enabled by using a configuration CLI 
+        under user group on gateway." 
+    ::= { cagwStateEntry 14 }
+
+cagwCurrentSessionsWithIpPktsRedir  OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "Sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of sessions with all uplink IP packets 
+        redirected by gateway." 
+    ::= { cagwStateEntry 15 }
+
+cagwCurrentPmipEnabledSubs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "subscribers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+         "The number of PMIP enabled subscribers currently connected 
+          to this ASN-GW." 
+    ::= { cagwStateEntry 16 }
+
+
+-- agw global statistics : measurements of the ASN-GW
+
+cagwGlobalStatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CagwGlobalStatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Global Statistics Table contains measurement
+        for a particular ASN-Gateway."
+    ::= { cagwGlobalStatistics 1 }
+
+cagwGlobalStatisticsEntry OBJECT-TYPE
+    SYNTAX          CagwGlobalStatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "ASN-GW global statistics entry."
+    INDEX           { cagwInstanceIndex } 
+    ::= { cagwGlobalStatisticsTable 1 }
+
+CagwGlobalStatisticsEntry ::= SEQUENCE {
+        cagwCreatedSubscribers                     Counter32,
+        cagwDeletedSubscribers                     Counter32,
+        cagwCreatedSessions                        Counter32,
+        cagwDeletedSessions                        Counter32,
+        cagwCreatedFlows                           Counter32,
+        cagwDeletedFlows                           Counter32,
+        cagwCreatedHosts                           Counter32,
+        cagwDeletedHosts                           Counter32,
+        cagwCreatedBaseStations                    Counter32,
+        cagwDeletedBaseStations                    Counter32,
+        cagwCreatedDataPaths                       Counter32,
+        cagwDeletedDataPaths                       Counter32,
+        cagwProcessedSignalingPkts                 Counter32,
+        cagwRequeuedSignalingPkts                  Counter32,
+        cagwCongestionSignalingPktsDrops           Counter32,
+        cagwServiceDisabledSignalingPktsDrops      Counter32,
+        cagwServiceNotReadySignalingPktsDrops      Counter32,
+        cagwEncapErrorSignalingPktsDrops           Counter32,
+        cagwDisposedSignalingPktsDrops             Counter32,
+        cagwEncapErrorDataPktsDrops                Counter32,
+        cagwInvalidAddressDataPktsDrops            Counter32,
+        cagwServiceDisabledDataPktsDrops           Counter32,
+        cagwInvalidProtocolTypeDataPktsDrops       Counter32,
+        cagwLengthErrorDataPktsDrops               Counter32,
+        cagwAbsentKeyDataPktsDrops                 Counter32,
+        cagwFlowNotFoundDataPktsDrops              Counter32,
+        cagwFlowPathNotFoundDataPktsDrops          Counter32,
+        cagwFlowPathInvalidSourceDataPktsDrops     Counter32,
+        cagwSessionNotFoundDataPktsDrops           Counter32,
+        cagwSubscriberNotFoundDataPktsDrops        Counter32,
+        cagwChecksumErrorDataPktsDrops             Counter32,
+        cagwIngressFilteringDataPktsDrops          Counter32,
+        cagwSequenceNumberErrorDataPktsDrops       Counter32,
+        cagwFragmentedDataPktsDrops                Counter32,
+        cagwFramedRouteInserted                    Counter32,
+        cagwFramedRouteInsertFailed                Counter32,
+        cagwFramedRouteDeleted                     Counter32,
+        cagwServiceFlowProfileNotFound             Counter32,
+        cagwQosProfileNotFound                     Counter32,
+        cagwClassifierProfileNotFound              Counter32,
+        cagwReceivedDataPkts                       Counter64,
+        cagwReceivedDataBytes                      Counter64,
+        cagwSentDataPkts                           Counter64,
+        cagwSentDataBytes                          Counter64,
+        cagwRejectedSessions                       Counter32,
+        cagwRejectedFlows                          Counter32,
+        cagwRejectedBaseStations                   Counter32,
+        cagwSessionsDeletedByAgw                   Counter32,
+        cagwIpGreReceivedDataPkts                  Counter64,
+        cagwIpGreReceivedDataBytes                 Counter64,
+        cagwIpGreSentDataPkts                      Counter64,
+        cagwIpGreSentDataBytes                     Counter64,
+        cagwEthGreReceivedDataPkts                 Counter64,
+        cagwEthGreReceivedDataBytes                Counter64,
+        cagwEthGreSentDataPkts                     Counter64,
+        cagwEthGreSentDataBytes                    Counter64,
+        cagwRejectedHosts                          Counter32,
+        cagwAgedOutStaticHosts                     Counter32,
+        cagwSuccessfulHandoff                      Counter32,
+        cagwFailedHandoff                          Counter32,
+        cagwSuccessfulCMACKeyUpdate                Counter32,
+        cagwFailedCMACKeyUpdate                    Counter32,
+        cagwSuccessfulSecurityKeyExchange          Counter32,
+        cagwFailedSecurityKeyExchange              Counter32,
+        cagwIpGreReceivedRedirectedPkts            Counter64,
+        cagwIpGreReceivedRedirectedBytes           Counter64,
+        cagwEthGreReceivedRedirectedPkts           Counter64,
+        cagwEthGreReceivedRedirectedBytes          Counter64,
+        cagwThrottlingOfPuntsDataPktsDrops         Counter32,
+        cagwLearningUpstreamDataPktsDrops          Counter32,
+        cagwPuntedDataPkts                         Counter32,
+        cagwRejectedSessionUnapprovedBs            Counter32,
+        cagwPktsDroppedStaticIpHostNotAllowed      Counter32,
+        cagwPktsDroppedMulticastBroadcast          Counter32,
+        cagwSlaProfileNotFound                     Counter32,
+        cagwPktsDroppedMipIncomplete               Counter32,
+        cagwCreatedPmipEnabledSubs                 Counter32,
+        cagwDeletedPmipEnabledSubs                 Counter32,
+        cagwPktsDropPmipStaticIpHost               Counter32,
+        cagwIdleModeEntryMsBsInitiated             Counter32,
+        cagwIdleModeEntryBwgInitiated              Counter32,
+        cagwIdleModeEntryFailures                  Counter32,
+        cagwIdleModeExitMsBsInitiated              Counter32,
+        cagwIdleModeExitBwgInitiated               Counter32,
+        cagwIdleModeExitFailures                   Counter32,
+        cagwIdleModeLocUpdtPgidChange              Counter32,
+        cagwIdleModeLocUpdtPowerDown               Counter32,
+        cagwIdleModeLocUpdtPeriodic                Counter32,
+        cagwIdleModeLocUpdtFailures                Counter32,
+        cagwIdleModePageAttemptsDwnlnkData         Counter32,
+        cagwIdleModePageFailuresDwnlnkData         Counter32,
+        cagwIdleModePageAttemptsLocUpdt            Counter32,
+        cagwIdleModePageFailuresLocUpdt            Counter32,
+        cagwIdleModeDirectedPagingSuccess          Counter32,
+        cagwIdleModeDirectedPagingRetries          Counter32,
+        cagwIdleModeFloodPagingSuccess             Counter32,
+        cagwIdleModeFloodPagingRetries             Counter32,
+        cagwPodRequestsRecv                        Counter32,
+        cagwPodSuccessNotifsSent                   Counter32,
+        cagwPodFailureNotifsSent                   Counter32,
+        cagwCoaReqRecv                             Counter32,
+        cagwCoaSuccessNotifsSent                   Counter32,
+        cagwCoaFailureNotifsSent                   Counter32,
+        cagwHotlineUplinkPktDropAclDeny            Counter32,
+        cagwHotlineDownlinkPktDropAclDeny          Counter32,
+        cagwUplinkPktDropUsrgrpAclDeny             Counter32,
+        cagwDownlinkPktDropUsrgrpAclDeny           Counter32,
+        cagwDownlinkPktDropPagingAclDeny           Counter32
+}
+
+cagwCreatedSubscribers OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "subscribers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of subscribers created on this ASN-GW
+        which include active and past subscribers." 
+    ::= { cagwGlobalStatisticsEntry 1 }
+
+cagwDeletedSubscribers OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "subscribers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of subscribers deleted on this ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 2 }
+
+cagwCreatedSessions OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of sessions created on this ASN-GW
+        which include active and past sessions." 
+    ::= { cagwGlobalStatisticsEntry 3 }
+
+cagwDeletedSessions OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of sessions deleted on this ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 4 }
+
+cagwCreatedFlows OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of flows created on this ASN-GW
+        which include active and past flows." 
+    ::= { cagwGlobalStatisticsEntry 5 }
+
+cagwDeletedFlows OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of flows deleted on this ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 6 }
+
+cagwCreatedHosts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "hosts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of hosts created on this ASN-GW
+        which include active and past hosts." 
+    ::= { cagwGlobalStatisticsEntry 7 }
+
+cagwDeletedHosts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "hosts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of hosts deleted on this ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 8 }
+
+cagwCreatedBaseStations OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of signaling paths created on this ASN-GW
+        which include active and past signaling paths." 
+    ::= { cagwGlobalStatisticsEntry 9 }
+
+cagwDeletedBaseStations OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of signaling paths deleted on this ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 10 }
+
+cagwCreatedDataPaths OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of data paths created on this ASN-GW
+        which include active and past data paths." 
+    ::= { cagwGlobalStatisticsEntry 11 }
+
+cagwDeletedDataPaths OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of data paths deleted on this ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 12 }
+
+cagwProcessedSignalingPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of signaling packets processed by this 
+        ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 13 }
+
+cagwRequeuedSignalingPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of signaling packets that were requeued
+        on this ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 14 }
+
+cagwCongestionSignalingPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of signaling packets dropped when too many
+        signaling packets are queued. The current queu limit 
+        is 1000 packets." 
+    ::= { cagwGlobalStatisticsEntry 15 }
+
+cagwServiceDisabledSignalingPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of signaling packets dropped due to service 
+        disabled." 
+    ::= { cagwGlobalStatisticsEntry 16 }
+
+cagwServiceNotReadySignalingPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of signaling packets dropped while in
+        non-Active state for redundant configuration." 
+    ::= { cagwGlobalStatisticsEntry 17 }
+
+cagwEncapErrorSignalingPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of signaling packets dropped due to
+        encapsulation errors." 
+    ::= { cagwGlobalStatisticsEntry 18 }
+
+cagwDisposedSignalingPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of signaling packets disposed by the ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 19 }
+
+cagwEncapErrorDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to encapsulation 
+        errors." 
+    ::= { cagwGlobalStatisticsEntry 41 }
+
+cagwInvalidAddressDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to IP address
+        not ours." 
+    ::= { cagwGlobalStatisticsEntry 42 }
+
+cagwServiceDisabledDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to service disabled." 
+    ::= { cagwGlobalStatisticsEntry 43 }
+
+cagwInvalidProtocolTypeDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to invalid protocol 
+        type." 
+    ::= { cagwGlobalStatisticsEntry 44 }
+
+cagwLengthErrorDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to IP packet length 
+        error." 
+    ::= { cagwGlobalStatisticsEntry 45 }
+
+cagwAbsentKeyDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to GRE key error." 
+    ::= { cagwGlobalStatisticsEntry 46 }
+
+cagwFlowNotFoundDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to flow not found 
+        error." 
+    ::= { cagwGlobalStatisticsEntry 47 }
+
+cagwFlowPathNotFoundDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to flow path not found."
+    ::= { cagwGlobalStatisticsEntry 48 }
+
+cagwFlowPathInvalidSourceDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to invalid source
+        path address in the GRE header." 
+    ::= { cagwGlobalStatisticsEntry 49 }
+
+cagwSessionNotFoundDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to session not found
+        for the GRE key." 
+    ::= { cagwGlobalStatisticsEntry 50 }
+
+cagwSubscriberNotFoundDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to subscriber not found
+        for the GRE key." 
+    ::= { cagwGlobalStatisticsEntry 51 }
+
+cagwChecksumErrorDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to checksum error." 
+    ::= { cagwGlobalStatisticsEntry 52 }
+
+cagwIngressFilteringDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to subscriber
+        invalid source IP address." 
+    ::= { cagwGlobalStatisticsEntry 53 }
+
+cagwSequenceNumberErrorDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to sequence number 
+        error." 
+    ::= { cagwGlobalStatisticsEntry 54 }
+
+cagwFragmentedDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to fragmented packet." 
+    ::= { cagwGlobalStatisticsEntry 55 }
+
+cagwFramedRouteInserted OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "routes"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The number of framed routes that were inserted." 
+    ::= { cagwGlobalStatisticsEntry 56 }
+
+cagwFramedRouteInsertFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "routes"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "The number of framed routes that failed to be inserted." 
+    ::= { cagwGlobalStatisticsEntry 57 }
+
+cagwFramedRouteDeleted OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "routes"
+    MAX-ACCESS      read-only
+    STATUS          obsolete  
+    DESCRIPTION
+        "The number of framed routes that were deleted." 
+    ::= { cagwGlobalStatisticsEntry 58 }
+
+cagwServiceFlowProfileNotFound OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "service flow profiles"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of service flow creation errors due to
+        service flow profile not configured." 
+    ::= { cagwGlobalStatisticsEntry 59 }
+
+cagwQosProfileNotFound OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "qos profiles"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of service flow creation errors due to
+        service flow QoS profile not configured." 
+    ::= { cagwGlobalStatisticsEntry 60 }
+
+cagwClassifierProfileNotFound OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "classifier profiles"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of service flow creation errors due to
+        service flow packet classifier profile not configured." 
+    ::= { cagwGlobalStatisticsEntry 61 }
+
+cagwReceivedDataPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated --superceded by cagwIPGreReceivedDataPkts
+    DESCRIPTION
+        "The number of data packets received by the ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 62 }
+
+cagwReceivedDataBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS         deprecated --superceded by cagwIPGreReceivedDataBytes
+    DESCRIPTION
+        "The number of data bytes received by the ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 63 }
+
+cagwSentDataPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated --superceded by cagwIPGreSentDataPkts
+    DESCRIPTION
+        "The number of data packets sent by the ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 64 }
+
+cagwSentDataBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          deprecated  --superceded by cagwIPGreSentDataBytes
+    DESCRIPTION
+        "The number of data bytes sent by the ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 65 }
+
+cagwRejectedSessions OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of sessions that were rejected due to exceeding the
+        maximum number of allowed subscribers. See object
+        cagwMaximumSubscribers." 
+    ::= { cagwGlobalStatisticsEntry 66 }
+
+cagwRejectedFlows OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of flows that were rejected due to exceeding the
+        maximum number of flows allowed per session. See object
+        cagwMaximumFlowsPerSession." 
+    ::= { cagwGlobalStatisticsEntry 67 }
+
+cagwRejectedBaseStations OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "paths"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of paths that were rejected due to exceeding the
+        maximum number of base stations allowed to connect to this 
+        ASN-GW. See object cagwMaximumBaseStations." 
+    ::= { cagwGlobalStatisticsEntry 68 }
+
+cagwSessionsDeletedByAgw OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of sessions deleted by the ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 69 }
+
+cagwIpGreReceivedDataPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets received by the ASN-GW on
+        IP convergence sublayer." 
+    ::= { cagwGlobalStatisticsEntry 70 }
+
+cagwIpGreReceivedDataBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data bytes received by the ASN-GW on
+        IP convergence sublayer." 
+    ::= { cagwGlobalStatisticsEntry 71 }
+
+cagwIpGreSentDataPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets sent by the ASN-GW on
+        IP convergence sublayer." 
+    ::= { cagwGlobalStatisticsEntry 72 }
+
+cagwIpGreSentDataBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data bytes sent by the ASN-GW on
+        IP convergence sublayer." 
+    ::= { cagwGlobalStatisticsEntry 73 }
+
+cagwEthGreReceivedDataPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets received by the ASN-GW on
+        ethernet convergence sublayer." 
+    ::= { cagwGlobalStatisticsEntry 74 }
+
+cagwEthGreReceivedDataBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data bytes received by the ASN-GW on
+        ethernet convergence sublayer." 
+    ::= { cagwGlobalStatisticsEntry 75 }
+
+cagwEthGreSentDataPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets sent by the ASN-GW on
+        ethernet convergence sublayer." 
+    ::= { cagwGlobalStatisticsEntry 76 }
+
+cagwEthGreSentDataBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data bytes sent by the ASN-GW on
+        ethernet convergence sublayer." 
+    ::= { cagwGlobalStatisticsEntry 77 }
+
+cagwRejectedHosts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "hosts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of hosts open requests rejected." 
+    ::= { cagwGlobalStatisticsEntry 78 }
+
+cagwAgedOutStaticHosts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "hosts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idle static hosts aged out." 
+    ::= { cagwGlobalStatisticsEntry 79 }
+
+cagwSuccessfulHandoff OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of successful session handoffs between Base
+        Stations." 
+    ::= { cagwGlobalStatisticsEntry 80 }
+
+cagwFailedHandoff OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failed session handoffs between base
+        stations." 
+    ::= { cagwGlobalStatisticsEntry 81 }
+
+cagwSuccessfulCMACKeyUpdate OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "CMACKeyUpdates"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of successful CMAC Key count updates
+        related to handoff between base stations." 
+    ::= { cagwGlobalStatisticsEntry 82 }
+
+cagwFailedCMACKeyUpdate OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "CMACKeyUpdates"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failed CMAC Key count updates
+        related to handoff between base stations." 
+    ::= { cagwGlobalStatisticsEntry 83 }
+
+cagwSuccessfulSecurityKeyExchange OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "SecurityKeyExchange"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of successful Security Key exchange
+        related to handoff between base stations." 
+    ::= { cagwGlobalStatisticsEntry 84 }
+
+cagwFailedSecurityKeyExchange OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "SecurityKeyExchange"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of failed Security Key exchange
+        related to handoff between base stations." 
+    ::= { cagwGlobalStatisticsEntry 85 }
+
+cagwIpGreReceivedRedirectedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "IpDataPktsRedirected"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets redirected on IP
+        convergence sublayer" 
+    ::= { cagwGlobalStatisticsEntry 86 }
+
+cagwIpGreReceivedRedirectedBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "IpDataBytesRedirected"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of IP data Bytes redirected on IP
+        convergence sublayer" 
+    ::= { cagwGlobalStatisticsEntry 87 }
+
+cagwEthGreReceivedRedirectedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "EthDataPktsRedirected"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets redirected on Ethernet
+        convergence sublayer" 
+    ::= { cagwGlobalStatisticsEntry 88 }
+
+cagwEthGreReceivedRedirectedBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "EthDataBytesRedirected"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data Bytes redirected on Ethernet
+        convergence sublayer" 
+    ::= { cagwGlobalStatisticsEntry 89 }
+
+cagwThrottlingOfPuntsDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to throttling of punts
+        from cef path to process path" 
+    ::= { cagwGlobalStatisticsEntry 90 }
+
+cagwLearningUpstreamDataPktsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets dropped due to gateway learning
+        about static hosts from upstream data packets" 
+    ::= { cagwGlobalStatisticsEntry 91 }
+
+cagwPuntedDataPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of data packets punted from cef path to process 
+        path" 
+    ::= { cagwGlobalStatisticsEntry 92 }
+ 
+cagwRejectedSessionUnapprovedBs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of session creation and/or session handoffs 
+        rejected because the requesting base station is
+        not approved for it. List of approved base sations 
+        can be provisioned on AAA." 
+    ::= { cagwGlobalStatisticsEntry 93 }
+ 
+cagwPktsDroppedStaticIpHostNotAllowed OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets for e.g. upstream ARP, upstream
+        data packets, dropped due to failure in creation
+        of Static IP Host. Static IP address not authorized by 
+        the AAA server."
+    ::= { cagwGlobalStatisticsEntry 94 }
+
+cagwPktsDroppedMulticastBroadcast OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of L2 multicast and broadcast data packets 
+        other than ARP and DHCP dropped by gateway."
+    ::= { cagwGlobalStatisticsEntry 95 }
+
+cagwSlaProfileNotFound OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "SLA profile"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of session creation failures due to configuration
+        error in SLA (Service Level Agreement) profile on gateway."
+    ::= { cagwGlobalStatisticsEntry 96 }
+
+cagwPktsDroppedMipIncomplete OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets from PMIP capable subscribers for
+        e.g. upstream ARP, upstream data packets, upstream DHCP dropped 
+        by gateway because they are received during MIP registration." 
+    ::= { cagwGlobalStatisticsEntry 97 }
+
+cagwCreatedPmipEnabledSubs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "subscribers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of PMIP enabled subscribers created on this 
+        ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 98 }
+
+cagwDeletedPmipEnabledSubs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "subscribers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of PMIP enabled subscribers deleted on this 
+        ASN-GW." 
+    ::= { cagwGlobalStatisticsEntry 99 }
+
+cagwPktsDropPmipStaticIpHost OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets for e.g. upstream ARP, upstream
+        data packets, dropped due to failure in creation
+        of Static IP PMIP Host. Static IP address not authorized 
+        by the HA."
+    ::= { cagwGlobalStatisticsEntry 100 }
+
+cagwIdleModeEntryMsBsInitiated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of MS or BS initated idlemode entry."
+    ::= { cagwGlobalStatisticsEntry 101 }
+
+cagwIdleModeEntryBwgInitiated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ASN-GW initated idlemode entry."
+    ::= { cagwGlobalStatisticsEntry 102 }
+
+cagwIdleModeEntryFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode entry failures."
+    ::= { cagwGlobalStatisticsEntry 103 }
+
+cagwIdleModeExitMsBsInitiated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of MS or BS initiated idlemode exit."
+    ::= { cagwGlobalStatisticsEntry 104 }
+
+cagwIdleModeExitBwgInitiated OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ASN-GW initiated idlemode exit."
+    ::= { cagwGlobalStatisticsEntry 105 }
+
+cagwIdleModeExitFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode exit failures."
+    ::= { cagwGlobalStatisticsEntry 106 }
+
+cagwIdleModeLocUpdtPgidChange OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode location update messages
+         received by gateway because of paging group ID change."
+    ::= { cagwGlobalStatisticsEntry 107 }
+
+cagwIdleModeLocUpdtPowerDown OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode location update messages received by
+         gateway because of MS power down."
+    ::= { cagwGlobalStatisticsEntry 108 }
+
+cagwIdleModeLocUpdtPeriodic OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode periodic location update messages
+         received by gateway."
+    ::= { cagwGlobalStatisticsEntry 109 }
+
+cagwIdleModeLocUpdtFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode location update failures."
+    ::= { cagwGlobalStatisticsEntry 110 }
+
+cagwIdleModePageAttemptsDwnlnkData OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode paging attempts for downlink data."
+    ::= { cagwGlobalStatisticsEntry 111 }
+
+cagwIdleModePageFailuresDwnlnkData OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode paging failures for downlink data."
+    ::= { cagwGlobalStatisticsEntry 112 }
+
+cagwIdleModePageAttemptsLocUpdt OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode paging attempts for location update."
+    ::= { cagwGlobalStatisticsEntry 113 }
+
+cagwIdleModePageFailuresLocUpdt OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode paging failures for location update."
+    ::= { cagwGlobalStatisticsEntry 114 }
+
+cagwIdleModeDirectedPagingSuccess OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode directed paging success."
+    ::= { cagwGlobalStatisticsEntry 115 }
+
+cagwIdleModeDirectedPagingRetries OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode directed paging retries."
+    ::= { cagwGlobalStatisticsEntry 116 }
+
+cagwIdleModeFloodPagingSuccess OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode flood paging success."
+    ::= { cagwGlobalStatisticsEntry 117 }
+
+cagwIdleModeFloodPagingRetries OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of idlemode flood paging retries."
+    ::= { cagwGlobalStatisticsEntry 118 }
+
+ cagwPodRequestsRecv OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "requests"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of Packet of Disconnect (POD)
+         requests received by gateway"
+     ::= { cagwGlobalStatisticsEntry 119 }
+
+ cagwPodSuccessNotifsSent OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "notifications"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of Packet of Disconnect (POD) success
+          notifications sent by gateway."
+     ::= { cagwGlobalStatisticsEntry 120 }
+
+ cagwPodFailureNotifsSent OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "notifications"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of Packet of Disconnect (POD) failure
+          notifications sent by gateway."
+     ::= { cagwGlobalStatisticsEntry 121 }
+
+ cagwCoaReqRecv OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "requests"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of Change of Authorization (COA)
+          requests received by gateway."
+     ::= { cagwGlobalStatisticsEntry 122 }
+
+ cagwCoaSuccessNotifsSent OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "notifications"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of Change of Authorization (COA)
+          success notifications sent by gateway."
+     ::= { cagwGlobalStatisticsEntry 123 }
+
+ cagwCoaFailureNotifsSent OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "notifications"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+        "The number of Change of Authorization (COA)
+          failure notifications sent by gateway."
+     ::= { cagwGlobalStatisticsEntry 124 }
+
+ cagwHotlineUplinkPktDropAclDeny OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "packets"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of uplink packets dropped due to
+          hotlining ACL deny."
+     ::= { cagwGlobalStatisticsEntry 125 }
+
+ cagwHotlineDownlinkPktDropAclDeny OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "packets"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of downlink packets dropped due to
+          hotlining ACL deny."
+     ::= { cagwGlobalStatisticsEntry 126 }
+
+ cagwUplinkPktDropUsrgrpAclDeny OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "packets"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of uplink packets dropped due to
+          user-group ACL deny."
+     ::= { cagwGlobalStatisticsEntry 127 }
+
+ cagwDownlinkPktDropUsrgrpAclDeny OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "packets"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of downlink packets dropped due to
+          user-group ACL deny."
+     ::= { cagwGlobalStatisticsEntry 128 }
+
+ cagwDownlinkPktDropPagingAclDeny OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "packets"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of downlink packets dropped due to
+          paging ACL deny."
+     ::= { cagwGlobalStatisticsEntry 129 }
+
+-- agw dhcp statistics
+
+cagwDhcpStatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CagwDhcpStatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The DHCP Statistics Table contains Statistics
+        about DHCP packets processed by the ASN-GW."
+    ::= { cagwDhcpStatistics 1 }
+
+cagwDhcpStatisticsEntry OBJECT-TYPE
+    SYNTAX          CagwDhcpStatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "ASN-GW DHCP statistics entry."
+    INDEX           { cagwInstanceIndex } 
+    ::= { cagwDhcpStatisticsTable 1 }
+
+CagwDhcpStatisticsEntry ::= SEQUENCE {
+        cagwDhcpDiscoverPackets   Counter32,
+        cagwDhcpOfferPackets      Counter32,
+        cagwDhcpRequestPackets    Counter32,
+        cagwDhcpDeclinePackets    Counter32,
+        cagwDhcpAckPackets        Counter32,
+        cagwDhcpNakPackets        Counter32,
+        cagwDhcpReleasePackets    Counter32,
+        cagwDhcpInformPackets     Counter32,
+        cagwDhcpLeaseQueryPackets Counter32,
+        cagwDhcpUnknownPackets    Counter32,
+        cagwDhcpProxyDiscoverPackets   Counter32,
+        cagwDhcpProxyOfferPackets      Counter32,
+        cagwDhcpProxyRequestPackets    Counter32,
+        cagwDhcpProxyDeclinePackets    Counter32,
+        cagwDhcpProxyAckPackets        Counter32,
+        cagwDhcpProxyNakPackets        Counter32,
+        cagwDhcpProxyReleasePackets    Counter32,
+        cagwDhcpProxyInformPackets     Counter32,
+        cagwDhcpProxyLeaseQueryPackets Counter32,
+        cagwDhcpProxyUnknownPackets    Counter32
+}
+
+cagwDhcpDiscoverPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Discover packets transmitted by the DHCP 
+        relay in the ASN-GW to the DHCP server." 
+    ::= { cagwDhcpStatisticsEntry 1 }
+
+cagwDhcpOfferPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Offer packets received by the DHCP relay in
+         the ASN-GW from the DHCP server." 
+    ::= { cagwDhcpStatisticsEntry 2 }
+
+cagwDhcpRequestPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Request packets transmitted by the DHCP 
+        relay in the ASN-GW to the DHCP server." 
+    ::= { cagwDhcpStatisticsEntry 3 }
+
+cagwDhcpDeclinePackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Decline packets transmitted by the DHCP 
+        relay in the ASN-GW to the DHCP server." 
+    ::= { cagwDhcpStatisticsEntry 4 }
+
+cagwDhcpAckPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Ack packets received by the DHCP relay in
+         the ASN-GW from the DHCP server." 
+    ::= { cagwDhcpStatisticsEntry 5 }
+
+cagwDhcpNakPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Nak packets received by the DHCP relay in
+         the ASN-GW from the DHCP server." 
+    ::= { cagwDhcpStatisticsEntry 6 }
+
+cagwDhcpReleasePackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Release packets transmitted by the DHCP 
+        relay in the ASN-GW to the DHCP server." 
+    ::= { cagwDhcpStatisticsEntry 7 }
+
+cagwDhcpInformPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Inform packets transmitted by the DHCP 
+        relay in the ASN-GW to the DHCP server." 
+    ::= { cagwDhcpStatisticsEntry 8 }
+
+cagwDhcpLeaseQueryPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Lease Query packets transmitted by the DHCP
+        relay in the ASN-GW to the DHCP server." 
+    ::= { cagwDhcpStatisticsEntry 9 }
+
+cagwDhcpUnknownPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Unknown packets processed by the DHCP 
+        relay in the ASN-GW." 
+    ::= { cagwDhcpStatisticsEntry 10 }
+
+cagwDhcpProxyDiscoverPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Discover packets received by the DHCP proxy
+         server in the ASN-GW from the DHCP client." 
+    ::= { cagwDhcpStatisticsEntry 11 }
+
+cagwDhcpProxyOfferPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Offer packets transmitted by the DHCP proxy
+         server in the ASN-GW to the DHCP client." 
+    ::= { cagwDhcpStatisticsEntry 12 }
+
+cagwDhcpProxyRequestPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Request packets received by the DHCP proxy
+         server in the ASN-GW from the DHCP client." 
+    ::= { cagwDhcpStatisticsEntry 13 }
+
+cagwDhcpProxyDeclinePackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Decline packets received by the DHCP proxy
+         server in the ASN-GW from the DHCP client." 
+    ::= { cagwDhcpStatisticsEntry 14 }
+
+cagwDhcpProxyAckPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Ack packets transmitted by the DHCP proxy
+         server in the ASN-GW to the DHCP client." 
+    ::= { cagwDhcpStatisticsEntry 15 }
+
+cagwDhcpProxyNakPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Nak packets transmitted by the DHCP proxy
+         server in the ASN-GW to the DHCP client." 
+    ::= { cagwDhcpStatisticsEntry 16 }
+
+cagwDhcpProxyReleasePackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Release packets received by the DHCP proxy
+         server in the ASN-GW from the DHCP client." 
+    ::= { cagwDhcpStatisticsEntry 17 }
+
+cagwDhcpProxyInformPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Inform packets received by the DHCP proxy
+         server in the ASN-GW from the DHCP client." 
+    ::= { cagwDhcpStatisticsEntry 18 }
+
+cagwDhcpProxyLeaseQueryPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Lease Query packets received by the DHCP 
+        proxy server in the ASN-GW from the DHCP client." 
+    ::= { cagwDhcpStatisticsEntry 19 }
+
+cagwDhcpProxyUnknownPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP Unknown packets processed by DHCP proxy
+         server." 
+    ::= { cagwDhcpStatisticsEntry 20 }
+ 
+
+-- agw message statistics: statistics about all message types in the R6
+-- protocol
+
+cagwMsgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CagwMsgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Message Table contains Statistics about all
+        message types in the R6 protocol."
+    REFERENCE
+        "See reference [1] section
+          5. Message and Parameter Definitions
+          for a detailed description of the R6 messages."
+    ::= { cagwMessageStatistics 1 }
+
+cagwMsgEntry OBJECT-TYPE
+    SYNTAX          CagwMsgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Message statistics entry."
+    INDEX           {
+                        cagwInstanceIndex,
+                        cagwMsgType
+                    } 
+    ::= { cagwMsgTable 1 }
+
+CagwMsgEntry ::= SEQUENCE {
+        cagwMsgType     INTEGER ,
+        cagwMsgSent     Counter32,
+        cagwMsgReceived Counter32,
+        cagwMsgResent   Counter32
+}
+
+cagwMsgType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        preAttachmentRequest(1),
+                        preAttachmentResponse(2),
+                        preAttachmentAck(3),
+                        authRelayEapStart(11),
+                        authRelayEapTransfer(12),
+                        keyChangeDirective(21),
+                        keyChangeConfirm(22),
+                        keyChangeAck(23),
+                        attachmentRequest(31),
+                        attachmentResponse(32),
+                        attachmentAck(33),
+                        datapathRegRequest(41),
+                        datapathRegResponse(42),
+                        datapathRegAck(43),
+                        datapathModifyRequest(44),
+                        datapathModifyResponse(45),
+                        datapathModifyAck(46),
+                        datapathDeregRequest(47),
+                        datapathDeregResponse(48),
+                        datapathDeregAck(49),
+                        contextDeliveryRequest(51),
+                        contextDeliveryReport(52),
+                        contextDeliveryAck(53),
+                        keepaliveRequest(61),
+                        keepaliveResponse(62),
+                        handoffRegRequest(71),
+                        handoffRegResponse(72),
+                        handoffRegAck(73),
+                        handoffDeregRequest(74),
+                        handoffDeregResponse(75),
+                        handoffDeregAck(76),
+                        handoffSuccessful(77)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of the messages." 
+    ::= { cagwMsgEntry 1 }
+
+cagwMsgSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of messages Sent." 
+    ::= { cagwMsgEntry 2 }
+
+cagwMsgReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of messages Received." 
+    ::= { cagwMsgEntry 3 }
+
+cagwMsgResent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of messages Resent." 
+    ::= { cagwMsgEntry 4 }
+ 
+
+-- agw usrgrp info: statistics about each user group
+
+cagwUserGrpTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CagwUserGrpEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The User Group table includes information and
+        statistics about each user group."
+    ::= { cagwUserGrpStatistics 1 }
+
+cagwUserGrpEntry OBJECT-TYPE
+    SYNTAX          CagwUserGrpEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "User Group Information."
+    INDEX           {
+                        cagwInstanceIndex,
+                        cagwUserGrpDomainName
+                    } 
+    ::= { cagwUserGrpTable 1 }
+
+CagwUserGrpEntry ::= SEQUENCE {
+        cagwUserGrpDomainName                SnmpAdminString,
+        cagwUserGrpServiceMode               INTEGER ,
+        cagwUserGrpCreatedSessions           Counter32,
+        cagwUserGrpDeletedSessions           Counter32,
+        cagwUserGrpCurrentSessions           Gauge32,
+        cagwUserGrpCreatedFlows              Counter32,
+        cagwUserGrpDeletedFlows              Counter32,
+        cagwUserGrpCurrentFlows              Gauge32,
+        cagwUserGrpPacketsSent               Counter32,
+        cagwUserGrpBytesSent                 Counter64,
+        cagwUserGrpPacketsReceived           Counter32,
+        cagwUserGrpBytesReceived             Counter64,
+        cagwUserGrpInvalidSourcePacketsDrops Counter32,
+        cagwUserGrpInvalidSourceBytesDrops   Counter32,
+        cagwUserGrpIpGrePacketsSent          Counter32,
+        cagwUserGrpIpGreBytesSent            Counter64,
+        cagwUserGrpIpGrePacketsReceived      Counter32,
+        cagwUserGrpIpGreBytesReceived        Counter64,
+        cagwUserGrpEthGrePacketsSent         Counter32,
+        cagwUserGrpEthGreBytesSent           Counter64,
+        cagwUserGrpEthGrePacketsReceived     Counter32,
+        cagwUserGrpEthGreBytesReceived       Counter64,
+        cagwUserGrpOverwritten               Counter32,
+        cagwUserGrpPodReqRecv                Counter32,
+        cagwUserGrpPodSuccessNotifsSent      Counter32,
+        cagwUserGrpPodFailureNotifsSent      Counter32,
+        cagwUserGrpCoaReqRecv                Counter32,
+        cagwUserGrpCoaSuccessNotifsSent      Counter32,
+        cagwUserGrpCoaFailureNotifsSent      Counter32,
+        cagwUserGrpRejSession                Counter32
+}
+
+cagwUserGrpDomainName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Domain Name identifying a User Group." 
+    ::= { cagwUserGrpEntry 1 }
+
+cagwUserGrpServiceMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        operational(0),
+                        disable(1),
+                        maintenance(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The User Group service mode." 
+    ::= { cagwUserGrpEntry 2 }
+
+cagwUserGrpCreatedSessions OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of sessions created per user group." 
+    ::= { cagwUserGrpEntry 3 }
+
+cagwUserGrpDeletedSessions OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of sessions deleted per user group." 
+    ::= { cagwUserGrpEntry 4 }
+
+cagwUserGrpCurrentSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of active sessions per user group." 
+    ::= { cagwUserGrpEntry 5 }
+
+cagwUserGrpCreatedFlows OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of flows created per user group." 
+    ::= { cagwUserGrpEntry 6 }
+
+cagwUserGrpDeletedFlows OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of flows deleted per user group." 
+    ::= { cagwUserGrpEntry 7 }
+
+cagwUserGrpCurrentFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of active flows per user group." 
+    ::= { cagwUserGrpEntry 8 }
+
+cagwUserGrpPacketsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS      deprecated  --superceded by cagwUserGrpIpGrePacketsSent
+    DESCRIPTION
+        "Total number of packets sent by this user group." 
+    ::= { cagwUserGrpEntry 9 }
+
+cagwUserGrpBytesSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          deprecated --superceded by cagwUserGrpIpGreBytesSent
+    DESCRIPTION
+        "Total number of bytes sent by this user group." 
+    ::= { cagwUserGrpEntry 10 }
+
+cagwUserGrpPacketsReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS    deprecated --superceded by cagwUserGrpIpGrePacketsReceived
+    DESCRIPTION
+        "Total number of packets received by this user group." 
+    ::= { cagwUserGrpEntry 11 }
+
+cagwUserGrpBytesReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS     deprecated  --superceded by cagwUserGrpIpGreBytesReceived
+    DESCRIPTION
+        "Total number of bytes received by this user group." 
+    ::= { cagwUserGrpEntry 12 }
+
+cagwUserGrpInvalidSourcePacketsDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets dropped due to invalid source address." 
+    ::= { cagwUserGrpEntry 13 }
+
+cagwUserGrpInvalidSourceBytesDrops OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of bytes dropped due to invalid source address." 
+    ::= { cagwUserGrpEntry 14 }
+
+cagwUserGrpIpGrePacketsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of packets sent by this user group on
+        IP convergence sublayer." 
+    ::= { cagwUserGrpEntry 15 }
+
+cagwUserGrpIpGreBytesSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of bytes sent by this user group on
+        IP convergence sublayer." 
+    ::= { cagwUserGrpEntry 16 }
+
+cagwUserGrpIpGrePacketsReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of packets received by this user group on
+        IP convergence sublayer." 
+    ::= { cagwUserGrpEntry 17 }
+
+cagwUserGrpIpGreBytesReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of bytes received by this user group on
+        IP convergence sublayer." 
+    ::= { cagwUserGrpEntry 18 }
+
+cagwUserGrpEthGrePacketsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of packets sent by this user group on
+        ethernet convergence sublayer." 
+    ::= { cagwUserGrpEntry 19 }
+
+cagwUserGrpEthGreBytesSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of bytes sent by this user group on
+        ethernet convergence sublayer." 
+    ::= { cagwUserGrpEntry 20 }
+
+cagwUserGrpEthGrePacketsReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of packets received by this user group on
+        ethernet convergence sublayer." 
+    ::= { cagwUserGrpEntry 21 }
+
+cagwUserGrpEthGreBytesReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of bytes received by this user group on
+        ethernet convergence sublayer." 
+    ::= { cagwUserGrpEntry 22 }
+ 
+cagwUserGrpOverwritten OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of times this user group got
+        overwritten by user group received from 
+        AAA server. Users can belong to a particular
+        user group at the time of initial entry and
+        AAA can recategorize the user under different 
+        user group after successful authentication."
+    ::= { cagwUserGrpEntry 23 }
+
+ cagwUserGrpPodReqRecv OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "requests"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of Packet of Disconnect (POD)
+          requests received by this user group"
+     ::= { cagwUserGrpEntry 24 }
+
+ cagwUserGrpPodSuccessNotifsSent OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "notifications"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of Packet of Disconnect (POD) success
+          notifications sent by this user group."
+     ::= { cagwUserGrpEntry 25 }
+
+ cagwUserGrpPodFailureNotifsSent OBJECT-TYPE
+    SYNTAX          Counter32
+     UNITS           "notifications"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of Packet of Disconnect (POD) failure
+          notifications sent by this user group."
+     ::= { cagwUserGrpEntry 26 }
+
+ cagwUserGrpCoaReqRecv OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "requests"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of Change of Authorization (COA)
+          requests received by this user group."
+     ::= { cagwUserGrpEntry 27 }
+
+ cagwUserGrpCoaSuccessNotifsSent OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "notifications"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+        "The number of Change of Authorization (COA)
+          success notifications sent by this user group."
+     ::= { cagwUserGrpEntry 28 }
+
+ cagwUserGrpCoaFailureNotifsSent OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "notifications"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of Change of Authorization (COA)
+          failure notifications sent by this user group."
+     ::= { cagwUserGrpEntry 29 }
+
+ cagwUserGrpRejSession OBJECT-TYPE
+     SYNTAX          Counter32
+     UNITS           "sessions"
+     MAX-ACCESS      read-only
+     STATUS          current
+     DESCRIPTION
+         "The number of session rejected due to service
+	 mode not operational."
+     ::= { cagwUserGrpEntry 30 }
+
+-- agw path info: statistics about each base station
+-- superceded by cagwPathRev1Table
+
+cagwPathTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CagwPathEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "The Path table includes information and
+        statistics about each base station."
+    ::= { cagwPathStatistics 1 }
+
+cagwPathEntry OBJECT-TYPE
+    SYNTAX          CagwPathEntry
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "Path Information."
+    INDEX           {
+                        cagwInstanceIndex,
+                        cagwPathRemoteIpType,
+                        cagwPathRemoteIp,
+                        cagwPathType
+                    } 
+    ::= { cagwPathTable 1 }
+
+CagwPathEntry ::= SEQUENCE {
+        cagwPathRemoteIpType    InetAddressType,
+        cagwPathRemoteIp        InetAddress,
+        cagwPathType            INTEGER ,
+        cagwPathLocalIpType     InetAddressType,
+        cagwPathLocalIp         InetAddress,
+        cagwPathCurrentSessions Gauge32,
+        cagwPathCurrentFlows    Gauge32,
+        cagwPathPacketsSent     Counter32,
+        cagwPathBytesSent       Counter64,
+        cagwPathPacketsReceived Counter32,
+        cagwPathBytesReceived   Counter64
+}
+
+cagwPathRemoteIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "Path IP Address type at the base station side." 
+    ::= { cagwPathEntry 1 }
+
+cagwPathRemoteIp OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4..20))
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "Path IP Address at the base station side." 
+    ::= { cagwPathEntry 2 }
+
+cagwPathType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        signaling(1),
+                        data(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          obsolete
+    DESCRIPTION
+        "Path Type: Signaling or Data." 
+    ::= { cagwPathEntry 3 }
+
+cagwPathLocalIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Path IP Address type at the ASN-GW side." 
+    ::= { cagwPathEntry 4 }
+
+cagwPathLocalIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Path IP Address at the ASN-GW side." 
+    ::= { cagwPathEntry 5 }
+
+cagwPathCurrentSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Number of Sessions over the path." 
+    ::= { cagwPathEntry 6 }
+
+cagwPathCurrentFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Number of Flows over the path." 
+    ::= { cagwPathEntry 7 }
+
+cagwPathPacketsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Total Number of packets sent over the path." 
+    ::= { cagwPathEntry 8 }
+
+cagwPathBytesSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Total Number of bytes sent over the path." 
+    ::= { cagwPathEntry 9 }
+
+cagwPathPacketsReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Total Number of packets received over the path." 
+    ::= { cagwPathEntry 10 }
+
+cagwPathBytesReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          obsolete
+    DESCRIPTION
+        "Total Number of bytes received over the path." 
+    ::= { cagwPathEntry 11 }
+ 
+
+-- agw path info Rev1: statistics about each base station
+
+cagwPathRev1Table OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CagwPathRev1Entry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Path table includes information and
+        statistics about each base station."
+    ::= { cagwPathStatistics 2 }
+
+cagwPathRev1Entry OBJECT-TYPE
+    SYNTAX          CagwPathRev1Entry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Path Information."
+    INDEX           {
+                        cagwInstanceIndex,
+                        cagwPathTypeRev1,
+                        cagwPathRemoteIpTypeRev1,
+                        cagwPathRemoteIpRev1
+                    } 
+    ::= { cagwPathRev1Table 1 }
+
+CagwPathRev1Entry ::= SEQUENCE {
+        cagwPathTypeRev1                  INTEGER ,
+        cagwPathRemoteIpTypeRev1          InetAddressType,
+        cagwPathRemoteIpRev1              InetAddress,
+        cagwPathLocalIpTypeRev1           InetAddressType,
+        cagwPathLocalIpRev1               InetAddress,
+        cagwPathCurrentSessionsRev1       Gauge32,
+        cagwPathCurrentFlowsRev1          Gauge32,
+        cagwPathIpGrePacketsSentRev1      Counter32,
+        cagwPathIpGreBytesSentRev1        Counter64,
+        cagwPathIpGrePacketsReceivedRev1  Counter32,
+        cagwPathIpGreBytesReceivedRev1    Counter64,
+        cagwPathEthGrePacketsSentRev1     Counter32,
+        cagwPathEthGreBytesSentRev1       Counter64,
+        cagwPathEthGrePacketsReceivedRev1 Counter32,
+        cagwPathEthGreBytesReceivedRev1   Counter64
+}
+
+cagwPathTypeRev1 OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        signaling(1),
+                        data(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Path Type: Signaling or Data." 
+    ::= { cagwPathRev1Entry 1 }
+
+cagwPathRemoteIpTypeRev1 OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Path IP Address type at the base station side." 
+    ::= { cagwPathRev1Entry 2 }
+
+cagwPathRemoteIpRev1 OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (4..20))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Path IP Address at the base station side." 
+    ::= { cagwPathRev1Entry 3 }
+
+cagwPathLocalIpTypeRev1 OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Path IP Address type at the ASN-GW side." 
+    ::= { cagwPathRev1Entry 4 }
+
+cagwPathLocalIpRev1 OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Path IP Address at the ASN-GW side." 
+    ::= { cagwPathRev1Entry 5 }
+
+cagwPathCurrentSessionsRev1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of Sessions over the path." 
+    ::= { cagwPathRev1Entry 6 }
+
+cagwPathCurrentFlowsRev1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of Flows over the path." 
+    ::= { cagwPathRev1Entry 7 }
+
+cagwPathIpGrePacketsSentRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total Number of packets sent over the path on
+        IP convergence sublayer." 
+    ::= { cagwPathRev1Entry 8 }
+
+cagwPathIpGreBytesSentRev1 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total Number of bytes sent over the path on
+        IP convergence sublayer." 
+    ::= { cagwPathRev1Entry 9 }
+
+cagwPathIpGrePacketsReceivedRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total Number of packets received over the path on
+        IP convergence sublayer." 
+    ::= { cagwPathRev1Entry 10 }
+
+cagwPathIpGreBytesReceivedRev1 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total Number of bytes received over the path on
+        IP convergence sublayer." 
+    ::= { cagwPathRev1Entry 11 }
+
+cagwPathEthGrePacketsSentRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total Number of packets sent over the path on
+        ethernet convergence sublayer." 
+    ::= { cagwPathRev1Entry 12 }
+
+cagwPathEthGreBytesSentRev1 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total Number of bytes sent over the path on
+        ethernet convergence sublayer." 
+    ::= { cagwPathRev1Entry 13 }
+
+cagwPathEthGrePacketsReceivedRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total Number of packets received over the path on
+        ethernet convergence sublayer." 
+    ::= { cagwPathRev1Entry 14 }
+
+cagwPathEthGreBytesReceivedRev1 OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total Number of bytes received over the path on
+        ethernet convergence sublayer." 
+    ::= { cagwPathRev1Entry 15 }
+ 
+
+-- agw ARP statistics
+
+cagwArpStatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CagwArpStatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The ARP Statistics Table contains Statistics
+        about ARP requests handled by the ASN-GW."
+    ::= { cagwArpStatistics 1 }
+
+cagwArpStatisticsEntry OBJECT-TYPE
+    SYNTAX          CagwArpStatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "ASN-GW ARP statistics entry."
+    INDEX           { cagwInstanceIndex } 
+    ::= { cagwArpStatisticsTable 1 }
+
+CagwArpStatisticsEntry ::= SEQUENCE {
+        cagwArpReqReceived    Counter32,
+        cagwArpReplySent      Counter32,
+        cagwArpPacketsDropped Counter32
+}
+
+cagwArpReqReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ARP requests received." 
+    ::= { cagwArpStatisticsEntry 1 }
+
+cagwArpReplySent OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ARP replies sent." 
+    ::= { cagwArpStatisticsEntry 2 }
+
+cagwArpPacketsDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ARP packets dropped." 
+    ::= { cagwArpStatisticsEntry 3 }
+ 
+
+
+-- Notification Management
+
+cagwNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether notifications are generated by the device.
+        - When set to 'true' it will enable all the traps
+        - When set to 'false' it will disable all the traps
+       
+        This object will remain 'true' as long as any trap is enabled."
+    DEFVAL          { false } 
+    ::= { cagwNotifMgmt 1 }
+
+cagwNotifSeverityLevel OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to indicate which severity of
+        notifications are generated by the device. The following 
+        is a list of severities from highest to lowest and these 
+        value are defined in the CiscoAlarmSeverity textual 
+        convention from CISCO-TC.
+
+           critical(3)  - highest severity
+           major(4)     
+           minor(5)     
+           warning(6)   
+           info(7)      - lowest severity
+
+
+        All notification with a severity higher or equal to the 
+        this object will be generated. This object cannot be set to
+        cleared(1) or indeterminate(2)."
+    DEFVAL          { info } 
+    ::= { cagwNotifMgmt 2 }
+
+cagwRepeatNotifInterval OBJECT-TYPE
+    SYNTAX          Integer32 (0 |  60..3600 )
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The purpose of this object is to define the length of interval
+        used to prevent the excessive generations of notifications.
+        Notification related to the same event(alarm) will be suppressed
+        for the duration of the interval. Notifications for the
+        same entity(object with same indexes) will be suppressed for 
+        length of interval. For example, the 
+        ciscoAgwMaxBaseStationExceededOnsetNotif and 
+        ciscoAgwMaxBaseStationExceededAbateNotif notification are used
+        to indicate the event were the number of basestations that can
+        be supported has been reached and requests from additional 
+        base stations will be reject.
+        Here is an example of how the suppression mechanism works:
+        cagwMaxBaseStationExceededNotifThreshold = 90%
+        cagwMaximumBaseStations = 1000
+        threshold = 900
+
+        Time 9:00:00   cagwCurrentBaseStations = 901 
+                       device sends
+                       ciscoAgwMaxBaseStationExceededOnsetNotif 
+        Time 9:00:04   cagwCurrentBaseStations = 899
+                       device does not send
+                       ciscoAgwMaxBaseStationExceededAbateNotif
+        Time 9:00:07   cagwCurrentBaseStations = 901
+                       device does not send
+                       ciscoAgwMaxBaseStationExceededOnsetNotif 
+        Time 9:00:11   cagwCurrentBaseStations = 899
+                       device does not send
+                       ciscoAgwMaxBaseStationExceededAbateNotif
+        .
+        .
+        Time 9:05:00   Interval Ends and cagwCurrentBaseStations = 822
+                       device sends
+                       ciscoAgwMaxBaseStationExceededAbateNotif
+
+        When this object is set to zero notification will not be
+        suppressed."
+    DEFVAL          { 300 } 
+    ::= { cagwNotifMgmt 3 }
+
+cagwGeneratedNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of notifications that have been generated
+        for this management information base." 
+    ::= { cagwNotifMgmt 4 }
+
+cagwIgnoredNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of notification that were not sent because the
+        notifications specified severity was lower than the 
+        minimum defined by cagwNotifSeverityLevel object
+        or because the notification supression mechanism described
+        in cagwRepeatNotifInterval blocked the notification." 
+    ::= { cagwNotifMgmt 5 }
+
+cagwServiceNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current  
+    DESCRIPTION
+        "Indicates whether ciscoAgwServiceDownNotif and
+        ciscoAgwServiceUpNotif notifications will be generated by
+        the device as follows.
+        'true'  -  Notification generation is enabled.
+        'false' -  Notification generation is disabled."
+    DEFVAL          { false } 
+    ::= { cagwNotifMgmt 11 }
+
+cagwServiceNotifSeverity OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates the severity of the ciscoAgwServiceDownNotif 
+        notification.
+        The severity of ciscoAgwServiceUpNotif is 'cleared'.
+        This object cannot be set to cleared(1) or indeterminate(2)."
+    DEFVAL          { critical } 
+    ::= { cagwNotifMgmt 12 }
+
+cagwGeneratedServiceNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ciscoAgwServiceDownNotif
+        notifications that have been generated. Discontinuites
+        in the value of this counter can occur at re-initialization
+        of the management system or reloading of the device." 
+    ::= { cagwNotifMgmt 13 }
+
+cagwIgnoredServiceNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ciscoAgwServiceDownNotif notifications
+        that were not generated because the
+        notification specified severity was lower than the 
+        minimum defined by cagwNotifSeverityLevel object
+        or because the notification supression mechanism described
+        in cagwRepeatNotifInterval blocked the notification." 
+    ::= { cagwNotifMgmt 14 }
+
+cagwMaxBaseStationExceededNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current  
+    DESCRIPTION
+        "Indicates whether ciscoAgwMaxBaseStationExceededUpNotif and
+        ciscoAgwMaxBaseStationExceededDownNotif notifications will be
+        generated by the device as follows.
+        'true'  -  Notification generation is enabled.
+        'false' -  Notification generation is disabled."
+    DEFVAL          { false } 
+    ::= { cagwNotifMgmt 21 }
+
+cagwMaxBaseStationExceededNotifSeverity OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity 
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates the severity of the
+        ciscoAgwMaxBaseStationExceededOnsetNotif notification.
+        The severity of ciscoAgwMaxBaseStationExceededAbateNotif
+        is 'cleared'.
+        This object cannot be set to cleared(1) or indeterminate(2)."
+    DEFVAL          { major } 
+    ::= { cagwNotifMgmt 22 }
+
+cagwMaxBaseStationExceededNotifThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (25..100 )
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines a threshold used to indicate when
+        to generate the ciscoAgwMaxBaseStationExceededOnsetNotif
+        and ciscoAgwMaxBaseStationExceededAbateNotif 
+        notifications. The threshold is the percentage of the
+        base stations defined by the cagwMaximumBaseStations 
+        object. A value of 0 disables both notifications.
+        Here is an example.
+
+        cagwMaximumBaseStations  = 500
+        cagwMaxBaseStationExceededNotifThreshold = 90
+        Threshold is 450 base stations.
+
+        Therefore, the ciscoAgwMaxBaseStationExceededOnsetNotif will 
+        be generated when the cagwCurrentBaseStations is greater
+        than or equal to this threshold. The 
+        ciscoAgwMaxBaseStationExceededAbateNotif will be generated
+        when the cagwCurrentBaseStations drops below the value of
+        this threshold. Both of these notification can be suppressed
+        as described in the cagwRepeatNotifInterval object."
+    DEFVAL          { 90 } 
+    ::= { cagwNotifMgmt 23 }
+
+cagwGeneratedMaxBsNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ciscoAgwMaxBaseStationExceededOnsetNotif
+        notifications that have been generated. Discontinuities 
+        in the value of this counter can occur at the re-initialization
+        of the management system or reloading of the device." 
+    ::= { cagwNotifMgmt 24 }
+
+cagwIgnoredMaxBsNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ciscoAgwMaxBaseStationExceededOnsetNotif
+        notifications that were not generated because the
+        notification specified severity was lower than the 
+        minimum defined by cagwNotifSeverityLevel object
+        or because the notification supression mechanism described
+        in cagwRepeatNotifInterval blocked the notification." 
+    ::= { cagwNotifMgmt 25 }
+
+cagwMaxSubscribersExceededNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current  
+    DESCRIPTION
+        "Indicates whether ciscoAgwMaxSubscribersExceededUpNotif and
+        ciscoAgwMaxSubscribersExceededDownNotif notifications will be
+        generated by the device as follows.
+        'true'  -  Notification generation is enabled.
+        'false' -  Notification generation is disabled."
+    DEFVAL          { false } 
+    ::= { cagwNotifMgmt 31 }
+
+cagwMaxSubscribersExceededNotifSeverity OBJECT-TYPE
+    SYNTAX          CiscoAlarmSeverity 
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates the severity of the
+        ciscoAgwMaxSubscribersExceededOnsetNotif notification.
+        The severity of ciscoAgwMaxSubscribersExceededAbateNotif is 
+        'cleared'.
+        This object cannot be set to cleared(1) or indeterminate(2)."
+    DEFVAL          { major } 
+    ::= { cagwNotifMgmt 32 }
+
+cagwMaxSubscribersExceededNotifThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (25..100 )
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines a threshold used to indicate when
+        to generate the ciscoAgwMaxSubscribersExceededOnsetNotif
+        and ciscoAgwMaxSubscribersExceededAbateNotif 
+        notifications. The threshold is the percentage of the
+        subscribers defined by the cagwMaximumSubscribers 
+        object. A value of 0 disables both notifications.
+        Here is an example.
+
+        cagwMaximumSubscribers  = 20000
+        cagwMaxSubscribersExceededNotifThreshold = 90
+        Threshold is 18000 subscribers.
+
+        Therefore, the ciscoAgwMaxSubscribersExceededOnsetNotif will 
+        be generated when the cagwCurrentSubscribers is greater
+        than or equal to this threshold. The 
+        ciscoAgwMaxSubscribersExceededAbateNotif will be generated
+        when the cagwCurrentSubscribers drops below the value of
+        this threshold. Both of these notification can be suppressed
+        as described in the cagwRepeatNotifInterval object."
+    DEFVAL          { 90 } 
+    ::= { cagwNotifMgmt 33 }
+
+cagwGeneratedMaxSubscNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ciscoAgwMaxSubscribersExceededOnsetNotif
+        notifications that have been generated. Discontinuites 
+        in the value of this counter can occur at re-initialization 
+        of the management system or reloading of the device." 
+    ::= { cagwNotifMgmt 34 }
+
+cagwIgnoredMaxSubscNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of ciscoAgwMaxSubscribersExceededOnsetNotif
+        notifications that were not generated because the
+        notification specified severity was lower than the 
+        minimum defined by cagwNotifSeverityLevel object
+        or because the notification supression mechanism described
+        in cagwRepeatNotifInterval blocked the notification." 
+    ::= { cagwNotifMgmt 35 }
+-- *********************************************************************
+-- Notification Objects: variables defined in this group will be used by
+-- notification only
+-- *********************************************************************
+
+cagwImpactedIpType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    --MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object provides the type of the address contained in the
+        cagwImpactedIp object." 
+    ::= { cagwNotifInfo 1 }
+
+cagwImpactedIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    --MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This is the address of the device impacted by the event
+        that caused the generation of the notification 
+        containing this object."  
+    ::= { cagwNotifInfo 2 }
+
+cagwImpactedReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(0),
+                        limit(1)
+                    }
+    MAX-ACCESS      read-only
+    --MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This is the reason for generating this notification." 
+    ::= { cagwNotifInfo 3 }
+
+cagwImpactedInfo OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    --MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Additional information regarding this notification." 
+    ::= { cagwNotifInfo 4 }
+
+-- Notification Definitions
+
+ciscoAgwServiceDownNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cagwInstanceDescription,
+                        cagwServiceNotifSeverity
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A notification of this type is generated when
+        the ASN-GW is not in service."
+   ::= { ciscoAgwMIBNotifs 1 }
+
+ciscoAgwServiceUpNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cagwInstanceDescription,
+                        cagwServiceNotifSeverity
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A notification of this type is generated when
+        the ASN-GW is in service."
+   ::= { ciscoAgwMIBNotifs 2 }
+
+ciscoAgwMaxBaseStationExceededOnsetNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cagwInstanceDescription,
+                        cagwMaxBaseStationExceededNotifSeverity,
+                        cagwMaximumBaseStations,
+                        cagwCurrentBaseStations,
+                        cagwRejectedBaseStations,
+                        cagwImpactedIpType,
+                        cagwImpactedIp
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A notification of this type is generated when
+        the number of base stations exceeded the
+        percent of the maximum number of base stations
+        as specified by the object
+        cagwMaxBaseStationExceededNotifThreshold."
+   ::= { ciscoAgwMIBNotifs 3 }
+
+ciscoAgwMaxBaseStationExceededAbateNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cagwInstanceDescription,
+                        cagwMaxBaseStationExceededNotifSeverity,
+                        cagwMaximumBaseStations,
+                        cagwCurrentBaseStations,
+                        cagwRejectedBaseStations
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A notification of this type is generated when
+        the number of base stations goes below the
+        percent of the maximum number of base stations
+        as specified by the object
+        cagwMaxBaseStationExceededNotifThreshold."
+   ::= { ciscoAgwMIBNotifs 4 }
+
+ciscoAgwMaxSubscribersExceededOnsetNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cagwInstanceDescription,
+                        cagwMaxSubscribersExceededNotifSeverity,
+                        cagwMaximumSubscribers,
+                        cagwCurrentSubscribers,
+                        cagwRejectedSessions,
+                        cagwImpactedIpType,
+                        cagwImpactedIp,
+                        cagwImpactedInfo
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A notification of this type is generated when
+        the number of subscribers exceeded the
+        percent of the maximum number of base stations
+        as specified by the object
+        cagwMaxSubscribersExceededNotifThreshold."
+   ::= { ciscoAgwMIBNotifs 5 }
+
+ciscoAgwMaxSubscribersExceededAbateNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        cagwInstanceDescription,
+                        cagwMaxSubscribersExceededNotifSeverity,
+                        cagwMaximumSubscribers,
+                        cagwCurrentSubscribers,
+                        cagwRejectedSessions
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A notification of this type is generated when
+        the number of subscribers goes below the
+        percent of the maximum number of base stations
+        as specified by the object
+        cagwMaxSubscribersExceededNotifThreshold."
+   ::= { ciscoAgwMIBNotifs 6 }
+-- Conformance
+
+ciscoAgwMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoAgwMIBConform 1 }
+
+ciscoAgwMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoAgwMIBConform 2 }
+
+
+-- compliance statement superceded by Rev1
+
+ciscoAgwMIBCompliance MODULE-COMPLIANCE
+    STATUS          obsolete  --superceded by ciscoAgwMIBComplianceRev1
+    DESCRIPTION
+        "The compliance statement for entities which implement the
+        Cisco ASN-GW MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cagwInstanceGroup,
+                        cagwStateGroup,
+                        cagwGlobalStatisticsGroup,
+                        cagwDhcpStatisticsGroup,
+                        cagwMessageStatisticsGroup,
+                        cagwUserGrpGroup,
+                        cagwPathGroup,
+                        cagwNotifInfoGroup,
+                        cagwNotifMgmtGroup,
+                        cagwNotifGroup
+                    }
+    ::= { ciscoAgwMIBCompliances 1 }
+
+-- compliance statement
+
+ciscoAgwMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          obsolete  --superceded by ciscoAgwMIBComplianceRev2
+    DESCRIPTION
+        "The compliance statement for entities which implement the
+        Cisco ASN-GW MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cagwInstanceGroup,
+                        cagwStateGroup,
+                        cagwDhcpStatisticsGroup,
+                        cagwMessageStatisticsGroup,
+                        cagwNotifInfoGroup,
+                        cagwNotifMgmtGroup,
+                        cagwNotifGroup,
+                        cagwGlobalStatisticsGroupRev1,
+                        cagwUserGrpGroupRev1,
+                        cagwPathGroupRev1,
+                        cagwArpStatisticsGroup
+                    }
+    ::= { ciscoAgwMIBCompliances 2 }
+
+-- compliance statement
+
+ciscoAgwMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated --superceded by ciscoAgwMIBComplianceRev3
+    DESCRIPTION
+        "The compliance statement for entities which implement the
+        Cisco ASN-GW MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cagwInstanceGroup,
+                        cagwStateGroup,
+                        cagwDhcpStatisticsGroup,
+                        cagwMessageStatisticsGroup,
+                        cagwNotifInfoGroup,
+                        cagwNotifMgmtGroup,
+                        cagwNotifGroup,
+                        cagwUserGrpGroupRev1,
+                        cagwPathGroupRev1,
+                        cagwArpStatisticsGroup,
+                        cagwStateGroupSup1,
+                        cagwGlobalStatisticsGroupRev2,
+                        cagwUserGrpGroupRev1Sup1
+                    }
+    ::= { ciscoAgwMIBCompliances 3 }
+
+ciscoAgwMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          current 
+    DESCRIPTION
+        "The compliance statement for entities which implement the
+        Cisco ASN-GW MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cagwInstanceGroup,
+                        cagwStateGroup,
+                        cagwDhcpStatisticsGroup,
+                        cagwMessageStatisticsGroup,
+                        cagwNotifInfoGroup,
+                        cagwNotifMgmtGroup,
+                        cagwNotifGroup,
+                        cagwUserGrpGroupRev1,
+                        cagwPathGroupRev1,
+                        cagwArpStatisticsGroup,
+                        cagwStateGroupSup1,
+                        cagwGlobalStatisticsGroupRev2,
+                        cagwUserGrpGroupRev1Sup1,
+                        cagwStateGroupSup2,
+                        cagwUserGrpGroupRev1Sup2,
+                        cagwGlobalStatisticsGroupRev2Sup1,
+                        cagwDhcpProxyStatsGroup
+                    }
+    ::= { ciscoAgwMIBCompliances 4 }
+
+-- Units of Conformance
+
+cagwInstanceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwInstancePhysicalIndex,
+                        cagwInstanceDescription,
+                        cagwInstanceVersion,
+                        cagwInstanceOperState,
+                        cagwInstanceSessionRedundancyAdmin
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects describe the ASN-GW instances."
+    ::= { ciscoAgwMIBGroups 1 }
+
+cagwStateGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwMaximumBaseStations,
+                        cagwMaximumSubscribers,
+                        cagwMaximumFlowsPerSession,
+                        cagwCurrentBaseStations,
+                        cagwCurrentDataPaths,
+                        cagwCurrentSubscribers,
+                        cagwCurrentSessions,
+                        cagwCurrentFlows,
+                        cagwCurrentHosts,
+                        cagwNetworkBehindMs,
+                        cagwPendingSignalingPkts
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects describe the state of the ASN GW."
+    ::= { ciscoAgwMIBGroups 2 }
+
+cagwGlobalStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwCreatedSubscribers,
+                        cagwDeletedSubscribers,
+                        cagwCreatedSessions,
+                        cagwDeletedSessions,
+                        cagwCreatedFlows,
+                        cagwDeletedFlows,
+                        cagwCreatedHosts,
+                        cagwDeletedHosts,
+                        cagwCreatedBaseStations,
+                        cagwDeletedBaseStations,
+                        cagwCreatedDataPaths,
+                        cagwDeletedDataPaths,
+                        cagwProcessedSignalingPkts,
+                        cagwRequeuedSignalingPkts,
+                        cagwCongestionSignalingPktsDrops,
+                        cagwServiceDisabledSignalingPktsDrops,
+                        cagwServiceNotReadySignalingPktsDrops,
+                        cagwEncapErrorSignalingPktsDrops,
+                        cagwDisposedSignalingPktsDrops,
+                        cagwEncapErrorDataPktsDrops,
+                        cagwInvalidAddressDataPktsDrops,
+                        cagwServiceDisabledDataPktsDrops,
+                        cagwInvalidProtocolTypeDataPktsDrops,
+                        cagwLengthErrorDataPktsDrops,
+                        cagwAbsentKeyDataPktsDrops,
+                        cagwFlowNotFoundDataPktsDrops,
+                        cagwFlowPathNotFoundDataPktsDrops,
+                        cagwFlowPathInvalidSourceDataPktsDrops,
+                        cagwSessionNotFoundDataPktsDrops,
+                        cagwSubscriberNotFoundDataPktsDrops,
+                        cagwChecksumErrorDataPktsDrops,
+                        cagwIngressFilteringDataPktsDrops,
+                        cagwSequenceNumberErrorDataPktsDrops,
+                        cagwFragmentedDataPktsDrops,
+                        cagwFramedRouteInserted,
+                        cagwFramedRouteInsertFailed,
+                        cagwFramedRouteDeleted,
+                        cagwServiceFlowProfileNotFound,
+                        cagwQosProfileNotFound,
+                        cagwClassifierProfileNotFound,
+                        cagwReceivedDataPkts,
+                        cagwReceivedDataBytes,
+                        cagwSentDataPkts,
+                        cagwSentDataBytes,
+                        cagwRejectedBaseStations,
+                        cagwRejectedSessions,
+                        cagwRejectedFlows,
+                        cagwSessionsDeletedByAgw
+                    }
+    STATUS          obsolete --replaced by cagwGlobalStatisticsGroupRev1
+    DESCRIPTION
+        "These objects describe the statistics of the ASN GW."
+    ::= { ciscoAgwMIBGroups 3 }
+
+cagwDhcpStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwDhcpDiscoverPackets,
+                        cagwDhcpOfferPackets,
+                        cagwDhcpRequestPackets,
+                        cagwDhcpDeclinePackets,
+                        cagwDhcpAckPackets,
+                        cagwDhcpNakPackets,
+                        cagwDhcpReleasePackets,
+                        cagwDhcpInformPackets,
+                        cagwDhcpLeaseQueryPackets,
+                        cagwDhcpUnknownPackets
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects describe the DHCP statistics of the ASN GW."
+    ::= { ciscoAgwMIBGroups 4 }
+
+cagwMessageStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwMsgSent,
+                        cagwMsgReceived,
+                        cagwMsgResent
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects describe the Message statistics of the ASN GW.
+        See reference [1] for a description of the R6 protocol and
+        message types."
+    ::= { ciscoAgwMIBGroups 5 }
+
+cagwUserGrpGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwUserGrpServiceMode,
+                        cagwUserGrpCreatedSessions,
+                        cagwUserGrpDeletedSessions,
+                        cagwUserGrpCurrentSessions,
+                        cagwUserGrpCreatedFlows,
+                        cagwUserGrpDeletedFlows,
+                        cagwUserGrpCurrentFlows,
+                        cagwUserGrpPacketsSent,
+                        cagwUserGrpBytesSent,
+                        cagwUserGrpPacketsReceived,
+                        cagwUserGrpBytesReceived,
+                        cagwUserGrpInvalidSourcePacketsDrops,
+                        cagwUserGrpInvalidSourceBytesDrops
+                    }
+    STATUS          deprecated  --superceded by cagwUserGrpGroupRev1
+    DESCRIPTION
+        "These objects describe the state of a User Group."
+    ::= { ciscoAgwMIBGroups 6 }
+
+cagwPathGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwPathLocalIpType,
+                        cagwPathLocalIp,
+                        cagwPathCurrentSessions,
+                        cagwPathCurrentFlows,
+                        cagwPathPacketsSent,
+                        cagwPathBytesSent,
+                        cagwPathPacketsReceived,
+                        cagwPathBytesReceived
+                    }
+    STATUS          obsolete  --replaced by cagwPathGroupRev1
+    DESCRIPTION
+        "These objects describe the Path statistics of the ASN GW."
+    ::= { ciscoAgwMIBGroups 7 }
+
+cagwNotifInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwImpactedIpType,
+                        cagwImpactedIp,
+                        cagwImpactedReason,
+                        cagwImpactedInfo
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects are used for notification only."
+    ::= { ciscoAgwMIBGroups 8 }
+
+cagwNotifMgmtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwNotifEnabled,
+                        cagwNotifSeverityLevel,
+                        cagwRepeatNotifInterval,
+                        cagwGeneratedNotifs,
+                        cagwIgnoredNotifs,
+                        cagwServiceNotifEnabled,
+                        cagwServiceNotifSeverity,
+                        cagwGeneratedServiceNotifs,
+                        cagwIgnoredServiceNotifs,
+                        cagwMaxBaseStationExceededNotifEnabled,
+                        cagwMaxBaseStationExceededNotifSeverity,
+                        cagwMaxBaseStationExceededNotifThreshold,
+                        cagwGeneratedMaxBsNotifs,
+                        cagwIgnoredMaxBsNotifs,
+                        cagwMaxSubscribersExceededNotifEnabled,
+                        cagwMaxSubscribersExceededNotifSeverity,
+                        cagwMaxSubscribersExceededNotifThreshold,
+                        cagwGeneratedMaxSubscNotifs,
+                        cagwIgnoredMaxSubscNotifs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects describe the notification history of the ASN GW."
+    ::= { ciscoAgwMIBGroups 9 }
+
+cagwNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ciscoAgwServiceDownNotif,
+                        ciscoAgwServiceUpNotif,
+                        ciscoAgwMaxBaseStationExceededOnsetNotif,
+                        ciscoAgwMaxBaseStationExceededAbateNotif,
+                        ciscoAgwMaxSubscribersExceededOnsetNotif,
+                        ciscoAgwMaxSubscribersExceededAbateNotif
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These are the notifications of the ASN GW."
+    ::= { ciscoAgwMIBGroups 10 }
+
+cagwGlobalStatisticsGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cagwCreatedSubscribers,
+                        cagwDeletedSubscribers,
+                        cagwCreatedSessions,
+                        cagwDeletedSessions,
+                        cagwCreatedFlows,
+                        cagwDeletedFlows,
+                        cagwCreatedHosts,
+                        cagwDeletedHosts,
+                        cagwCreatedBaseStations,
+                        cagwDeletedBaseStations,
+                        cagwCreatedDataPaths,
+                        cagwDeletedDataPaths,
+                        cagwProcessedSignalingPkts,
+                        cagwRequeuedSignalingPkts,
+                        cagwCongestionSignalingPktsDrops,
+                        cagwServiceDisabledSignalingPktsDrops,
+                        cagwServiceNotReadySignalingPktsDrops,
+                        cagwEncapErrorSignalingPktsDrops,
+                        cagwDisposedSignalingPktsDrops,
+                        cagwEncapErrorDataPktsDrops,
+                        cagwInvalidAddressDataPktsDrops,
+                        cagwServiceDisabledDataPktsDrops,
+                        cagwInvalidProtocolTypeDataPktsDrops,
+                        cagwLengthErrorDataPktsDrops,
+                        cagwAbsentKeyDataPktsDrops,
+                        cagwFlowNotFoundDataPktsDrops,
+                        cagwFlowPathNotFoundDataPktsDrops,
+                        cagwFlowPathInvalidSourceDataPktsDrops,
+                        cagwSessionNotFoundDataPktsDrops,
+                        cagwSubscriberNotFoundDataPktsDrops,
+                        cagwChecksumErrorDataPktsDrops,
+                        cagwIngressFilteringDataPktsDrops,
+                        cagwSequenceNumberErrorDataPktsDrops,
+                        cagwFragmentedDataPktsDrops,
+                        cagwFramedRouteInserted,
+                        cagwFramedRouteInsertFailed,
+                        cagwFramedRouteDeleted,
+                        cagwServiceFlowProfileNotFound,
+                        cagwQosProfileNotFound,
+                        cagwClassifierProfileNotFound,
+                        cagwRejectedBaseStations,
+                        cagwRejectedSessions,
+                        cagwRejectedFlows,
+                        cagwSessionsDeletedByAgw,
+                        cagwIpGreReceivedDataPkts,
+                        cagwIpGreReceivedDataBytes,
+                        cagwIpGreSentDataPkts,
+                        cagwIpGreSentDataBytes,
+                        cagwEthGreReceivedDataPkts,
+                        cagwEthGreReceivedDataBytes,
+                        cagwEthGreSentDataPkts,
+                        cagwEthGreSentDataBytes,
+                        cagwRejectedHosts,
+                        cagwAgedOutStaticHosts,
+                        cagwSuccessfulHandoff,
+                        cagwFailedHandoff,
+                        cagwSuccessfulCMACKeyUpdate,
+                        cagwFailedCMACKeyUpdate,
+                        cagwSuccessfulSecurityKeyExchange,
+                        cagwFailedSecurityKeyExchange,
+                        cagwIpGreReceivedRedirectedPkts,
+                        cagwIpGreReceivedRedirectedBytes,
+                        cagwEthGreReceivedRedirectedPkts,
+                        cagwEthGreReceivedRedirectedBytes,
+                        cagwThrottlingOfPuntsDataPktsDrops,
+                        cagwLearningUpstreamDataPktsDrops,
+                        cagwPuntedDataPkts
+                    }
+    STATUS         obsolete --replaced by cagwGlobalStatisticsGroupRev2
+    DESCRIPTION
+        "These objects describe the statistics of the ASN GW."
+    ::= { ciscoAgwMIBGroups 11 }
+
+cagwUserGrpGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cagwUserGrpServiceMode,
+                        cagwUserGrpCreatedSessions,
+                        cagwUserGrpDeletedSessions,
+                        cagwUserGrpCurrentSessions,
+                        cagwUserGrpCreatedFlows,
+                        cagwUserGrpDeletedFlows,
+                        cagwUserGrpCurrentFlows,
+                        cagwUserGrpInvalidSourcePacketsDrops,
+                        cagwUserGrpInvalidSourceBytesDrops,
+                        cagwUserGrpIpGrePacketsSent,
+                        cagwUserGrpIpGreBytesSent,
+                        cagwUserGrpIpGrePacketsReceived,
+                        cagwUserGrpIpGreBytesReceived,
+                        cagwUserGrpEthGrePacketsSent,
+                        cagwUserGrpEthGreBytesSent,
+                        cagwUserGrpEthGrePacketsReceived,
+                        cagwUserGrpEthGreBytesReceived
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects describe the state of a User Group."
+    ::= { ciscoAgwMIBGroups 12 }
+
+cagwPathGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cagwPathLocalIpTypeRev1,
+                        cagwPathLocalIpRev1,
+                        cagwPathCurrentSessionsRev1,
+                        cagwPathCurrentFlowsRev1,
+                        cagwPathIpGrePacketsSentRev1,
+                        cagwPathIpGreBytesSentRev1,
+                        cagwPathIpGrePacketsReceivedRev1,
+                        cagwPathIpGreBytesReceivedRev1,
+                        cagwPathEthGrePacketsSentRev1,
+                        cagwPathEthGreBytesSentRev1,
+                        cagwPathEthGrePacketsReceivedRev1,
+                        cagwPathEthGreBytesReceivedRev1
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects describe the Path statistics of the ASN GW."
+    ::= { ciscoAgwMIBGroups 13 }
+
+cagwArpStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwArpReqReceived,
+                        cagwArpReplySent,
+                        cagwArpPacketsDropped
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects describe the ARP statistics of the ASN GW."
+    ::= { ciscoAgwMIBGroups 14 }
+    
+cagwStateGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cagwCurrentFramedRoutes,
+                        cagwCurrentFramedRouteSubs,
+                        cagwCurrentAutoProvSessions,
+                        cagwCurrentSessionsWithIpPktsRedir
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Additonal object to describe the state of the ASN GW."
+    ::= { ciscoAgwMIBGroups 15 }
+
+cagwGlobalStatisticsGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cagwCreatedSubscribers,
+                        cagwDeletedSubscribers,
+                        cagwCreatedSessions,
+                        cagwDeletedSessions,
+                        cagwCreatedFlows,
+                        cagwDeletedFlows,
+                        cagwCreatedHosts,
+                        cagwDeletedHosts,
+                        cagwCreatedBaseStations,
+                        cagwDeletedBaseStations,
+                        cagwCreatedDataPaths,
+                        cagwDeletedDataPaths,
+                        cagwProcessedSignalingPkts,
+                        cagwRequeuedSignalingPkts,
+                        cagwCongestionSignalingPktsDrops,
+                        cagwServiceDisabledSignalingPktsDrops,
+                        cagwServiceNotReadySignalingPktsDrops,
+                        cagwEncapErrorSignalingPktsDrops,
+                        cagwDisposedSignalingPktsDrops,
+                        cagwEncapErrorDataPktsDrops,
+                        cagwInvalidAddressDataPktsDrops,
+                        cagwServiceDisabledDataPktsDrops,
+                        cagwInvalidProtocolTypeDataPktsDrops,
+                        cagwLengthErrorDataPktsDrops,
+                        cagwAbsentKeyDataPktsDrops,
+                        cagwFlowNotFoundDataPktsDrops,
+                        cagwFlowPathNotFoundDataPktsDrops,
+                        cagwFlowPathInvalidSourceDataPktsDrops,
+                        cagwSessionNotFoundDataPktsDrops,
+                        cagwSubscriberNotFoundDataPktsDrops,
+                        cagwChecksumErrorDataPktsDrops,
+                        cagwIngressFilteringDataPktsDrops,
+                        cagwSequenceNumberErrorDataPktsDrops,
+                        cagwFragmentedDataPktsDrops,
+                        cagwServiceFlowProfileNotFound,
+                        cagwQosProfileNotFound,
+                        cagwClassifierProfileNotFound,
+                        cagwRejectedBaseStations,
+                        cagwRejectedSessions,
+                        cagwRejectedFlows,
+                        cagwSessionsDeletedByAgw,
+                        cagwIpGreReceivedDataPkts,
+                        cagwIpGreReceivedDataBytes,
+                        cagwIpGreSentDataPkts,
+                        cagwIpGreSentDataBytes,
+                        cagwEthGreReceivedDataPkts,
+                        cagwEthGreReceivedDataBytes,
+                        cagwEthGreSentDataPkts,
+                        cagwEthGreSentDataBytes,
+                        cagwRejectedHosts,
+                        cagwAgedOutStaticHosts,
+                        cagwSuccessfulHandoff,
+                        cagwFailedHandoff,
+                        cagwSuccessfulCMACKeyUpdate,
+                        cagwFailedCMACKeyUpdate,
+                        cagwSuccessfulSecurityKeyExchange,
+                        cagwFailedSecurityKeyExchange,
+                        cagwIpGreReceivedRedirectedPkts,
+                        cagwIpGreReceivedRedirectedBytes,
+                        cagwEthGreReceivedRedirectedPkts,
+                        cagwEthGreReceivedRedirectedBytes,
+                        cagwThrottlingOfPuntsDataPktsDrops,
+                        cagwLearningUpstreamDataPktsDrops,
+                        cagwPuntedDataPkts,
+                        cagwRejectedSessionUnapprovedBs,
+                        cagwPktsDroppedStaticIpHostNotAllowed,
+                        cagwPktsDroppedMulticastBroadcast,
+                        cagwSlaProfileNotFound
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects describe the statistics of the ASN GW."
+    ::= { ciscoAgwMIBGroups 16 }
+
+cagwUserGrpGroupRev1Sup1 OBJECT-GROUP
+    OBJECTS         {
+                        cagwUserGrpOverwritten
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Additional object to describe the state of a User Group."
+    ::= { ciscoAgwMIBGroups 17 }
+
+cagwStateGroupSup2 OBJECT-GROUP
+    OBJECTS         {
+                        cagwCurrentPmipEnabledSubs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Additonal object to describe the state of the ASN GW."
+    ::= { ciscoAgwMIBGroups 18 }
+
+cagwUserGrpGroupRev1Sup2 OBJECT-GROUP
+    OBJECTS         {
+                        cagwUserGrpPodReqRecv,
+		        cagwUserGrpPodSuccessNotifsSent,
+		        cagwUserGrpPodFailureNotifsSent,
+		        cagwUserGrpCoaReqRecv,
+		        cagwUserGrpCoaSuccessNotifsSent,
+		        cagwUserGrpCoaFailureNotifsSent,
+		        cagwUserGrpRejSession
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Additional object to describe the state of a User Group."
+    ::= { ciscoAgwMIBGroups 19 }
+
+cagwGlobalStatisticsGroupRev2Sup1 OBJECT-GROUP
+    OBJECTS         {
+                        cagwPktsDroppedMipIncomplete,
+                        cagwCreatedPmipEnabledSubs,
+                        cagwDeletedPmipEnabledSubs,
+                        cagwPktsDropPmipStaticIpHost,
+                        cagwIdleModeEntryMsBsInitiated,
+                        cagwIdleModeEntryBwgInitiated,
+                        cagwIdleModeEntryFailures,
+                        cagwIdleModeExitMsBsInitiated,
+                        cagwIdleModeExitBwgInitiated,
+                        cagwIdleModeExitFailures,
+                        cagwIdleModeLocUpdtPgidChange,
+                        cagwIdleModeLocUpdtPowerDown,
+                        cagwIdleModeLocUpdtPeriodic,
+                        cagwIdleModeLocUpdtFailures,
+                        cagwIdleModePageAttemptsDwnlnkData,
+                        cagwIdleModePageFailuresDwnlnkData,
+                        cagwIdleModePageAttemptsLocUpdt,
+                        cagwIdleModePageFailuresLocUpdt,
+                        cagwIdleModeDirectedPagingSuccess,
+                        cagwIdleModeDirectedPagingRetries,
+                        cagwIdleModeFloodPagingSuccess,
+                        cagwIdleModeFloodPagingRetries,
+		        cagwPodRequestsRecv,
+		        cagwPodSuccessNotifsSent,
+		        cagwPodFailureNotifsSent,
+		        cagwCoaReqRecv,
+		        cagwCoaSuccessNotifsSent,
+		        cagwCoaFailureNotifsSent,
+		        cagwHotlineUplinkPktDropAclDeny,
+		        cagwHotlineDownlinkPktDropAclDeny,
+		        cagwUplinkPktDropUsrgrpAclDeny,
+		        cagwDownlinkPktDropUsrgrpAclDeny,
+		        cagwDownlinkPktDropPagingAclDeny
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Additional object to describe the statistics of the ASN GW."
+    ::= { ciscoAgwMIBGroups 20 }
+
+cagwDhcpProxyStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cagwDhcpProxyDiscoverPackets,
+                        cagwDhcpProxyOfferPackets,
+                        cagwDhcpProxyRequestPackets,
+                        cagwDhcpProxyDeclinePackets,
+                        cagwDhcpProxyAckPackets,
+                        cagwDhcpProxyNakPackets,
+                        cagwDhcpProxyReleasePackets,
+                        cagwDhcpProxyInformPackets,
+                        cagwDhcpProxyLeaseQueryPackets,
+                        cagwDhcpProxyUnknownPackets
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Additional objects to describe the DHCP statistics of 
+        the ASN GW."
+    ::= { ciscoAgwMIBGroups 21 }
+
+END
+
+
+

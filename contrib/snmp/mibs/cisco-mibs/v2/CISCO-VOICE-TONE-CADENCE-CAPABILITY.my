@@ -1,0 +1,115 @@
+-- *****************************************************************
+-- CISCO-VOICE-TONE-CADENCE-CAPABILITY
+--
+-- AGENT-CAPABILITIES MIB for CISCO-VOICE-TONE-CADENCE-MIB
+-- 
+-- February 2004,  Margaret Hsieh
+--
+-- Copyright(c) 2004 by Cisco Systems, Inc.
+--
+-- *****************************************************************
+
+CISCO-VOICE-TONE-CADENCE-CAPABILITY DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY,
+        Unsigned32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+
+ciscoVoiceToneCadenceCapability MODULE-IDENTITY
+    LAST-UPDATED "200402020000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "        Cisco Systems
+                 Customer Service
+        Postal: 170 W Tasman Drive
+                San Jose, CA 95134
+                USA
+           Tel: +1 800 553-NETS
+        E-mail: cs-voice-gateway@cisco.com"
+    DESCRIPTION "The agent capabilities for 
+                 CISCO-VOICE-TONE-CADENCE-MIB." 
+ 
+        REVISION "200402020000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 387 }
+
+
+cVoiceToneCadenceCapV5R00 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "MGX8850 Release 5.0.0"
+STATUS          current
+DESCRIPTION     "CISCO-VOICE-TONE-CADENCE-MIB capabilities for 
+                 VXSM in release 5.0.0." 
+
+    SUPPORTS        CISCO-VOICE-TONE-CADENCE-MIB
+    INCLUDES        { 
+                      cvtcToneConfigGroup 
+                    }
+
+    VARIATION       cvtcTonePlanVersion
+    SYNTAX          Unsigned32 (0..9)
+    DESCRIPTION     "VXSM supports limited data range."
+
+    VARIATION       cvtcProgrammableToneDuration
+    SYNTAX          Unsigned32 (0..655350)
+    DESCRIPTION     "Limited data range is supported."
+
+    VARIATION       cvtcProgrammableToneStorageType
+    SYNTAX          INTEGER {
+                       nonVolatile(3), 
+                       permanent(4)
+                    }
+    DESCRIPTION     "VXSM supports permanent(4) for the entries in
+                     system built-in tone plans, nonVolatile(3) for
+                     the entries in user defined tone plans."
+
+    VARIATION       cvtcTonePlanId
+    DESCRIPTION     "The entries from 101 to 200 are built in system,
+                     and the range from 1 to 100 is configurable."
+
+    VARIATION       cvtcToneId
+    SYNTAX          Unsigned32 (1..10074)
+    DESCRIPTION     "The entries from 1 to 13 are built in system,
+                     and the range from 10000 to 10074 is 
+                     configurable. (14..9999) are not supported."   
+
+    VARIATION       cvtcToneName 
+    DESCRIPTION     "This object does not allowed space between
+                     characters but it accepts underscore '_'."   
+
+    VARIATION       cvtcProgrammableToneTable
+    DESCRIPTION     "One entry for each tone (indexed by cvtcToneId)
+                     in a tone plan will be created by the system
+                     automatically when the entry of the tone plan in
+                     cvtcTonePlanTable is created with the same 
+                     indices cmgwIndex and cvtcTonePlanId.
+                     When the entry of the tone plan in 
+                     cvtcTonePlanTable is deleted, the system 
+                     automatically deletes all entries in this table
+                     with the corresponding indices cmgwIndex and 
+                     cvtcTonePlanId.
+                     If a new entry is added to cvtcToneIdTable, since
+                     the existing tone plans do not contain the newly
+                     added tone ID, the entries of this table won't be
+                     affected. If the newly added tone ID is added to
+                     an existing tone plan, the existing tone plan
+                     should be deleted from cvtcTonePlanTable and 
+                     re-created with the new tone plan file, all the
+                     entries of this table for the corresponding tone
+                     plan will be deleted and re-created automatically
+                     by the system."
+                     
+    VARIATION       cvtcProgrammableToneRowStatus
+    ACCESS          not-implemented
+    DESCRIPTION     "Not supported."
+                     
+    ::= { ciscoVoiceToneCadenceCapability 1 }
+
+END
+

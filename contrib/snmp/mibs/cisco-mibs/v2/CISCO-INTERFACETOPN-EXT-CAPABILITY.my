@@ -1,0 +1,115 @@
+-- *****************************************************************
+-- CISCO-INTERFACETOPN-EXT-CAPABILITY.my:
+-- Cisco CISCO-INTERFACETOPN-EXT-MIB AGENT-CAPABILITIES
+--   
+-- July 2007, Liwei Wang
+--   
+-- Copyright (c) 2007-2012 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-INTERFACETOPN-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoTopNExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "201209070100Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-INTERFACETOPN-EXT-MIB."
+    REVISION        "201209070100Z"
+    DESCRIPTION
+        "Added capability statement ciscoTopNExtCapV15R0001SY1PCat6K.
+        Added VARIATION citneInterfaceTopNInterfaceType in
+        ciscoTopNExtCapV12R0233SXHPCat6k."
+    REVISION        "200707060000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 543 }
+
+
+
+ciscoTopNExtCapV12R0233SXHPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-INTERFACETOPN-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-INTERFACETOPN-EXT-MIB
+    INCLUDES        {
+                        ciscoIfTopNExtCapsGroup,
+                        ciscoIfTopNExtControlGroup,
+                        ciscoIfTopNExtCtrlVlanGroup
+                    }
+    VARIATION       citneInterfaceTopNInterfaceType
+    SYNTAX          INTEGER  {
+                        all(1),
+                        ethernet(2),
+                        fastEthernet(3),
+                        gigaEthernet(4),
+                        tenGigaEthernet(5),
+                        portChannel(6),
+                        layer2(7),
+                        layer3(8)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoTopNExtCapability 1 }
+
+ciscoTopNExtCapV15R0001SY1PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY1 on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-INTERFACETOPN-EXT-MIB capabilities."
+
+    SUPPORTS        CISCO-INTERFACETOPN-EXT-MIB
+    INCLUDES        {
+                        ciscoIfTopNExtCapsGroup,
+                        ciscoIfTopNExtControlGroup,
+                        ciscoIfTopNExtCtrlVlanGroup
+                    }
+    VARIATION       citneInterfaceTopNInterfaceType
+    SYNTAX          INTEGER  {
+                        all(1),
+                        ethernet(2),
+                        fastEthernet(3),
+                        gigaEthernet(4),
+                        tenGigaEthernet(5),
+                        portChannel(6),
+                        layer2(7),
+                        layer3(8),
+                        fortyGigaEthernet(9)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoTopNExtCapability 2 }
+
+END
+
+
+
+

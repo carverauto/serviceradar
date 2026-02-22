@@ -1,0 +1,66 @@
+-- *****************************************************************
+-- CISCO-HARDWARE-IP-VERIFY-CAPABILITY.my
+-- CISCO-HARDWARE-IP-VERIFY-MIB agent capabilities
+--   
+-- July 2013, Liang Mei
+--   
+-- Copyright (c) 2013  by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-HARDWARE-IP-VERIFY-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoHardwareIpVerifyCapability MODULE-IDENTITY
+    LAST-UPDATED    "201307260000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-HARDWARE-IP-VERIFY-MIB."
+    REVISION        "201307260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 623 }
+
+
+
+chivCapNxOSV06R0104PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.1(4) on Nexus 
+                        7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-HARDWARE-IP-VERIFY-MIB
+        agent capabilities."
+
+    SUPPORTS        CISCO-HARDWARE-IP-VERIFY-MIB
+    INCLUDES        { ciscoHardwareIpVerifyMIBStatisticGroup }
+    VARIATION       chivIpVerifyCheckStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoHardwareIpVerifyCapability 1 }
+
+END
+
+
+
+

@@ -1,0 +1,773 @@
+-- MIB file created 26-Mar-2009 12:11:27, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CONTEXT-MAPPING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CONTEXT-MAPPING-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    RowStatus, StorageType
+            FROM SNMPv2-TC-v1
+    CiscoBridgeDomain
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoContextMappingMIB OBJECT IDENTIFIER ::= { ciscoMgmt 468 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200811220000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    A single SNMP agent sometimes needs to support multiple
+--    instances of the same MIB module, and does so through the
+--    use of multiple SNMP contexts.  This typically occurs because
+--    the technology has evolved to have extra dimension(s), i.e.,
+--    one or more extra data and/or identifier values which are
+--    different in the different contexts, but were not defined in
+--    INDEX clause(s) of the original MIB module.  In such cases,
+--    network management applications need to know the specific
+--    data/identifier values in each context, and this MIB module
+--    provides mapping tables which contain that information.
+--    
+--    Within a network there can be multiple Virtual Private
+--    Networks (VPNs) configured using Virtual Routing and
+--    Forwarding Instances (VRFs). Within a VPN there can be
+--    multiple topologies when Multi-topology Routing (MTR) is
+--    used. Also, Interior Gateway Protocols (IGPs) can have
+--    multiple protocol instances running on the device.
+--    A network can have multiple broadcast domains configured
+--    using Bridge Domain Identifiers.
+--    
+--    With MTR routing, VRFs, and Bridge domains, a router now 
+--    needs to support multiple instances of several existing 
+--    MIB modules, and this can be achieved if the router's SNMP 
+--    agent provides access to each instance of the same MIB module 
+--    via a different SNMP context (see Section 3.1.1 of RFC 3411).
+--    For MTR routing, VRFs, and Bridge domains, a different SNMP 
+--    context is needed depending on one or more of the following: 
+--    the VRF, the topology-identifier, the routing protocol instance,
+--    and the bridge domain identifier.
+--    In other words, the router's management information can be
+--    accessed through multiple SNMP contexts where each such
+--    context represents a specific VRF, a specific
+--    topology-identifier, a specific routing protocol instance 
+--    and/or a bridge domain identifier. This MIB module provides 
+--    a mapping of each such SNMP context to the corresponding VRF,
+--    the corresponding topology, the corresponding routing protocol 
+--    instance, and the corresponding bridge domain identifier.
+--    Some SNMP contexts are independent of VRFs, independent of
+--    a topology, independent of a routing protocol instance, or 
+--    independent of a bridge domain and in such a case, the mapping
+--    is to the zero length string.
+--    
+--    With the Cisco package licensing strategy, the features 
+--    available in the image are grouped into multiple packages 
+--    and each packages can be managed to operate at different 
+--    feature levels based on the available license. This MIB 
+--    module provides option to associate an SNMP context to a 
+--    feature package group. This will allow manageability of 
+--    license MIB objects specific to a feature package group.
+--    
+--    As technology evolves more we may need additional
+--    identifiers to identify the context. Then we would need
+--    to add those additional identifiers into the mapping.
+--  RevDate
+--    200811220000Z
+--  RevDescr
+--    Added New Table cContextMappingLicenseGroupTable
+--    to provide SNMP Context support for license package groups.
+--    
+--    Added cContextMappingLicenseGroupDataGroup in OBJECT-GROUP
+--    Added cContextMappingMIBComplianceRev2 in MODULE-COMPLIANCE
+--    
+--    Updated the MIB description to indicate the use of
+--    the above additions
+--  RevDate
+--    200805300000Z
+--  RevDescr
+--    Add cContextMappingBridgeInstanceTable.
+--    
+--    Added cContextMappingBridgeInstanceDataGroup.
+--    Deprecated cContextMappingMIBComplianceRev1 and added
+--    cContextMappingMIBComplianceRev2 compliance statement.
+--  RevDate
+--    200802010000Z
+--  RevDescr
+--    Added New Table cContextMappingBridgeDomainTable
+--    to provide SNMP context support to the Bridge Domain.
+--    
+--    Added cContextMappingBridgeDomainDataGroup in OBJECT-GROUP
+--    Added cContextMappingMIBComplianceRev1 in MODULE-COMPLIANCE
+--  RevDate
+--    200503170000Z
+--  RevDescr
+--    Initial version of the MIB module.
+
+cContextMappingMIBObjects OBJECT IDENTIFIER ::= { ciscoContextMappingMIB 1 }
+cContextMappingMIBConformance OBJECT IDENTIFIER ::= { ciscoContextMappingMIB 2 }
+cContextMappingMIBCompliances OBJECT IDENTIFIER ::= { cContextMappingMIBConformance 1 }
+cContextMappingMIBGroups OBJECT IDENTIFIER ::= { cContextMappingMIBConformance 2 }
+
+cContextMappingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CContextMappingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on which
+        cContextMappingVacmContextName is mapped to
+        which VRF, topology, and routing protocol instance.
+        
+        This table is indexed by SNMP VACM context.
+        
+        Configuring a row in this table for an SNMP context
+        does not require that the context be already defined,
+        i.e., a row can be created in this table for a context
+        before the corresponding row is created in RFC 3415's
+        vacmContextTable.
+        
+        To create a row in this table, a manager must set
+        cContextMappingRowStatus to either 'createAndGo' or
+        'createAndWait'.
+        
+        To delete a row in this table, a manager must set
+        cContextMappingRowStatus to 'destroy'."
+    ::= { cContextMappingMIBObjects 1 }
+
+cContextMappingEntry OBJECT-TYPE
+    SYNTAX CContextMappingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information relating to a single mapping of
+        cContextMappingVacmContextName to the corresponding VRF,
+        the corresponding topology, and the corresponding routing
+        protocol instance."
+    INDEX { cContextMappingVacmContextName }
+    ::= { cContextMappingTable 1 }
+
+CContextMappingEntry ::= SEQUENCE {
+    cContextMappingVacmContextName SnmpAdminString,
+    cContextMappingVrfName SnmpAdminString,
+    cContextMappingTopologyName SnmpAdminString,
+    cContextMappingProtoInstName SnmpAdminString,
+    cContextMappingStorageType StorageType,
+    cContextMappingRowStatus RowStatus
+    }
+
+cContextMappingVacmContextName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The vacmContextName given to the SNMP context.
+        
+        This is a human readable name identifying a particular
+        SNMP VACM context at a particular SNMP entity.
+        The empty contextName (zero length) represents the
+        default context."
+    ::= { cContextMappingEntry 1 }
+
+cContextMappingVrfName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of an instance of this object identifies
+        the name given to the VRF to which the SNMP context
+        is mapped to.
+        
+        This is typically a human-readable string. This is
+        the same ASCII string used in the router's console
+        interface to refer to this VRF.
+        
+        When the value of this object is the zero length
+        string it indicates that the SNMP context is independent
+        of any VRF."
+    DEFVAL { ''H }
+    ::= { cContextMappingEntry 2 }
+
+cContextMappingTopologyName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of an instance of this object identifies
+        the name given to the topology to which the SNMP
+        context is mapped to.
+        
+        This is typically a human-readable string. This is
+        the same ASCII string used in the router's console
+        interface to refer to this topology.
+        
+        When the value of this object is the zero length
+        string it indicates that the SNMP context is independent
+        of any topology."
+    DEFVAL { ''H }
+    ::= { cContextMappingEntry 3 }
+
+cContextMappingProtoInstName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of an instance of this object identifies
+        the name given to the protocol instance to which the
+        SNMP context is mapped to.
+        
+        This is typically a human-readable string. This is
+        the same ASCII string used in the router's console
+        interface to refer to this protocol instance.
+        
+        When the value of this object is the zero length
+        string it indicates that the SNMP context is independent
+        of any protocol instance."
+    DEFVAL { ''H }
+    ::= { cContextMappingEntry 4 }
+
+cContextMappingStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        
+        Conceptual rows having the value 'permanent' need not
+        allow write-access to any columnar objects in the row."
+    DEFVAL { nonVolatile }
+    ::= { cContextMappingEntry 5 }
+
+cContextMappingRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object facilitates the creation, modification, or
+        deletion of a conceptual row in this table."
+    ::= { cContextMappingEntry 6 }
+
+cContextMappingBridgeDomainTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CContextMappingBridgeDomainEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on which
+        cContextMappingVacmContextName is mapped to
+        which bridge domain.
+        
+        A Bridge Domain is one of the means by which it is possible 
+        to define an Ethernet broadcast domain on a bridging device. 
+        A network can have multiple broadcast domains configured.
+        This table helps the network management personnel to find 
+        out the  details of various broadcast domains configured 
+        in the network.
+        
+        An entry need to exist in cContextMappingTable, to create 
+        an entry in this table."
+    ::= { cContextMappingMIBObjects 2 }
+
+cContextMappingBridgeDomainEntry OBJECT-TYPE
+    SYNTAX CContextMappingBridgeDomainEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information relating to a single mapping of
+        cContextMappingVacmContextName to the 
+        corresponding bridge domain.
+        
+        To create a row in this table, a manager must set
+        cContextMappingBridgeDomainRowStatus to either 
+        'createAndGo' or 'createAndWait'.
+        
+        To delete a row in this table, a manager must set
+        cContextMappingBridgeDomainRowStatus to 'destroy'."
+    INDEX { cContextMappingVacmContextName }
+    ::= { cContextMappingBridgeDomainTable 1 }
+
+CContextMappingBridgeDomainEntry ::= SEQUENCE {
+    cContextMappingBridgeDomainIdentifier CiscoBridgeDomain,
+    cContextMappingBridgeDomainStorageType StorageType,
+    cContextMappingBridgeDomainRowStatus RowStatus
+    }
+
+cContextMappingBridgeDomainIdentifier OBJECT-TYPE
+    SYNTAX CiscoBridgeDomain
+--    Rsyntax Gauge(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of an instance of this object identifies
+        the bridge domain to which the SNMP context is 
+        mapped to."
+    REFERENCE
+        "CISCO-BRIDGE-DOMAIN-MIB"
+    ::= { cContextMappingBridgeDomainEntry 1 }
+
+cContextMappingBridgeDomainStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        
+        Conceptual rows having the value 'permanent' need not
+        allow write-access to any columnar objects in the row."
+    DEFVAL { nonVolatile }
+    ::= { cContextMappingBridgeDomainEntry 2 }
+
+cContextMappingBridgeDomainRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object facilitates the creation, modification, or
+        deletion of a conceptual row in this table."
+    ::= { cContextMappingBridgeDomainEntry 3 }
+
+cContextMappingBridgeInstanceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CContextMappingBridgeInstanceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on mapping between
+        cContextMappingVacmContextName and bridge instance.
+        
+        Bridge instance is an instance of a physical or logical 
+        bridge which has unique bridge-id.
+        
+        If an entry is deleted from cContextMappingTable, the
+        corresponding entry in this table will also get deleted.
+        
+        If an entry needs to be created in this table, the
+        corresponding entry must exist in cContextMappingTable."
+    REFERENCE
+        "BRIDGE-MIB"
+    ::= { cContextMappingMIBObjects 3 }
+
+cContextMappingBridgeInstanceEntry OBJECT-TYPE
+    SYNTAX CContextMappingBridgeInstanceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information relating to a single mapping of
+        cContextMappingVacmContextName to the 
+        corresponding bridge instance.
+        
+        To create a row in this table, a manager must set
+        cContextMappingBridgeInstRowStatus to either 
+        'createAndGo' or 'createAndWait'.
+        
+        To delete a row in this table, a manager must set
+        cContextMappingBridgeInstRowStatus to 'destroy'."
+    INDEX { cContextMappingVacmContextName }
+    ::= { cContextMappingBridgeInstanceTable 1 }
+
+CContextMappingBridgeInstanceEntry ::= SEQUENCE {
+    cContextMappingBridgeInstName SnmpAdminString,
+    cContextMappingBridgeInstStorageType StorageType,
+    cContextMappingBridgeInstRowStatus RowStatus
+    }
+
+cContextMappingBridgeInstName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object identifies the name given to bridge
+        instance to which the SNMP context is mapped to.
+        
+        Value of this object cannot be changed when the 
+        RowStatus object in the same row is 'active'.
+        
+        This is typically a human-readable string. This is
+        the same ASCII string used in the router's console
+        interface to refer to this bridge instance.
+        
+        When the value of this object is a zero length
+        string, it indicates that the SNMP context is
+        independent of any bridge instances."
+    ::= { cContextMappingBridgeInstanceEntry 1 }
+
+cContextMappingBridgeInstStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        
+        Value of this object cannot be changed when the 
+        RowStatus object in the same row is 'active'.
+        
+        Conceptual rows having the value 'permanent' need not
+        allow write-access to any columnar objects in the row."
+    DEFVAL { nonVolatile }
+    ::= { cContextMappingBridgeInstanceEntry 2 }
+
+cContextMappingBridgeInstRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object facilitates the creation, modification, or
+        deletion of a conceptual row in this table."
+    ::= { cContextMappingBridgeInstanceEntry 3 }
+
+cContextMappingLicenseGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CContextMappingLicenseGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on which
+        cContextMappingVacmContextName is mapped to
+        which License Group.
+        Group level licensing is used where each
+        Technology Package is enabled via a License."
+    ::= { cContextMappingMIBObjects 4 }
+
+cContextMappingLicenseGroupEntry OBJECT-TYPE
+    SYNTAX CContextMappingLicenseGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information relating to a single mapping of
+        CContextMappingVacmContextName to the
+        corresponding License Group."
+    INDEX { cContextMappingVacmContextName }
+    ::= { cContextMappingLicenseGroupTable 1 }
+
+CContextMappingLicenseGroupEntry ::= SEQUENCE {
+    cContextMappingLicenseGroupName SnmpAdminString,
+    cContextMappingLicenseGroupStorageType StorageType,
+    cContextMappingLicenseGroupRowStatus RowStatus
+    }
+
+cContextMappingLicenseGroupName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..32))
+--    Rsyntax OCTET STRING(SIZE(0..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of an instance of this object identifies
+        the name given to the Group to which the SNMP context
+        is mapped.
+        
+        Feature sets from all groups will be combined to form 
+        universal image. User can configure multiple groups as needed.
+        
+        For example: In Next generation ISRs will use
+        the universal image package level licensing model
+        for its licensing need. Each group has
+        the feature set needed for that specific technology.
+        Feature sets from different groups are combined to 
+        form universal image and each feature set for a group 
+        can be enabled using a valid license key. There will 
+        be a base level ipbase package in which the router 
+        boots with out any license key.
+        
+        The following are the different Technology Groups.
+        1.crypto
+        2.data
+        3.ip
+        4.legacy
+        5.novpn-security
+        6.security
+        7.uc"
+    ::= { cContextMappingLicenseGroupEntry 1 }
+
+cContextMappingLicenseGroupStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        
+        Conceptual rows having the value 'permanent' need not
+        allow write-access to any columnar objects in the row."
+    DEFVAL { nonVolatile }
+    ::= { cContextMappingLicenseGroupEntry 2 }
+
+cContextMappingLicenseGroupRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object facilitates the creation, modification, or
+        deletion of a conceptual row in this table."
+    ::= { cContextMappingLicenseGroupEntry 3 }
+
+cContextMappingDataGroup OBJECT IDENTIFIER ::= { cContextMappingMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects providing the context
+--    mapping data between the SNMP context to the
+--    corresponding VRF, the corresponding topology,
+--    and the corresponding routing protocol instance.
+--  objects
+--    cContextMappingVrfName, cContextMappingTopologyName, 
+--    cContextMappingProtoInstName, cContextMappingStorageType, 
+--    cContextMappingRowStatus
+
+cContextMappingBridgeDomainDataGroup OBJECT IDENTIFIER ::= { cContextMappingMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects providing the context
+--    mapping data between the SNMP context to the
+--    corresponding bridge domain.
+--  objects
+--    cContextMappingBridgeDomainIdentifier, 
+--    cContextMappingBridgeDomainStorageType, 
+--    cContextMappingBridgeDomainRowStatus
+
+cContextMappingBridgeInstanceDataGroup OBJECT IDENTIFIER ::= { cContextMappingMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects providing the context
+--    mapping data between the SNMP context to the
+--    corresponding bridge instance.
+--  objects
+--    cContextMappingBridgeInstName, 
+--    cContextMappingBridgeInstStorageType, 
+--    cContextMappingBridgeInstRowStatus
+
+cContextMappingLicenseGroupDataGroup OBJECT IDENTIFIER ::= { cContextMappingMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects providing the context
+--    mapping data between the SNMP context to the
+--    corresponding LicenseGroupName.
+--  objects
+--    cContextMappingLicenseGroupName, 
+--    cContextMappingLicenseGroupStorageType, 
+--    cContextMappingLicenseGroupStorageType, 
+--    cContextMappingLicenseGroupRowStatus
+
+cContextMappingMIBCompliance OBJECT IDENTIFIER ::= { cContextMappingMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO-CONTEXT-MAPPING-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cContextMappingDataGroup
+--   ObjVar
+--    cContextMappingVrfName
+--   ObjVar
+--    cContextMappingTopologyName
+--   ObjVar
+--    cContextMappingProtoInstName
+--   ObjVar
+--    cContextMappingStorageType
+--   ObjVar
+--    cContextMappingRowStatus
+
+cContextMappingMIBComplianceRev1 OBJECT IDENTIFIER ::= { cContextMappingMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO-CONTEXT-MAPPING-MIB. This compliance statement 
+--    is superceded by cContextMappingMIBComplianceRev2.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cContextMappingDataGroup
+--   MandGroup
+--    cContextMappingBridgeDomainDataGroup
+--   ObjVar
+--    cContextMappingVrfName
+--   ObjVar
+--    cContextMappingTopologyName
+--   ObjVar
+--    cContextMappingProtoInstName
+--   ObjVar
+--    cContextMappingStorageType
+--   ObjVar
+--    cContextMappingRowStatus
+--   ObjVar
+--    cContextMappingBridgeDomainIdentifier
+--   ObjVar
+--    cContextMappingBridgeDomainStorageType
+--   ObjVar
+--    cContextMappingBridgeDomainRowStatus
+
+cContextMappingMIBComplianceRev2 OBJECT IDENTIFIER ::= { cContextMappingMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO-CONTEXT-MAPPING-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cContextMappingDataGroup
+--   MandGroup
+--    cContextMappingBridgeDomainDataGroup
+--   MandGroup
+--    cContextMappingBridgeInstanceDataGroup
+--   ObjVar
+--    cContextMappingVrfName
+--   ObjVar
+--    cContextMappingTopologyName
+--   ObjVar
+--    cContextMappingProtoInstName
+--   ObjVar
+--    cContextMappingStorageType
+--   ObjVar
+--    cContextMappingRowStatus
+--   ObjVar
+--    cContextMappingBridgeDomainIdentifier
+--   ObjVar
+--    cContextMappingBridgeDomainStorageType
+--   ObjVar
+--    cContextMappingBridgeDomainRowStatus
+--   ObjVar
+--    cContextMappingBridgeInstName
+--   ObjVar
+--    cContextMappingBridgeInstStorageType
+--   ObjVar
+--    cContextMappingBridgeInstRowStatus
+
+cContextMappingMIBComplianceRev3 OBJECT IDENTIFIER ::= { cContextMappingMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the CISCO-CONTEXT-MAPPING-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cContextMappingDataGroup
+--   MandGroup
+--    cContextMappingBridgeDomainDataGroup
+--   MandGroup
+--    cContextMappingBridgeInstanceDataGroup
+--   MandGroup
+--    cContextMappingLicenseGroupDataGroup
+--   ObjVar
+--    cContextMappingVrfName
+--   ObjVar
+--    cContextMappingTopologyName
+--   ObjVar
+--    cContextMappingProtoInstName
+--   ObjVar
+--    cContextMappingStorageType
+--   ObjVar
+--    cContextMappingRowStatus
+--   ObjVar
+--    cContextMappingBridgeDomainIdentifier
+--   ObjVar
+--    cContextMappingBridgeDomainStorageType
+--   ObjVar
+--    cContextMappingBridgeDomainRowStatus
+--   ObjVar
+--    cContextMappingBridgeInstName
+--   ObjVar
+--    cContextMappingBridgeInstStorageType
+--   ObjVar
+--    cContextMappingBridgeInstRowStatus
+--   ObjVar
+--    cContextMappingLicenseGroupName
+--   ObjVar
+--    cContextMappingLicenseGroupStorageType
+--   ObjVar
+--    cContextMappingLicenseGroupRowStatus
+
+
+END
+

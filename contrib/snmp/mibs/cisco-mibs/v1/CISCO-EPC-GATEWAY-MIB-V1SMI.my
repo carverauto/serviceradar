@@ -1,0 +1,1177 @@
+-- MIB file created 08-Feb-2012 09:23:51, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-EPC-GATEWAY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-EPC-GATEWAY-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    TruthValue, TimeStamp, TimeInterval
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoEpcGatewayMIB OBJECT IDENTIFIER ::= { ciscoMgmt 731 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201202080000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lte@cisco.com
+--  Descr
+--    This MIB module manages the features and configuration
+--    for PDN Gateway(PGW) and Serving Gateway(SGW) in Evolved
+--    Packet Core(EPC) architecture.
+--    
+--    The PGW is the permanent IP point-of-attachment for 
+--    access via the E-UTRAN. The PGW performs IP policy and
+--    charging enforcement on packet flows to and from mobile 
+--    devices.
+--    
+--    The SGW is a local mobility anchor for E-UTRAN mobility,
+--    switching packets between the S5 interface and the GTP
+--    based S1-U interface for mobiles in connected mode.
+--    
+--    +================================================+  
+--    |                                                |
+--    |                                                |
+--    |           +=======+__________                  |
+--    |           | UTRAN |          |S12              | 
+--    |           |      +======+    |                 | 
+--    |           +======|      |    |                 |
+--    |           +======| SGSN |___ |                 |
+--    |           |      +======+   ||                 |
+--    |           | GERAN |  |    S4||                 |
+--    |           +=======+  |(GTP-C||                 |
+--    |                    S3| VO,V1||                 |
+--    |                      |  GTPU||                 |   
+--    |                      |VO,V1)||                 |
+--    |                  +======+   ||                 | 
+--    |              ____| MME  |__ ||                 |
+--    |              |   +======+  |||                 |
+--    |        S1-MME|      S11    |||                 |
+--    |              |     GTP-C   |||                 |
+--    |              |  (V0,V1,V2) |||                 |
+--    |+====+ +========+        +======+     +======+  |  +===+
+--    || UE |-|E-Utran |        | SGW  |     | PGW  |-SGi-|PDN|
+--    ||    | |(EnodeB)|        |      |     |      |  |  |   |
+--    |+====+ +========+        +======+     +======+  |  +===+
+--    |              |            |  |  GTP-C   |      | 
+--    |              |            |  |(vo,v1,v2)|      | 
+--    |              |            |  |GTP-C     |      |  
+--    |              |            |  |  (vo,v1) |      | 
+--    |              |  GTP v2-u  |  |          |      |
+--    |               ============   ===========       |
+--    |                  (S1-U)          S5            |
+--    |                                                |
+--    +================================================+
+--    
+--    This architecture supports the non-roaming and roaming
+--    architectures using GTP based protocol on the PGW and SGW
+--    with a number of functions. It support high number of
+--    subscribers with their associated control messages and
+--    data traffic. Each of this association forms an entry in
+--    PGW and SGW and is commonly know as bearers.
+--    
+--    The various features used by this architecture and their
+--    attributes are captured in this MIB:
+--    
+--    1. Overload protection, handles congestion control, SGW and
+--    PGW represent congestion as a DFP metric considering the
+--    current CPU, memory usage and number of bearers open. On
+--    reaching the low congestion threshold, based on the ARP, high
+--    priority calls are accepted and those with a lower priority
+--    are rejected. Once the high threshold is reached all new
+--    calls are rejected.
+--    
+--    2. Buffering agent, the SGW buffers the data packets in the
+--    downlink direction till the downlink path/peer information is
+--    ready. It buffers all packets coming from any gateway based
+--    on the default/configured values of the buffer size, discard
+--    period and number of packets. Packets will be buffered on a
+--    per bearer basis and retrieved in the order it was buffered
+--    using the handle given by the buffering agent initially. If
+--    the buffer is full then no more bearers will be accepted. 
+--    
+--    Acronyms and terms:
+--    
+--     3GPP     3rd Generation Partnership Project
+--     DFP      Dynamic Feedback Protocol
+--     EDGE     Enhanced Data rates for GSM Evolution
+--     EPC      Evolved Packet Core
+--     E-UTRAN  Evolved UTRAN
+--     GERAN    GSM EDGE Radio Access Network
+--     GPRS     General Packet Radio Service
+--     GSM      Global System for Mobile communications
+--     GTP      GPRS Tunneling Protocol
+--     PDN      Public Data Network
+--     PGW      PDN Gateway
+--     SAE      System Architecture Evolution
+--     SGW      Serving Gateway
+--     SP GW    An integrated SGW and PGW Gateway
+--     UE       User Equipment
+--     UMTS     Universal Mobile Telecommunications System
+--     UTRAN    UMTS Radio Access Network
+--    
+--    
+--    REFERENCE
+--    
+--    [1] 3GPP: Evolved GPRS Tunneling Protocol for Control
+--        Plane (GTPv2-C). 3GPP TS 29.274 V1.3.1.
+--    
+--    [2] 3GPP: GPRS enhancements for E-UTRAN access.
+--        3GPP TS 23.401 V8.3.0.
+--    
+--    [3] 3GPP: Circuit Switched fallback in Evolved
+--        Packet System(EPS). 3GPP TS 23.272.
+--  RevDate
+--    201202080000Z
+--  RevDescr
+--    Added the following object to ciscoEPCGatewayStatus
+--    cegTotalIdleSessions.
+--    
+--    Added the following objects to cegBufferStats
+--    cegPacketDropDueToMaxPacketLimit,
+--    cegPacketDropDueToMaxBufferLimit.
+--    
+--    Added cegSystemStatusGrpSup3 group.
+--    Added cegPacketDropLimitStatsGrp.
+--    Deprecated ciscoEpcGatewayMIBComplianceRev2 and
+--    replaced it with ciscoEpcGatewayMIBComplianceRev3.
+--  RevDate
+--    201105100000Z
+--  RevDescr
+--    Added the following objects to ciscoEpcGatewayStatus
+--    cegActivatedBearers,
+--    cegActivatedDedicatedBearers ,
+--    cegActivatedIpv4DedicatedBearers,
+--    cegActivatedIpv6DedicatedBearers.
+--    
+--    Added cegSystemStatusGrpSup2 group.
+--    Deprecated ciscoEpcGatewayMIBComplianceRev1 and
+--    replaced it with ciscoEpcGatewayMIBComplianceRev2.
+--  RevDate
+--    201103040000Z
+--  RevDescr
+--    Added cegActivatedIpv4v6Bearers,
+--    cegActivatedGtpv2SgwSessions,
+--    cegActivatedGtpv2PgwSessions,
+--    cegActivatedGtpv2SPgwSessions
+--    to ciscoEpcGatewayStatus.
+--    
+--    Added units for cegActivatedIpv4v6Sessions.
+--    
+--    Added cegSystemStatusGrpSup1 to supplement 
+--    cegSystemStatusGrp.
+--    
+--    Added ciscoEpcGatewayMIBComplianceRev1 and
+--    deprecated ciscoEpcGatewayMIBCompliance.
+--  RevDate
+--    201006280000Z
+--  RevDescr
+--    Modified default values for the following objects
+--    cegCongestionLowThreshold
+--    cegCongestionHighThreshold
+--  RevDate
+--    201005060000Z
+--  RevDescr
+--    Modified Default values for the follwing
+--    objects cegBufferMaxSize, 
+--    cegBufferDiscardDataTime, 
+--    cegBufferMaxPacketsPerBuffer. 
+--    
+--    Modified range for the following objects 
+--    cegBufferDiscardDataTime,
+--    cegBufferMaxPacketsPerBuffer.
+--  RevDate
+--    201004210000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoEpcGatewayMIBNotifications OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIB 0 }
+ciscoEpcGatewayMIBObjects OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIB 1 }
+ciscoEpcGatewayStatistics OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBObjects 1 }
+cegOverloadProtectionStats OBJECT IDENTIFIER ::= { ciscoEpcGatewayStatistics 1 }
+cegBufferStats  OBJECT IDENTIFIER ::= { ciscoEpcGatewayStatistics 2 }
+ciscoEpcGatewayConfig OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBObjects 2 }
+cegOverloadProtectionConfig OBJECT IDENTIFIER ::= { ciscoEpcGatewayConfig 1 }
+cegBufferingAgentConfig OBJECT IDENTIFIER ::= { ciscoEpcGatewayConfig 2 }
+ciscoEpcGatewayStatus OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBObjects 3 }
+ciscoEpcGatewayNotifMgmt OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBObjects 4 }
+cegOverloadProtectionStatus OBJECT IDENTIFIER ::= { ciscoEpcGatewayStatus 8 }
+cegBufferStatus OBJECT IDENTIFIER ::= { ciscoEpcGatewayStatus 9 }
+ciscoEpcGatewayMIBConformance OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIB 3 }
+ciscoEpcGatewayMIBCompliances OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBConformance 1 }
+ciscoEpcGatewayMIBGroups OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBConformance 2 }
+
+cegCongestionIncomingReqDrops OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of
+        incoming calls dropped at the gateway.
+        
+        This counter is incremented when the gateway
+        receives an incoming call request at high
+        congestion level, and the request is dropped."
+    ::= { cegOverloadProtectionStats 1 }
+
+cegCongestionLowThresholdReached OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of times
+        low congestion occurred on the gateway. 
+        
+        The value is equal to the number of times 
+        the gateway exceeded the congestion threshold
+        cegCongestionLowThreshold."
+    ::= { cegOverloadProtectionStats 2 }
+
+cegCongestionHighThresholdReached OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of times
+        high congestion occurred on the gateway. 
+        
+        The value is equal to the number of times 
+        the gateway exceeded the congestion threshold
+        cegCongestionHighThreshold."
+    ::= { cegOverloadProtectionStats 3 }
+
+cegBuffersCreated OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    buffer
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of
+        buffers allocated by buffering agent."
+    ::= { cegBufferStats 1 }
+
+cegBuffersDeleted OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    buffer
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of
+        buffers deallocated by buffering agent."
+    ::= { cegBufferStats 2 }
+
+cegBuffersTimedOut OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of
+        buffers that got timed out, at buffering agent.
+        
+        A buffer is timed out when the discard timer
+        cegBufferDiscardDataTime expires."
+    ::= { cegBufferStats 3 }
+
+cegBufferPacketsEnqueued OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packet
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of
+        packets enqueued to the buffering agent."
+    ::= { cegBufferStats 4 }
+
+cegBufferPacketsDequeued OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packet
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of
+        packets dequeued from the buffering agent."
+    ::= { cegBufferStats 5 }
+
+cegBufferBytesEnqueued OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total bytes of
+        data enqueued to the buffering agent."
+    ::= { cegBufferStats 6 }
+
+cegBufferBytesDequeued OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total bytes of
+        data dequeued from the buffering agent."
+    ::= { cegBufferStats 7 }
+
+cegBufferRejMemUnavailable OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of times, buffer
+        allocation is rejected by gateway due to, requested memory
+        is greater than cegTotalBufferAvailable."
+    ::= { cegBufferStats 8 }
+
+cegBufferRejLowMem OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of times, buffer
+        allocation is rejected due to, low memory availability in
+        the gateway."
+    ::= { cegBufferStats 9 }
+
+cegPacketDropDueToMaxPacketLimit OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of packet drops due to bearer
+        maximum packet limit."
+    ::= { cegBufferStats 10 }
+
+cegPacketDropDueToMaxBufferLimit OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the number of packet drops due to bearer
+        maximum buffer limit."
+    ::= { cegBufferStats 11 }
+
+cegCongestionLowThreshold OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the low threshold
+        for congestion. Congestion DFP metric
+        considers the current CPU memory usage
+        and number of bearers open. On reaching
+        the low congestion threshold, based on the
+        ARP, high priority calls are accepted and
+        those with a lower priority are rejected."
+    DEFVAL { 95 }
+    ::= { cegOverloadProtectionConfig 1 }
+
+cegCongestionHighThreshold OBJECT-TYPE
+    SYNTAX Gauge(0..100)
+--  Units
+--    percent
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the high threshold
+        for congestion. Congestion DFP metric
+        considers the current CPU memory usage
+        and number of bearers open. Once the
+        high threshold is reached all new calls
+        are rejected."
+    DEFVAL { 100 }
+    ::= { cegOverloadProtectionConfig 2 }
+
+cegBufferingAgentEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the state of
+        the buffering agent. 
+        
+        'true' - indicates that the buffering agent
+                 is enabled.
+        'false' - indicates that the buffering agent
+                  is disabled."
+    DEFVAL { false }
+    ::= { cegBufferingAgentConfig 1 }
+
+cegBufferMaxSize OBJECT-TYPE
+    SYNTAX Gauge(400..12000)
+--  Units
+--    Bytes
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the maximum size of a
+        buffer that can be allocated for a bearer.
+        
+        This object is directly dependent on object
+        cegBufferingAgentEnabled and is applicable
+        only when buffering agent is enabled, that is
+        when cegBufferingAgentEnabled is 'true'."
+    DEFVAL { 1024 }
+    ::= { cegBufferingAgentConfig 2 }
+
+cegBufferDiscardDataTime OBJECT-TYPE
+    SYNTAX Gauge(1..300)
+--  Units
+--    second
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the duration for which
+        the buffering agent waits before discarding a
+        buffer.
+        
+        The discard timer begins when a packet is
+        enqueued in the allocated buffer for a bearer.
+        Whenever a packet is enqueued for a bearer, the
+        discard timer is reset. If the timer expires,
+        then the buffer is freed."
+    DEFVAL { 30 }
+    ::= { cegBufferingAgentConfig 3 }
+
+cegBufferMaxPacketsPerBuffer OBJECT-TYPE
+    SYNTAX Gauge(1..15)
+--  Units
+--    packet
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maximum
+        number of packets allowed per buffer in
+        buffering agent.
+        
+        Any new incoming packet after this
+        value has reached its maximum will be
+        dropped."
+    DEFVAL { 5 }
+    ::= { cegBufferingAgentConfig 4 }
+
+cegVersion OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..100))
+--    Rsyntax OCTET STRING(SIZE(1..100))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the current
+        version of the PGW or SGW software
+        running on the gateway.
+        
+        Display format: 
+        <software> : <version>:<release>."
+    ::= { ciscoEpcGatewayStatus 1 }
+
+cegActivatedIpv4Bearers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bearer
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total
+        activated IPv4 GTPv2 bearers."
+    ::= { ciscoEpcGatewayStatus 2 }
+
+cegActivatedIpv6Bearers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bearer
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total
+        activated IPv6 GTPv2 bearers."
+    ::= { ciscoEpcGatewayStatus 3 }
+
+cegTotalUsers OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of
+        users connected to the gateway."
+    ::= { ciscoEpcGatewayStatus 4 }
+
+cegTotalIdleUsers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Users
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of users
+        currently in ISR state in the gateway."
+    ::= { ciscoEpcGatewayStatus 5 }
+
+cegTotalSuspendedUsers OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of users
+        suspended by the gateway.
+        
+        A user would be suspended when E-UTRAN coverage is
+        overlapped by either GERAN or UTRAN coverage leading
+        to a Circuit Switch fallback from E-UTRAN. The Circuit
+        Switch fallback enables reuse of voice and other Circuit
+        Switch services by reuse of the Circuit Switch
+        infrastructure."
+    ::= { ciscoEpcGatewayStatus 6 }
+
+cegActivatedIpv4v6Sessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of activated
+        IPv4v6 sessions."
+    ::= { ciscoEpcGatewayStatus 7 }
+
+cegActivatedIpv4v6Bearers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    bearers
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of activated
+        IPv4v6 bearers."
+    ::= { ciscoEpcGatewayStatus 10 }
+
+cegActivatedGtpv2SgwSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of activated
+        GTPV2 sessions in SGW mode."
+    ::= { ciscoEpcGatewayStatus 11 }
+
+cegActivatedGtpv2PgwSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of activated
+        GTPV2 sessions in PGW mode."
+    ::= { ciscoEpcGatewayStatus 12 }
+
+cegActivatedGtpv2SPgwSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of activated
+        GTPV2 sessions in SP GW mode."
+    ::= { ciscoEpcGatewayStatus 13 }
+
+cegCongestionDfpWeight OBJECT-TYPE
+    SYNTAX Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the DFP weight value, which
+        is the measure of the load on CPU in the gateway."
+    ::= { cegOverloadProtectionStatus 1 }
+
+cegCongestionStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        normal(1),
+        low(2),
+        high(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the gateway congestion
+        status.
+        
+        normal - The gateway is not in a congestion state.
+                 At this state, the value of cegCongestionDfpWeight
+                 is less than value of cegCongestionLowThreshold.
+        low - The gateway is running in low congestion state.
+              At this state, the value of cegCongestionDfpWeight
+              is more than value of cegCongestionLowThreshold but 
+              less than value of cegCongestionHighThreshold.
+        high - The gateway is running in high congestion state.
+              At this state, the value of cegCongestionDfpWeight
+              is more than value of cegCongestionHighThreshold."
+    ::= { cegOverloadProtectionStatus 2 }
+
+cegCongestionLowLastOccurTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the timestamp at
+        which low congestion last occurred on the
+        gateway."
+    ::= { cegOverloadProtectionStatus 3 }
+
+cegCongestionLowLastDuration OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the duration of
+        last low congestion."
+    ::= { cegOverloadProtectionStatus 4 }
+
+cegCongestionHighLastOccurTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the timestamp at
+        which high congestion last occurred on the
+        gateway."
+    ::= { cegOverloadProtectionStatus 5 }
+
+cegCongestionHighLastDuration OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the duration of
+        the last high congestion."
+    ::= { cegOverloadProtectionStatus 6 }
+
+cegActivatedBearers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Bearers
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of default and
+        dedicated bearers currently active in the Gateway."
+    ::= { ciscoEpcGatewayStatus 14 }
+
+cegActivatedDedicatedBearers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Bearers
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of
+        dedicated bearers currently active in the Gateway."
+    ::= { ciscoEpcGatewayStatus 15 }
+
+cegActivatedIpv4DedicatedBearers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Bearers
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of IPv4
+        dedicated bearers currently active in the Gateway."
+    ::= { ciscoEpcGatewayStatus 16 }
+
+cegActivatedIpv6DedicatedBearers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Bearers
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of IPv6
+        dedicated bearers currently active in the Gateway."
+    ::= { ciscoEpcGatewayStatus 17 }
+
+cegTotalIdleSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of sessions
+        currently in Idle state in the gateway."
+    ::= { ciscoEpcGatewayStatus 18 }
+
+cegTotalInUseBuffers OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    buffer
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total
+        number of buffers currently allocated
+        for the bearers, by buffering agents."
+    ::= { cegBufferStatus 1 }
+
+cegTotalBufferedPackets OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packet
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total
+        number of packets buffered at present
+        in the buffers of buffering agents."
+    ::= { cegBufferStatus 2 }
+
+cegTotalBufferedBytes OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total
+        number of bytes buffered at present
+        in the buffers of buffering agents."
+    ::= { cegBufferStatus 3 }
+
+cegTotalBufferAvailable OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    Bytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total
+        unallocated bytes at buffering agents."
+    ::= { cegBufferStatus 4 }
+
+cegCongestionHighNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object controls the generation of
+        cegCongestionHighThresholdNotif as follows:
+         'true(1)' - the generation of cegCongestionHighThresholdNotif 
+                     notifications is enabled.
+         'false(2)' - the generation of cegCongestionHighThresholdNotif 
+                     notifications is disabled."
+    DEFVAL { false }
+    ::= { ciscoEpcGatewayNotifMgmt 1 }
+
+cegCongestionLowNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object controls the generation of
+        cegCongestionLowThresholdNotif as follows:
+         'true(1)' - the generation of cegCongestionLowThresholdNotif 
+                     notifications is enabled.
+         'false(2)' - the generation of cegCongestionLowThresholdNotif 
+                     notifications is disabled."
+    DEFVAL { false }
+    ::= { ciscoEpcGatewayNotifMgmt 2 }
+
+cegCongestionClearNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object controls the generation of
+        cegCongestionClearedNotif as follows:
+         'true(1)' - the generation of cegCongestionClearedNotif 
+                     notifications is enabled.
+         'false(2)' - the generation of cegCongestionClearedNotif 
+                     notifications is disabled."
+    DEFVAL { false }
+    ::= { ciscoEpcGatewayNotifMgmt 3 }
+
+cegCongestionHighThresholdNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEpcGatewayMIB
+    VARIABLES {
+        cegVersion, cegCongestionDfpWeight, cegCongestionStatus, 
+        cegCongestionHighThreshold }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification will be sent when
+        the gateway congestion level goes above
+        cegCongestionHighThreshold value.
+        
+        This gives an indication that the gateway
+        is running at high congestion and at this
+        state it would reject all new calls."
+    ::= 1
+
+cegCongestionLowThresholdNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEpcGatewayMIB
+    VARIABLES {
+        cegVersion, cegCongestionDfpWeight, cegCongestionStatus, 
+        cegCongestionLowThreshold, cegCongestionHighThreshold }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification will be sent when
+        the gateway congestion level goes above
+        cegCongestionLowThreshold value.
+        
+        This gives an indication that the gateway
+        is running at low congestion at this
+        state it can accept only the high priority
+        calls and those with a lower priority would
+        be rejected."
+    ::= 2
+
+cegCongestionClearedNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEpcGatewayMIB
+    VARIABLES {
+        cegVersion, cegCongestionDfpWeight, cegCongestionStatus, 
+        cegCongestionLowThreshold }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification will be sent when
+        the gateway congestion level goes below
+        cegCongestionLowThreshold value.
+        
+        This gives an indication that the gateway
+        has recovered from congestion and it can
+        accept all calls."
+    ::= 3
+
+cegSystemStatusGrp OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of objects to provide the
+--    system status.
+--  objects
+--    cegVersion, cegActivatedIpv4Bearers, cegActivatedIpv6Bearers, 
+--    cegTotalUsers, cegTotalSuspendedUsers, 
+--    cegActivatedIpv4v6Sessions, cegTotalIdleUsers
+
+cegOverloadProtectionStatsGrp OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of objects to provide the
+--    overload protection statistics.
+--  objects
+--    cegCongestionIncomingReqDrops, 
+--    cegCongestionHighThresholdReached, 
+--    cegCongestionLowThresholdReached
+
+cegBufferingAgentStatsGrp OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of objects to provide the
+--    buffering agent statistics.
+--  objects
+--    cegBuffersCreated, cegBufferPacketsEnqueued, 
+--    cegBufferBytesEnqueued, cegBufferPacketsDequeued, 
+--    cegBufferBytesDequeued, cegBuffersDeleted, cegBuffersTimedOut, 
+--    cegBufferRejMemUnavailable, cegBufferRejLowMem
+
+cegOverloadProtectionConfigGrp OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of objects which configures
+--    attributes for overload protection.
+--  objects
+--    cegCongestionLowThreshold, cegCongestionHighThreshold
+
+cegBufferingAgentConfigGrp OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of objects which configures
+--    the buffering agent.
+--  objects
+--    cegBufferingAgentEnabled, cegBufferMaxSize, 
+--    cegBufferDiscardDataTime, cegBufferMaxPacketsPerBuffer
+
+cegBufferingAgentStatusGrp OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of objects to provide the
+--    buffering agent status.
+--  objects
+--    cegTotalInUseBuffers, cegTotalBufferedPackets, 
+--    cegTotalBufferedBytes, cegTotalBufferAvailable
+
+cegOverloadProtectionStatusGrp OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of objects to provide the
+--    overload protection status.
+--  objects
+--    cegCongestionDfpWeight, cegCongestionStatus, 
+--    cegCongestionLowLastOccurTime, cegCongestionLowLastDuration, 
+--    cegCongestionHighLastOccurTime, cegCongestionHighLastDuration
+
+cegOverloadProtectionNotifMgmtGrp OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of objects which controls
+--    the generation of congestion notification in the system.
+--  objects
+--    cegCongestionHighNotifEnable, cegCongestionLowNotifEnable, 
+--    cegCongestionClearNotifEnable
+
+cegSystemStatusGrpSup1 OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has objects to supplement the cegSystemStatusGrp.
+--  objects
+--    cegActivatedIpv4v6Bearers, cegActivatedGtpv2SgwSessions, 
+--    cegActivatedGtpv2PgwSessions, cegActivatedGtpv2SPgwSessions
+
+cegSystemStatusGrpSup2 OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has objects to supplement the cegSystemStatusGrp
+--  objects
+--    cegActivatedBearers, cegActivatedDedicatedBearers, 
+--    cegActivatedIpv4DedicatedBearers, 
+--    cegActivatedIpv6DedicatedBearers
+
+cegSystemStatusGrpSup3 OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of objects which provides the
+--    details of the EPC Gateway status and supplements the
+--    cegSystemStatusGrp.
+--  objects
+--    cegTotalIdleSessions
+
+cegBufferingAgentStatsGrpSup1 OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of objects to provide the buffering
+--    agent statistics related to packet drops based on max limit.
+--  objects
+--    cegPacketDropDueToMaxPacketLimit, 
+--    cegPacketDropDueToMaxBufferLimit
+
+cegOverloadProtectionNotifGrp OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBGroups 9 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group has a collection of notification which informs
+--    about the congestion level in the system.
+--  notifications
+--    cegCongestionHighThresholdNotif, 
+--    cegCongestionLowThresholdNotif, cegCongestionClearedNotif
+
+ciscoEpcGatewayMIBCompliance OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement is for the entities
+--    which implement CISCO-EPC-GATEWAY-MIB.
+--    This is deprecated by ciscoEpcGatewayMIBComplianceRev1.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cegSystemStatusGrp
+--   MandGroup
+--    cegOverloadProtectionStatsGrp
+--   MandGroup
+--    cegOverloadProtectionConfigGrp
+--   MandGroup
+--    cegOverloadProtectionStatusGrp
+--   MandGroup
+--    cegOverloadProtectionNotifMgmtGrp
+--   MandGroup
+--    cegOverloadProtectionNotifGrp
+--   OptGroup
+--    cegBufferingAgentStatsGrp
+--   OptGroup
+--    cegBufferingAgentConfigGrp
+--   OptGroup
+--    cegBufferingAgentStatusGrp
+
+ciscoEpcGatewayMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement is for the entities
+--    which implement CISCO-EPC-GATEWAY-MIB.
+--    This is deprecated by ciscoEpcGatewayMIBComplianceRev2.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cegSystemStatusGrp
+--   MandGroup
+--    cegOverloadProtectionStatsGrp
+--   MandGroup
+--    cegOverloadProtectionConfigGrp
+--   MandGroup
+--    cegOverloadProtectionStatusGrp
+--   MandGroup
+--    cegOverloadProtectionNotifMgmtGrp
+--   MandGroup
+--    cegOverloadProtectionNotifGrp
+--   MandGroup
+--    cegSystemStatusGrpSup1
+--   OptGroup
+--    cegBufferingAgentStatsGrp
+--   OptGroup
+--    cegBufferingAgentConfigGrp
+--   OptGroup
+--    cegBufferingAgentStatusGrp
+
+ciscoEPCGatewayMIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement is for the entities
+--    which implement CISCO-EPC-GATEWAY-MIB. 
+--    This is superceded by ciscoEpcGatewayMIBComplianceRev3.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cegSystemStatusGrp
+--   MandGroup
+--    cegOverloadProtectionConfigGrp
+--   MandGroup
+--    cegOverloadProtectionNotifMgmtGrp
+--   MandGroup
+--    cegOverloadProtectionStatsGrp
+--   MandGroup
+--    cegOverloadProtectionStatusGrp
+--   MandGroup
+--    cegOverloadProtectionNotifGrp
+--   MandGroup
+--    cegSystemStatusGrpSup1
+--   MandGroup
+--    cegSystemStatusGrpSup2
+--   OptGroup
+--    cegBufferingAgentStatsGrp
+--   OptGroup
+--    cegBufferingAgentConfigGrp
+--   OptGroup
+--    cegBufferingAgentStatusGrp
+
+ciscoEpcGatewayMIBComplianceRev3 OBJECT IDENTIFIER ::= { ciscoEpcGatewayMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement is for the entities
+--    which implement CISCO-EPC-GATEWAY-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cegSystemStatusGrp
+--   MandGroup
+--    cegOverloadProtectionStatsGrp
+--   MandGroup
+--    cegOverloadProtectionConfigGrp
+--   MandGroup
+--    cegOverloadProtectionStatusGrp
+--   MandGroup
+--    cegOverloadProtectionNotifMgmtGrp
+--   MandGroup
+--    cegOverloadProtectionNotifGrp
+--   MandGroup
+--    cegSystemStatusGrpSup1
+--   MandGroup
+--    cegSystemStatusGrpSup2
+--   MandGroup
+--    cegSystemStatusGrpSup3
+--   OptGroup
+--    cegBufferingAgentStatsGrp
+--   OptGroup
+--    cegBufferingAgentConfigGrp
+--   OptGroup
+--    cegBufferingAgentStatusGrp
+--   OptGroup
+--    cegBufferingAgentStatsGrpSup1
+
+
+END
+

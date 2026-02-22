@@ -1,0 +1,696 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-EVENT-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- EVENT management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-EVENT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsConditionActionIndicator,
+    CucsConditionCause,
+    CucsConditionCode,
+    CucsConditionRule,
+    CucsConditionSeverity,
+    CucsConditionTag,
+    CucsConditionType,
+    CucsEventEpCtrlLevel,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsEventObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        EVENT management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 17 }
+
+cucsEventEpCtrlTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEventEpCtrlEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS event:EpCtrl managed object table"
+    ::= { cucsEventObjects 1 }
+
+cucsEventEpCtrlEntry OBJECT-TYPE
+    SYNTAX           CucsEventEpCtrlEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEventEpCtrlTable table."
+    INDEX { cucsEventEpCtrlInstanceId }
+    ::= { cucsEventEpCtrlTable 1 }
+
+CucsEventEpCtrlEntry ::= SEQUENCE {
+    cucsEventEpCtrlInstanceId                                        CucsManagedObjectId,
+    cucsEventEpCtrlDn                                                CucsManagedObjectDn,
+    cucsEventEpCtrlRn                                                SnmpAdminString,
+    cucsEventEpCtrlLevel                                             CucsEventEpCtrlLevel,
+    cucsEventEpCtrlRevertTimeout                                     TimeIntervalSec
+}
+
+cucsEventEpCtrlInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEventEpCtrlEntry 1 }
+
+cucsEventEpCtrlDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:EpCtrl:dn managed object property"
+    ::= { cucsEventEpCtrlEntry 2 }
+
+cucsEventEpCtrlRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:EpCtrl:rn managed object property"
+    ::= { cucsEventEpCtrlEntry 3 }
+
+cucsEventEpCtrlLevel OBJECT-TYPE
+    SYNTAX       CucsEventEpCtrlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:EpCtrl:level managed object property"
+    ::= { cucsEventEpCtrlEntry 4 }
+
+cucsEventEpCtrlRevertTimeout OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:EpCtrl:revertTimeout managed object property"
+    ::= { cucsEventEpCtrlEntry 5 }
+
+cucsEventHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEventHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS event:Holder managed object table"
+    ::= { cucsEventObjects 2 }
+
+cucsEventHolderEntry OBJECT-TYPE
+    SYNTAX           CucsEventHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEventHolderTable table."
+    INDEX { cucsEventHolderInstanceId }
+    ::= { cucsEventHolderTable 1 }
+
+CucsEventHolderEntry ::= SEQUENCE {
+    cucsEventHolderInstanceId                                        CucsManagedObjectId,
+    cucsEventHolderDn                                                CucsManagedObjectDn,
+    cucsEventHolderRn                                                SnmpAdminString,
+    cucsEventHolderName                                              SnmpAdminString
+}
+
+cucsEventHolderInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEventHolderEntry 1 }
+
+cucsEventHolderDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Holder:dn managed object property"
+    ::= { cucsEventHolderEntry 2 }
+
+cucsEventHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Holder:rn managed object property"
+    ::= { cucsEventHolderEntry 3 }
+
+cucsEventHolderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Holder:name managed object property"
+    ::= { cucsEventHolderEntry 4 }
+
+cucsEventInstTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEventInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS event:Inst managed object table"
+    ::= { cucsEventObjects 3 }
+
+cucsEventInstEntry OBJECT-TYPE
+    SYNTAX           CucsEventInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEventInstTable table."
+    INDEX { cucsEventInstInstanceId }
+    ::= { cucsEventInstTable 1 }
+
+CucsEventInstEntry ::= SEQUENCE {
+    cucsEventInstInstanceId                                          CucsManagedObjectId,
+    cucsEventInstDn                                                  CucsManagedObjectDn,
+    cucsEventInstRn                                                  SnmpAdminString,
+    cucsEventInstCause                                               CucsConditionCause,
+    cucsEventInstChangeSet                                           SnmpAdminString,
+    cucsEventInstCode                                                CucsConditionCode,
+    cucsEventInstCreated                                             DateAndTime,
+    cucsEventInstDescr                                               SnmpAdminString,
+    cucsEventInstId                                                  Unsigned64,
+    cucsEventInstRule                                                CucsConditionRule,
+    cucsEventInstSeverity                                            CucsConditionSeverity,
+    cucsEventInstTags                                                CucsConditionTag,
+    cucsEventInstType                                                CucsConditionType
+}
+
+cucsEventInstInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEventInstEntry 1 }
+
+cucsEventInstDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:dn managed object property"
+    ::= { cucsEventInstEntry 2 }
+
+cucsEventInstRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:rn managed object property"
+    ::= { cucsEventInstEntry 3 }
+
+cucsEventInstCause OBJECT-TYPE
+    SYNTAX       CucsConditionCause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:cause managed object property"
+    ::= { cucsEventInstEntry 4 }
+
+cucsEventInstChangeSet OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:changeSet managed object property"
+    ::= { cucsEventInstEntry 5 }
+
+cucsEventInstCode OBJECT-TYPE
+    SYNTAX       CucsConditionCode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:code managed object property"
+    ::= { cucsEventInstEntry 6 }
+
+cucsEventInstCreated OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:created managed object property"
+    ::= { cucsEventInstEntry 7 }
+
+cucsEventInstDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:descr managed object property"
+    ::= { cucsEventInstEntry 8 }
+
+cucsEventInstId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:id managed object property"
+    ::= { cucsEventInstEntry 9 }
+
+cucsEventInstRule OBJECT-TYPE
+    SYNTAX       CucsConditionRule
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:rule managed object property"
+    ::= { cucsEventInstEntry 10 }
+
+cucsEventInstSeverity OBJECT-TYPE
+    SYNTAX       CucsConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:severity managed object property"
+    ::= { cucsEventInstEntry 11 }
+
+cucsEventInstTags OBJECT-TYPE
+    SYNTAX       CucsConditionTag
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:tags managed object property"
+    ::= { cucsEventInstEntry 12 }
+
+cucsEventInstType OBJECT-TYPE
+    SYNTAX       CucsConditionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Inst:type managed object property"
+    ::= { cucsEventInstEntry 13 }
+
+cucsEventLogTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEventLogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS event:Log managed object table"
+    ::= { cucsEventObjects 4 }
+
+cucsEventLogEntry OBJECT-TYPE
+    SYNTAX           CucsEventLogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEventLogTable table."
+    INDEX { cucsEventLogInstanceId }
+    ::= { cucsEventLogTable 1 }
+
+CucsEventLogEntry ::= SEQUENCE {
+    cucsEventLogInstanceId                                           CucsManagedObjectId,
+    cucsEventLogDn                                                   CucsManagedObjectDn,
+    cucsEventLogRn                                                   SnmpAdminString,
+    cucsEventLogMaxSize                                              Gauge32,
+    cucsEventLogPurgeWindow                                          Gauge32,
+    cucsEventLogSize                                                 Gauge32
+}
+
+cucsEventLogInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEventLogEntry 1 }
+
+cucsEventLogDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Log:dn managed object property"
+    ::= { cucsEventLogEntry 2 }
+
+cucsEventLogRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Log:rn managed object property"
+    ::= { cucsEventLogEntry 3 }
+
+cucsEventLogMaxSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Log:maxSize managed object property"
+    ::= { cucsEventLogEntry 4 }
+
+cucsEventLogPurgeWindow OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Log:purgeWindow managed object property"
+    ::= { cucsEventLogEntry 5 }
+
+cucsEventLogSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Log:size managed object property"
+    ::= { cucsEventLogEntry 6 }
+
+cucsEventPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEventPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS event:Policy managed object table"
+    ::= { cucsEventObjects 5 }
+
+cucsEventPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsEventPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEventPolicyTable table."
+    INDEX { cucsEventPolicyInstanceId }
+    ::= { cucsEventPolicyTable 1 }
+
+CucsEventPolicyEntry ::= SEQUENCE {
+    cucsEventPolicyInstanceId                                        CucsManagedObjectId,
+    cucsEventPolicyDn                                                CucsManagedObjectDn,
+    cucsEventPolicyRn                                                SnmpAdminString,
+    cucsEventPolicyDescr                                             SnmpAdminString,
+    cucsEventPolicyIntId                                             SnmpAdminString,
+    cucsEventPolicyName                                              SnmpAdminString,
+    cucsEventPolicyRetentionInterval                                 TimeIntervalSec,
+    cucsEventPolicySizeLimit                                         Gauge32,
+    cucsEventPolicyPolicyLevel                                       Gauge32,
+    cucsEventPolicyPolicyOwner                                       CucsPolicyPolicyOwner,
+    cucsEventPolicyPinningExpirationInterval                         TimeIntervalSec
+}
+
+cucsEventPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEventPolicyEntry 1 }
+
+cucsEventPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Policy:dn managed object property"
+    ::= { cucsEventPolicyEntry 2 }
+
+cucsEventPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Policy:rn managed object property"
+    ::= { cucsEventPolicyEntry 3 }
+
+cucsEventPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Policy:descr managed object property"
+    ::= { cucsEventPolicyEntry 4 }
+
+cucsEventPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Policy:intId managed object property"
+    ::= { cucsEventPolicyEntry 5 }
+
+cucsEventPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Policy:name managed object property"
+    ::= { cucsEventPolicyEntry 6 }
+
+cucsEventPolicyRetentionInterval OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Policy:retentionInterval managed object property"
+    ::= { cucsEventPolicyEntry 7 }
+
+cucsEventPolicySizeLimit OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Policy:sizeLimit managed object property"
+    ::= { cucsEventPolicyEntry 8 }
+
+cucsEventPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Policy:policyLevel managed object property"
+    ::= { cucsEventPolicyEntry 9 }
+
+cucsEventPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Policy:policyOwner managed object property"
+    ::= { cucsEventPolicyEntry 10 }
+
+cucsEventPolicyPinningExpirationInterval OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Policy:pinningExpirationInterval
+        managed object property"
+    ::= { cucsEventPolicyEntry 11 }
+
+cucsEventRecordTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEventRecordEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS event:Record managed object table"
+    ::= { cucsEventObjects 6 }
+
+cucsEventRecordEntry OBJECT-TYPE
+    SYNTAX           CucsEventRecordEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEventRecordTable table."
+    INDEX { cucsEventRecordInstanceId }
+    ::= { cucsEventRecordTable 1 }
+
+CucsEventRecordEntry ::= SEQUENCE {
+    cucsEventRecordInstanceId                                        CucsManagedObjectId,
+    cucsEventRecordDn                                                CucsManagedObjectDn,
+    cucsEventRecordRn                                                SnmpAdminString,
+    cucsEventRecordAffected                                          SnmpAdminString,
+    cucsEventRecordCause                                             CucsConditionCause,
+    cucsEventRecordChangeSet                                         SnmpAdminString,
+    cucsEventRecordCode                                              CucsConditionCode,
+    cucsEventRecordCreated                                           DateAndTime,
+    cucsEventRecordDescr                                             SnmpAdminString,
+    cucsEventRecordId                                                Unsigned64,
+    cucsEventRecordInd                                               Gauge32,
+    cucsEventRecordSeverity                                          CucsConditionSeverity,
+    cucsEventRecordTrig                                              Gauge32,
+    cucsEventRecordTxId                                              Unsigned64,
+    cucsEventRecordUser                                              SnmpAdminString,
+    cucsEventRecordSessionId                                         SnmpAdminString
+}
+
+cucsEventRecordInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEventRecordEntry 1 }
+
+cucsEventRecordDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:dn managed object property"
+    ::= { cucsEventRecordEntry 2 }
+
+cucsEventRecordRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:rn managed object property"
+    ::= { cucsEventRecordEntry 3 }
+
+cucsEventRecordAffected OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:affected managed object property"
+    ::= { cucsEventRecordEntry 4 }
+
+cucsEventRecordCause OBJECT-TYPE
+    SYNTAX       CucsConditionCause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:cause managed object property"
+    ::= { cucsEventRecordEntry 5 }
+
+cucsEventRecordChangeSet OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:changeSet managed object property"
+    ::= { cucsEventRecordEntry 6 }
+
+cucsEventRecordCode OBJECT-TYPE
+    SYNTAX       CucsConditionCode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:code managed object property"
+    ::= { cucsEventRecordEntry 7 }
+
+cucsEventRecordCreated OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:created managed object property"
+    ::= { cucsEventRecordEntry 8 }
+
+cucsEventRecordDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:descr managed object property"
+    ::= { cucsEventRecordEntry 9 }
+
+cucsEventRecordId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:id managed object property"
+    ::= { cucsEventRecordEntry 10 }
+
+cucsEventRecordInd OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:ind managed object property"
+    ::= { cucsEventRecordEntry 11 }
+
+cucsEventRecordSeverity OBJECT-TYPE
+    SYNTAX       CucsConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:severity managed object property"
+    ::= { cucsEventRecordEntry 12 }
+
+cucsEventRecordTrig OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:trig managed object property"
+    ::= { cucsEventRecordEntry 13 }
+
+cucsEventRecordTxId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:txId managed object property"
+    ::= { cucsEventRecordEntry 14 }
+
+cucsEventRecordUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:user managed object property"
+    ::= { cucsEventRecordEntry 15 }
+
+cucsEventRecordSessionId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS event:Record:sessionId managed object property"
+    ::= { cucsEventRecordEntry 16 }
+
+END

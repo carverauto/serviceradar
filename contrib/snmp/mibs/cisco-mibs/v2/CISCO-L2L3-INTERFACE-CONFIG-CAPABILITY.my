@@ -1,0 +1,93 @@
+-- *****************************************************************
+-- CISCO-L2L3-INTERFACE-CONFIG-CAPABILITY.my:
+-- Cisco CISCO-L2L3-INTERFACE-CONFIG-MIB AGENT-CAPABILITIES
+--   
+-- Aug 2003, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2003-2014 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-L2L3-INTERFACE-CONFIG-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoL2L3IfConfigCapability MODULE-IDENTITY
+    LAST-UPDATED    "201404040000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The agent capabilities description of
+        CISCO-L2L3-INTERFACE-CONFIG-MIB."
+    REVISION        "201404040000Z"
+    DESCRIPTION
+        "Added ciscoL2L3IfConfigCapNxOSV06R0201PMds agent
+        capability statement."
+    REVISION        "201308280000Z"
+    DESCRIPTION
+        "Added ciscoL2L3IfConfigCapNxOSV06R0202PN7K agent
+        capability statement."
+    REVISION        "200402030000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 326 }
+
+
+
+ciscoL2L3IfConfigCapV12R0119E AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(19E) on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L2L3-INTERFACE-CONFIG-MIB agent
+        capabilities."
+
+    SUPPORTS        CISCO-L2L3-INTERFACE-CONFIG-MIB
+    INCLUDES        { ciscoL2L3IfConfigMIBGroup }
+    ::= { ciscoL2L3IfConfigCapability 1 }
+
+ciscoL2L3IfConfigCapNxOSV06R0202PN7K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(2) on 
+                    Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L2L3-INTERFACE-CONFIG-MIB agent
+        capabilities."
+
+    SUPPORTS        CISCO-L2L3-INTERFACE-CONFIG-MIB
+    INCLUDES        { ciscoL2L3IfConfigMIBGroup }
+    ::= { ciscoL2L3IfConfigCapability 2 }
+
+ciscoL2L3IfConfigCapNxOSV06R0201PMds AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(1) on MDS series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L2L3-INTERFACE-CONFIG-MIB agent
+        capabilities."
+
+    SUPPORTS        CISCO-L2L3-INTERFACE-CONFIG-MIB
+    INCLUDES        { ciscoL2L3IfConfigMIBGroup }
+    ::= { ciscoL2L3IfConfigCapability 3 }
+
+END
+
+
+
+

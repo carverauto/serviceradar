@@ -1,0 +1,1364 @@
+-- MIB file created 04-May-2006 17:31:20, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-NETWORK-REGISTRAR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-NETWORK-REGISTRAR-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString, TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge, IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoNetworkRegistrarMIB OBJECT IDENTIFIER ::= { ciscoMgmt 120 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200503030000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--         Postal: 170 W Tasman Drive
+--                 San Jose, CA  95134
+--                 USA
+--    
+--         Tel: +1 800 553-NETS
+--    
+--         E-mail: cs-cnr-snmp@cisco.com
+--  Descr
+--    MIB for Cisco Network Registrar (CNR).
+--  RevDate
+--    200503030000Z
+--  RevDescr
+--    Added the following new notification:
+--       ciscoNetRegHaDnsPartnerUp
+--       ciscoNetRegMastersNotResp
+--       ciscoNetRegMastersResp 
+--       ciscoNetRegSecondaryZonesExpired 
+--       ciscoNetRegDnsForwardersNotResp 
+--       ciscoNetRegDnsForwardersResp 
+--       ciscoNetRegHaDnsConfigErr 
+--       ciscoNetRegFreeAddrLow 
+--       ciscoNetRegFreeAddrHigh
+--       
+--     Added the following new objects:
+--       cnrNotifDHCPScopeFreeAddrLow 
+--       cnrNotifDHCPScopeFreeAddrHigh 
+--       cnrNotifDHCPScopeFreeAddrValue 
+--       cnrNotifDHCPThresholdType 
+--       cnrNotifDHCPThresholdValue 
+--       cnrNotifDHCPScopeName 
+--       cnrNotifPrimarySubnetNumber
+--       cnrNotifRelatedServerType  
+--       cnrNotifDnsServerIpAddress 
+--       cnrNotifZoneName 
+--       cnrNotifDnsRemoteServersList 
+--       
+--     Deprecated the following notifications:
+--       ciscoNetRegFreeAddressLow
+--       ciscoNetRegFreeAddressHigh
+--       ciscoNetRegOtherServerNotResponding 
+--       ciscoNetRegOtherServerResponding
+--     
+--     Deprecated the following objects in cnrDHCPScopeTable:
+--       cnrDHCPScopeName                 
+--       cnrDHCPScopeFreeAddrLowThreshold 
+--       cnrDHCPScopeFreeAddrHighThreshold
+--       cnrDHCPScopeFreeAddrValue        
+--       cnrDHCPScopeFreeAddrUnits        
+--  RevDate
+--    200301110000Z
+--  RevDescr
+--    Added configuration objects to enable
+--     or disable notifications.
+--  RevDate
+--    9906170000Z
+--  RevDescr
+--    Fixed OID for ciscoNetworkRegistrarMIBConformance
+--  RevDate
+--    9811010000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoNetworkRegistrarMIBObjects OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIB 1 }
+cnrDHCP         OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBObjects 1 }
+cnrNotifObjects OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBObjects 2 }
+cnrNotifCfgObjects OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBObjects 3 }
+ciscoNetRegMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIB 2 }
+ciscoNetRegMIBNotifications OBJECT IDENTIFIER ::= { ciscoNetRegMIBNotificationPrefix 0 }
+ciscoNetworkRegistrarMIBConformance OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIB 3 }
+ciscoNetworkRegistrarMIBCompliances OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBConformance 1 }
+ciscoNetworkRegistrarMIBGroups OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBConformance 2 }
+
+CnrPhysAddress ::= OCTET STRING(SIZE(1..32))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A Layer 1 address which includes the hardware address
+--     space as well as the usual MAC address. This object is
+--     encoded in ASCII as
+--         <type>,<length>,<address>
+--     where
+--         <type> is the value of the hardware address space
+--         field, as used in ARP (i.e, 1 for Ethernet,
+--         6 for token ring...)  IANA has a list of
+--         registered numbers for this field.
+--         <length>  is the length of the address, in bytes (not
+--         ASCII chars)
+--         <address> is the ASCII hex-encoded address (2 ASCII
+--          characters per byte; 12 chars for an Ethernet
+--         address.)
+--     This encoding is intended to mirror the representation
+--     of MAC addresses in DHCP.
+--  Refer
+--    RFC 2131
+
+-- cnrDHCPScopeTable OBJECT-TYPE
+--     SYNTAX SEQUENCE OF CnrDHCPScopeEntry
+--     ACCESS not-accessible
+--     STATUS deprecated
+--     DESCRIPTION
+--         "The table listing characteristics of all scopes.
+--         Entries in this table correspond to scopes, which are
+--         added and deleted via the CNR GUI or CLI."
+--     ::= { cnrDHCP 1 }
+
+-- cnrDHCPScopeEntry OBJECT-TYPE
+--     SYNTAX CnrDHCPScopeEntry
+--     ACCESS not-accessible
+--     STATUS deprecated
+--     DESCRIPTION
+--         "An entry in the cnrDHCPScopeTable."
+--     INDEX { cnrDHCPScopeName }
+--     ::= { cnrDHCPScopeTable 1 }
+
+-- CnrDHCPScopeEntry ::= SEQUENCE {
+--     cnrDHCPScopeName DisplayString,
+--     cnrDHCPScopeFreeAddrLowThreshold Gauge,
+--     cnrDHCPScopeFreeAddrHighThreshold Gauge,
+--     cnrDHCPScopeFreeAddrValue Gauge,
+--     cnrDHCPScopeFreeAddrUnits INTEGER
+--     }
+
+-- cnrDHCPScopeName OBJECT-TYPE
+--     SYNTAX DisplayString(SIZE(1..100))
+--    Rsyntax OCTET STRING(SIZE(1..100))
+--     ACCESS not-accessible
+--     STATUS deprecated
+--     DESCRIPTION
+--         "The name of the scope, which uniquely identifies
+--         an entry in the cnrDHCPScopeTable."
+--     ::= { cnrDHCPScopeEntry 1 }
+
+-- cnrDHCPScopeFreeAddrLowThreshold OBJECT-TYPE
+--     SYNTAX Gauge
+--     ACCESS not-accessible
+--     STATUS deprecated
+--     DESCRIPTION
+--         "The low threshold for available free addresses in
+--         this scope.  If the value for available free addresses
+--         in this scope becomes equal to or less than this value,
+--         a cnrDHCPScopeFreeAddrLowThreshold event is generated 
+--         for this scope.  No more cnrDHCPScopeFreeAddrLowThreshold
+--         events will be generated for this scope during this
+--         execution of the DHCP server until the value for available
+--         free addresses has exceeded the value of
+--         cnrDHCPScopeFreeAddrHighThreshold.
+--         
+--         This value may be expressed as either an absolute value
+--         or a percentage; the units are specified by the value of
+--         cnrDHCPScopeFreeAddrUnits."
+--     ::= { cnrDHCPScopeEntry 2 }
+
+-- cnrDHCPScopeFreeAddrHighThreshold OBJECT-TYPE
+--     SYNTAX Gauge
+--     ACCESS not-accessible
+--     STATUS deprecated
+--     DESCRIPTION
+--         "The high threshold for available free addresses in this
+--         scope.  If a cnrDHCPScopeFreeAddrLowThreshold event has
+--         been generated for this scope, and the value for available
+--         free addresses has exceeded the value of 
+--         cnrDHCPScopeFreeAddrHighThreshold, then a
+--         ciscoNetRegFreeAddressHigh event will be generated. No
+--         more ciscoNetRegFreeAddressHigh events will be generated
+--         for this scope during this execution of the DHCP server
+--         until the value for available free addresses becomes equal
+--         to or less than the value of 
+--         cnrDHCPScopeFreeAddrHighThreshold.
+--         
+--         This value may be expressed as either an absolute value
+--         or a percentage; the units are specified by the value of
+--         cnrDHCPScopeFreeAddrUnits."
+--     ::= { cnrDHCPScopeEntry 3 }
+
+-- cnrDHCPScopeFreeAddrValue OBJECT-TYPE
+--     SYNTAX Gauge
+--     ACCESS not-accessible
+--     STATUS deprecated
+--     DESCRIPTION
+--         "The number of IP addresses which are available
+--         within this scope.  May be expressed as either
+--         an absolute value or a percentage; the units are
+--         given by the value of cnrDHCPScopeFreeAddrUnits."
+--     ::= { cnrDHCPScopeEntry 4 }
+
+-- cnrDHCPScopeFreeAddrUnits OBJECT-TYPE
+--     SYNTAX INTEGER {
+--         value(1),
+--         percent(2)
+--         }
+--     ACCESS not-accessible
+--     STATUS deprecated
+--     DESCRIPTION
+--         "The units associated with the value of 
+--         cnrDHCPScopeFreeAddrValue."
+--     ::= { cnrDHCPScopeEntry 5 }
+
+cnrNotifDupIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address which was found to be a duplicate."
+    ::= { cnrNotifObjects 1 }
+
+cnrNotifMACAddress OBJECT-TYPE
+    SYNTAX CnrPhysAddress
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The offending MAC address which caused a duplicate IP
+         address to be detected."
+    ::= { cnrNotifObjects 2 }
+
+cnrNotifServer OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP Address of a server with which CNR
+         is attempting to communicate."
+    ::= { cnrNotifObjects 3 }
+
+cnrNotifServerType OBJECT-TYPE
+    SYNTAX INTEGER {
+        dns(1),
+        dhcp(2),
+        ldap(3),
+        tftp(4),
+        ccm(5)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of server."
+    ::= { cnrNotifObjects 4 }
+
+cnrNotifDupIpAddressDetectedBy OBJECT-TYPE
+    SYNTAX INTEGER {
+        dhcpClient(1),
+        dhcpServer(2)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "For a ciscoNetRegDuplicateAddress notification, this
+         object indicates whether the client or server detected
+         the condition."
+    ::= { cnrNotifObjects 5 }
+
+cnrNotifContestedIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address for which ownership is claimed by two or
+         more DHCP servers."
+    ::= { cnrNotifObjects 6 }
+
+cnrNotifDHCPScopeFreeAddrLow OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    percentage
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to determine the start of the 
+         address shortage condition. When the number of free 
+         addresses is equal to or less than the value contained
+         by this object the ciscoNetRegFreeAddrLowThreshold 
+         notification will be generated.  The low address condition
+         will continue until the number of free addresses has reached
+         or exceeded the number specified by the 
+         cnrNotifDHCPScopeFreeAddrHigh object. The 
+         ciscoNetRegFreeAddrLowThreshold notification will only be
+         generated when the low address condition is first 
+         encountered.   
+        
+         These thresholds objects and notifications apply to scopes
+         defined for the DHCP server.  The cnrDHCPScope object 
+         indicates to which scope these objects and notifications 
+         are to be applied."
+    ::= { cnrNotifObjects 7 }
+
+cnrNotifDHCPScopeFreeAddrHigh OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    percentage
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to determine the end of address shortage.
+         When the number of free addresses is equal to or greater 
+         than the value contained by this object the 
+         ciscoNetRegFreeAddrHighThreshold notification will be 
+         generated.  The ciscoNetRegFreeAddrHighThreshold 
+         notification will only be generated when the first time
+         the cnrNotifDHCPScopeFreeAddrHigh is exceeded.
+        
+         These thresholds objects and notifications apply to scopes 
+         defined for the DHCP server.  The cnrDHCPScope object 
+         indicates to which scope these objects and notifications 
+         are to be applied."
+    ::= { cnrNotifObjects 8 }
+
+cnrNotifDHCPScopeFreeAddrValue OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    IP addresses
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The number of IP addresses which are available
+        within the scope specified by the cnrDHCPScope object."
+    ::= { cnrNotifObjects 9 }
+
+cnrNotifDHCPThresholdType OBJECT-TYPE
+    SYNTAX INTEGER {
+        scope(1),
+        network(2),
+        selectionTags(3)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of threshold that is causing the notification. 
+         Threshold is configured based on the following types:
+           Type            Threshold Configuration
+           ----            -----------------------
+           scope           level of single scope
+           network         level of an entire group of scopes sharing 
+                           the same primary subnet 
+           selectionTags   level of a group of scopes sharing the same 
+                           primary subnet and selection tags."
+    ::= { cnrNotifObjects 10 }
+
+cnrNotifDHCPThresholdValue OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..100))
+--    Rsyntax OCTET STRING(SIZE(1..100))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The value of the type of threshold that is causing the 
+         notification. 
+           Type                  Value
+           ----                  -----
+           scope                 primary or secondary subnet number
+           network               scope's primary or secondary 
+                                 subnet number
+           selectionTags         selection tag list."
+    ::= { cnrNotifObjects 11 }
+
+cnrNotifDHCPScopeName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..100))
+--    Rsyntax OCTET STRING(SIZE(1..100))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the DHCP scope."
+    ::= { cnrNotifObjects 12 }
+
+cnrNotifPrimarySubnetNumber OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The primary subnet number of the network interface of which
+         the scope is part."
+    ::= { cnrNotifObjects 13 }
+
+cnrNotifRelatedServerType OBJECT-TYPE
+    SYNTAX INTEGER {
+        dnsPrimary(1),
+        ldap(2),
+        failoverPartner(3)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The type of related server."
+    ::= { cnrNotifObjects 14 }
+
+cnrNotifDnsServerIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the DNS server."
+    ::= { cnrNotifObjects 15 }
+
+cnrNotifZoneName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the zone."
+    ::= { cnrNotifObjects 16 }
+
+cnrNotifDnsRemoteServersList OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..254))
+--    Rsyntax OCTET STRING(SIZE(0..254))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Comma-separated list of remote server IP addresses."
+    ::= { cnrNotifObjects 17 }
+
+cnrEnableFreeAddressLow OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegFreeAddressLow 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 1 }
+
+cnrEnableFreeAddressHigh OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegFreeAddressHigh 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 2 }
+
+cnrEnableServerStart OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegServerStart notification 
+         should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 3 }
+
+cnrEnableServerStop OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegServerStop notification
+         should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 4 }
+
+cnrEnableDNSQueueTooBig OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegDNSQueueTooBig 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 5 }
+
+cnrEnableOtherServerNotResponding OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegOtherServerNotResponding 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 6 }
+
+cnrEnableDuplicateAddress OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegDuplicateAddress 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 7 }
+
+cnrEnableAddressConflict OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegAddressConflict 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 8 }
+
+cnrEnableOtherServerResponding OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegOtherServerResponding 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 9 }
+
+cnrEnableFailoverConfigMismatch OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegFailoverConfigMismatch 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 10 }
+
+cnrEnableFreeAddrLow OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegFreeAddrLowThreshold 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 11 }
+
+cnrEnableFreeAddrHigh OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegFreeAddrHighThreshold 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 12 }
+
+cnrEnableOtherServerNotResp OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegOtherServerNotResp 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 13 }
+
+cnrEnableOtherServerResp OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegOtherServerResp 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 14 }
+
+cnrEnableHaDnsPartnerDown OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegHaDnsPartnerDown 
+         notification should be generated for this entity. "
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 15 }
+
+cnrEnableHaDnsPartnerUp OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegHaDnsPartnerUp 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 16 }
+
+cnrEnableMastersNotResp OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegMastersNotResp 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 17 }
+
+cnrEnableMastersResp OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegMastersResp notification
+         should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 18 }
+
+cnrEnableSecondaryZoneExpired OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegSecondaryZonesExpired 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 19 }
+
+cnrEnableDnsForwardersNotResp OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegDnsForwardersNotResp 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 20 }
+
+cnrEnableDnsForwardersResp OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegDnsForwardersResp 
+         notification should be generated for this entity."
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 21 }
+
+cnrEnableHaDnsConfigErr OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the ciscoNetRegHaDnsConfigErr notification
+         should be generated for this entity. "
+    DEFVAL { false }
+    ::= { cnrNotifCfgObjects 22 }
+
+-- ciscoNetRegFreeAddressLow TRAP-TYPE
+-- Reverse mappable trap
+--     ENTERPRISE ciscoNetRegMIBNotificationPrefix
+--     VARIABLES {
+--         cnrDHCPScopeFreeAddrLowThreshold, cnrDHCPScopeFreeAddrValue, 
+--         cnrDHCPScopeFreeAddrUnits }
+--  Status
+--    deprecated
+--     DESCRIPTION
+--         "This notification signifies that the number
+--          of available IP addresses for a particular scope
+--          has fallen below the value of
+--          cnrDHCPScopeFreeAddrLowThreshold for that scope.
+--          
+--          This notification has been replaced by the 
+--          ciscoNetRegFreeAddrLowThreshold notification."
+--     ::= 1
+
+-- ciscoNetRegFreeAddressHigh TRAP-TYPE
+-- Reverse mappable trap
+--     ENTERPRISE ciscoNetRegMIBNotificationPrefix
+--     VARIABLES {
+--         cnrDHCPScopeFreeAddrHighThreshold, 
+--         cnrDHCPScopeFreeAddrValue, cnrDHCPScopeFreeAddrUnits }
+--  Status
+--    deprecated
+--     DESCRIPTION
+--         "This notification signifies that the number
+--          of available IP addresses for a particular scope
+--          has risen above the value of
+--          cnrDHCPScopeFreeAddrHighThreshold for that scope.
+--          
+--          This notification has been replaced by the 
+--          ciscoNetRegFreeAddrHighThreshold notification."
+--     ::= 2
+
+ciscoNetRegServerStart TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifServerType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that the server
+         of the specified type has started on the
+         host from which this notification has been sent."
+    ::= 3
+
+ciscoNetRegServerStop TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifServerType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that the server
+         of the specified type has stopped normally on the
+         host from which this notification has been sent."
+    ::= 4
+
+ciscoNetRegDNSQueueTooBig TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates that the number of pending
+         DNS updates has reached its limit.  Successive updates
+         may be dropped, and DHCP may stop responding to client
+         requests until this problem has cleared."
+    ::= 5
+
+ciscoNetRegOtherServerNotResponding TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifServer, cnrNotifServerType }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification signifies that a server is not
+         responding to updates from the DHCP server.  The 
+         identity of the server is given by the cnrNotifServer
+         object.  The type of the server is given by the
+         cnrNotifServerType object.
+         
+         This notification has been replaced by the 
+         ciscoNetRegOtherServerNotResp notification."
+    ::= 6
+
+ciscoNetRegDuplicateAddress TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifDupIpAddress, cnrNotifMACAddress, 
+        cnrNotifDupIpAddressDetectedBy }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that a duplicate IP address
+         has been detected.  The DHCP server can detect this
+         condition through the ping-before-offer mechanism.
+         Alternatively, the client may have sent a DHCPDECLINE 
+         back to the server; this is assumed to be the result of
+         the client detecting that the address was in use.  In
+         either case, the DHCP server marks the IP address as
+         unavailable for leasing to clients.  The
+         cnrNotifDupIpAddressDetectedBy object indicates whether
+         the client or server detected this condition."
+    ::= 7
+
+ciscoNetRegAddressConflict TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifContestedIpAddress, cnrNotifServer }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates that the DHCP server on this
+         host, and a DHCP server on another host, have claimed
+         ownership for the same IP address.  The
+         cnrNotifContestedIpAddress object indicates which address
+         is under contention.  The cnrNotifServer object indicates
+         with which other server a conflict was detected."
+    ::= 8
+
+ciscoNetRegOtherServerResponding TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifServer, cnrNotifServerType }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification signifies that a server which had formerly
+         been in a 'not responding' state is now responding to
+         updates from the CNR protocol server.  The identity of the
+         server is given by the cnrNotifServer object.  The type of
+         the server is given by the cnrNotifServerType object.
+        
+         NOTE: One should not rely on recieving this notification
+         as an indication that all is well with the network.
+         Several conditions, including restart of the CNR
+         protocol server, could result in either multiple
+         ciscoNetRegOtherServerNotResponding notifications being sent,
+         or in a ciscoNetRegOtherServerResponding notification NOT
+         being sent.
+         
+         This notification has been replaced by the 
+         ciscoNetRegOtherServerResp notification."
+    ::= 9
+
+ciscoNetRegFailoverConfigMismatch TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifServer }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that a server has detected
+         via the failover protocol that its configuration does
+         not match that of its failover peer, and that reliable 
+         DHCP operation in the event of a server failure may not
+         be possible.  The identity of the peer server is given
+         by the cnrNotifServer object."
+    ::= 10
+
+ciscoNetRegFreeAddrLowThreshold TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifDHCPScopeFreeAddrLow, 
+        cnrNotifDHCPScopeFreeAddrValue, cnrNotifDHCPScopeName, 
+        cnrNotifPrimarySubnetNumber, cnrNotifDHCPThresholdType, 
+        cnrNotifDHCPThresholdValue }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that the number
+         of available IP addresses for a particular scope
+         has fallen below the value of
+         cnrNotifDHCPScopeFreeAddrLow for that scope. 
+        
+         This notification signals a shortage of addresses.
+         The shortage will continue until the number of free 
+         addresses has reached or exceeded the number 
+         specified by the cnrNotifDHCPScopeFreeAddrHigh object. 
+         This notification will only be generated when the 
+         shortages of IP addresses in first encountered.   
+        
+         If the threshold type is scope or subnet, then the value is 
+         the primary or secondary subnet number, and if the type is  
+         selection-tag, then the value is the selection tag list."
+    ::= 11
+
+ciscoNetRegFreeAddrHighThreshold TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifDHCPScopeFreeAddrHigh, 
+        cnrNotifDHCPScopeFreeAddrValue, cnrNotifDHCPScopeName, 
+        cnrNotifPrimarySubnetNumber, cnrNotifDHCPThresholdType, 
+        cnrNotifDHCPThresholdValue }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that the shortage of
+         available IP addresses for a particular scope is over and
+         generated when the number of free addresses for that scope
+         reaches or exceed value specified  by the 
+         cnrNotifDHCPScopeFreeAddrHigh.
+        
+         This notification will only be generated when crossing the
+         threshold specified by the cnrNotifDHCPScopeFreeAddrHigh 
+         object indicates the end of IP address shortage.
+        
+         If the threshold type is scope or subnet, then the value is 
+         the primary or secondary subnet number, and if the type is  
+         selection-tag, then the value is the selection tag list."
+    ::= 12
+
+ciscoNetRegOtherServerNotResp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifServer, cnrNotifRelatedServerType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that a server is not
+         responding to updates from the DHCP server.  This 
+         notification will be generated when this error 
+         is first encountered and suppressed until the 
+         the normal reponse from server has been established
+         as indicated by the ciscoNetRegOtherServerResp.
+         notification.
+        
+         The identity of the server is given by the cnrNotifServer
+         object. The type of the server is indicated by the 
+         cnrNotifRelatedServerType object."
+    ::= 13
+
+ciscoNetRegOtherServerResp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifServer, cnrNotifRelatedServerType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that a server is now 
+         responding to updates from the DHCP server.  This 
+         notification will be generated when normal operation
+         is resumed after generation of the 
+         ciscoNetRegOtherServerNotResp notification.
+        
+         The identity of the server is given by the cnrNotifServer
+         object. The type of the server is indicated by the 
+         cnrNotifRelatedServerType object.
+        
+         NOTE: One should not rely on recieving this notification
+         as an indication that all is well with the network.
+         Several conditions, including restart of the CNR
+         protocol server, could result in either multiple
+         ciscoNetRegOtherServerNotResp notifications being sent,
+         or in a ciscoNetRegOtherServerResp notification NOT
+         being sent."
+    ::= 14
+
+ciscoNetRegHaDnsPartnerDown TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifServer }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that communication with a 
+         HA-DNS (High Availability DNS) server's partner has been 
+         interrupted. The identity of the HA-DNS partner server is 
+         given by the cnrNotifServer object."
+    ::= 15
+
+ciscoNetRegHaDnsPartnerUp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifServer }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification signifies that communication with a 
+         HA-DNS server's partner has been restored. The identity 
+         of the HA-DNS partner server is given by the cnrNotifServer 
+         object."
+    ::= 16
+
+ciscoNetRegMastersNotResp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifDnsServerIpAddress, cnrNotifZoneName, 
+        cnrNotifDnsRemoteServersList }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates that a DNS secondary server 
+         cannot reach any of its configured masters to obtain 
+         a zone transfer. Once this situation is encountered 
+         generation of this notification will be suppressed until
+         a complete zone transfer has completed as indicated by 
+         the ciscoNetRegMastersResp notification.
+         
+         The identity of the secondary server is given by 
+         cnrNotifDnsServerIpAddress; the identity of the master
+         servers is given by the cnrNotifDnsRemoteServersList; and 
+         the zone is given by cnrNotifZoneName."
+    ::= 17
+
+ciscoNetRegMastersResp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifDnsServerIpAddress, cnrNotifZoneName, 
+        cnrNotifDnsRemoteServersList }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates that a DNS secondary server 
+         reached at least one of its configured masters and obtained
+         a zone transfer. This notification is generated the first 
+         time sucessful zone transfer completed after a prior request 
+         for zone transfer failed because master server could not
+         reached.
+        
+         The identity of the secondary server is given by 
+         cnrNotifDnsServerIpAddress; the identity of the master 
+         servers is given by the cnrNotifDnsRemoteServersList; and 
+         the zone is given by cnrNotifZoneName object."
+    ::= 18
+
+ciscoNetRegSecondaryZonesExpired TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifDnsServerIpAddress, cnrNotifZoneName, 
+        cnrNotifDnsRemoteServersList }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates that a DNS secondary server was
+         unable to reach any primaries, and that a zone has expired
+         because the TTL has passed. 
+        
+         The identity of the DNS secondary server is given by 
+         cnrNotifDnsServerIpAddress; the identity of the master
+         servers is given by the cnrNotifDnsRemoteServersList; and  
+         the zone is given by cnrNotifZoneName object."
+    ::= 19
+
+ciscoNetRegDnsForwardersNotResp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifDnsServerIpAddress, cnrNotifDnsRemoteServersList }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates that a DNS recursive resolver was
+         not able to reach any of its configured forwarders. Once this
+         situation is encountered generation of this notification will 
+         be suppressed until normal operation is resumed as indicated by 
+         the ciscoNetRegDnsForwardersResp notification.
+        
+         The identity of the affected DNS resolving server is given by 
+         cnrNotifDnsServerIpAddress and the identity of the 
+         forwarders is given by the cnrRemoteServersList object."
+    ::= 20
+
+ciscoNetRegDnsForwardersResp TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifDnsServerIpAddress, cnrNotifDnsRemoteServersList }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates that a DNS recursive resolver was 
+         able to reach at least one of its configured forwarders and 
+         indicates start of normal operation. This notification is 
+         generated the  first time normal operation is established after 
+         a DNS recursive resolver was not able to reach any of its 
+         configured forwarders.
+         
+         The identity of the affected DNS resolving server is given by 
+         cnrNotifDnsServerIpAddress and the identity of the 
+         forwarders is given by the cnrRemoteServersList object."
+    ::= 21
+
+ciscoNetRegHaDnsConfigErr TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNetRegMIBNotificationPrefix
+    VARIABLES {
+        cnrNotifServer, cnrNotifZoneName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification indicates a configuration mismatch between
+         two HA-DNS partners. The first zone that has a mismatch will
+         be reported and is denoted by cnrNotifZoneName and the 
+         server with the configuration error is denoted by 
+         cnrNotifServer object."
+    ::= 22
+
+ciscoNetworkRegistrarDHCPScopeObjectsGroup OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Network Registrar MIB objects used in DHCP scopes.
+--  objects
+--    cnrDHCPScopeFreeAddrLowThreshold, 
+--    cnrDHCPScopeFreeAddrHighThreshold, cnrDHCPScopeFreeAddrValue, 
+--    cnrDHCPScopeFreeAddrUnits
+
+ciscoNetworkRegistrarNotifObjectsGroup OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Network Registrar MIB objects used in notifications.
+--  objects
+--    cnrNotifDupIpAddress, cnrNotifMACAddress, 
+--    cnrNotifDupIpAddressDetectedBy, cnrNotifServer, 
+--    cnrNotifServerType, cnrNotifContestedIpAddress
+
+ciscoNetworkRegistrarNotifCfgObjectsGroup OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Network Registrar MIB objects used to enable/disable 
+--     notifications.
+--  objects
+--    cnrEnableFreeAddressLow, cnrEnableFreeAddressHigh, 
+--    cnrEnableServerStart, cnrEnableServerStop, 
+--    cnrEnableDNSQueueTooBig, cnrEnableOtherServerNotResponding, 
+--    cnrEnableDuplicateAddress, cnrEnableAddressConflict, 
+--    cnrEnableOtherServerResponding, 
+--    cnrEnableFailoverConfigMismatch
+
+ciscoNetRegistrarNotifInfoGroup OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects in this group are used provide information 
+--     to be included in notifications.
+--  objects
+--    cnrNotifDupIpAddress, cnrNotifMACAddress, cnrNotifServer, 
+--    cnrNotifServerType, cnrNotifDupIpAddressDetectedBy, 
+--    cnrNotifContestedIpAddress, cnrNotifDHCPScopeFreeAddrLow, 
+--    cnrNotifDHCPScopeFreeAddrHigh, cnrNotifDHCPScopeFreeAddrValue, 
+--    cnrNotifDHCPThresholdType, cnrNotifDHCPThresholdValue, 
+--    cnrNotifDHCPScopeName, cnrNotifPrimarySubnetNumber, 
+--    cnrNotifRelatedServerType, cnrNotifDnsServerIpAddress, 
+--    cnrNotifZoneName, cnrNotifDnsRemoteServersList
+
+ciscoNetRegistrarNotEnableGroup OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects in this group are used to control the generations
+--     of notifications.
+--  objects
+--    cnrEnableServerStart, cnrEnableServerStop, 
+--    cnrEnableDNSQueueTooBig, cnrEnableDuplicateAddress, 
+--    cnrEnableAddressConflict, cnrEnableFailoverConfigMismatch, 
+--    cnrEnableFreeAddrLow, cnrEnableFreeAddrHigh, 
+--    cnrEnableOtherServerNotResp, cnrEnableOtherServerResp, 
+--    cnrEnableHaDnsPartnerDown, cnrEnableHaDnsPartnerUp, 
+--    cnrEnableMastersNotResp, cnrEnableMastersResp, 
+--    cnrEnableSecondaryZoneExpired, cnrEnableDnsForwardersNotResp, 
+--    cnrEnableDnsForwardersResp, cnrEnableHaDnsConfigErr
+
+ciscoNetworkRegistrarNotificationsGroup OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Notifications which are implemented by the
+--    Cisco Network Registrar agent.
+--  notifications
+--    ciscoNetRegFreeAddressLow, ciscoNetRegFreeAddressHigh, 
+--    ciscoNetRegServerStart, ciscoNetRegServerStop, 
+--    ciscoNetRegDNSQueueTooBig, 
+--    ciscoNetRegOtherServerNotResponding, 
+--    ciscoNetRegDuplicateAddress, ciscoNetRegAddressConflict, 
+--    ciscoNetRegOtherServerResponding, 
+--    ciscoNetRegFailoverConfigMismatch
+
+ciscoNetRegistrarNotificatGroup OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBGroups 7 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Notifications which are implemented by the
+--    Cisco Network Registrar.
+--  notifications
+--    ciscoNetRegServerStart, ciscoNetRegServerStop, 
+--    ciscoNetRegDNSQueueTooBig, ciscoNetRegFreeAddrLowThreshold, 
+--    ciscoNetRegFreeAddrHighThreshold, ciscoNetRegAddressConflict, 
+--    ciscoNetRegDuplicateAddress, ciscoNetRegOtherServerNotResp, 
+--    ciscoNetRegOtherServerResp, ciscoNetRegFailoverConfigMismatch, 
+--    ciscoNetRegHaDnsPartnerDown, ciscoNetRegHaDnsPartnerUp, 
+--    ciscoNetRegMastersNotResp, ciscoNetRegMastersResp, 
+--    ciscoNetRegSecondaryZonesExpired, 
+--    ciscoNetRegDnsForwardersNotResp, ciscoNetRegDnsForwardersResp, 
+--    ciscoNetRegHaDnsConfigErr
+
+ciscoNetworkRegistrarMIBCompliance OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--     the Cisco Network Registrar MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoNetworkRegistrarDHCPScopeObjectsGroup
+--   MandGroup
+--    ciscoNetworkRegistrarNotifObjectsGroup
+--   OptGroup
+--    ciscoNetworkRegistrarNotifCfgObjectsGroup
+--   ObjVar
+--    cnrEnableFreeAddressLow
+--   ObjVar
+--    cnrEnableFreeAddressHigh
+--   ObjVar
+--    cnrEnableServerStart
+--   ObjVar
+--    cnrEnableServerStop
+--   ObjVar
+--    cnrEnableDNSQueueTooBig
+--   ObjVar
+--    cnrEnableOtherServerNotResponding
+--   ObjVar
+--    cnrEnableDuplicateAddress
+--   ObjVar
+--    cnrEnableAddressConflict
+--   ObjVar
+--    cnrEnableOtherServerResponding
+--   ObjVar
+--    cnrEnableFailoverConfigMismatch
+
+ciscoNetworkRegistrarMIBCompRev1 OBJECT IDENTIFIER ::= { ciscoNetworkRegistrarMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Network Registrar MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoNetRegistrarNotifInfoGroup
+--   MandGroup
+--    ciscoNetRegistrarNotEnableGroup
+--   MandGroup
+--    ciscoNetRegistrarNotificatGroup
+--   ObjVar
+--    cnrEnableServerStart
+--   ObjVar
+--    cnrEnableServerStop
+--   ObjVar
+--    cnrEnableDNSQueueTooBig
+--   ObjVar
+--    cnrEnableDuplicateAddress
+--   ObjVar
+--    cnrEnableAddressConflict
+--   ObjVar
+--    cnrEnableFailoverConfigMismatch
+--   ObjVar
+--    cnrEnableFreeAddrLow
+--   ObjVar
+--    cnrEnableFreeAddrHigh
+--   ObjVar
+--    cnrEnableOtherServerNotResp
+--   ObjVar
+--    cnrEnableOtherServerResp
+--   ObjVar
+--    cnrEnableHaDnsPartnerDown
+--   ObjVar
+--    cnrEnableHaDnsPartnerUp
+--   ObjVar
+--    cnrEnableMastersNotResp
+--   ObjVar
+--    cnrEnableMastersResp
+--   ObjVar
+--    cnrEnableSecondaryZoneExpired
+--   ObjVar
+--    cnrEnableDnsForwardersNotResp
+--   ObjVar
+--    cnrEnableDnsForwardersResp
+--   ObjVar
+--    cnrEnableHaDnsConfigErr
+
+
+END
+

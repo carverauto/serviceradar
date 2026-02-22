@@ -1,0 +1,155 @@
+-- *****************************************************************
+-- A suppliment to the ATM Forum LANE client MIB for data directs
+--
+-- January 1997, Chris Young
+--
+-- Copyright (c) 1996-1997, 1998 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+
+CISCO-LEC-DATA-VCC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE    FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP FROM SNMPv2-CONF
+        ciscoMgmt                       FROM CISCO-SMI
+        ifIndex                         FROM IF-MIB
+        lecIndex, AtmLaneAddress        FROM LAN-EMULATION-CLIENT-MIB
+        atmVclVpi, atmVclVci            FROM ATM-MIB;
+
+ciscoLecDataVccMIB MODULE-IDENTITY
+        LAST-UPDATED "9701060000Z"
+        ORGANIZATION "Cisco Systems, Inc."
+        CONTACT-INFO
+                   "       Cisco Systems
+                           Customer Service
+
+                   Postal: 170 W Tasman Drive
+                           San Jose, CA  95134
+                           USA
+
+                      Tel: +1 800 553-NETS
+
+                   E-mail: cs-atm@cisco.com"
+        DESCRIPTION
+                "This MIB module is a Cisco extension to the ATM
+                Forum's LANE Client MIB.  This extension identifies
+                those VCCs which are being used to carry packets
+                sent on LANE Data Direct VCCs."
+        REVISION     "9701060000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 69 }
+
+ciscoLecDataVccMIBObjects  OBJECT IDENTIFIER ::= { ciscoLecDataVccMIB 1 }
+
+cLecDataDirectVcc OBJECT IDENTIFIER ::= 
+	{ ciscoLecDataVccMIBObjects 1 }
+
+--Textual Conventions
+-- 
+-- none
+
+-- LEC Data Direct VCs
+
+cLecDataDirectVccTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CLecDataDirectVccEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "A table containing entries for all VCCs used as
+                LAN-Emulation Data Direct VCCs."
+        ::= { cLecDataDirectVcc 1  }
+
+
+cLecDataDirectVccEntry OBJECT-TYPE
+        SYNTAX        CLecDataDirectVccEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "Each entry in this table represents a Data Direct VCC
+                for a particular Emulated LAN (ELAN):
+  
+                - the ELAN is identified by the lecIndex value.
+                - the VCC is identified by the combination of the
+                  interface (ifIndex, for which the corresponding
+                  ifType has the value atm(37)), the VPI (atmVclVpi)
+                  and the VCI (atmVclVci).
+
+                Entries appear in the table as a LANE client
+                establishes Data Direct VCs with other LANE clients
+                and are removed when the VCs are dropped."
+        INDEX { lecIndex,
+                ifIndex,
+                atmVclVpi,
+                atmVclVci }
+        ::= { cLecDataDirectVccTable 1 }
+
+CLecDataDirectVccEntry ::= SEQUENCE {
+        cLecDataDirectLocalAtmAddress   AtmLaneAddress,
+        cLecDataDirectRemoteAtmAddress  AtmLaneAddress
+}
+
+cLecDataDirectLocalAtmAddress   OBJECT-TYPE
+        SYNTAX        AtmLaneAddress
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The ATM Address of the local end of this Data Direct
+                VCC."
+        ::= { cLecDataDirectVccEntry 1 }
+
+cLecDataDirectRemoteAtmAddress   OBJECT-TYPE
+        SYNTAX        AtmLaneAddress
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "The ATM Address of the remote end of this Data Direct
+                VCC."
+        ::= { cLecDataDirectVccEntry 2 }
+
+-- Notifications
+
+ciscoLecDataVccMIBNotificationPrefix OBJECT IDENTIFIER ::= 
+	{ ciscoLecDataVccMIB 2 }
+ciscoLecDataVccMIBNotifications OBJECT IDENTIFIER ::= 
+	{ ciscoLecDataVccMIBNotificationPrefix 0 }
+-- none
+
+-- conformance information
+
+ciscoLecDataVccMIBConformance
+                OBJECT IDENTIFIER ::= { ciscoLecDataVccMIB 3 }
+ciscoLecDataVccMIBCompliances
+                OBJECT IDENTIFIER ::= { ciscoLecDataVccMIBConformance 1 }
+ciscoLecDataVccMIBGroups
+                OBJECT IDENTIFIER ::= { ciscoLecDataVccMIBConformance 2 }
+
+
+-- compliance statements
+
+ciscoLecDataVccMIBCompliance MODULE-COMPLIANCE
+        STATUS        current
+        DESCRIPTION
+                "This module should be implemented by all Cisco
+                 devices supporting ATM LAN Emulation Clients."
+        MODULE        -- this module
+        MANDATORY-GROUPS
+                { ciscoLecDataVccBaseMIBGroup }
+
+        ::= { ciscoLecDataVccMIBCompliances 1 }
+
+-- units of conformance
+
+ciscoLecDataVccBaseMIBGroup OBJECT-GROUP
+        OBJECTS       { cLecDataDirectLocalAtmAddress,
+                        cLecDataDirectRemoteAtmAddress }
+        STATUS        current
+        DESCRIPTION
+                "A collection of objects related to identifying
+                a LANE Client's Data Direct VCCs."
+        ::= { ciscoLecDataVccMIBGroups 1 }
+
+END

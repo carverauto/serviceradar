@@ -1,0 +1,2566 @@
+module viptela-oper-system {
+  namespace "http://viptela.com/oper-system";
+  prefix viptela-oper-system;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import ietf-yang-types {
+    prefix yang;
+  }
+    prefix tailf;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import ietf-netconf-acm {
+    prefix nacm;
+  }
+  import viptela-system {
+    prefix viptela-system;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines the data model for system operational data";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-04-22 {
+    description
+      "Release version: 16.1.1";
+  }
+  revision 2016-03-15 {
+    description
+      "Release version: 16.1";
+  }
+  revision 2016-01-30 {
+    description
+      "Release version: 15.4.3";
+  }
+  revision 2015-12-28 {
+    description
+      "Release version: 15.4.1";
+  }
+  revision 2015-12-01 {
+    description
+      "Release version: 15.4.0";
+  }
+  revision 2015-10-31 {
+    description
+      "Release version: 15.3.5";
+  }
+  revision 2015-09-27 {
+    description
+      "Release version: 15.3.3";
+  }
+  revision 2015-09-01 {
+    description
+      "Release version: 15.3.1";
+  }
+  revision 2015-07-01 {
+    description
+      "Release version: 15.3";
+  }
+  revision 2015-06-01 {
+    description
+      "Release version: 15.2.8";
+  }
+  revision 2015-05-01 {
+    description
+      "Release version: 15.2";
+  }
+  revision 2015-02-01 {
+    description
+      "Release version: 15.1";
+  }
+  revision 2014-12-01 {
+    description
+      "Release version: 14.3";
+  }
+  revision 2014-07-01 {
+    description
+      "Release version: 14.2";
+  }
+  revision 2013-02-12 {
+    description
+      "Initial revision";
+  }
+
+  container system-status {
+    description "Display system status information";
+    config false;
+    leaf personality {
+      type string;
+    }
+    leaf version {
+      type string;
+    }
+    leaf loghost_status {
+      type string;
+    }
+    leaf loghost_name {
+      type string;
+    }
+    leaf disk_status {
+      type string;
+    }
+    leaf reboot_reason {
+      type string;
+    }
+    leaf core_files_status {
+      type string;
+    }
+    leaf uptime {
+      type string;
+    }
+    leaf min1_avg {
+      type string;
+    }
+    leaf min5_avg {
+      type string;
+    }
+    leaf min15_avg {
+      type string;
+    }
+    leaf totalp {
+      type uint32;
+      when "(/viptela-system:system/viptela-system:device-os != 'next')";
+    }
+    leaf runningp {
+      type uint32;
+      when "(/viptela-system:system/viptela-system:device-os != 'next')";
+    }
+    leaf cpu_user {
+      type string;
+    }
+    leaf cpu_system {
+      type string;
+    }
+    leaf cpu_idle {
+      type string;
+    }
+    leaf mem_total {
+      type uint64;
+    }
+    leaf mem_used {
+      type uint64;
+    }
+    leaf mem_free {
+      type uint64;
+    }
+    leaf mem_buffers {
+      type uint64;
+    }
+    leaf mem_cached {
+      type uint64;
+    }
+    leaf disk_fs {
+      type string;
+    }
+    leaf disk_size {
+      type string;
+    }
+    leaf disk_used {
+      type string;
+    }
+    leaf disk_avail {
+      type string;
+    }
+    leaf disk_use {
+      type uint64;
+    }
+    leaf disk_total_bytes {
+      type viptela:disk-size-bytes;
+      when "(/viptela-system:system/viptela-system:device-os != 'next')";
+    }
+    leaf disk_used_bytes {
+      type viptela:disk-size-bytes;
+      when "(/viptela-system:system/viptela-system:device-os != 'next')";
+    }
+    leaf disk_avail_bytes {
+      type viptela:disk-size-bytes;
+      when "(/viptela-system:system/viptela-system:device-os != 'next')";
+    }
+    leaf disk_mount {
+      type string;
+    }
+    leaf services {
+      type string;
+    }
+    leaf board_type {
+      type enumeration {
+        enum "Vedge-1000";
+        enum "Vedge-2000";
+        enum "Sim";
+        enum "None";
+        enum "Unknown";
+        enum "Vedge-100";
+        enum "Vedge-100-B";
+        enum "Vedge-5000";
+        enum "Vedge-CSR";
+        enum "Vedge-ISR";
+        enum "Vedge-ASR";
+        enum "Vedge-101-B";
+        enum "Vedge-101-M";
+        enum "Vedge-1001";
+        enum "Isr-1100-4G";
+        enum "Isr-1100-4GLTE";
+        enum "Isr-1100-6G";
+      }
+    }
+    container config_date {
+      description "Configuration time";
+      uses viptela:date-time {
+        refine "date-time-string";
+      }
+    }
+    container current_date {
+      description "System date and time";
+      uses viptela:date-time {
+        refine "date-time-string";
+      }
+    }
+    leaf procs {
+      type uint32;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf disk_bsize {
+      type uint64;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf disk_blocks {
+      type uint64;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf disk_bused {
+      type uint64;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf disk_bavail {
+      type uint64;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf standalone_vbond {
+      type boolean;
+    }
+    leaf vmanaged {
+      type boolean;
+    }
+    leaf pseudo-confirm-commit {
+      type uint32;
+    }
+    leaf config-template-name {
+      type string {
+        description "<1..128> characters";
+        length "1..128";
+      }
+    }
+    leaf policy-template-name {
+      type string {
+        description "<1..128> characters";
+        length "1..128";
+      }
+    }
+    leaf policy-template-version {
+      type string {
+        description "<1..64> characters";
+        length "1..64";
+      }
+    }
+    leaf vmanage-storage-disk-fs {
+      type string;
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vmanage') or
+         (/viptela-system:system/viptela-system:personality = 'vcontainer')";
+    }
+    leaf vmanage-storage-disk-size {
+      type string;
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vmanage') or
+         (/viptela-system:system/viptela-system:personality = 'vcontainer')";
+    }
+    leaf vmanage-storage-disk-used {
+      type string;
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vmanage') or
+         (/viptela-system:system/viptela-system:personality = 'vcontainer')";
+    }
+    leaf vmanage-storage-disk-avail {
+      type string;
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vmanage') or
+         (/viptela-system:system/viptela-system:personality = 'vcontainer')";
+    }
+    leaf vmanage-storage-disk-use {
+      type uint64;
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vmanage') or
+         (/viptela-system:system/viptela-system:personality = 'vcontainer')";
+    }
+    leaf vmanage-storage-disk-mount {
+      type string;
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vmanage') or
+         (/viptela-system:system/viptela-system:personality = 'vcontainer')";
+    }
+    leaf model {
+      type viptela:device-model-enum;
+    }
+    leaf reboot_type {
+      type string;
+    }
+    leaf total_cpu_count {
+      type uint32;
+      when
+        "(/viptela-system:system/viptela-system:personality = 'vedge') or
+         (/viptela-system:system/viptela-system:personality = 'vsmart') or
+         (/viptela-system:system/viptela-system:personality = 'vmanage')";
+    }
+    leaf fp_cpu_count {
+      type uint32;
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+    }
+    leaf linux_cpu_count {
+      type uint32;
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+    }
+    leaf bootloader_version {
+      type string;
+    }
+    leaf build_number {
+      type string;
+    }
+    leaf state {
+      type enumeration {
+        enum "blkng_green";
+        enum "green";
+        enum "yellow";
+        enum "red";
+      }
+    }
+    leaf state_description {
+      type string;
+    }
+    leaf model_sku {
+      type string;
+    }
+    leaf tcpd_cpu_count {
+      type uint32;
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+    }
+    leaf fips_mode {
+      type enumeration {
+        enum "unavailable";
+        enum "disabled";
+        enum "enabled";
+      }
+    }
+    leaf testbed_mode {
+      type uint32;
+    }
+    leaf ctrl_compatibility {
+      type string;
+    }
+    leaf timezone {
+      type string;
+    }
+    leaf engineering_signed {
+      type uint32;
+    }
+    leaf li_license_enabled {
+      type uint32;
+    }
+    leaf chassis-serial-number {
+      type string;
+    }
+  }
+  container fp-debug {
+    description "Display fp debug information";
+    when "/viptela-system:system/viptela-system:personality = 'vedge'";
+    list core-state {
+      description "Display per core state";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      config false;
+      key "core";
+      leaf core {
+        type uint8 {
+          description "<0..31>";
+          range "0..31";
+        }
+      }
+      leaf state {
+        type uint32;
+      }
+      leaf heartbeat {
+        type string;
+      }
+      leaf work-groups {
+        type string;
+      }
+      leaf group {
+        type uint8;
+      }
+      leaf timer-enq {
+        type uint64;
+      }
+      leaf timer-enq-fail {
+        type uint64;
+      }
+      leaf tx-wqe {
+        type uint64;
+      }
+      leaf rx-wqe {
+        type uint64;
+      }
+    }
+    list queue-stats {
+      description "Display queue stats";
+      when "/viptela-system:system/viptela-system:personality = 'vedge'";
+      config false;
+      key "port";
+      leaf port {
+        type uint16;
+      }
+      leaf ipd-port {
+        type uint16;
+      }
+      leaf ifname {
+        type string;
+        when "(/viptela-system:system/viptela-system:personality = 'vedge')";
+      }
+      list queue {
+        description "Display queue stats";
+        when "/viptela-system:system/viptela-system:personality = 'vedge'";
+        config false;
+        key "q-num";
+        leaf q-num {
+          type uint8;
+        }
+        leaf tx-packets {
+          type uint64;
+        }
+        leaf tx-bytes {
+          type uint64;
+        }
+        leaf tail-drop-pkts {
+          type uint64;
+        }
+        leaf tail-drop-bytes {
+          type uint64;
+        }
+        leaf red-drop-pkts {
+          type uint64;
+        }
+        leaf red-drop-bytes {
+          type uint64;
+        }
+        leaf queued-pkts {
+          type uint64;
+        }
+        leaf queued-bytes {
+          type uint64;
+        }
+        leaf queue-depth-pkts {
+          type uint64;
+        }
+      }
+    }
+  }
+  container system-statistics {
+    description "Display system statistics";
+    config false;
+    when "/viptela-system:system/viptela-system:personality = 'vedge'";
+    leaf rx_pkts {
+      type yang:counter64;
+    }
+    leaf rx_drops {
+      type yang:counter64;
+    }
+    leaf ip_fwd {
+      type yang:counter64;
+    }
+    leaf ip_fwd_mirror_pkts {
+      type yang:counter64;
+    }
+    leaf ip_fwd_arp {
+      type yang:counter64;
+    }
+    leaf ip_fwd_to_egress {
+      type yang:counter64;
+    }
+    leaf ip_fwd_invalid_oil {
+      type yang:counter64;
+    }
+    leaf ip_v6_mcast_drops {
+      type yang:counter64;
+    }
+    leaf ip_fwd_mcast_invalid_iif {
+      type yang:counter64;
+    }
+    leaf ip_fwd_mcast_life_exceeded_drops {
+      type yang:counter64;
+    }
+    leaf rx_mcast_threshold_exceeded {
+      type yang:counter64;
+    }
+    leaf ip_fwd_invalid_tun_oil {
+      type yang:counter64;
+    }
+    leaf rx_mcast_policy_fwd_drops {
+      type yang:counter64;
+    }
+    leaf rx_mcast_mirror_fwd_drops {
+      type yang:counter64;
+    }
+    leaf ip_fwd_null_mcast_group {
+      type yang:counter64;
+    }
+    leaf ip_fwd_null_nhop {
+      type yang:counter64;
+    }
+    leaf ip_fwd_unknown_nh_type {
+      type yang:counter64;
+    }
+    leaf ip_fwd_nat_on_tunnel {
+      type yang:counter64;
+    }
+    leaf ip_fwd_to_cpu {
+      type yang:counter64;
+    }
+    leaf ip_fwd_to_cpu_nat_xlates {
+      type yang:counter64;
+    }
+    leaf ip_fwd_from_cpu_nat_xlates {
+      type yang:counter64;
+    }
+    leaf ip_fwd_to_cpu_nat_drops {
+      type yang:counter64;
+    }
+    leaf ip_fwd_from_cpu_non_local {
+      type yang:counter64;
+    }
+    leaf ip_fwd_rx_ipsec {
+      type yang:counter64;
+    }
+    leaf ip_fwd_mcast_pkts {
+      type yang:counter64;
+    }
+    leaf ip_fwd_rx_gre {
+      type yang:counter64;
+    }
+    leaf nat_xlate_outbound {
+      type yang:counter64;
+    }
+    leaf nat_xlate_outbound_drops {
+      type yang:counter64;
+    }
+    leaf nat_xlate_inbound {
+      type yang:counter64;
+    }
+    leaf nat_xlate_inbound_fail {
+      type yang:counter64;
+    }
+    leaf cflowd_pkts {
+      type yang:counter64;
+    }
+    leaf no_nat_nexthop {
+      type yang:counter64;
+    }
+    leaf rx_bcast {
+      type yang:counter64;
+    }
+    leaf rx_mcast {
+      type yang:counter64;
+    }
+    leaf rx_mcast_link_local {
+      type yang:counter64;
+    }
+    leaf rx_mcast_filter_to_cpu {
+      type yang:counter64;
+    }
+    leaf rx_mcast_filter_to_cpu_and_fwd {
+      type yang:counter64;
+    }
+    leaf rx_gre_decap {
+      type yang:counter64;
+    }
+    leaf rx_gre_drops {
+      type yang:counter64;
+    }
+    leaf rx_gre_policer_drops {
+      type yang:counter64;
+    }
+    leaf rx_implicit_acl_drops {
+      type yang:counter64;
+    }
+    leaf rx_ipsec_decap {
+      type yang:counter64;
+    }
+    leaf rx_ip6_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_sa_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_invalid_ipsec_pkt_size {
+      type yang:counter64;
+    }
+    leaf rx_spi_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops {
+      type yang:counter64;
+    }
+    leaf rx_next_hdr_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_mac_compare_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_err_pad_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_ipsec_policer_drops {
+      type yang:counter64;
+    }
+    leaf rx_pre_ipsec_pkts {
+      type yang:counter64;
+    }
+    leaf rx_pre_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_pre_ipsec_policer_drops {
+      type yang:counter64;
+    }
+    leaf rx_pre_ipsec_decap {
+      type yang:counter64;
+    }
+    leaf openssl_aes_decrypt {
+      type yang:counter64;
+    }
+    leaf rx_ipsec_bad_inner {
+      type yang:counter64;
+    }
+    leaf rx_bad_label {
+      type yang:counter64;
+    }
+    leaf service_label_fwd {
+      type yang:counter64;
+    }
+    leaf rx_host_local_pkt {
+      type yang:counter64;
+    }
+    leaf rx_host_mirror_drops {
+      type yang:counter64;
+    }
+    leaf rx_tunneled_pkts {
+      type yang:counter64;
+    }
+    leaf rx_cp_non_local {
+      type yang:counter64;
+    }
+    leaf tx_if_not_preferred {
+      type yang:counter64;
+    }
+    leaf tx_vsmart_drop {
+      type yang:counter64;
+    }
+    leaf rx_invalid_port {
+      type yang:counter64;
+    }
+    leaf port_disabled_rx {
+      type yang:counter64;
+    }
+    leaf ip_disabled_rx {
+      type yang:counter64;
+    }
+    leaf rx_invalid_qtags {
+      type yang:counter64;
+    }
+    leaf rx_non_ip_drops {
+      type yang:counter64;
+    }
+    leaf rx_ip_errs {
+      type yang:counter64;
+    }
+    leaf pko_wred_drops {
+      type yang:counter64;
+    }
+    leaf tx_queue_exceeded {
+      type yang:counter64;
+    }
+    leaf rx_policer_drops {
+      type yang:counter64;
+    }
+    leaf route_to_host {
+      type yang:counter64;
+    }
+    leaf ttl_expired {
+      type yang:counter64;
+    }
+    leaf icmp_redirect {
+      type yang:counter64;
+    }
+    leaf bfd_rx_non_ip {
+      type yang:counter64;
+    }
+    leaf bfd_tx_record_changed {
+      type yang:counter64;
+    }
+    leaf bfd_rx_record_invalid {
+      type yang:counter64;
+    }
+    leaf bfd_rx_parse_err {
+      type yang:counter64;
+    }
+    leaf rx_arp_rate_limit_drops {
+      type yang:counter64;
+    }
+    leaf rx_arp_non_local_drops {
+      type yang:counter64;
+    }
+    leaf rx_arp_reqs {
+      type yang:counter64;
+    }
+    leaf rx_arp_replies {
+      type yang:counter64;
+    }
+    leaf arp_add_fail {
+      type yang:counter64;
+    }
+    leaf unknown_nh_type {
+      type yang:counter64;
+    }
+    leaf buf_alloc_fails {
+      type yang:counter64;
+    }
+    leaf ecmp_discards {
+      type yang:counter64;
+    }
+    leaf app_route_policy_discards {
+      type yang:counter64;
+    }
+    leaf cbf_discards {
+      type yang:counter64;
+    }
+    leaf filter_drops {
+      type yang:counter64;
+    }
+    leaf invalid_back_ptr {
+      type yang:counter64;
+    }
+    leaf tunnel_loop_drops {
+      type yang:counter64;
+    }
+    leaf to_cpu_policer_drops {
+      type yang:counter64;
+    }
+    leaf mirror_drops {
+      type yang:counter64;
+    }
+    leaf split_horizon_drops {
+      type yang:counter64;
+    }
+    leaf rx_no_tun_if {
+      type yang:counter64;
+    }
+    leaf tx_pkts {
+      type yang:counter64;
+    }
+    leaf tx_errors {
+      type yang:counter64;
+    }
+    leaf tx_bcast {
+      type yang:counter64;
+    }
+    leaf tx_mcast {
+      type yang:counter64;
+    }
+    leaf port_disabled_tx {
+      type yang:counter64;
+    }
+    leaf ip_disabled_tx {
+      type yang:counter64;
+    }
+    leaf tx_fragment_needed {
+      type yang:counter64;
+    }
+    leaf tx_mcast_fragment_needed {
+      type yang:counter64;
+    }
+    leaf fragment_df_drops {
+      type yang:counter64;
+    }
+    leaf tx_fragments {
+      type yang:counter64;
+    }
+    leaf tx_fragment_drops {
+      type yang:counter64;
+    }
+    leaf tx_fragment_fail {
+      type yang:counter64;
+    }
+    leaf tx_fragment_alloc_fail {
+      type yang:counter64;
+    }
+    leaf tunnel_pmtu_lowered {
+      type yang:counter64;
+    }
+    leaf tx_gre_pkts {
+      type yang:counter64;
+    }
+    leaf tx_gre_drops {
+      type yang:counter64;
+    }
+    leaf tx_gre_policer_drops {
+      type yang:counter64;
+    }
+    leaf tx_gre_encap {
+      type yang:counter64;
+    }
+    leaf tx_ipsec_pkts {
+      type yang:counter64;
+    }
+    leaf tx_ipsec_mcast_pkts {
+      type yang:counter64;
+    }
+    leaf tx_ip6_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf tx_no_out_sa_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf tx_no_tunn_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf tx_ipsec_policer_drops {
+      type yang:counter64;
+    }
+    leaf tx_ipsec_encap {
+      type yang:counter64;
+    }
+    leaf tx_ipsec_mcast_encap {
+      type yang:counter64;
+    }
+    leaf tx_pre_ipsec_pkts {
+      type yang:counter64;
+    }
+    leaf tx_no_out_sa_pre_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf tx_no_tunn_pre_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf openssl_aes_encrypt {
+      type yang:counter64;
+    }
+    leaf tx_pre_ipsec_policer_drops {
+      type yang:counter64;
+    }
+    leaf tx_pre_ipsec_encap {
+      type yang:counter64;
+    }
+    leaf tx_arp_replies {
+      type yang:counter64;
+    }
+    leaf tx_arp_reqs {
+      type yang:counter64;
+    }
+    leaf tx_arp_req_fail {
+      type yang:counter64;
+    }
+    leaf tx_no_arp_drop {
+      type yang:counter64;
+    }
+    leaf tx_arp_rate_limit_drops {
+      type yang:counter64;
+    }
+    leaf tx_icmp_policer_drops {
+      type yang:counter64;
+    }
+    leaf tx_icmp_mirrored_drops {
+      type yang:counter64;
+    }
+    leaf bfd_tx_fail {
+      type yang:counter64;
+    }
+    leaf bfd_alloc_fail {
+      type yang:counter64;
+    }
+    leaf bfd_timer_add_fail {
+      type yang:counter64;
+    }
+    leaf bfd_tx_pkts {
+      type yang:counter64;
+    }
+    leaf bfd_rx_pkts {
+      type yang:counter64;
+    }
+    leaf bfd_rec_down {
+      type yang:counter64;
+    }
+    leaf bfd_rec_invalid {
+      type yang:counter64;
+    }
+    leaf bfd_lkup_fail {
+      type yang:counter64;
+    }
+    leaf rx_icmp_echo_requests {
+      type yang:counter64;
+    }
+    leaf rx_icmp_echo_replies {
+      type yang:counter64;
+    }
+    leaf rx_icmp_network_unreach {
+      type yang:counter64;
+    }
+    leaf rx_icmp_host_unreach {
+      type yang:counter64;
+    }
+    leaf rx_icmp_port_unreach {
+      type yang:counter64;
+    }
+    leaf rx_icmp_protocol_unreach {
+      type yang:counter64;
+    }
+    leaf rx_icmp_fragment_required {
+      type yang:counter64;
+    }
+    leaf rx_icmp_dst_unreach_other {
+      type yang:counter64;
+    }
+    leaf rx_icmp_ttl_expired {
+      type yang:counter64;
+    }
+    leaf rx_icmp_redirect {
+      type yang:counter64;
+    }
+    leaf rx_icmp_src_quench {
+      type yang:counter64;
+    }
+    leaf rx_icmp_bad_ip_hdr {
+      type yang:counter64;
+    }
+    leaf rx_icmp_other_types {
+      type yang:counter64;
+    }
+    leaf tx_icmp_echo_requests {
+      type yang:counter64;
+    }
+    leaf tx_icmp_echo_replies {
+      type yang:counter64;
+    }
+    leaf tx_icmp_network_unreach {
+      type yang:counter64;
+    }
+    leaf tx_icmp_host_unreach {
+      type yang:counter64;
+    }
+    leaf tx_icmp_port_unreach {
+      type yang:counter64;
+    }
+    leaf tx_icmp_protocol_unreach {
+      type yang:counter64;
+    }
+    leaf tx_icmp_fragment_required {
+      type yang:counter64;
+    }
+    leaf tx_icmp_dst_unreach_other {
+      type yang:counter64;
+    }
+    leaf tx_icmp_ttl_expired {
+      type yang:counter64;
+    }
+    leaf tx_icmp_redirect {
+      type yang:counter64;
+    }
+    leaf tx_icmp_src_quench {
+      type yang:counter64;
+    }
+    leaf tx_icmp_bad_ip_hdr {
+      type yang:counter64;
+    }
+    leaf tx_icmp_other_types {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_pkts {
+      type yang:counter64;
+    }
+    leaf gre_ka_rx_pkts {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_ipv4_options_drop {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_non_ip {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_parse_err {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_record_changed {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_fail {
+      type yang:counter64;
+    }
+    leaf gre_ka_alloc_fail {
+      type yang:counter64;
+    }
+    leaf gre_ka_timer_add_fail {
+      type yang:counter64;
+    }
+    leaf gre_ka_rx_non_ip {
+      type yang:counter64;
+    }
+    leaf gre_ka_rx_rec_invalid {
+      type yang:counter64;
+    }
+    leaf dot1x_rx_pkts {
+      type yang:counter64;
+    }
+    leaf dot1x_tx_pkts {
+      type yang:counter64;
+    }
+    leaf dot1x_rx_drops {
+      type yang:counter64;
+    }
+    leaf dot1x_tx_drops {
+      type yang:counter64;
+    }
+    leaf dot1x_vlan_if_not_found_drops {
+      type yang:counter64;
+    }
+    leaf dot1x_mac_learn_drops {
+      type yang:counter64;
+    }
+    leaf rx_policer_remark {
+      type yang:counter64;
+    }
+    leaf bfd_tx_octets {
+      type yang:counter64;
+    }
+    leaf bfd_rx_octets {
+      type yang:counter64;
+    }
+    leaf bfd_pmtu_tx_pkts {
+      type yang:counter64;
+    }
+    leaf bfd_pmtu_rx_pkts {
+      type yang:counter64;
+    }
+    leaf bfd_pmtu_tx_octets {
+      type yang:counter64;
+    }
+    leaf bfd_pmtu_rx_octets {
+      type yang:counter64;
+    }
+    leaf dns_req_snoop {
+      type yang:counter64;
+    }
+    leaf dns_res_snoop {
+      type yang:counter64;
+    }
+    leaf ctrl_loop_fwd {
+      type yang:counter64;
+    }
+    leaf ctrl_loop_fwd_drops {
+      type yang:counter64;
+    }
+    leaf tx_zero_spi_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf redirect_dns_req {
+      type yang:counter64;
+    }
+    leaf qat_aes_decrypt {
+      type yang:counter64;
+    }
+    leaf qat_aes_encrypt {
+      type yang:counter64;
+    }
+    leaf qat_gcm_decrypt {
+      type yang:counter64;
+    }
+    leaf qat_gcm_encrypt {
+      type yang:counter64;
+    }
+    leaf openssl_gcm_decrypt {
+      type yang:counter64;
+    }
+    leaf openssl_gcm_encrypt {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc0 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc1 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc2 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc3 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc4 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc5 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc6 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc7 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc0 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc1 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc2 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc3 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc4 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc5 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc6 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc7 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc0 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc1 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc2 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc3 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc4 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc5 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc6 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc7 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc0 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc1 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc2 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc3 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc4 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc5 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc6 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc7 {
+      type yang:counter64;
+    }
+    leaf icmp_redirect_tx_drops {
+      type yang:counter64;
+    }
+    leaf icmp_redirect_rx_drops {
+      type yang:counter64;
+    }
+    leaf rx_l2mtu_exceeded {
+      description "rx l2 mtu exceeded value - Deprecated in 17.2";
+      type yang:counter64;
+      status deprecated;
+    }
+    leaf tcpopt_timeout_state_err {
+      type yang:counter64;
+    }
+    leaf tcpopt_third_syn_pt {
+      type yang:counter64;
+    }
+    leaf tcpopt_init_limit_pt {
+      type yang:counter64;
+    }
+    leaf tcpopt_to_cpu {
+      type yang:counter64;
+    }
+    leaf tcpopt_from_cpu {
+      type yang:counter64;
+    }
+    leaf tcpopt_ctrl_invalid_seq {
+      type yang:counter64;
+    }
+    leaf tcpopt_mbox_total {
+      type yang:counter64;
+    }
+    leaf tcpopt_new_flow {
+      type yang:counter64;
+    }
+    leaf tcpopt_del_flow {
+      type yang:counter64;
+    }
+    leaf ip_direct_bcast_tx_drops {
+      type yang:counter64;
+    }
+    leaf ip_direct_bcast_tx_l2_bcast {
+      type yang:counter64;
+    }
+    leaf rx_invalid_ip_hdr {
+      type yang:counter64;
+    }
+    leaf nat_dst_nat_map_invalid {
+      type yang:counter64;
+    }
+    leaf invalid_loop_hdr_drops {
+      type yang:counter64;
+    }
+    leaf zbf_frag_cache_drops {
+      type yang:counter64;
+    }
+    leaf nat_frag_cache_drops {
+      type yang:counter64;
+    }
+    leaf ipfrag_allfrags_seen {
+      type yang:counter64;
+    }
+    leaf ipfrag_many_frags {
+      type yang:counter64;
+    }
+    leaf l2_vrrp_promisc_mismatch_dmac_drops {
+      type yang:counter64;
+    }
+    leaf tx_tracker_if_not_preferred {
+      type yang:counter64;
+    }
+  }
+  container system-statistics-diff {
+    description "Display system statistics information";
+    config false;
+    when "/viptela-system:system/viptela-system:personality = 'vedge'";
+    leaf rx_pkts {
+      type yang:counter64;
+    }
+    leaf rx_drops {
+      type yang:counter64;
+    }
+    leaf ip_fwd {
+      type yang:counter64;
+    }
+    leaf ip_fwd_mirror_pkts {
+      type yang:counter64;
+    }
+    leaf ip_fwd_arp {
+      type yang:counter64;
+    }
+    leaf ip_fwd_to_egress {
+      type yang:counter64;
+    }
+    leaf ip_fwd_invalid_oil {
+      type yang:counter64;
+    }
+    leaf ip_v6_mcast_drops {
+      type yang:counter64;
+    }
+    leaf ip_fwd_mcast_invalid_iif {
+      type yang:counter64;
+    }
+    leaf ip_fwd_mcast_life_exceeded_drops {
+      type yang:counter64;
+    }
+    leaf rx_mcast_threshold_exceeded {
+      type yang:counter64;
+    }
+    leaf ip_fwd_invalid_tun_oil {
+      type yang:counter64;
+    }
+    leaf rx_mcast_policy_fwd_drops {
+      type yang:counter64;
+    }
+    leaf rx_mcast_mirror_fwd_drops {
+      type yang:counter64;
+    }
+    leaf ip_fwd_null_mcast_group {
+      type yang:counter64;
+    }
+    leaf ip_fwd_null_nhop {
+      type yang:counter64;
+    }
+    leaf ip_fwd_unknown_nh_type {
+      type yang:counter64;
+    }
+    leaf ip_fwd_nat_on_tunnel {
+      type yang:counter64;
+    }
+    leaf ip_fwd_to_cpu {
+      type yang:counter64;
+    }
+    leaf ip_fwd_to_cpu_nat_xlates {
+      type yang:counter64;
+    }
+    leaf ip_fwd_from_cpu_nat_xlates {
+      type yang:counter64;
+    }
+    leaf ip_fwd_to_cpu_nat_drops {
+      type yang:counter64;
+    }
+    leaf ip_fwd_from_cpu_non_local {
+      type yang:counter64;
+    }
+    leaf ip_fwd_rx_ipsec {
+      type yang:counter64;
+    }
+    leaf ip_fwd_mcast_pkts {
+      type yang:counter64;
+    }
+    leaf ip_fwd_rx_gre {
+      type yang:counter64;
+    }
+    leaf nat_xlate_outbound {
+      type yang:counter64;
+    }
+    leaf nat_xlate_outbound_drops {
+      type yang:counter64;
+    }
+    leaf nat_xlate_inbound {
+      type yang:counter64;
+    }
+    leaf nat_xlate_inbound_fail {
+      type yang:counter64;
+    }
+    leaf cflowd_pkts {
+      type yang:counter64;
+    }
+    leaf rx_bcast {
+      type yang:counter64;
+    }
+    leaf rx_mcast {
+      type yang:counter64;
+    }
+    leaf rx_mcast_link_local {
+      type yang:counter64;
+    }
+    leaf rx_mcast_filter_to_cpu {
+      type yang:counter64;
+    }
+    leaf rx_mcast_filter_to_cpu_and_fwd {
+      type yang:counter64;
+    }
+    leaf rx_gre_decap {
+      type yang:counter64;
+    }
+    leaf rx_gre_drops {
+      type yang:counter64;
+    }
+    leaf rx_gre_policer_drops {
+      type yang:counter64;
+    }
+    leaf rx_implicit_acl_drops {
+      type yang:counter64;
+    }
+    leaf rx_ipsec_decap {
+      type yang:counter64;
+    }
+    leaf rx_ip6_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_sa_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_invalid_ipsec_pkt_size {
+      type yang:counter64;
+    }
+    leaf rx_spi_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops {
+      type yang:counter64;
+    }
+    leaf rx_next_hdr_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_mac_compare_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_err_pad_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_ipsec_policer_drops {
+      type yang:counter64;
+    }
+    leaf rx_pre_ipsec_pkts {
+      type yang:counter64;
+    }
+    leaf rx_pre_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf rx_pre_ipsec_policer_drops {
+      type yang:counter64;
+    }
+    leaf rx_pre_ipsec_decap {
+      type yang:counter64;
+    }
+    leaf openssl_aes_decrypt {
+      type yang:counter64;
+    }
+    leaf rx_ipsec_bad_inner {
+      type yang:counter64;
+    }
+    leaf rx_bad_label {
+      type yang:counter64;
+    }
+    leaf service_label_fwd {
+      type yang:counter64;
+    }
+    leaf rx_host_local_pkt {
+      type yang:counter64;
+    }
+    leaf rx_host_mirror_drops {
+      type yang:counter64;
+    }
+    leaf rx_tunneled_pkts {
+      type yang:counter64;
+    }
+    leaf rx_cp_non_local {
+      type yang:counter64;
+    }
+    leaf tx_if_not_preferred {
+      type yang:counter64;
+    }
+    leaf tx_vsmart_drop {
+      type yang:counter64;
+    }
+    leaf rx_invalid_port {
+      type yang:counter64;
+    }
+    leaf port_disabled_rx {
+      type yang:counter64;
+    }
+    leaf ip_disabled_rx {
+      type yang:counter64;
+    }
+    leaf rx_invalid_qtags {
+      type yang:counter64;
+    }
+    leaf rx_non_ip_drops {
+      type yang:counter64;
+    }
+    leaf rx_ip_errs {
+      type yang:counter64;
+    }
+    leaf pko_wred_drops {
+      type yang:counter64;
+    }
+    leaf tx_queue_exceeded {
+      type yang:counter64;
+    }
+    leaf rx_policer_drops {
+      type yang:counter64;
+    }
+    leaf route_to_host {
+      type yang:counter64;
+    }
+    leaf ttl_expired {
+      type yang:counter64;
+    }
+    leaf icmp_redirect {
+      type yang:counter64;
+    }
+    leaf bfd_rx_non_ip {
+      type yang:counter64;
+    }
+    leaf bfd_tx_record_changed {
+      type yang:counter64;
+    }
+    leaf bfd_rx_record_invalid {
+      type yang:counter64;
+    }
+    leaf bfd_rx_parse_err {
+      type yang:counter64;
+    }
+    leaf rx_arp_rate_limit_drops {
+      type yang:counter64;
+    }
+    leaf rx_arp_non_local_drops {
+      type yang:counter64;
+    }
+    leaf rx_arp_reqs {
+      type yang:counter64;
+    }
+    leaf rx_arp_replies {
+      type yang:counter64;
+    }
+    leaf arp_add_fail {
+      type yang:counter64;
+    }
+    leaf unknown_nh_type {
+      type yang:counter64;
+    }
+    leaf buf_alloc_fails {
+      type yang:counter64;
+    }
+    leaf ecmp_discards {
+      type yang:counter64;
+    }
+    leaf app_route_policy_discards {
+      type yang:counter64;
+    }
+    leaf cbf_discards {
+      type yang:counter64;
+    }
+    leaf filter_drops {
+      type yang:counter64;
+    }
+    leaf invalid_back_ptr {
+      type yang:counter64;
+    }
+    leaf tunnel_loop_drops {
+      type yang:counter64;
+    }
+    leaf to_cpu_policer_drops {
+      type yang:counter64;
+    }
+    leaf mirror_drops {
+      type yang:counter64;
+    }
+    leaf split_horizon_drops {
+      type yang:counter64;
+    }
+    leaf rx_no_tun_if {
+      type yang:counter64;
+    }
+    leaf tx_pkts {
+      type yang:counter64;
+    }
+    leaf tx_errors {
+      type yang:counter64;
+    }
+    leaf tx_bcast {
+      type yang:counter64;
+    }
+    leaf tx_mcast {
+      type yang:counter64;
+    }
+    leaf port_disabled_tx {
+      type yang:counter64;
+    }
+    leaf ip_disabled_tx {
+      type yang:counter64;
+    }
+    leaf tx_fragment_needed {
+      type yang:counter64;
+    }
+    leaf tx_mcast_fragment_needed {
+      type yang:counter64;
+    }
+    leaf fragment_df_drops {
+      type yang:counter64;
+    }
+    leaf tx_fragments {
+      type yang:counter64;
+    }
+    leaf tx_fragment_drops {
+      type yang:counter64;
+    }
+    leaf tx_fragment_fail {
+      type yang:counter64;
+    }
+    leaf tx_fragment_alloc_fail {
+      type yang:counter64;
+    }
+    leaf tunnel_pmtu_lowered {
+      type yang:counter64;
+    }
+    leaf tx_gre_pkts {
+      type yang:counter64;
+    }
+    leaf tx_gre_drops {
+      type yang:counter64;
+    }
+    leaf tx_gre_policer_drops {
+      type yang:counter64;
+    }
+    leaf tx_gre_encap {
+      type yang:counter64;
+    }
+    leaf tx_ipsec_pkts {
+      type yang:counter64;
+    }
+    leaf tx_ipsec_mcast_pkts {
+      type yang:counter64;
+    }
+    leaf tx_ip6_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf tx_no_out_sa_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf tx_no_tunn_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf tx_ipsec_policer_drops {
+      type yang:counter64;
+    }
+    leaf tx_ipsec_encap {
+      type yang:counter64;
+    }
+    leaf tx_ipsec_mcast_encap {
+      type yang:counter64;
+    }
+    leaf tx_pre_ipsec_pkts {
+      type yang:counter64;
+    }
+    leaf tx_no_out_sa_pre_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf tx_no_tunn_pre_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf openssl_aes_encrypt {
+      type yang:counter64;
+    }
+    leaf tx_pre_ipsec_policer_drops {
+      type yang:counter64;
+    }
+    leaf tx_pre_ipsec_encap {
+      type yang:counter64;
+    }
+    leaf tx_arp_replies {
+      type yang:counter64;
+    }
+    leaf tx_arp_reqs {
+      type yang:counter64;
+    }
+    leaf tx_arp_req_fail {
+      type yang:counter64;
+    }
+    leaf tx_no_arp_drop {
+      type yang:counter64;
+    }
+    leaf tx_arp_rate_limit_drops {
+      type yang:counter64;
+    }
+    leaf tx_icmp_policer_drops {
+      type yang:counter64;
+    }
+    leaf tx_icmp_mirrored_drops {
+      type yang:counter64;
+    }
+    leaf bfd_tx_fail {
+      type yang:counter64;
+    }
+    leaf bfd_alloc_fail {
+      type yang:counter64;
+    }
+    leaf bfd_timer_add_fail {
+      type yang:counter64;
+    }
+    leaf bfd_tx_pkts {
+      type yang:counter64;
+    }
+    leaf bfd_rx_pkts {
+      type yang:counter64;
+    }
+    leaf bfd_rec_down {
+      type yang:counter64;
+    }
+    leaf bfd_rec_invalid {
+      type yang:counter64;
+    }
+    leaf bfd_lkup_fail {
+      type yang:counter64;
+    }
+    leaf rx_icmp_echo_requests {
+      type yang:counter64;
+    }
+    leaf rx_icmp_echo_replies {
+      type yang:counter64;
+    }
+    leaf rx_icmp_network_unreach {
+      type yang:counter64;
+    }
+    leaf rx_icmp_host_unreach {
+      type yang:counter64;
+    }
+    leaf rx_icmp_port_unreach {
+      type yang:counter64;
+    }
+    leaf rx_icmp_protocol_unreach {
+      type yang:counter64;
+    }
+    leaf rx_icmp_fragment_required {
+      type yang:counter64;
+    }
+    leaf rx_icmp_dst_unreach_other {
+      type yang:counter64;
+    }
+    leaf rx_icmp_ttl_expired {
+      type yang:counter64;
+    }
+    leaf rx_icmp_redirect {
+      type yang:counter64;
+    }
+    leaf rx_icmp_src_quench {
+      type yang:counter64;
+    }
+    leaf rx_icmp_bad_ip_hdr {
+      type yang:counter64;
+    }
+    leaf rx_icmp_other_types {
+      type yang:counter64;
+    }
+    leaf tx_icmp_echo_requests {
+      type yang:counter64;
+    }
+    leaf tx_icmp_echo_replies {
+      type yang:counter64;
+    }
+    leaf tx_icmp_network_unreach {
+      type yang:counter64;
+    }
+    leaf tx_icmp_host_unreach {
+      type yang:counter64;
+    }
+    leaf tx_icmp_port_unreach {
+      type yang:counter64;
+    }
+    leaf tx_icmp_protocol_unreach {
+      type yang:counter64;
+    }
+    leaf tx_icmp_fragment_required {
+      type yang:counter64;
+    }
+    leaf tx_icmp_dst_unreach_other {
+      type yang:counter64;
+    }
+    leaf tx_icmp_ttl_expired {
+      type yang:counter64;
+    }
+    leaf tx_icmp_redirect {
+      type yang:counter64;
+    }
+    leaf tx_icmp_src_quench {
+      type yang:counter64;
+    }
+    leaf tx_icmp_bad_ip_hdr {
+      type yang:counter64;
+    }
+    leaf tx_icmp_other_types {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_pkts {
+      type yang:counter64;
+    }
+    leaf gre_ka_rx_pkts {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_ipv4_options_drop {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_non_ip {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_parse_err {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_record_changed {
+      type yang:counter64;
+    }
+    leaf gre_ka_tx_fail {
+      type yang:counter64;
+    }
+    leaf gre_ka_alloc_fail {
+      type yang:counter64;
+    }
+    leaf gre_ka_timer_add_fail {
+      type yang:counter64;
+    }
+    leaf gre_ka_rx_non_ip {
+      type yang:counter64;
+    }
+    leaf gre_ka_rx_rec_invalid {
+      type yang:counter64;
+    }
+    leaf dot1x_rx_pkts {
+      type yang:counter64;
+    }
+    leaf dot1x_tx_pkts {
+      type yang:counter64;
+    }
+    leaf dot1x_rx_drops {
+      type yang:counter64;
+    }
+    leaf dot1x_tx_drops {
+      type yang:counter64;
+    }
+    leaf dot1x_vlan_if_not_found_drops {
+      type yang:counter64;
+    }
+    leaf dot1x_mac_learn_drops {
+      type yang:counter64;
+    }
+    leaf rx_policer_remark {
+      type yang:counter64;
+    }
+    leaf bfd_tx_octets {
+      type yang:counter64;
+    }
+    leaf bfd_rx_octets {
+      type yang:counter64;
+    }
+    leaf bfd_pmtu_tx_pkts {
+      type yang:counter64;
+    }
+    leaf bfd_pmtu_rx_pkts {
+      type yang:counter64;
+    }
+    leaf bfd_pmtu_tx_octets {
+      type yang:counter64;
+    }
+    leaf bfd_pmtu_rx_octets {
+      type yang:counter64;
+    }
+    leaf dns_req_snoop {
+      type yang:counter64;
+    }
+    leaf dns_res_snoop {
+      type yang:counter64;
+    }
+    leaf ctrl_loop_fwd {
+      type yang:counter64;
+    }
+    leaf ctrl_loop_fwd_drops {
+      type yang:counter64;
+    }
+    leaf tx_zero_spi_ipsec_drops {
+      type yang:counter64;
+    }
+    leaf redirect_dns_req {
+      type yang:counter64;
+    }
+    leaf qat_aes_decrypt {
+      type yang:counter64;
+    }
+    leaf qat_aes_encrypt {
+      type yang:counter64;
+    }
+    leaf qat_gcm_decrypt {
+      type yang:counter64;
+    }
+    leaf qat_gcm_encrypt {
+      type yang:counter64;
+    }
+    leaf openssl_gcm_decrypt {
+      type yang:counter64;
+    }
+    leaf openssl_gcm_encrypt {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc0 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc1 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc2 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc3 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc4 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc5 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc6 {
+      type yang:counter64;
+    }
+    leaf rx_replay_drops_tc7 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc0 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc1 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc2 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc3 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc4 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc5 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc6 {
+      type yang:counter64;
+    }
+    leaf rx_window_drops_tc7 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc0 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc1 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc2 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc3 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc4 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc5 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc6 {
+      type yang:counter64;
+    }
+    leaf rx_unexpected_replay_drops_tc7 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc0 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc1 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc2 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc3 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc4 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc5 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc6 {
+      type yang:counter64;
+    }
+    leaf rx_replay_integrity_drops_tc7 {
+      type yang:counter64;
+    }
+    leaf icmp_redirect_tx_drops {
+      type yang:counter64;
+    }
+    leaf icmp_redirect_rx_drops {
+      type yang:counter64;
+    }
+    leaf rx_l2mtu_exceeded {
+      description "rx l2 mtu exceeded value - Deprecated in 17.2";
+      type yang:counter64;
+      status deprecated;
+    }
+    leaf ip_direct_bcast_tx_drops {
+      type yang:counter64;
+    }
+    leaf ip_direct_bcast_tx_l2_bcast {
+      type yang:counter64;
+    }
+    leaf rx_invalid_ip_hdr {
+      type yang:counter64;
+    }
+    leaf nat_dst_nat_map_invalid {
+      type yang:counter64;
+    }
+    leaf invalid_loop_hdr_drops {
+      type yang:counter64;
+    }
+    leaf zbf_frag_cache_drops {
+      type yang:counter64;
+    }
+    leaf nat_frag_cache_drops {
+      type yang:counter64;
+    }
+    leaf ipfrag_allfrags_seen {
+      type yang:counter64;
+    }
+    leaf ipfrag_many_frags {
+      type yang:counter64;
+    }
+    leaf l2_vrrp_promisc_mismatch_dmac_drops {
+      type yang:counter64;
+    }
+    leaf tx_tracker_if_not_preferred {
+      type yang:counter64;
+    }
+  }
+  container reboot {
+    description "Display system reboot related information";
+    list history {
+      description "Display system reboot history";
+      max-elements "32";
+      config false;
+      key "reboot_date_time";
+      leaf reboot_date_time {
+        description "Reboot date and time in confd format";
+        type yang:date-and-time;
+      }
+      leaf reboot_reason {
+        description "Reboot reason";
+        type string;
+      }
+    }
+  }
+  list boot-partition {
+    when "(/viptela-system:system/viptela-system:device-os != 'next')";
+    description "Display boot partition information";
+    key "partition";
+    config false;
+    leaf partition {
+      description "Partition number";
+      type enumeration {
+        enum "1";
+        enum "2";
+      }
+    }
+    leaf active {
+      description "Whether partition is active";
+      type empty;
+    }
+    leaf version {
+      description "Version";
+      type string {
+        length "1..128";
+      }
+    }
+    leaf timestamp {
+      description "Date and time created";
+      type yang:date-and-time;
+    }
+  }
+  list users {
+    description "Display users currently logged in";
+    config false;
+    key "session";
+    leaf session {
+      description "User session ID";
+      type uint32;
+    }
+    leaf user {
+      description "User name";
+      type string {
+        description "<1..128> characters";
+        length "1..128";
+      }
+    }
+    leaf context {
+      description "CLI | NETCONF | WEBUI";
+      type string;
+    }
+    leaf from {
+      description "Address from which user session originates";
+      type inet:ip-address;
+    }
+    leaf proto {
+      description "Protocol used by user to log in";
+      type enumeration {
+        enum "unknown";
+        enum "tcp";
+        enum "ssh";
+        enum "system";
+        enum "console";
+        enum "ssl";
+        enum "http";
+        enum "https";
+        enum "udp";
+      }
+    }
+    leaf auth-group {
+      description "User group";
+      type string;
+    }
+    leaf login-time {
+      description "Login time of a user";
+      type yang:date-and-time;
+    }
+  }
+  container aaa {
+    description "Display AAA information";
+    config false;
+    list usergroup {
+      description "Display user group information";
+      key "name";
+      leaf name {
+        description "Name of the user group";
+        type string {
+          description "<1..128> characters";
+          length "1..128";
+        }
+      }
+      leaf-list users {
+        description "Users associated with this group";
+        type string {
+          description "<1..128> characters";
+          length "1..128";
+        }
+      }
+      list task {
+        description "Tasks and permissions";
+        key "mode";
+        leaf mode {
+          description "Task mode";
+          type viptela:aaa-tasks-type;
+        }
+        leaf-list permission {
+          description "Permissions";
+          type viptela:aaa-permission-type;
+        }
+      }
+    }
+  }
+  container logging {
+    description "Display logging information";
+    config false;
+    leaf host_status {
+      type string;
+    }
+    leaf host_name {
+      type string;
+    }
+    leaf host_priority {
+      type string;
+    }
+    leaf host_vpn_id {
+      type viptela:vpn-id;
+    }
+    leaf disk_status {
+      type string;
+    }
+    leaf disk_priority {
+      type string;
+    }
+    leaf disk_filename {
+      type string;
+    }
+    leaf disk_filesize {
+      type uint16;
+    }
+    leaf disk_filerotate {
+      type uint8;
+    }
+  }
+  container ntp {
+    description "Display NTP information";
+    config false;
+    leaf refid {
+      description "Current source of synchronization";
+      type viptela:named-type;
+      status obsolete;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf reftime {
+      description "Time when the system clock was last set or corrected";
+      type viptela:named-type;
+      status obsolete;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf stratum {
+      description "Stratum";
+      type uint32;
+      status obsolete;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf rootdelay {
+      description "Total round-trip delay to currently selected reference clock";
+      type viptela:named-type;
+      status obsolete;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf rootdisp {
+      description "Total dispersion to currently selected reference clock";
+      type viptela:named-type;
+      status obsolete;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf freq_drift_ppm {
+      description "Kernel frequency drift";
+      type viptela:named-type;
+      status obsolete;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf poll_interval {
+      description "Polling interval";
+      type uint32;
+      status obsolete;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    leaf offset {
+      description "Offset";
+      type viptela:named-type;
+      status obsolete;
+      when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    }
+    list peer {
+      description "Display NTP peer information";
+      config false;
+      key "index";
+      leaf index {
+        description "Index on this list";
+        type uint32;
+      }
+      leaf remote {
+        description "NTP server";
+        type viptela:named-type;
+      }
+      leaf refid {
+        description "Current source of synchronization";
+        type viptela:named-type;
+      }
+      leaf st {
+        description "Stratum";
+        type int32;
+      }
+      leaf type {
+        description "Type";
+        type viptela:named-type;
+      }
+      leaf when {
+        description "When";
+        type viptela:named-type;
+      }
+      leaf poll {
+        description "Polling interval, in seconds";
+        type int32;
+      }
+      leaf reach {
+        description "Status of reachability register, in octal";
+        type viptela:named-type;
+      }
+      leaf delay {
+        description "Latest delay";
+        type viptela:named-type;
+      }
+      leaf offset {
+        description "Latest offset";
+        type viptela:named-type;
+      }
+      leaf jitter {
+        description "Latest jitter";
+        type viptela:named-type;
+      }
+    }
+    list associations {
+      description "Display NTP peer association";
+      config false;
+      key "idx";
+      leaf idx {
+        description "Index on this list";
+        type int32 {
+          range "0..2147483647";
+        }
+      }
+      leaf associd {
+        description "Association ID";
+        type viptela:named-type;
+      }
+      leaf status {
+        description "Peer status word, in hexadecimal";
+        type viptela:named-type;
+      }
+      leaf conf {
+        description "Configuration (persistent or ephemeral)";
+        type viptela:named-type;
+      }
+      leaf reachability {
+        description "Reachability (yes or no)";
+        type viptela:named-type;
+      }
+      leaf auth {
+        description "Authentication (ok, yes, bad, or none)";
+        type viptela:named-type;
+      }
+      leaf condition {
+        description "Selection status";
+        type viptela:named-type;
+      }
+      leaf last_event {
+        description "Event report";
+        type viptela:named-type;
+      }
+      leaf count {
+        description "Event count";
+        type int32;
+      }
+    }
+  }
+  container transport {
+    description "Display transport connection information";
+    when
+      "(/viptela-system:system/viptela-system:personality = 'vedge') or
+       (/viptela-system:system/viptela-system:personality = 'vsmart') or
+       (/viptela-system:system/viptela-system:personality = 'vmanage')";
+    list connection {
+      config false;
+      key "track-type source destination";
+      leaf track-type {
+        description "Tracking Type";
+        type enumeration {
+          enum "system";
+          enum "tloc";
+        }
+      }
+      leaf source {
+        description "Source address";
+        type inet:ip-address;
+      }
+      leaf destination {
+        description "Destination address";
+        type inet:ip-address;
+      }
+      leaf host {
+        description "Host IP/DNS";
+        type string;
+      }
+      list history {
+        description "Display transport connection history";
+        config false;
+        key "index";
+        leaf index {
+          description "Index";
+          type uint32;
+        }
+        leaf time {
+          description "Time of log (Days:Hours:Minutes:Seconds)";
+          type string;
+        }
+        leaf state {
+          description "State";
+          type enumeration {
+            enum "down";
+            enum "up";
+          }
+        }
+      }
+    }
+  }
+  list crash {
+    description "Display system crash log list";
+    config false;
+    key "index";
+    leaf index {
+      description "Index on this list";
+      type int32 {
+        range "0..15";
+      }
+    }
+    leaf core-time {
+      description "Time core file was generated";
+      type string;
+    }
+    leaf core-filename {
+      description "Core file name";
+      type string;
+    }
+  }
+  list feature-list {
+    config false;
+    description "Display supported features";
+    key "name";
+    leaf name {
+      description "Name of the feature";
+      type enumeration {
+        enum "statistics-collection";
+        enum "upgrade-confirm";
+        enum "vmanage-mode";
+        enum "dpi-statistics";
+        enum "cert-serial-hashing";
+        enum "upgrade";
+        enum "cert-serial-version";
+        enum "vbond-standalone";
+        enum "tools";
+        enum "admin-tech-options";
+        enum "cloudexpress";
+        enum "wlan-info-stats";
+        enum "flow-log-stats";
+        enum "vedge-cloud-certificate";
+        enum "mt-serial-list";
+        enum "vmanage-authentication";
+        enum "sdavc-apps";
+        enum "reverse-proxy";
+        enum "enterprise-csr";
+        enum "device-enterprise-certs";
+        enum "service-chain-health";
+        enum "ovs-dpdk";
+      }
+    }
+    leaf version {
+      description "Version";
+      type string;
+    }
+  }
+  container nms-server {
+    config false;
+    when "/viptela-system:system/viptela-system:personality = 'vmanage'";
+    leaf running {
+      type boolean;
+      default "true";
+    }
+  }
+  list software {
+    description "Display software versions";
+    when "(/viptela-system:system/viptela-system:device-os = 'next')";
+    key "version";
+    config false;
+    leaf version {
+      description "Version";
+      type string {
+        length "1..128";
+      }
+    }
+    leaf active {
+      description "Is active";
+      type boolean;
+    }
+    leaf default {
+      description "Is default";
+      type boolean;
+    }
+    leaf previous {
+      description "Is previous";
+      type boolean;
+    }
+    leaf confirmed {
+      description "Confirmed by";
+      type string {
+        length "1..128";
+      }
+    }
+    leaf timestamp {
+      description "Date and time created";
+      type yang:date-and-time;
+    }
+    leaf next {
+      description "Whether partition is running next based images";
+      type boolean;
+      default "true";
+    }
+  }
+}

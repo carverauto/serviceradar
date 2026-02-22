@@ -1,0 +1,1501 @@
+-- *****************************************************************
+-- CISCO-PAE-CAPABILITY.my:
+-- Cisco CISCO-PAE-MIB AGENT-CAPABILITIES
+--   
+-- July 2003, Binh Le
+--   
+-- Copyright (c) 2003-2010 by Cisco Systems, Inc.
+--   
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-PAE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    VlanIndex
+        FROM CISCO-VTP-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoPaeCapability MODULE-IDENTITY
+    LAST-UPDATED    "201011010000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ibns@cisco.com,
+                    cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-PAE-MIB."
+    REVISION        "201011010000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoPaeCapV12R0250SYPCat6K."
+    REVISION        "201003220000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoPaeCapV12R0233SXI4PCat6K."
+    REVISION        "201003150000Z"
+    DESCRIPTION
+        "Added capability statement ciscoPaeCapV120252SGPCat4K.
+
+        Added VARIATIONs for cpaePortEntry, cpaeAuthConfigEntry,
+        and cpaeMacAuthBypassPortEntry in capability statement
+        ciscoPaeCapV12R0233SXIPCat6K."
+    REVISION        "200912310000Z"
+    DESCRIPTION
+        "Removed cpaePortAuthFailUserInfoGroup from
+        capability statement ciscoPaeCapV12R0233SXIPCat6K."
+    REVISION        "200811060000Z"
+    DESCRIPTION
+        "Added capability statement ciscoPaeCapV12R0233SXIPCat6K."
+    REVISION        "200811040000Z"
+    DESCRIPTION
+        "Added capability statement ciscoPaeCapCatOSV08R0702."
+    REVISION        "200810200000Z"
+    DESCRIPTION
+        "Added capability statement ciscoPaeCapV12R0246SECat3K."
+    REVISION        "200804240000Z"
+    DESCRIPTION
+        "Added capability statement ciscoPaeCapCatOSV08R0701.
+
+        Added VARIATION for cpaePortMode in capability
+        statement ciscoPaeCapV12R0233SXHPCat6K."
+    REVISION        "200707090000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoPaeCapV12R0233SXHPCat6K."
+    REVISION        "200704260000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoPaeCapCatOSV08R0602."
+    REVISION        "200702270000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoPaeCapCatOSV08R0601."
+    REVISION        "200509050000Z"
+    DESCRIPTION
+        "Added capability statement ciscoPaeCapCatOSV08R0501.
+
+        Added VARIATION for cpaeGuestVlanNumber in capability
+        statement ciscoPaeCapCatOSV08R0101Cat6K.
+
+        Added VARIATION for cpaeGuestVlanNumber in capability
+        statement ciscoPaeCapCatOSV08R0101Cat4K.
+
+        Added VARIATION for cpaeGuestVlanNumber in capability
+        statement ciscoPaeCapCatOSV08R0301"
+    REVISION        "200401160000Z"
+    DESCRIPTION
+        "Added capability statement ciscoPaeCapCatOSV08R0301."
+    REVISION        "200308060000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 319 }
+
+
+
+ciscoPaeCapV12R0111bEXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(11b)EX on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        { cpaeMultipleHostGroup }
+    ::= { ciscoPaeCapability 1 }
+
+ciscoPaeCapCatOSV07R0101 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 7.1(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        { cpaeMultipleHostGroup }
+    ::= { ciscoPaeCapability 2 }
+
+ciscoPaeCapCatOSV07R0501Cat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 7.5(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup
+                    }
+    ::= { ciscoPaeCapability 3 }
+
+ciscoPaeCapCatOSV07R0601Cat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 7.6(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup,
+                        cpaeShutdownTimeoutGroup
+                    }
+    ::= { ciscoPaeCapability 4 }
+
+ciscoPaeCapCatOSV08R0101Cat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup,
+                        cpaeShutdownTimeoutGroup,
+                        cpaeGuestVlanGroup2
+                    }
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoPaeCapability 5 }
+
+ciscoPaeCapCatOSV08R0101Cat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 4000 series
+                    devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaeShutdownTimeoutGroup
+                    }
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoPaeCapability 6 }
+
+ciscoPaeCapCatOSV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup,
+                        cpaeShutdownTimeoutGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeRadiusConfigGroup,
+                        cpaeUserGroupGroup
+                    }
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoPaeCapability 7 }
+
+ciscoPaeCapCatOSV08R0501 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.5(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup,
+                        cpaeShutdownTimeoutGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeRadiusConfigGroup,
+                        cpaeUserGroupGroup,
+                        cpaeGuestVlanGroup3,
+                        cpaePortAuthFailVlanGroup,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeMacAuthBypassGroup,
+                        cpaeWebAuthGroup,
+                        cpaeAuthConfigGroup
+                    }
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaePortAuthFailVlan
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassReAuthTimeout
+    SYNTAX          Unsigned32 (300..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassShutdownTimeout
+    SYNTAX          Unsigned32 (30..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassAuthFailTimeout
+    SYNTAX          Unsigned32 (5..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthSessionPeriod
+    SYNTAX          Unsigned32 (300..86400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthQuietPeriod
+    SYNTAX          Unsigned32 (1..43200)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthMaxRetries
+    SYNTAX          Unsigned32 (3..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        auto(3)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoPaeCapability 8 }
+
+ciscoPaeCapCatOSV08R0601 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup,
+                        cpaeShutdownTimeoutGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeRadiusConfigGroup,
+                        cpaeUserGroupGroup,
+                        cpaeGuestVlanGroup3,
+                        cpaePortAuthFailVlanGroup,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeMacAuthBypassGroup,
+                        cpaeWebAuthGroup,
+                        cpaeAuthConfigGroup,
+                        cpaeAuthConfigGroup2,
+                        cpaeWebAuthAaaFailGroup,
+                        cpaeMacAuthBypassGroup2,
+                        cpaePortEapolTestGroup,
+                        cpaePortAuthFailVlanGroup2,
+                        cpaeMacAuthBypassCriticalGroup,
+                        cpaeWebAuthCriticalGroup,
+                        cpaeCriticalRecoveryDelayGroup
+                    }
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaePortAuthFailVlan
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassReAuthTimeout
+    SYNTAX          Unsigned32 (300..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassShutdownTimeout
+    SYNTAX          Unsigned32 (30..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassAuthFailTimeout
+    SYNTAX          Unsigned32 (5..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthSessionPeriod
+    SYNTAX          Unsigned32 (300..86400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthQuietPeriod
+    SYNTAX          Unsigned32 (1..43200)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthMaxRetries
+    SYNTAX          Unsigned32 (3..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaePortEapolTestStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthFailVlanMaxAttempts
+    SYNTAX          Unsigned32 (3)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMabCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoPaeCapability 9 }
+
+ciscoPaeCapCatOSV08R0602 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(2)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup,
+                        cpaeShutdownTimeoutGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeRadiusConfigGroup,
+                        cpaeUserGroupGroup,
+                        cpaeGuestVlanGroup3,
+                        cpaePortAuthFailVlanGroup,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeMacAuthBypassGroup,
+                        cpaeWebAuthGroup,
+                        cpaeAuthConfigGroup,
+                        cpaeAuthConfigGroup2,
+                        cpaeWebAuthAaaFailGroup,
+                        cpaeMacAuthBypassGroup2,
+                        cpaePortEapolTestGroup,
+                        cpaePortAuthFailVlanGroup2,
+                        cpaeMacAuthBypassCriticalGroup,
+                        cpaeWebAuthCriticalGroup,
+                        cpaeCriticalRecoveryDelayGroup,
+                        cpaeHostInfoGroup3
+                    }
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaePortAuthFailVlan
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassReAuthTimeout
+    SYNTAX          Unsigned32 (300..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassShutdownTimeout
+    SYNTAX          Unsigned32 (30..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassAuthFailTimeout
+    SYNTAX          Unsigned32 (5..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthSessionPeriod
+    SYNTAX          Unsigned32 (300..86400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthQuietPeriod
+    SYNTAX          Unsigned32 (1..43200)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthMaxRetries
+    SYNTAX          Unsigned32 (3..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaePortEapolTestStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthFailVlanMaxAttempts
+    SYNTAX          Unsigned32 (3)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMabCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoPaeCapability 10 }
+
+ciscoPaeCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup3,
+                        cpaePortAuthFailVlanGroup,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeMacAuthBypassGroup,
+                        cpaeMacAuthBypassGroup3,
+                        cpaeAuthConfigGroup,
+                        cpaeHostInfoGroup2,
+                        cpaePortAuthFailVlanGroup2,
+                        cpaeHostPostureTokenGroup
+                    }
+    VARIATION       cpaePortMode
+    SYNTAX          INTEGER  {
+                        singleHost(1),
+                        multiHost(2)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    SYNTAX          Unsigned32 (1..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthFailVlanMaxAttempts
+    SYNTAX          Unsigned32 (1..3)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthIabEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassReAuthTimeout
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassReAuthEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassViolation
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassShutdownTimeout
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassAuthFailTimeout
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassPortInitialize
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassPortReAuth
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassPortMacAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassPortAuthState
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassAcctEnable
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaeMacAuthBypassPortAuthMethod
+    DESCRIPTION
+        "Value 'eap' can only be set if
+        cpaeMacAuthBypassPortEnabled is 'true'.
+        Setting cpaeMacAuthBypassPortEnabled to 'false'
+        will changes cpaeMacAuthBypassPortAuthMethod to
+        'radius'."
+
+    VARIATION       cpaeAuthFailUserName
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoPaeCapability 11 }
+
+ciscoPaeCapCatOSV08R0701 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup,
+                        cpaeShutdownTimeoutGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeRadiusConfigGroup,
+                        cpaeUserGroupGroup,
+                        cpaeGuestVlanGroup3,
+                        cpaePortAuthFailVlanGroup,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeWebAuthGroup,
+                        cpaeAuthConfigGroup2,
+                        cpaeWebAuthAaaFailGroup,
+                        cpaeMacAuthBypassGroup2,
+                        cpaeMacAuthBypassGroup3,
+                        cpaePortEapolTestGroup,
+                        cpaePortAuthFailVlanGroup2,
+                        cpaeMacAuthBypassCriticalGroup,
+                        cpaeWebAuthCriticalGroup,
+                        cpaeCriticalRecoveryDelayGroup,
+                        cpaeHostInfoGroup2,
+                        cpaeHostInfoGroup3,
+                        cpaeMabAuditInfoGroup,
+                        cpaeHostUrlRedirectGroup,
+                        cpaeMabPortIpDevTrackConfGroup,
+                        cpaePortIpDevTrackConfGroup,
+                        cpaeWebAuthIpDevTrackingGroup,
+                        cpaeWebAuthUnAuthTimeoutGroup,
+                        cpaeGlobalAuthFailVlanGroup,
+                        cpaeGlobalSecViolationGroup,
+                        cpaeCriticalEapolConfigGroup,
+                        cpaeHostPostureTokenGroup,
+                        cpaeMacAuthBypassPortEnableGroup,
+                        cpaeMacAuthBypassGroup4,
+                        cpaeAuthIabConfigGroup,
+                        cpaeAuthConfigGroup3,
+                        cpaeAuthConfigGroup4
+                    }
+    VARIATION       cpaePortMode
+    SYNTAX          INTEGER  {
+                        singleHost(1),
+                        multiHost(2),
+                        multiAuth(3)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaePortAuthFailVlan
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassReAuthTimeout
+    SYNTAX          Unsigned32 (300..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassShutdownTimeout
+    SYNTAX          Unsigned32 (30..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassAuthFailTimeout
+    SYNTAX          Unsigned32 (5..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthSessionPeriod
+    SYNTAX          Unsigned32 (300..86400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthQuietPeriod
+    SYNTAX          Unsigned32 (1..43200)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthMaxRetries
+    SYNTAX          Unsigned32 (3..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaePortEapolTestStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthFailVlanMaxAttempts
+    DESCRIPTION
+        "Only supports same value configuration."
+
+    VARIATION       cpaeMabCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthUnAuthStateTimeout
+    SYNTAX          Unsigned32 (1..35791)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeGlobalAuthFailMaxAttempts
+    SYNTAX          Unsigned32 (1..3)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoPaeCapability 12 }
+
+ciscoPaeCapV12R0246SECat3K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(46)SE."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup,
+                        cpaeShutdownTimeoutGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeRadiusConfigGroup,
+                        cpaeUserGroupGroup,
+                        cpaeGuestVlanGroup3,
+                        cpaePortAuthFailVlanGroup,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeWebAuthGroup,
+                        cpaeAuthConfigGroup2,
+                        cpaeWebAuthAaaFailGroup,
+                        cpaeMacAuthBypassGroup2,
+                        cpaeMacAuthBypassGroup3,
+                        cpaePortEapolTestGroup,
+                        cpaePortAuthFailVlanGroup2,
+                        cpaeMacAuthBypassCriticalGroup,
+                        cpaeWebAuthCriticalGroup,
+                        cpaeCriticalRecoveryDelayGroup,
+                        cpaeHostInfoGroup2,
+                        cpaeHostInfoGroup3,
+                        cpaeMabAuditInfoGroup,
+                        cpaeHostUrlRedirectGroup,
+                        cpaeMabPortIpDevTrackConfGroup,
+                        cpaePortIpDevTrackConfGroup,
+                        cpaeWebAuthIpDevTrackingGroup,
+                        cpaeWebAuthUnAuthTimeoutGroup,
+                        cpaeGlobalAuthFailVlanGroup,
+                        cpaeGlobalSecViolationGroup,
+                        cpaeCriticalEapolConfigGroup,
+                        cpaeHostPostureTokenGroup,
+                        cpaeMacAuthBypassPortEnableGroup,
+                        cpaeMacAuthBypassGroup4,
+                        cpaeAuthIabConfigGroup,
+                        cpaeAuthConfigGroup3,
+                        cpaeAuthConfigGroup4
+                    }
+    VARIATION       cpaePortMode
+    SYNTAX          INTEGER  {
+                        singleHost(1),
+                        multiHost(2),
+                        multiAuth(3)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaePortAuthFailVlan
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassReAuthTimeout
+    SYNTAX          Unsigned32 (300..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassShutdownTimeout
+    SYNTAX          Unsigned32 (30..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassAuthFailTimeout
+    SYNTAX          Unsigned32 (5..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthSessionPeriod
+    SYNTAX          Unsigned32 (300..86400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthQuietPeriod
+    SYNTAX          Unsigned32 (1..43200)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthMaxRetries
+    SYNTAX          Unsigned32 (3..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaePortEapolTestStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthFailVlanMaxAttempts
+    SYNTAX          Unsigned32 (0..5)
+    DESCRIPTION
+        "Only supports same value configuration."
+
+    VARIATION       cpaeMabCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthUnAuthStateTimeout
+    SYNTAX          Unsigned32 (1..35791)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeGlobalAuthFailMaxAttempts
+    SYNTAX          Unsigned32 (1..3)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoPaeCapability 13 }
+
+ciscoPaeCapCatOSV08R0702 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(2)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup,
+                        cpaeShutdownTimeoutGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeRadiusConfigGroup,
+                        cpaeUserGroupGroup,
+                        cpaeGuestVlanGroup3,
+                        cpaePortAuthFailVlanGroup,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeWebAuthGroup,
+                        cpaeAuthConfigGroup2,
+                        cpaeWebAuthAaaFailGroup,
+                        cpaeMacAuthBypassGroup2,
+                        cpaeMacAuthBypassGroup3,
+                        cpaePortEapolTestGroup,
+                        cpaePortAuthFailVlanGroup2,
+                        cpaeMacAuthBypassCriticalGroup,
+                        cpaeWebAuthCriticalGroup,
+                        cpaeCriticalRecoveryDelayGroup,
+                        cpaeHostInfoGroup2,
+                        cpaeHostInfoGroup3,
+                        cpaeMabAuditInfoGroup,
+                        cpaeHostUrlRedirectGroup,
+                        cpaeMabPortIpDevTrackConfGroup,
+                        cpaePortIpDevTrackConfGroup,
+                        cpaeWebAuthIpDevTrackingGroup,
+                        cpaeWebAuthUnAuthTimeoutGroup,
+                        cpaeGlobalAuthFailVlanGroup,
+                        cpaeGlobalSecViolationGroup,
+                        cpaeCriticalEapolConfigGroup,
+                        cpaeHostPostureTokenGroup,
+                        cpaeMacAuthBypassPortEnableGroup,
+                        cpaeMacAuthBypassGroup4,
+                        cpaeAuthIabConfigGroup,
+                        cpaeAuthConfigGroup3,
+                        cpaeAuthConfigGroup4,
+                        cpaeDot1xSuppToGuestVlanGroup
+                    }
+    VARIATION       cpaePortMode
+    SYNTAX          INTEGER  {
+                        singleHost(1),
+                        multiHost(2),
+                        multiAuth(3)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaePortAuthFailVlan
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassReAuthTimeout
+    SYNTAX          Unsigned32 (300..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassShutdownTimeout
+    SYNTAX          Unsigned32 (30..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeMacAuthBypassAuthFailTimeout
+    SYNTAX          Unsigned32 (5..65535)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthSessionPeriod
+    SYNTAX          Unsigned32 (300..86400)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthQuietPeriod
+    SYNTAX          Unsigned32 (1..43200)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthMaxRetries
+    SYNTAX          Unsigned32 (3..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cpaePortEapolTestStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthFailVlanMaxAttempts
+    DESCRIPTION
+        "Only supports same value configuration."
+
+    VARIATION       cpaeMabCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeCriticalRecoveryDelay
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeWebAuthUnAuthStateTimeout
+    SYNTAX          Unsigned32 (1..35791)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeGlobalAuthFailMaxAttempts
+    SYNTAX          Unsigned32 (1..3)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoPaeCapability 14 }
+
+ciscoPaeCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeGuestVlanGroup3,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeMacAuthBypassGroup3,
+                        cpaeHostInfoGroup2,
+                        cpaePortAuthFailVlanGroup2,
+                        cpaeHostPostureTokenGroup,
+                        cpaeHostInfoGroup3,
+                        cpaeHostAuthInfoGroup,
+                        cpaeGuestVlanNotifEnableGroup,
+                        cpaeGuestVlanNotifGroup,
+                        cpaeAuthFailVlanNotifEnableGrp,
+                        cpaeAuthFailVlanNotifGroup,
+                        cpaePortCapabilitiesConfigGroup,
+                        cpaeDot1xSuppToGuestVlanGroup,
+                        cpaeMacAuthBypassPortEnableGroup,
+                        cpaeAuthConfigGroup3,
+                        cpaeAuthConfigGroup4,
+                        cpaeCriticalEapolConfigGroup,
+                        cpaeHostSessionIdGroup,
+                        cpaePortAuthFailVlanConfigGroup
+                    }
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    SYNTAX          Unsigned32 (1..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthFailVlanMaxAttempts
+    SYNTAX          Unsigned32 (1..6)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Setting to value 6 is not allowed."
+
+    VARIATION       cpaeMacAuthBypassPortAuthMethod
+    DESCRIPTION
+        "Value 'eap' can only be set if the corresponding
+        instance of cpaeMacAuthBypassPortEnabled is 'true'."
+
+    VARIATION       cpaePortCapabilitiesEnabled
+    SYNTAX          BITS {
+                        authenticator(0)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaePortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cpaeMacAuthBypassPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cpaeAuthConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    ::= { ciscoPaeCapability 15 }
+
+ciscoPaeCapV120252SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(52)SG on Cat4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeGuestVlanGroup3,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeMacAuthBypassGroup3,
+                        cpaeHostInfoGroup2,
+                        cpaePortAuthFailVlanGroup2,
+                        cpaeHostPostureTokenGroup,
+                        cpaeHostInfoGroup3,
+                        cpaeHostAuthInfoGroup,
+                        cpaeGuestVlanNotifEnableGroup,
+                        cpaeGuestVlanNotifGroup,
+                        cpaeAuthFailVlanNotifEnableGrp,
+                        cpaeAuthFailVlanNotifGroup,
+                        cpaePortCapabilitiesConfigGroup,
+                        cpaeDot1xSuppToGuestVlanGroup,
+                        cpaeMacAuthBypassPortEnableGroup,
+                        cpaeAuthConfigGroup3,
+                        cpaeAuthConfigGroup4,
+                        cpaeCriticalEapolConfigGroup,
+                        cpaeHostSessionIdGroup,
+                        cpaePortAuthFailVlanConfigGroup
+                    }
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    SYNTAX          Unsigned32 (1..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthFailVlanMaxAttempts
+    SYNTAX          Unsigned32 (1..6)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Setting to value 6 is not allowed."
+
+    VARIATION       cpaeMacAuthBypassPortAuthMethod
+    DESCRIPTION
+        "Value 'eap' can only be set if the corresponding
+        instance of cpaeMacAuthBypassPortEnabled is 'true'."
+
+    VARIATION       cpaePortCapabilitiesEnabled
+    SYNTAX          BITS {
+                        authenticator(0)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoPaeCapability 16 }
+
+ciscoPaeCapV12R0233SXI4PCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI4 on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeGuestVlanGroup3,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeMacAuthBypassGroup3,
+                        cpaeHostInfoGroup2,
+                        cpaePortAuthFailVlanGroup2,
+                        cpaeHostPostureTokenGroup,
+                        cpaeHostInfoGroup3,
+                        cpaeHostAuthInfoGroup,
+                        cpaeGuestVlanNotifEnableGroup,
+                        cpaeGuestVlanNotifGroup,
+                        cpaeAuthFailVlanNotifEnableGrp,
+                        cpaeAuthFailVlanNotifGroup,
+                        cpaePortCapabilitiesConfigGroup,
+                        cpaeDot1xSuppToGuestVlanGroup,
+                        cpaeMacAuthBypassPortEnableGroup,
+                        cpaeAuthConfigGroup3,
+                        cpaeAuthConfigGroup4,
+                        cpaeCriticalEapolConfigGroup,
+                        cpaeHostSessionIdGroup,
+                        cpaePortAuthFailVlanConfigGroup,
+                        cpaeSuppPortProfileGroup,
+                        cpaeSuppHostInfoGroup
+                    }
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    SYNTAX          Unsigned32 (1..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthFailVlanMaxAttempts
+    SYNTAX          Unsigned32 (1..6)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Setting to value 6 is not allowed."
+
+    VARIATION       cpaeMacAuthBypassPortAuthMethod
+    DESCRIPTION
+        "Value 'eap' can only be set if the corresponding
+        instance of cpaeMacAuthBypassPortEnabled is 'true'."
+
+    VARIATION       cpaePortCapabilitiesEnabled
+    SYNTAX          BITS {
+                        authenticator(0)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaePortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cpaeMacAuthBypassPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cpaeAuthConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cpaeSuppPortCredentialProfileName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cpaeSuppPortEapProfileName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoPaeCapability 17 }
+
+ciscoPaeCapV12R0250SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAE-MIB capabilities."
+
+    SUPPORTS        CISCO-PAE-MIB
+    INCLUDES        {
+                        cpaeMultipleHostGroup,
+                        cpaePortEntryGroup,
+                        cpaeGuestVlanGroup2,
+                        cpaeGuestVlanGroup3,
+                        cpaePortOperVlanGroup,
+                        cpaeNoGuestVlanNotifEnableGrp,
+                        cpaeNoAuthFailVlanNotifEnableGrp,
+                        cpaeNoGuestVlanNotifGroup,
+                        cpaeNoAuthFailVlanNotifGroup,
+                        cpaeMacAuthBypassGroup3,
+                        cpaeHostInfoGroup2,
+                        cpaePortAuthFailVlanGroup2,
+                        cpaeHostPostureTokenGroup,
+                        cpaeHostInfoGroup3,
+                        cpaeHostAuthInfoGroup,
+                        cpaeGuestVlanNotifEnableGroup,
+                        cpaeGuestVlanNotifGroup,
+                        cpaeAuthFailVlanNotifEnableGrp,
+                        cpaeAuthFailVlanNotifGroup,
+                        cpaePortCapabilitiesConfigGroup,
+                        cpaeDot1xSuppToGuestVlanGroup,
+                        cpaeMacAuthBypassPortEnableGroup,
+                        cpaeAuthConfigGroup3,
+                        cpaeAuthConfigGroup4,
+                        cpaeCriticalEapolConfigGroup,
+                        cpaeHostSessionIdGroup,
+                        cpaePortAuthFailVlanConfigGroup,
+                        cpaeSuppPortProfileGroup,
+                        cpaeSuppHostInfoGroup
+                    }
+    VARIATION       cpaeGuestVlanNumber
+    SYNTAX          VlanIndex (0..4094)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthPeriodSrcAdmin
+    SYNTAX          INTEGER  {
+                        local(1),
+                        server(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthReAuthMax
+    SYNTAX          Unsigned32 (1..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaeAuthFailVlanMaxAttempts
+    SYNTAX          Unsigned32 (1..6)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Setting to value 6 is not allowed."
+
+    VARIATION       cpaeMacAuthBypassPortAuthMethod
+    DESCRIPTION
+        "Value 'eap' can only be set if the corresponding
+        instance of cpaeMacAuthBypassPortEnabled is 'true'."
+
+    VARIATION       cpaePortCapabilitiesEnabled
+    SYNTAX          BITS {
+                        authenticator(0)
+                    }
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cpaePortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cpaeMacAuthBypassPortEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cpaeAuthConfigEntry
+    DESCRIPTION
+        "Write access is not supported on read-write objects of
+        the entry if TrustSec dot1x mode is enabled on the port."
+
+    VARIATION       cpaeSuppPortCredentialProfileName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cpaeSuppPortEapProfileName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoPaeCapability 18 }
+
+END

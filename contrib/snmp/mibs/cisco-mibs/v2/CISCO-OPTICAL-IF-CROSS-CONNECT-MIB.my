@@ -1,0 +1,699 @@
+-- *****************************************************************
+-- CISCO-OPTICAL-IF-CROSS-CONNECT-MIB.my: Cisco optical interface
+-- cross-connect MIB file
+--
+-- April 2001, Suresh Basavarajappa, Mickey Spiegel and Sameer Merchant
+--
+-- Copyright (c) 2001, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-OPTICAL-IF-CROSS-CONNECT-MIB DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Integer32             FROM SNMPv2-SMI
+    RowStatus, TimeStamp, TEXTUAL-CONVENTION            FROM SNMPv2-TC
+    MODULE-COMPLIANCE, OBJECT-GROUP                     FROM SNMPv2-CONF
+    ciscoExperiment                                     FROM CISCO-SMI
+    InterfaceIndex, ifIndex                             FROM IF-MIB;
+
+
+ciscoOpticalIfCrossConnectMIB MODULE-IDENTITY
+    LAST-UPDATED   "200203130000Z" -- 03/13/2002
+    ORGANIZATION   "Cisco Systems, Inc."
+    CONTACT-INFO   "Cisco Systems
+                    Customer Service
+
+                    Postal: 170 W Tasman Drive
+                    San Jose, CA 95134
+
+                    Tel: +1 800 553-NETS
+
+                    E-mail: cs-dwdm@cisco.com"
+    DESCRIPTION
+        "This MIB module is used to create and monitor cross-connects
+        (horizontal relationships) between peer interfaces on the same
+        network element.  Vertical relationships (e.g. between lambdas
+        and the optical fiber in which the lambdas are carried) are
+        represented in the ifStackTable from the IF-MIB.
+
+        This MIB can be used to model various types of cross-connects
+        between peer interfaces, including time-division (e.g.
+        SDH/SONET, PDH), wavelength (lambda), and spatial switching
+        (e.g. incoming port or fiber to outgoing port or fiber).
+
+        This MIB does not apply to cross-connects between packet flows
+        (e.g. packets in the same forwarding equivalence class at a
+        MPLS-capable switch or router) or cell flows (e.g. ATM Virtual
+        Path connections or ATM Virtual Channel connections), since
+        there are scalability issues in modeling each packet flow or
+        cell flow as a logical interface.
+
+        The switching element performing the cross-connect function can
+        be electrical (e.g. SDH/SONET switch) or optical (e.g. passive
+        optical add/drop multiplexer)
+
+        Cross-connects can be created through provisioning,
+        automatically by the network element, or dynamically by using
+        control protocols (e.g. GMPLS).
+
+        The cross-connect model includes support for pairs of
+        interfaces used to protect each other (e.g. SONET 1+1
+        Automatic Protection Switching).  Cross-connects to protection
+        interfaces may be shown in this MIB module."
+    REVISION "200203130000Z" -- 03/13/2002
+    DESCRIPTION
+        "Added two objects, coifccCcL2HAttenuation and 
+        coifccCcH2LAttenuation to coifccCrossConnectTable. These 
+        new objects indicate signal attenuation on a given 
+        cross-connect.
+        Changed coifccCcKind in coifccCrossConnectTable from
+        read-only to read-create."
+    REVISION "200104200000Z" -- 04/20/2001
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoExperiment 68 }
+
+
+coifccMIBObjects     OBJECT IDENTIFIER ::= {
+ ciscoOpticalIfCrossConnectMIB 1 }
+coifccMIBConformance OBJECT IDENTIFIER ::= {
+ ciscoOpticalIfCrossConnectMIB 2 }
+
+
+-- Textual Conventions
+
+CoifccCrossConnectOperStatus ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The operational status in one direction of a cross-connect
+        between two interfaces.
+
+        The 'up' state indicates that the traffic flow is enabled on
+        the cross-connect.
+
+        The 'down' state indicates that the traffic flow is disabled
+        on the cross-connect, since it is either administratively
+        down or there is a fault that prevents it from going to the
+        'up' state.
+
+        The 'dormant' state indicates that the traffic flow is
+        disabled, but it is administratively up and there is no fault
+        that prevents it from going to the 'up' state.  The 'dormant'
+        state is used when the interface from which the traffic flows
+        across the cross-connect is the standby interface of a
+        protected pair.  The 'dormant' state may also apply when the
+        protection mode is other than 1+1 and the high interface is the
+        standby interface of a protected pair.
+
+        The 'unknown' state indicates that the state of the
+        cross-connect cannot be determined.
+
+        The state will be 'down' or 'unknown' if one or both of the
+        interfaces are 'down' or 'unknown', respectively."
+    SYNTAX      INTEGER  {
+                    up(1),
+                    down(2),
+                    dormant(3),
+                    unknown(4)
+                }
+
+
+-- MIB Object Definitions
+
+coifccInterface      OBJECT IDENTIFIER ::= { coifccMIBObjects 1 }
+coifccCrossConnect   OBJECT IDENTIFIER ::= { coifccMIBObjects 2 }
+
+
+-- coifcc Interface Group
+
+coifccInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CoifccInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table lists all interfaces that are cross-connected
+        to one or more other interfaces.  The table is used to find
+        cross-connects that include a particular interface."
+    ::= { coifccInterface 1 }
+
+coifccInterfaceEntry OBJECT-TYPE
+    SYNTAX      CoifccInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry is created only when an interface is cross-connected
+        to one or more other interfaces (i.e. when the associated
+        entries in the coifccCrossConnectTable have been created).
+
+        An entry is deleted when an interface is removed from a
+        cross-connect, or when the cross-connect that includes the
+        interface is deleted from the coifccCrossConnectTable."
+    INDEX       { ifIndex }
+    ::= { coifccInterfaceTable 1 }
+
+CoifccInterfaceEntry ::=
+    SEQUENCE  {
+        coifccIfCrossConnectIdentifier   Integer32
+    }
+
+coifccIfCrossConnectIdentifier OBJECT-TYPE
+    SYNTAX      Integer32 (1..2147483547)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The value of coifccCcIndex used in the coifccCrossConnectTable
+        to identify a cross-connect that includes this interface.  Each
+        interface included in that cross-connect has an entry in this
+        table with the same value of this object, in addition to the
+        entries in the coifccCrossConnectTable with this value of
+        coifccCcIndex."
+    ::= { coifccInterfaceEntry 1 }
+
+
+-- coifcc Cross-Connect Group
+
+
+coifccCcIndexNext OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object contains an appropriate value to be used for
+        coifccCcIndex when creating entries in the
+        coifccCrossConnectTable. The value 0 indicates that no
+        unassigned entries are available. To obtain the coifccCcIndex
+        value for a new entry, the manager issues a management protocol
+        retrieval operation to obtain the current value of this object.
+        The agent will modify the value to the next unassigned index,
+        when a new row is created in coifccCrossConnectTable with
+        coifccCcIndex value equal to the current value of this object.
+        After deletion of a row in coifccCrossConnectTable the agent
+        will determine through its local policy when its index value
+        will be made available for reuse."
+    ::= { coifccCrossConnect 1 }
+
+coifccCcLastChange  OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last
+        creation, deletion or modification of an entry
+        in the coifccCrossConnectTable.
+        If the coifccCrossConnectTable entries has been unchanged
+        since the last re-initialization of the local network
+        management subsystem, then this object contains a zero value."
+    ::= { coifccCrossConnect 2 }
+ 
+coifccCrossConnectTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CoifccCrossConnectEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains configuration and state information of
+        point-to-point and point-to-multipoint interface
+        cross-connects.
+
+        Each entry in the table models two bi-directional interfaces on
+        opposite sides of a bi-directional cross-connect.
+
+        For a point-to-point cross-connect, there can be up to four
+        entries in the table with the same value of coifccCcIndex, due
+        to the presence of protection interfaces.  
+        All four entries are associated with each other due to
+        APS configuration (for now, this would be done through
+        the CISCO-APS-MIB). If both sides A and B are configured
+        for 1+1 APS protection, and a cross-connect between
+        interfaces A and B is created, then the following
+        cross-connect entries will be present:
+
+        The cross-connect with coifccCcKind value 'provisioned' is the
+        one that is created through cross-connect configuration and the
+        cross-connects with coifccCcKind value 'protection' are those
+        that are created automatically due to APS configuration.
+
+        Low interface    High interface        coifccCcKind
+ 
+        A                B                     provisioned
+        A                B'                    protection
+        A'               B                     protection
+        A'               B'                    protection
+
+        When the cross-connect between A and B is deleted, all four
+        cross-connect entries will disappear.
+
+        Each side of the point-to-point cross-connect can have up to
+        two interfaces, for example when SONET 1+1 Automatic
+        Protection Switching (APS) is used.  Any one of the four
+        entries of a point-to-point cross-connect can be created,
+        and the remaining three entries will be created
+        automatically. However only the 'provisioned' entry can be
+        explicitly deleted, which also causes the corresponding
+        'protection' entries to be deleted.  Note that use of the
+        word 'protection' is different from its usage in SONET 1+1 APS.
+        In particular, there is no requirement that the 'provisioned'
+        cross-connect must be between the SONET 'working' interfaces.
+
+
+        A point-to-multipoint connection consists of one root and
+        many leaves.  Copies of the traffic received at the root
+        interface are transmitted out each of the leaf interfaces.
+
+        For a point-to-multipoint cross-connect with N leafs,
+        the manager creates N 'provisioned' entries in this table.
+        Where N is determined by the manager based on some application.
+        In the presence of  APS configuration, the same
+        point-to-multipoint (N leafs) cross-connect, in addition
+        to having N 'provisioned' entries in this table, can have upto
+        an additional 3N 'protection' entries automatically configured.
+
+        The terms low and high are chosen to represent numerical
+        ordering of the two interfaces associated with a cross-connect.
+        That is, the interface with the lower value of ifIndex is
+        termed 'low', while the other interface associated with the
+        cross-connect is termed 'high'.  This terminology is used to
+        provide directional information; for example, the
+        coifccCcL2HOperStatus applies to the low->high direction, and
+        coifccCcH2LOperStatus applies to the high->low direction."
+    ::= { coifccCrossConnect 3 }
+
+coifccCrossConnectEntry OBJECT-TYPE
+    SYNTAX      CoifccCrossConnectEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This entry is used to model two bi-directional cross-connected
+        interfaces.
+
+        Cross-connects can be created through provisioning,
+        automatically by the network element, dynamically by using
+        control protocols (e.g. GMPLS), or due to the presence of
+        protection interfaces.
+
+        When creating an entry through provisioning, the following
+        procedures are used to cross-connect two interfaces:
+        (1) The manager obtains a unique coifccCcIndex by reading the
+            coifccCcIndexNext object.
+        (2) Next, the manager creates a set of one or more rows in the
+            Cross Connect Table.  For a point-to-point connection, one
+            row is created by the manager.  For a point-to-multipoint
+            connection, one row is created for each leaf to an
+            unprotected interface, or one row is created for each leaf
+            to a pair of protected interfaces.  Additional rows for
+            protection interfaces are created automatically by the
+            agent.  Each row is indexed by the ifIndex values of the
+            two interfaces at the ends of that cross-connection.  This
+            set of rows is identified by a single value of
+            coifccCcIndex.  As each row is created, the agent checks if
+            the requested topology is supported and also checks for
+            internal errors in building the cross-connect.  The
+            coifccIfCrossConnectIdentifier values in the corresponding
+            coifccInterfaceTable rows are filled in by the agent at
+            this point.  The traffic flow is turned on when the manager
+            sets coifccCcRowStatus to active(1) or createAndGo(4).
+
+        A cross-connect identified by a particular value of
+        coifccCcIndex is released by setting coifccCcRowStatus of all
+        rows identified by this value of coifccCcIndex, other than the
+        rows with a coifccCcKind value of 'protection', to destroy(6).
+        The agent may release associated resources, and the
+        coifccIfCrossConnectIdentifier values in the corresponding
+        coifccInterfaceTable are removed.  Note that a situation when
+        only a subset of the associated rows are deleted corresponds to
+        a topology change.
+
+        At the discretion of the agent, a cross-connect may be
+        reconfigured by adding and/or deleting leafs to/from the
+        topology as per the cross-connect establishment/retirement
+        guidelines described below.
+
+        Each leaf is added by creating a row with the same value of
+        coifccCcIndex in this table.  Each leaf is deleted by deleting
+        a row with the same value of coifccCcIndex in the table. To
+        delete an entire point-to-multipoint connection, all entries
+        with the same coifccCcIndex value must be deleted."
+    INDEX       { coifccCcIndex,
+                  coifccCcLowIfIndex,
+                  coifccCcHighIfIndex }
+    ::= { coifccCrossConnectTable 1 }
+
+CoifccCrossConnectEntry ::=
+    SEQUENCE  {
+        coifccCcIndex           Integer32,
+        coifccCcLowIfIndex      InterfaceIndex,
+        coifccCcHighIfIndex     InterfaceIndex,
+        coifccCcSwitchType      INTEGER,
+        coifccCcKind            INTEGER,
+        coifccCcCreationTime    TimeStamp,
+        coifccCcL2HOperStatus   CoifccCrossConnectOperStatus,
+        coifccCcH2LOperStatus   CoifccCrossConnectOperStatus,
+        coifccCcL2HLastChange   TimeStamp,
+        coifccCcH2LLastChange   TimeStamp,
+        coifccCcRowStatus       RowStatus,
+        coifccCcL2HAttenuation  Integer32,
+        coifccCcH2LAttenuation  Integer32
+    }
+
+coifccCcIndex OBJECT-TYPE
+    SYNTAX      Integer32 (1..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A unique value used to identify this cross-connect.  For each
+        interface associated with this cross-connect, the agent reports
+        this cross-connect index value in the
+        coifccIfCrossConnectIdentifier object of the corresponding
+        coifccInterfaceTable entry.
+        When the value of this index is equal to the current value
+        of coifccCcIndexNext, the agent will modify the value of
+        coifccCcIndexNext to the next unassigned index."
+    ::= { coifccCrossConnectEntry 1 }
+
+coifccCcLowIfIndex OBJECT-TYPE
+    SYNTAX      InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The value of this object is equal to MIB II's ifIndex value of
+        the interface for this cross-connect.  The term low implies
+        that this interface has the numerically lower ifIndex value
+        than the other interface identified in the same
+        coifccCrossConnectEntry."
+    ::= { coifccCrossConnectEntry 2 }
+
+coifccCcHighIfIndex OBJECT-TYPE
+    SYNTAX      InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The value of this object is equal to MIB II's ifIndex value of
+        the interface for this cross-connect.  The term high implies
+        that this interface has the numerically higher ifIndex value
+        than the other interface identified in the same
+        coifccCrossConnectEntry."
+    ::= { coifccCrossConnectEntry 3 }
+
+coifccCcSwitchType OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    unknown(1),
+                    electricalCrossConnect(2),
+                    opticalCrossConnect(3),
+                    autoSelect(4)
+                }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the type of switching element used to
+        implement this cross-connect.
+
+        The value 'opticalCrossConnect' applies only when there is no
+        optical-to-electrical conversion performed to implement the
+        cross-connect.
+
+        The value 'autoSelect' indicates the agent should figure out
+        the switch type to use. The value 'autoSelect' is a write-only
+        value and should never be returned when this object is read.
+
+        If the manager activates the row before setting this object,
+        the value may be chosen by the agent."
+    DEFVAL { autoSelect }
+    ::= { coifccCrossConnectEntry 4 }
+
+coifccCcKind OBJECT-TYPE
+    SYNTAX      INTEGER {
+                    provisioned(1),
+                    automatic(2),
+                    dynamic(3),
+                    protection(4),
+                    other(5)
+                }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The type of call control used to establish a cross-connect.
+
+        If no value of this object is provided when a row is activated
+        through SNMP, then the value 'provisioned' is assigned by the
+        agent.
+
+        For point-to-point cross-connects, the only sets allowed on
+        this object are during initial row creation, and to change the
+        value of this object from 'protection' to 'provisioned', which
+        automatically changes the coifccCcKind value of the
+        'provisioned' cross-connect with the same coifccCcIndex value
+        to 'protection'.  A change from 'protection' to 'provisioned'
+        is allowed when coifccCcRowStatus is 'active'.
+
+        The use is as follows:
+            provisioned(1)
+                Provisioned by the user or by a management system
+                using the Command Line Interface, SNMP, or other
+                means of management access to the network element.
+            automatic(2)
+                Created automatically by the network element, without
+                user, management, or control plane intervention.  In
+                particular, this is used to represent fixed interface
+                cross-connects due to the presence of entities such as
+                optical add/drop multiplexers.
+            dynamic(3)
+                Created by request from a control plane (e.g. from
+                GMPLS signalling).
+            protection(4)
+                Created to include the second of a pair of protected
+                interfaces in a cross-connect, when a cross-connect
+                entry for the first interface in the pair is being
+                created.  Such an entry cannot be deleted directly.
+                It is deleted when the cross-connect entry containing
+                the other interface(s) of the protected pair(s) is
+                deleted."
+    ::= { coifccCrossConnectEntry 5 }
+
+coifccCcCreationTime OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The value of MIB II's sysUpTime object at the time this
+        bi-directional cross-connect was created.  If the current state
+        was entered prior to the last re-initialization of the agent
+        then this object contains a zero value."
+    ::= { coifccCrossConnectEntry 6 }
+
+coifccCcL2HOperStatus OBJECT-TYPE
+    SYNTAX      CoifccCrossConnectOperStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The operational status of the cross-connect in the direction
+        from the interface that has the numerically lower ifIndex
+        value, to the interface that has the numerically higher ifIndex
+        value."
+    ::= { coifccCrossConnectEntry 7 }
+
+coifccCcH2LOperStatus OBJECT-TYPE
+    SYNTAX      CoifccCrossConnectOperStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The operational status of the cross-connect in the direction
+        from the interface that has the numerically higher ifIndex
+        value, to the interface that has the numerically lower ifIndex
+        value."
+    ::= { coifccCrossConnectEntry 8 }
+
+coifccCcL2HLastChange OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The value of MIB II's sysUpTime at the time this cross-connect
+        entered its current operational state in the low to high
+        direction.  If the current state was entered prior to the last
+        re-initialization of the agent then this object contains a zero
+        value."
+    ::= { coifccCrossConnectEntry 9 }
+
+coifccCcH2LLastChange OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The value of MIB II's sysUpTime at the time this cross-connect
+        entered its current operational state in the high to low
+        direction.  If the current state was entered prior to the last
+        re-initialization of the agent then this object contains a zero
+        value."
+    ::= { coifccCrossConnectEntry 10 }
+
+coifccCcRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The status of this entry in the coifccCrossConnectTable.  This
+        object is used to create a cross-connect or to modify or delete
+        an existing cross-connect.
+
+        Write access does not apply to entries with coifccCcKind values
+        of 'automatic' or 'protection'.
+
+        Entries with a coifccCcKind value of 'protection' cannot be
+        deleted using this object.  Such an entry is deleted when the
+        cross-connect entry containing the other interface(s) of the
+        protected pair(s) is deleted.
+
+        For entries with coifccCcKind value of 'dynamic', the only
+        value that can be set is 'destroy'."
+    ::= { coifccCrossConnectEntry 11 }
+
+coifccCcL2HAttenuation OBJECT-TYPE
+    SYNTAX      Integer32 (-400..0)
+    UNITS       "1/10ths of dB"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The value of this object indicates optical signal attenuation
+        due to connectors, optical wavelength filters, optical
+        switches, and other optical components, in the direction from
+        the interface that has the numerically lower ifIndex value, to
+        the interface that has the numerically higher ifIndex value.
+
+        Example: The value -25 represents an attenuation of -2.5 dB.
+
+        This object applies only if the value of coifccCcSwitchType is
+        'opticalCrossConnect'.  For other values of coifccCcSwitchType,
+        this object will return a value of '0'."
+    ::= { coifccCrossConnectEntry 12 }
+
+coifccCcH2LAttenuation OBJECT-TYPE
+    SYNTAX      Integer32 (-400..0)
+    UNITS       "1/10ths of dB"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The value of this object indicates optical signal attenuation
+        due to connectors, optical wavelength filters, optical
+        switches, and other optical components, in the direction from
+        the interface that has the numerically higher ifIndex value, to
+        the interface that has the numerically lower ifIndex value.
+
+        Example: The value -25 represents an attenuation of -2.5 dB.
+
+        This object applies only if the value of coifccCcSwitchType is
+        'opticalCrossConnect'.  For other values of coifccCcSwitchType,
+        this object will return a value of '0'."
+    ::= { coifccCrossConnectEntry 13 }
+
+
+-- Cross-Connect Conformance
+
+coifccMIBCompliances OBJECT IDENTIFIER ::= { coifccMIBConformance 1 }
+coifccMIBGroups      OBJECT IDENTIFIER ::= { coifccMIBConformance 2 }
+
+
+-- Compliance
+
+coifccMIBCompliance MODULE-COMPLIANCE
+        STATUS deprecated
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                the Cisco Interface Cross-connect MIB"
+        MODULE        -- this module
+                MANDATORY-GROUPS { coifccInterfaceGroup,
+                                   coifccCrossConnectGroup }
+
+        OBJECT      coifccCcSwitchType
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        ::= { coifccMIBCompliances 1 }
+
+coifccMIBComplianceRev1 MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for entities which implement
+                the Cisco Interface Cross-connect MIB"
+        MODULE        -- this module
+                MANDATORY-GROUPS { coifccInterfaceGroup,
+                                   coifccCrossConnectGroup }
+
+        OBJECT      coifccCcSwitchType
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT      coifccCcKind
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT      coifccCcRowStatus
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access does not apply when the only supported value
+            of coifccCcKind is 'automatic', or when the only two
+            supported values are 'automatic' and 'protection'."
+
+        GROUP       coifccAttenuationGroup
+        DESCRIPTION
+            "May be implemented by elements providing optical
+            cross-connects."
+
+        OBJECT      coifccCcL2HAttenuation
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT      coifccCcH2LAttenuation
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        ::= { coifccMIBCompliances 2 }
+
+-- Units of Conformance
+
+coifccInterfaceGroup OBJECT-GROUP
+        OBJECTS { coifccIfCrossConnectIdentifier
+        }
+        STATUS current
+        DESCRIPTION
+                "Object needed to implement Interfaces with
+                 Cross-connects."
+        ::= { coifccMIBGroups 1 }
+
+coifccCrossConnectGroup  OBJECT-GROUP
+        OBJECTS { coifccCcIndexNext,
+                  coifccCcLastChange,
+                  coifccCcSwitchType,
+                  coifccCcKind,
+                  coifccCcCreationTime,
+                  coifccCcL2HOperStatus,
+                  coifccCcH2LOperStatus,
+                  coifccCcL2HLastChange,
+                  coifccCcH2LLastChange,
+                  coifccCcRowStatus
+        }
+        STATUS current
+        DESCRIPTION
+            "Collection of objects needed to implement
+             interface Cross-connects."
+        ::= { coifccMIBGroups 2 }
+
+coifccAttenuationGroup  OBJECT-GROUP
+        OBJECTS { coifccCcL2HAttenuation,
+                  coifccCcH2LAttenuation
+        }
+        STATUS current
+        DESCRIPTION
+            "Collection of objects used to indicate attenuation
+             across optical cross-connects."
+        ::= { coifccMIBGroups 3 }
+
+-- End of CISCO-OPTICAL-IF-CROSS-CONNECT-MIB
+
+END

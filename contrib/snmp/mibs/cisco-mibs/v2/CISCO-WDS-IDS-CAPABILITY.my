@@ -1,0 +1,67 @@
+-- *****************************************************************
+-- CISCO-WDS-IDS-CAPABILITY.my:  Cisco WIDS IDS MIB 
+-- CAPABILITIES
+--
+-- January 2005 - Prasanna Viswakumar 
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-WDS-IDS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoWdsidsCapability        MODULE-IDENTITY  
+        LAST-UPDATED          "200501130000Z"
+        ORGANIZATION          "Cisco Systems, Inc."
+        CONTACT-INFO
+                "             Cisco Systems
+                              Customer Service
+
+                              Postal: 170 W Tasman Drive
+                              San Jose, CA  95134
+                              USA
+  
+                              Tel: +1 800 553-NETS
+ 
+                              E-mail: cs-dot11@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for 
+                 CISCO-WDS-IDS-MIB"
+        ::= { ciscoAgentCapability 424 }
+
+--********************************************************************
+ciscoWdsidsCapabilityV1   AGENT-CAPABILITIES
+    
+PRODUCT-RELEASE "Cisco IOS 12.3(4) JA"
+        STATUS          current
+        DESCRIPTION     "Cisco WDS IDS MIB capabilities"
+
+        SUPPORTS        CISCO-WDS-IDS-MIB
+        INCLUDES        { 
+                         ciscoWdsIdsMacSpoofingGroup 
+                        }   
+                           
+        VARIATION       ciscoWdsIdsMaxMacAddresses 
+                        ACCESS read-only 
+                        DESCRIPTION
+                                "The maximum value supported is
+                                120. "
+
+        VARIATION       ciscoWdsIdsMaxEntriesPerMac 
+                        ACCESS read-only 
+                        DESCRIPTION
+                                "The maximum value supported is
+                                10. "
+
+::= { ciscoWdsidsCapability 1 }
+
+END

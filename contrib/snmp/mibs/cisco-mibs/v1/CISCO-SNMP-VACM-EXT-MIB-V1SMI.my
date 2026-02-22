@@ -1,0 +1,205 @@
+-- MIB file created 20-Oct-2004 18:58:34, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SNMP-VACM-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SNMP-VACM-EXT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, StorageType
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    vacmSecurityModel, vacmSecurityName
+            FROM SNMP-VIEW-BASED-ACM-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoSnmpVacmExtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 409 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200405190000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--            
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--            
+--       Tel: +1 800 553-NETS
+--       
+--    E-mail:  cs-snmp@cisco.com
+--  Descr
+--    The management information definitions to extend
+--     the View-based Access Control Model (RFC3415) for
+--     SNMP.
+--     
+--     This MIB extends the 'SNMP-VIEW-BASED-ACM-MIB' to
+--     allow each combination of a 'securityModel' and a
+--     'securityName' to be mapped into additional
+--     groupNames. The groups identified by these mappings
+--     are in addition to those identified by 
+--     'vacmGroupName' of the 'vacmSecurityToGroupTable'.
+--     
+--  RevDate
+--    200405190000Z
+--  RevDescr
+--    Initial version of this MIB.
+
+ciscoSnmpVacmExtMIBObjects OBJECT IDENTIFIER ::= { ciscoSnmpVacmExtMIB 1 }
+ciscoSnmpVacmExtMIBConformance OBJECT IDENTIFIER ::= { ciscoSnmpVacmExtMIB 2 }
+ciscoSnmpVacmExtMIBCompliances OBJECT IDENTIFIER ::= { ciscoSnmpVacmExtMIBConformance 1 }
+ciscoSnmpVacmExtMIBGroups OBJECT IDENTIFIER ::= { ciscoSnmpVacmExtMIBConformance 2 }
+
+cvacmSecurityToGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvacmSecurityToGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An Extension table to the 'vacmSecurityToGroupTable'
+         defined in 'SNMP-VIEW-BASED-ACM-MIB. 
+         
+         This table provides a mechanism to map a combination 
+         of 'securityModel' and 'securityName' into one or more
+         groups in addition to the 'vacmGroupName' mapped in
+         the 'vacmSecurityToGroupTable'. These groups provide 
+         additional access control policies for a principal.
+         
+         The agent must allow the same group mapping entry to be
+         present in both  the 'cvacmSecurityToGroupTable' and the
+         'vacmSecurityToGroupTable'.            
+         
+         A row in this table can not exist without a corresponding
+         row for the same combination of 'securityModel' and
+         'securityName in the 'vacmSecurityToGroupTable'.
+         
+         While creating a row in this table, if there is no
+         corresponding row for the same combination of
+         'securityModel' and 'securityName in the 
+         'vacmSecurityToGroupTable', the same  mapping entry in 
+         is created in the  'vacmSecurityToGroupTable' by the
+         agent using the values of instance variables of the entry
+         in this table. 
+        
+         The deletion of a row in the 'vacmSecurityToGroupTable'
+         also causes the deletion of all the group mapping 
+         entries for the same combination of  'vacmSecurityModel' 
+         and 'vacmSecurityName' in the 'cvacmSecurityToGroupTable'.
+         The deletion of a row in this table does not affect
+         'vacmSecurityToGroupTable'entries.
+         "
+    REFERENCE
+        " [RFC3415] View-based Access Control Model (VACM) for the 
+          Simple Network Management Protocol (SNMP), STD 62 ."
+    ::= { ciscoSnmpVacmExtMIBObjects 1 }
+
+cvacmSecurityToGroupEntry OBJECT-TYPE
+    SYNTAX CvacmSecurityToGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry (conceptual row) in the
+         'cvacmSecurityToGroupTable'. Each row represents one
+         groupName mapping for the combination of 'securityModel' 
+         and 'securityName' in the system."
+    INDEX { vacmSecurityModel, vacmSecurityName, cvacmSecurityGrpName }
+    ::= { cvacmSecurityToGroupTable 1 }
+
+CvacmSecurityToGroupEntry ::= SEQUENCE {
+    cvacmSecurityGrpName SnmpAdminString,
+    cvacmSecurityGrpStorageType StorageType,
+    cvacmSecurityGrpStatus RowStatus
+    }
+
+cvacmSecurityGrpName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the group for the mapping represented by
+         this row. This is in addition to the 'vacmGroupName'
+         mapped in the 'vacmSecurityToGroupTable'. For example
+         a user principal  represented by 'securityName' maps
+         to a group represented by 'cvacmSecurityGrpName' under
+         a security model represented by 'securityModel'.
+         
+         This groupName is used as index into the 
+         'vacmAccessTable' to select an access control policy.
+         However, a value in this table does not imply that an
+         instance with the value exists in table 'vacmAccesTable'.
+         "
+    ::= { cvacmSecurityToGroupEntry 1 }
+
+cvacmSecurityGrpStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row.
+         Conceptual rows having the value 'permanent' need not
+         allow write-access to any columnar objects in the row.
+         "
+    DEFVAL { nonVolatile }
+    ::= { cvacmSecurityToGroupEntry 2 }
+
+cvacmSecurityGrpStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. The value of
+         this object has no effect on whether other objects
+         in this conceptual row can be modified.            
+         "
+    ::= { cvacmSecurityToGroupEntry 3 }
+
+ciscoSnmpVacmExtGroup OBJECT IDENTIFIER ::= { ciscoSnmpVacmExtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing for remote
+--     configuration of an SNMP engine which extends
+--     the SNMP View-based Access Control Model.
+--  objects
+--    cvacmSecurityGrpStorageType, cvacmSecurityGrpStatus
+
+ciscoSnmpVacmExtMIBCompliance OBJECT IDENTIFIER ::= { ciscoSnmpVacmExtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP engines which 
+--     implement the CISCO-SNMP-VACM-EXT-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSnmpVacmExtGroup
+--   ObjVar
+--    cvacmSecurityGrpStatus
+
+
+END
+

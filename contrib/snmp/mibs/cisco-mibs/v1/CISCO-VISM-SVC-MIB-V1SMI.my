@@ -1,0 +1,506 @@
+-- MIB file created 19-Apr-2004 18:42:24, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VISM-SVC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VISM-SVC-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    voice
+            FROM BASIS-MIB
+    ciscoWan
+            FROM CISCOWAN-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVismSvcMIB OBJECT IDENTIFIER ::= { ciscoWan 90 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200310090000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems 
+--            Customer Service 
+--    
+--        Postal: 170 W Tasman Drive 
+--                San Jose, CA  95134 
+--                USA 
+--    
+--                Tel: +1 800 553-NETS 
+--    
+--        E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The MIB module containing SVC information for  
+--    VISM service module.
+--  RevDate
+--    200310090000Z
+--  RevDescr
+--    Initial version of the MIB. 
+--    
+--    The content of this MIB was originally available 
+--    in SMIv1 version. The MIB has been converted to 
+--    SMIv2 version and descriptions of some of the objects 
+--    have been modified.
+
+vismSvcGrp      OBJECT IDENTIFIER ::= { voice 10 }
+vismSvcCnfGroups OBJECT IDENTIFIER ::= { voice 19 }
+vismSvcAtmQosGrp OBJECT IDENTIFIER ::= { vismSvcCnfGroups 1 }
+vismSvcTrfScalingGrp OBJECT IDENTIFIER ::= { vismSvcCnfGroups 2 }
+vismSvcAal2CidGrp OBJECT IDENTIFIER ::= { vismSvcCnfGroups 3 }
+ciscoVismSvcMIBConformance OBJECT IDENTIFIER ::= { ciscoVismSvcMIB 2 }
+ciscoVismSvcMIBGroups OBJECT IDENTIFIER ::= { ciscoVismSvcMIBConformance 1 }
+ciscoVismSvcMIBCompliances OBJECT IDENTIFIER ::= { ciscoVismSvcMIBConformance 2 }
+
+vismSvcTxSetups OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Setup messages sent  
+        to the PXM(Processor Switch Module) from 
+        the VISM since VISM reset."
+    ::= { vismSvcGrp 1 }
+
+vismSvcRxSetups OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Setup messages received  
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 2 }
+
+vismSvcTxCallProcs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Call proceeding messages sent  
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 3 }
+
+vismSvcRxCallProcs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Call proceeding messages received  
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 4 }
+
+vismSvcTxConns OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Connect messages sent  
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 5 }
+
+vismSvcTxConnAcks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Connect ack messages sent  
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 6 }
+
+vismSvcRxConns OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Connect messages received 
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 7 }
+
+vismSvcRxConnAcks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Connect ack messages received  
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 8 }
+
+vismSvcTxReleases OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Release messages sent 
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 9 }
+
+vismSvcTxReleaseCompls OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Release complete messages sent  
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 10 }
+
+vismSvcRxReleases OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Release messages received  
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 11 }
+
+vismSvcRxReleaseCompls OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Release complete messages received  
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 12 }
+
+vismSvcTxRestarts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Restart messages sent to the PXM 
+        from the VISM since VISM reset."
+    ::= { vismSvcGrp 13 }
+
+vismSvcTxRestartAcks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Restart ack messages sent  
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 14 }
+
+vismSvcRxRestarts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Restart messages received  
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 15 }
+
+vismSvcRxRestartAcks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Restart ack messages received 
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 16 }
+
+vismSvcTxResyncStrts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Resync start messages sent  
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 17 }
+
+vismSvcTxResyncStrtAcks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Resync start ack messages sent  
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 18 }
+
+vismSvcRxResyncStrts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Resync start messages received  
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 19 }
+
+vismSvcRxResyncStrtAcks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Resync start ack messages received  
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 20 }
+
+vismSvcTxResyncEnds OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Resync end messages sent  
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 21 }
+
+vismSvcTxResyncEndAcks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Resync end ack messages sent  
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 22 }
+
+vismSvcRxResyncEnds OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Resync end messages received  
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 23 }
+
+vismSvcRxResyncEndAcks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Resync end ack messages received 
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 24 }
+
+vismSvcTxBulkResyncs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Bulk resync messages sent 
+        to the PXM from the VISM since VISM reset."
+    ::= { vismSvcGrp 25 }
+
+vismSvcRxBulkResyncs OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Bulk resync messages received 
+        by the VISM from the PXM since VISM reset."
+    ::= { vismSvcGrp 26 }
+
+vismSvcCallProcExpiries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of times 
+        the call proceeding timer expired  
+        before a connect message is received."
+    ::= { vismSvcGrp 27 }
+
+vismSvcReleasExpiries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of times 
+         the release timer expired before a release  
+         complete message is received."
+    ::= { vismSvcGrp 28 }
+
+vismSvcConnExpiries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of times 
+        the connect timer expired before a 
+        connection message is received."
+    ::= { vismSvcGrp 29 }
+
+vismSvcConnAckExpiries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of times the 
+        connect ack timer expires before a connect 
+        ack message is received."
+    ::= { vismSvcGrp 30 }
+
+vismSvcRestartExpiries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicate the number of times the 
+        restart timer expires before a Restart Response  
+        message is received."
+    ::= { vismSvcGrp 31 }
+
+vismSvcResyncExpiries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicate the number of times the 
+        Resync timer expired a Resync End Indication 
+        message is received."
+    ::= { vismSvcGrp 32 }
+
+vismSvcAtmQosCdv OBJECT-TYPE
+    SYNTAX INTEGER(500..20000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "End-to-end cell delay variation used in voice SVC  
+         establishment. It is used to guarantee the quality  
+         of the route selected for a voice SVC. It is applicable 
+         to both AAL1 and AAL2 SVC connection establishment. The  
+         value specified to this object is in 'micro-seconds'. This  
+         value is sent in voice SVC setup messages in extended  
+         quality of services information element as the objective value. "
+    REFERENCE
+        "The references are from ATM Forum 'Voice & Telephony over ATM'  
+         specifications af-vtoa-0089.000, af-vtoa-0113.000. "
+    DEFVAL { 20000 }
+    ::= { vismSvcAtmQosGrp 1 }
+
+vismSvcAtmQosCtd OBJECT-TYPE
+    SYNTAX INTEGER(20000..150000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "End-to-end maximum cell transfer delay used in voice  
+         SVC establishment. It is used to guarantee the quality  
+         of the route selected for a voice SVC. It is applicable  
+         to both AAL1 and AAL2 SVC connection establishment.  
+         The value specified to this object is in 'micro-seconds'. 
+         This value is sent in voice SVC setup messages in end-to-end  
+         transit delay information element as the objective value. "
+    REFERENCE
+        "The references are from ITU G-Series Recommendations:  
+         G.114 - One-way transmission time. "
+    DEFVAL { 150000 }
+    ::= { vismSvcAtmQosGrp 2 }
+
+vismSvcAtmQosClr OBJECT-TYPE
+    SYNTAX INTEGER(4..8)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum Cell Loss Ratio used in voice SVC establishment. 
+         It is used to guarantee the quality of the route selected for  
+         a voice SVC. It is applicable to both AAL1 and AAL2 SVC connection  
+         establishment. This value is sent in voice SVC setup messages in  
+         extended quality of services information element as maximum cell  
+         loss ratio value. "
+    REFERENCE
+        " The references are from BellCore specifications - GR.1110 "
+    DEFVAL { 8 }
+    ::= { vismSvcAtmQosGrp 3 }
+
+vismSvcTrfScalingFactor OBJECT-TYPE
+    SYNTAX INTEGER(50..200)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Traffic scaling Factor used to compute factored bandwidth which is 
+         used in ATM signaling to establish voice SVC. When this value is  
+         less than 100 it can be referred as a `discount factor' and when  
+         more than 100 referred as an `excess factor' 
+         It is applicable only to VBR SVC connection establishment. 
+         The traffic scaling is not applicable to AAL2 SVC calls that  
+         require G.711 and clear channel codecs "
+    DEFVAL { 100 }
+    ::= { vismSvcTrfScalingGrp 1 }
+
+vismSvcAal2CidNumber OBJECT-TYPE
+    SYNTAX INTEGER(8..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The default AAL2 Channel IDentification (CID) number  
+         used for AAL2 SVC connections. "
+    REFERENCE
+        "The references are from ITU I-Series Recommendations:  
+         I.363.2 B-ISDN ATM Adaptation Layer specification: Type 2 AAL. "
+    DEFVAL { 100 }
+    ::= { vismSvcAal2CidGrp 1 }
+
+ciscoVismSvcCounterGroup OBJECT IDENTIFIER ::= { ciscoVismSvcMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to represent 
+--    VISM SVC counters.
+--  objects
+--    vismSvcTxSetups, vismSvcRxSetups, vismSvcTxCallProcs, 
+--    vismSvcRxCallProcs, vismSvcTxConns, vismSvcTxConnAcks, 
+--    vismSvcRxConns, vismSvcRxConnAcks, vismSvcTxReleases, 
+--    vismSvcTxReleaseCompls, vismSvcRxReleases, 
+--    vismSvcRxReleaseCompls, vismSvcTxRestarts, 
+--    vismSvcTxRestartAcks, vismSvcRxRestarts, vismSvcRxRestartAcks, 
+--    vismSvcTxResyncStrts, vismSvcTxResyncStrtAcks, 
+--    vismSvcRxResyncStrts, vismSvcRxResyncStrtAcks, 
+--    vismSvcTxResyncEnds, vismSvcTxResyncEndAcks, 
+--    vismSvcRxResyncEnds, vismSvcRxResyncEndAcks, 
+--    vismSvcTxBulkResyncs, vismSvcRxBulkResyncs, 
+--    vismSvcCallProcExpiries, vismSvcReleasExpiries, 
+--    vismSvcConnExpiries, vismSvcConnAckExpiries, 
+--    vismSvcRestartExpiries, vismSvcResyncExpiries
+
+ciscoVismSvcAtmQosGroup OBJECT IDENTIFIER ::= { ciscoVismSvcMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to represent  
+--    VISM SVC Signaling and QOS parameters.
+--  objects
+--    vismSvcAtmQosCdv, vismSvcAtmQosCtd, vismSvcAtmQosClr
+
+ciscoVismSvcTrfScalingGrp OBJECT IDENTIFIER ::= { ciscoVismSvcMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This object is are used to represent VISM  
+--     scaling factor to SVC Signaling traffic parameter.
+--  objects
+--    vismSvcTrfScalingFactor
+
+ciscoVismSvcAal2CidGrp OBJECT IDENTIFIER ::= { ciscoVismSvcMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This object is used to represent 
+--    VISM SVC AAL2 Cid.
+--  objects
+--    vismSvcAal2CidNumber
+
+ciscoVismSvcCompliance OBJECT IDENTIFIER ::= { ciscoVismSvcMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for objects related 
+--    to VISM SVC module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVismSvcCounterGroup
+--   MandGroup
+--    ciscoVismSvcAtmQosGroup
+--   MandGroup
+--    ciscoVismSvcTrfScalingGrp
+--   MandGroup
+--    ciscoVismSvcAal2CidGrp
+
+
+END
+

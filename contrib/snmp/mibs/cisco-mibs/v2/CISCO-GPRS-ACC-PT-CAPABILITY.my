@@ -1,0 +1,78 @@
+-- *******************************************************************
+-- CISCO-GPRS-ACC-PT-CAPABILITY.my 
+--
+-- April 2003, Rajesh M. L.
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-GPRS-ACC-PT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+cgprsAccPtCapability MODULE-IDENTITY
+        LAST-UPDATED    "200304081750Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                        Postal: 170 West Tasman Drive
+                                San Jose, CA  95134
+                                USA
+                                Tel: +1 800 553-NETS
+
+                        E-mail: cs-gprs@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for CISCO-GPRS-ACC-PT-MIB."
+        REVISION        "200304081750Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 298 }
+
+cgprsAccPtCapabilityV12R2M4 AGENT-CAPABILITIES
+
+        PRODUCT-RELEASE  "Cisco IOS 12.2(4)MX & 12.2(8)YY"
+        STATUS           current
+        DESCRIPTION      "Cisco GPRS ACCESS POINT MIB capabilities."
+
+        SUPPORTS         CISCO-GPRS-ACC-PT-MIB
+        INCLUDES         { cgprsAccPtMIBGroupRev1,
+                           cgprsAccPtCfgNotifGroup,
+                           cgprsAccPtStatisticsGroup,
+                           cgprsAccPtExtMIBGroup,
+                           cgprsAccPtMIBNotifGroup
+                         }
+
+        ::= { cgprsAccPtCapability 1 }
+
+cgprsAccPtCapabilityV12R2M8 AGENT-CAPABILITIES
+
+        PRODUCT-RELEASE  "Cisco IOS 12.2(8)YW"
+        STATUS           current
+        DESCRIPTION      "Cisco GPRS ACCESS POINT MIB capabilities."
+
+        SUPPORTS         CISCO-GPRS-ACC-PT-MIB
+        INCLUDES         { cgprsAccPtMIBGroupRev1,
+                           cgprsAccPtCfgNotifGroup,
+                           cgprsAccPtStatisticsGroupRev1,
+                           cgprsAccPtExtMIBGroupRev2,
+                           cgprsAccPtMIBNotifGroup
+                         }
+
+        VARIATION        cgprsAccPtRedirInterMobilAddrTyp
+        SYNTAX           INTEGER {ipv4(1)} -- subset of InetAddressType
+        DESCRIPTION
+           "Only IPv4 Addresses are supported. IPv6 and DNS are
+           not supported."
+
+        ::= { cgprsAccPtCapability 2 }
+
+END

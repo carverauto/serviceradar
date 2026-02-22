@@ -1,0 +1,109 @@
+-- MIB file created 16-Dec-2004 10:43:22, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WLAN-MAN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WLAN-MAN-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWlanManMIB OBJECT IDENTIFIER ::= { ciscoMgmt 415 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200403220000Z
+--  OrgName
+--    Cisco System Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 West Tasman Drive,
+--            San Jose CA 95134-1706.
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--     Email: cs-dot11@cisco.com
+--  Descr
+--    This MIB module provides network management
+--    and configuration support for IEEE 802.11
+--    Wireless LAN devices.
+--    
+--              ACRONYMS
+--    
+--    HTTP
+--        Hypertext Transfer Protocol.
+--  RevDate
+--    200403220000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoWlanManMIBNotifs OBJECT IDENTIFIER ::= { ciscoWlanManMIB 0 }
+ciscoWlanManMIBObjects OBJECT IDENTIFIER ::= { ciscoWlanManMIB 1 }
+ciscoWlanManMIBConform OBJECT IDENTIFIER ::= { ciscoWlanManMIB 2 }
+cwmDeviceConfig OBJECT IDENTIFIER ::= { ciscoWlanManMIBObjects 1 }
+cwmNetworkConfig OBJECT IDENTIFIER ::= { ciscoWlanManMIBObjects 2 }
+ciscoWlanManMIBCompliances OBJECT IDENTIFIER ::= { ciscoWlanManMIBConform 1 }
+ciscoWlanManMIBGroups OBJECT IDENTIFIER ::= { ciscoWlanManMIBConform 2 }
+
+cwmHttpServerEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object enables the HTTP Web server as follows:
+            'true'  - HTTP Web server function is enabled,
+            'false' - HTTP Web server function is disabled."
+    ::= { cwmDeviceConfig 1 }
+
+cwmTelnetLoginEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object enables the telnet console login as 
+        follows:                         
+            'true'  - telnet console login is enabled,
+            'false' - telnet console login is disabled."
+    ::= { cwmDeviceConfig 2 }
+
+cwmWirelessDeviceGroup OBJECT IDENTIFIER ::= { ciscoWlanManMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Configuration for Wireless LAN Access Points
+--    and bridges.
+--  objects
+--    cwmHttpServerEnabled, cwmTelnetLoginEnabled
+
+ciscoWlanManMIBCompliance OBJECT IDENTIFIER ::= { ciscoWlanManMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the
+--    ciscoWlanManMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cwmWirelessDeviceGroup
+
+
+END
+

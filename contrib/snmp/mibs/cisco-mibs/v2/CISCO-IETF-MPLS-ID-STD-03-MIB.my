@@ -1,0 +1,185 @@
+CISCO-IETF-MPLS-ID-STD-03-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    mplsStdMIB
+        FROM MPLS-TC-STD-MIB
+    CMplsGlobalId,
+    CMplsIccId,
+    CMplsNodeId
+        FROM CISCO-MPLS-TC-EXT-STD-MIB
+    ciscoExperiment
+        FROM CISCO-SMI;
+
+
+cmplsIdStdMIB MODULE-IDENTITY
+    LAST-UPDATED    "201206070000Z"
+    ORGANIZATION    "Multiprotocol Label Switching (MPLS) Working Group"
+    CONTACT-INFO
+            "Venkatesan Mahalingam
+            Dell Inc,
+            350 Holger way, San Jose, CA, USA
+            Email: venkat.mahalingams@gmail.com
+
+            Kannan KV Sampath
+            Aricent,
+            India
+            Email: Kannan.Sampath@aricent.com
+
+            Sam Aldrin
+            Huawei Technologies
+            2330 Central Express Way,
+            Santa Clara, CA 95051, USA
+            Email:  aldrin.ietf@gmail.com
+
+            Thomas D. Nadeau
+            Juniper Networks
+            10 Technology Park Drive, Westford, MA 01886
+            Email: tnadeau@juniper.net"
+    DESCRIPTION
+        "Copyright (c) 2012 IETF Trust and the persons identified
+        as the document authors.  All rights reserved.
+
+        This MIB module contains generic object definitions for
+        MPLS Traffic Engineering in transport networks. This module is a
+        cisco-ized version of the IETF draft:
+        draft-ietf-mpls-tp-te-mib-03."
+    REVISION        "201204080000Z"
+    DESCRIPTION
+        "MPLS identifiers mib object extension"
+    ::= { ciscoExperiment 147 }
+
+
+-- traps
+
+cmplsIdNotifications  OBJECT IDENTIFIER
+    ::= { cmplsIdStdMIB 0 }
+
+-- tables, scalars
+
+cmplsIdObjects  OBJECT IDENTIFIER
+    ::= { cmplsIdStdMIB 1 }
+
+-- conformance
+
+cmplsIdConformance  OBJECT IDENTIFIER
+    ::= { cmplsIdStdMIB 2 }
+
+
+-- MPLS common objects
+
+cmplsGlobalId OBJECT-TYPE
+    SYNTAX          CMplsGlobalId
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows the administrator to assign a unique
+        operator identifier also called MPLS-TP Global_ID."
+    REFERENCE       "MPLS-TP Identifiers [RFC6370]." 
+    ::= { cmplsIdObjects 1 }
+
+cmplsIcc OBJECT-TYPE
+    SYNTAX          CMplsIccId
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows the operator or service provider to
+        assign a unique MPLS-TP ITU-T Carrier Code (ICC) to a
+        network."
+    REFERENCE       "MPLS-TP Identifiers [RFC6370]." 
+    ::= { cmplsIdObjects 2 }
+
+cmplsNodeId OBJECT-TYPE
+    SYNTAX          CMplsNodeId
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows the operator or service provider to
+        assign a unique MPLS-TP Node_ID.
+
+        The Node_ID is assigned within the scope of
+        the Global_ID."
+    REFERENCE       "MPLS-TP Identifiers [RFC6370]." 
+    ::= { cmplsIdObjects 3 }
+-- Module compliance.
+
+cmplsIdGroups  OBJECT IDENTIFIER
+    ::= { cmplsIdConformance 1 }
+
+cmplsIdCompliances  OBJECT IDENTIFIER
+    ::= { cmplsIdConformance 2 }
+
+
+-- Compliance requirement for fully compliant implementations.
+
+cmplsIdModuleFullCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance statement for agents that provide full
+        support the MPLS-ID-STD-MIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cmplsIdScalarGroup }
+    ::= { cmplsIdCompliances 1 }
+
+-- Compliance requirement for read-only implementations.
+
+cmplsIdModuleReadOnlyCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance statement for agents that provide full
+        support the MPLS-ID-STD-MIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cmplsIdScalarGroup }
+    ::= { cmplsIdCompliances 2 }
+
+-- Units of conformance.
+
+cmplsIdScalarGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmplsGlobalId,
+                        cmplsNodeId,
+                        cmplsIcc
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Scalar object needed to implement MPLS TP path."
+    ::= { cmplsIdGroups 1 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

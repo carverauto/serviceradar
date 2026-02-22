@@ -1,0 +1,202 @@
+-- *****************************************************************
+-- Cisco GGSN GEO  MIB
+--   
+
+-- Jan 2010, Raagavendran Sridharan
+--   
+-- Copyright (c) 2009-2010 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+--   
+-- Terminology:
+-- Passive Interface
+-- If an interface is configured as passive interface
+-- in OSPF from that interface routing updates will not be
+-- propagated to other routers.
+-- Passive Interface On-Standby
+-- If an interface is configured as passive
+-- interface on-Standy in OSPF. That interface will be acting as
+-- passive interface when router switch over to standby mode.
+
+CISCO-GGSN-GEO-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ifIndex
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+cggsnGeoMIB MODULE-IDENTITY
+    LAST-UPDATED    "201002190000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W. Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-gprs@cisco.com"
+    DESCRIPTION
+        "This MIB provide additional information for passive interface
+        configured for each OSPF process, independent of object creation
+        in the corresponding OSPF MIB."
+    REVISION        "201002190000Z"
+    DESCRIPTION
+        "Initial version of the MIB module."
+    ::= { ciscoMgmt 724 }
+
+
+
+cggsnGeoPassiveTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CggsnGeoPassiveEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains information about passive interfaces
+        configured in each OSPF process. Further this table provides  
+        information about passive interfaces
+        either enabled(active) or in standby mode."
+    ::= { cggsnGeoMIB 1 }
+
+cggsnGeoPassiveEntry OBJECT-TYPE
+    SYNTAX          CggsnGeoPassiveEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry is created or removed whenever a interface
+        related configuation operation is performed 
+        under the OSPF process.      
+        For Example : Ethernet1/0 interface has ifIndex value as 5. The 
+        ifIndex of 5 is a passive interface of particular OSPF process 
+        which copies the name of the  particular interface to this 
+        object . Based on this example Ethernet1/0 is going copy
+        to the object. Otherwise ifIndex is not a 
+        passive interface  this object content will 
+        be NULL."
+    INDEX           {
+                        ifIndex,
+                        cggsnGeoProcessNumber
+                    } 
+    ::= { cggsnGeoPassiveTable 1 }
+
+CggsnGeoPassiveEntry ::= SEQUENCE {
+        cggsnGeoProcessNumber      Unsigned32,
+        cggsnGeoPassiveStdbyIfName SnmpAdminString,
+        cggsnGeoPassiveIfOnStdby   TruthValue,
+        cggsnGeoVRFEnabled         TruthValue,
+        cggsnGeoRowStatus          RowStatus
+}
+
+cggsnGeoProcessNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Specifies the process identifier for each
+        OSPF configured interface" 
+    ::= { cggsnGeoPassiveEntry 1 }
+
+cggsnGeoPassiveStdbyIfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This variable specfies name of the passive interface
+        configured" 
+    ::= { cggsnGeoPassiveEntry 2 }
+
+cggsnGeoPassiveIfOnStdby OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the passive interface
+        is configured in standby mode or not. 
+        The value of this object 'true' indicates, the standby mode is 
+        configured, otherwise the standby mode is not configured." 
+    ::= { cggsnGeoPassiveEntry 3 }
+
+cggsnGeoVRFEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the  Current OSPF process
+        is bonded with VRF name of the router or not.
+        The value of this object 'true' indicates OSPF process 
+        is bonded with VRF name of the router,
+        otherwise the OSPF process is not bonded 
+        with VRF name of router." 
+    ::= { cggsnGeoPassiveEntry 4 }
+
+cggsnGeoRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to manage creation and deletion of
+        rows in this table. Objects in this row cannot be 
+        modified when this entry is 'active'." 
+    ::= { cggsnGeoPassiveEntry 5 }
+ 
+
+-- conformance information
+
+cggsnGeoConformance  OBJECT IDENTIFIER
+    ::= { cggsnGeoMIB 2 }
+
+cggsnGeogroups  OBJECT IDENTIFIER
+    ::= { cggsnGeoConformance 1 }
+
+cggsnGeoCompliances  OBJECT IDENTIFIER
+    ::= { cggsnGeoConformance 2 }
+
+
+-- compliance statements
+
+cggsnGeoCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The Compilance Stament for the agent they support
+        CISCO-GGSN-GEO-MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS { cggsnGeoPassiveGroup }
+    ::= { cggsnGeoCompliances 1 }
+
+-- units of conformance
+
+cggsnGeoPassiveGroup OBJECT-GROUP
+    OBJECTS         {
+                        cggsnGeoPassiveStdbyIfName,
+                        cggsnGeoPassiveIfOnStdby,
+                        cggsnGeoVRFEnabled,
+                        cggsnGeoRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "These objects are used to provide
+        information about  passive standby 
+        interface  configuration in OSPF interface"
+    ::= { cggsnGeogroups 1 }
+
+END
+
+
+

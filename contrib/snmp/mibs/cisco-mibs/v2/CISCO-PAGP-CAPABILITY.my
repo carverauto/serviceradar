@@ -1,0 +1,231 @@
+-- *****************************************************************
+-- CISCO-PAGP-CAPABILITY.my:
+-- Cisco CISCO-PAGP-MIB AGENT-CAPABILITIES
+--   
+-- March 2004, Liwei Lue
+--   
+-- Copyright (c) 2004, 2010, 2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-PAGP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoPagpCapability MODULE-IDENTITY
+    LAST-UPDATED    "201109270000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com
+            cs-etherchan@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-PAGP-MIB."
+    REVISION        "201109270000Z"
+    DESCRIPTION
+        "Add ciscoPagpCapV15R0001SYPCat6k agent capability
+         statement.
+
+         Added VARIATION for pagpDistributionProtocol object
+         in ciscoPagpCapCatOSV08R0101 agent capabilty statement."
+    REVISION        "201011170000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoPagpCapV12R0250SYPCat6K."
+    REVISION        "201005060000Z"
+    DESCRIPTION
+        "Add ciscoPagpCapV12R0254SGPCat4K agent capability
+        statement.
+
+        Add VARIATION for pagpDistributionProtocol object
+        in ciscoPagpCapV12R0217aSXCat6k agent capability
+        statement."
+    REVISION        "200403300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 391 }
+
+
+
+ciscoPagpCapV12R0111bEXCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(11b)EX on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAGP-MIB capabilities."
+
+    SUPPORTS        CISCO-PAGP-MIB
+    INCLUDES        {
+                        ciscoPagpEthcGroupV2R2,
+                        ciscoPagpPagpGroupV1R1
+                    }
+    VARIATION       pagpDistributionProtocol
+    SYNTAX          INTEGER  {
+                        ip(1),
+                        mac(2),
+                        port(3)
+                    }
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    ::= { ciscoPagpCapability 1 }
+
+ciscoPagpCapV12R0217aSXCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(17a)SX on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAGP-MIB capabilities."
+
+    SUPPORTS        CISCO-PAGP-MIB
+    INCLUDES        {
+                        ciscoPagpEthcGroupV2R2,
+                        ciscoPagpPagpGroupV1R1
+                    }
+    VARIATION       pagpDistributionProtocol
+    SYNTAX          INTEGER  {
+                        ip(1),
+                        mac(2),
+                        port(3)
+                    }
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    ::= { ciscoPagpCapability 2 }
+
+ciscoPagpCapCatOSV08R0101 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAGP-MIB capabilities."
+
+    SUPPORTS        CISCO-PAGP-MIB
+    INCLUDES        {
+                        ciscoPagpEthcGroupV2R2,
+                        ciscoPagpPagpGroupV1R1
+                    }
+    VARIATION       pagpDistributionProtocol
+    SYNTAX          INTEGER {
+                        ip(1),
+                        mac(2),
+                        port(3),
+                        vlanIpPort(4)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoPagpCapability 3 }
+
+ciscoPagpCapV12R0254SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(54)SG on Cat4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAGP-MIB capabilities."
+
+    SUPPORTS        CISCO-PAGP-MIB
+    INCLUDES        {
+                        ciscoPagpEthcGroupV2R2,
+                        ciscoPagpPagpGroupV1R1,
+                        ciscoPagpRateAndTimeOutGroup
+                    }
+    VARIATION       pagpDistributionProtocol
+    SYNTAX          INTEGER  {
+                        ip(1),
+                        mac(2),
+                        port(3)
+                    }
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       pagpInPacketTimeout
+    SYNTAX          Unsigned32 (45..90)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    ::= { ciscoPagpCapability 4 }
+
+ciscoPagpCapV12R0250SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAGP-MIB capabilities."
+
+    SUPPORTS        CISCO-PAGP-MIB
+    INCLUDES        {
+                        ciscoPagpEthcGroupV2R2,
+                        ciscoPagpPagpGroupV1R1,
+                        ciscoPagpRateAndTimeOutGroup
+                    }
+    VARIATION       pagpInPacketTimeout
+    SYNTAX          Unsigned32 (45..90)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       pagpDistributionProtocol
+    SYNTAX          INTEGER  {
+                        ip(1),
+                        mac(2),
+                        port(3)
+                    }
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    ::= { ciscoPagpCapability 5 }
+
+ciscoPagpCapV15R0001SYPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(1)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-PAGP-MIB capabilities."
+
+    SUPPORTS        CISCO-PAGP-MIB
+    INCLUDES        {
+                        ciscoPagpEthcGroupV2R2,
+                        ciscoPagpPagpGroupV1R1,
+                        ciscoPagpRateAndTimeOutGroup
+                    }
+
+    VARIATION       pagpInPacketTimeout
+    SYNTAX          Unsigned32 (45..90)
+    DESCRIPTION
+        "Only a limited set of values is supported."
+
+    VARIATION       pagpDistributionProtocol
+    SYNTAX          INTEGER  {
+                        ip(1),
+                        mac(2),
+                        port(3),
+                        vlanIpPort(4),
+                        vlanIp(5),
+                        pPort(6)
+                    }
+    DESCRIPTION
+        "The enumerated values supported are all those
+        defined at the time this clause was written."
+
+    ::= { ciscoPagpCapability 6 }
+
+END
+
+
+
+

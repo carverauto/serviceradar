@@ -1,0 +1,409 @@
+-- MIB file created 12-Jun-2010 18:55:06, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-ENTITY-SENSOR-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ENTITY-SENSOR-EXT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    entPhysicalName, entPhysicalDescr, entPhysicalIndex
+            FROM ENTITY-MIB
+    EntitySensorValue, entPhySensorValue, entPhySensorType
+            FROM ENTITY-SENSOR-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoEntitySensorExtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 745 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201006100000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Postal: Cisco Systems, Inc.
+--    170 West Tasman Drive
+--    San Jose, CA 95134-1706
+--    USA
+--    
+--    Tel: +1 408 526 4000
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This MIB is extension to ENTITY-SENSOR-MIB(RFC 3433). This MIB
+--    also defines the notifications applicable for sensors reported
+--    in ENTITY-MIB(RFC 4133).
+--  RevDate
+--    201006090000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoEntitySensorExtMIBNotifs OBJECT IDENTIFIER ::= { ciscoEntitySensorExtMIB 0 }
+ciscoEntitySensorExtMIBObjects OBJECT IDENTIFIER ::= { ciscoEntitySensorExtMIB 1 }
+ciscoEntitySensorExtMIBConform OBJECT IDENTIFIER ::= { ciscoEntitySensorExtMIB 2 }
+ciscoEntSensorExtGlobalObjects OBJECT IDENTIFIER ::= { ciscoEntitySensorExtMIBObjects 2 }
+ciscoEntSensorExtMIBCompliances OBJECT IDENTIFIER ::= { ciscoEntitySensorExtMIBConform 1 }
+ciscoEntSensorExtMIBGroups OBJECT IDENTIFIER ::= { ciscoEntitySensorExtMIBConform 2 }
+
+CiscoSensorThresholdSeverity ::= INTEGER {
+        other(1),
+        minor(10),
+        major(20),
+        critical(30)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    sensor threshold severity.  Valid values are:
+--    
+--    other(1)    : a severity other than those listed below.
+--    minor(10)   : Minor Problem threshold.
+--    major(20)   : Major Problem threshold.
+--    critical(30): Critical problem threshold. A system might shut
+--                  down the sensor associated FRU automatically if
+--                  the sensor value reach the critical problem
+--                  threshold.
+
+CiscoSensorThresholdRelation ::= INTEGER {
+        lessThan(1),
+        lessOrEqual(2),
+        greaterThan(3),
+        greaterOrEqual(4),
+        equalTo(5),
+        notEqualTo(6)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    sensor threshold relational operator types.  valid values are:
+--    
+--    lessThan(1):        if the sensor value is less than
+--                        the threshold value
+--    lessOrEqual(2):     if the sensor value is less than or equal to
+--                        the threshold value
+--    greaterThan(3):     if the sensor value is greater than 
+--                        the threshold value
+--    greaterOrEqual(4):  if the sensor value is greater than or equal
+--                        to the threshold value
+--    equalTo(5):         if the sensor value is equal to
+--                        the threshold value
+--    notEqualTo(6):      if the sensor value is not equal to
+--                        the threshold value
+
+ceSensorExtThresholdTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CeSensorExtThresholdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the threshold severity, relation, and
+        comparison value, for a sensor entity listed in  
+        entPhysicalTable."
+    REFERENCE
+        "ENTITY-MIB contains definition for entPhysicalTable"
+    ::= { ciscoEntitySensorExtMIBObjects 1 }
+
+ceSensorExtThresholdEntry OBJECT-TYPE
+    SYNTAX CeSensorExtThresholdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An ceSensorExtThresholdTable entry describes the
+        thresholds for a sensor: the threshold severity,
+        the threshold value, the relation, and the 
+        evaluation of the threshold.
+        
+        Only entities with entPhysicalClass 'sensor' 
+        are listed in this table.
+        
+        For non FRU entities the entries are created by the agent at
+        system startup and entries are never deleted by the agent.
+        
+        For FRU entities the entries are created at system startup 
+        if FRU is inserted at system startup, else entries are created 
+        when FRU is inserted.  Entries are deleted by the agent when
+        FRU is removed."
+    REFERENCE
+        "ENTITY-MIB contains definition for entPhysicalClass"
+    INDEX { entPhysicalIndex, ceSensorExtThresholdIndex }
+    ::= { ceSensorExtThresholdTable 1 }
+
+CeSensorExtThresholdEntry ::= SEQUENCE {
+    ceSensorExtThresholdIndex Gauge,
+    ceSensorExtThresholdSeverity CiscoSensorThresholdSeverity,
+    ceSensorExtThresholdRelation CiscoSensorThresholdRelation,
+    ceSensorExtThresholdValue EntitySensorValue,
+    ceSensorExtThresholdEvaluation TruthValue,
+    ceSensorExtThresholdNotifEnable INTEGER
+    }
+
+ceSensorExtThresholdIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An index that uniquely identifies an entry
+        in the ceSensorExtThresholdTable. This index
+        permits the same sensor to have several 
+        different thresholds."
+    ::= { ceSensorExtThresholdEntry 1 }
+
+ceSensorExtThresholdSeverity OBJECT-TYPE
+    SYNTAX CiscoSensorThresholdSeverity
+--    Rsyntax INTEGER {
+--        other(1),
+--        minor(10),
+--        major(20),
+--        critical(30)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the severity of this threshold."
+    ::= { ceSensorExtThresholdEntry 2 }
+
+ceSensorExtThresholdRelation OBJECT-TYPE
+    SYNTAX CiscoSensorThresholdRelation
+--    Rsyntax INTEGER {
+--        lessThan(1),
+--        lessOrEqual(2),
+--        greaterThan(3),
+--        greaterOrEqual(4),
+--        equalTo(5),
+--        notEqualTo(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the boolean relation between
+        sensor value (entPhySensorValue) and threshold value 
+        (ceSensorExtThresholdValue), required to 
+        trigger the alarm.  
+        
+        in pseudo-code, the evaluation-alarm mechanism is:
+        
+        ...
+        if (evaluate(entPhySensorValue, 
+                     ceSensorExtThresholdRelation,
+                     ceSensorExtThresholdValue)) 
+        then
+            if (((ceSensorExtThresholdNotifEnable 
+                    == enabled) || 
+                  (ceSensorExtThresholdNotifEnable
+                    == transparent)) &&
+                  (ceSensorExtThresholdNotifGlobalEnable 
+                    == enabled)) 
+            then
+                raise_alarm(sensor's entPhysicalIndex);
+               endif
+        endif
+        ..."
+    ::= { ceSensorExtThresholdEntry 3 }
+
+ceSensorExtThresholdValue OBJECT-TYPE
+    SYNTAX EntitySensorValue
+--    Rsyntax INTEGER(-1000000000..1000000000)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the value of the threshold.
+        
+        The value of objects entPhySensorType, entPhysSensorScale 
+        and entPhySensorPrecision for this sensor entity defines
+        how ceSensorExtThresholdValue can be displayed or
+        intepreted by the user.
+        
+        entPhySensorValue can be compared with
+        ceSensorExtThresholdValue without taking
+        care of semantics of both objects."
+    REFERENCE
+        "ENTITY-SENSOR-MIB contains definitions for 
+          entPhysSensorScale and entPhySensorPrecision"
+    ::= { ceSensorExtThresholdEntry 4 }
+
+ceSensorExtThresholdEvaluation OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the result of the most
+        recent evaluation of the threshold.  
+        
+        The agent will execute the below 'evaluate' function
+        to generate the notification. 'evaluate' function
+        returns a boolean value.
+        
+        evaluate(entPhySensorValue, 
+                 ceSensorExtThresholdRelation,
+                 ceSensorExtThresholdValue)
+        
+        If evalute function returns true then 
+        ceSensorExtThresholdEvaluation is set to 'true'
+        
+        If evaluate function returns false then  
+        ceSensorExtThresholdEvaluation is set to 'false'.
+        
+        Thresholds are evaluated at the rate indicated by 
+        entPhySensorValueUpdateRate."
+    REFERENCE
+        "ENTITY-SENSOR-MIB contains definition for 
+        entPhySensorValueUpdateRate"
+    ::= { ceSensorExtThresholdEntry 5 }
+
+ceSensorExtThresholdNotifEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2),
+        transparent(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A control object to activate/deactivate
+        ceSensorExtThresholdNotification.
+        
+        This object should hold any of the below values.
+        enabled(1)    - The notification is enabled for this entity
+        disabled(2)   - The notification is disabled for this entity
+        transparent(3)- The notification is enabled/disabled based on
+                        ceSensorExtThresholdNotifGlobalEnable
+                        object
+        
+        This object controls generation of
+        ceSensorExtThresholdNotification for this threshold.
+        An exception to this is, if this object is set to 'transparent'
+        then ceSensorExtThresholdNotification for this threshold
+        is controlled by ceSensorExtThresholdNotifGlobalEnable
+        object.
+        
+        This truth table explains how
+        ceSensorExtThresholdNotifEnable is related with 
+        ceSensorExtThresholdNotifGlobalEnable to control the
+        ceSensorExtThresholdNotification for this threshold
+        
+        E = enabled, D = Disabled, T = Transparent
+        local_flag =  ceSensorExtThresholdNotifEnable
+        global_flag = ceSensorExtThresholdNotifGlobalEnable
+        
+        local_flag  global_flag   outcome_per_interface
+        ---------------------------------------------
+           E            E            E
+           E            D            D
+           D            E            D
+           D            D            D
+           T            E            E
+           T            D            D"
+    DEFVAL { transparent }
+    ::= { ceSensorExtThresholdEntry 6 }
+
+ceSensorExtThresholdNotifGlobalEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A control object to activate/deactivate
+        ceSensorExtThresholdNotification.
+        
+        This object should hold any of the below values.
+        enabled(1) - The notification is enabled globally 
+                     on the device
+        disabled(2)- The notification is disabled globally 
+                     on the device  
+        
+        This object enables the generation of
+        ceSensorExtThresholdNotification globally
+        on the device. If this object value is
+        'disabled', then no ceSensorExtThresholdNotification
+        will be generated on this device. If this object
+        value is 'enabled', then whether a 
+        ceSensorExtThresholdNotification for a threshold will
+        be generated or not depends on the instance value of
+        ceSensorExtThresholdNotifEnable for that
+        threshold."
+    DEFVAL { disabled }
+    ::= { ciscoEntSensorExtGlobalObjects 1 }
+
+ceSensorExtThresholdNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoEntitySensorExtMIB
+    VARIABLES {
+        entPhysicalName, entPhysicalDescr, entPhySensorValue, 
+        entPhySensorType, ceSensorExtThresholdValue }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated once each time
+        the sensor value crosses the threshold value
+        specified by ceSensorExtThresholdValue object."
+    ::= 1
+
+ciscoEntSensorExtThresholdGroup OBJECT IDENTIFIER ::= { ciscoEntSensorExtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used
+--    to describe and monitor thresholds for
+--    sensors.
+--  objects
+--    ceSensorExtThresholdSeverity, ceSensorExtThresholdRelation, 
+--    ceSensorExtThresholdValue, ceSensorExtThresholdEvaluation, 
+--    ceSensorExtThresholdNotifEnable
+
+ciscoEntSensorExtNotificationCtrlGroup OBJECT IDENTIFIER ::= { ciscoEntSensorExtMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which provide the global
+--    notification control on 
+--    ceSensorExtThresholdNotification.
+--  objects
+--    ceSensorExtThresholdNotifGlobalEnable
+
+ciscoEntSensorExtNotificationGroup OBJECT IDENTIFIER ::= { ciscoEntSensorExtMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of notifications used for
+--    monitoring sensor threshold activity.
+--  notifications
+--    ceSensorExtThresholdNotification
+
+ciscoEntSensorExtMIBCompliance OBJECT IDENTIFIER ::= { ciscoEntSensorExtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    An ENTITY-MIB implementation that adds notification
+--    for sensors in the entPhysicalTable must implement
+--    this group.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoEntSensorExtThresholdGroup
+--   OptGroup
+--    ciscoEntSensorExtNotificationCtrlGroup
+--   OptGroup
+--    ciscoEntSensorExtNotificationGroup
+
+
+END
+

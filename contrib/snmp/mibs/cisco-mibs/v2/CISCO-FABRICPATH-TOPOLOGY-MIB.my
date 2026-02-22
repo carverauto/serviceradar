@@ -1,0 +1,594 @@
+-- *****************************************************************
+-- CISCO-FABRICPATH-TOPOLOGY-MIB
+--   
+-- August 2012,  Liwei Wang
+--   
+-- Copyright (c) 2012-2013 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-FABRICPATH-TOPOLOGY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ifIndex
+        FROM IF-MIB
+    StorageType,
+    RowStatus
+        FROM SNMPv2-TC
+    Cisco2KVlanList
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoFabricPathTopologyMIB MODULE-IDENTITY
+    LAST-UPDATED    "201303110000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines managed objects that facilitate
+        the management of Cisco's FabricPath Topology technology."
+    REVISION        "201303110000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 801 }
+
+
+ciscoFabricPathTopologyMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoFabricPathTopologyMIB 0 }
+
+ciscoFabricPathTopologyMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoFabricPathTopologyMIB 1 }
+
+ciscoFabricPathTopologyMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoFabricPathTopologyMIB 2 }
+
+-- cfptTopologyTable
+
+cfptTopologyTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfptTopologyEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing a list of FabricPath topology
+        information."
+    ::= { ciscoFabricPathTopologyMIBObjects 1 }
+
+cfptTopologyEntry OBJECT-TYPE
+    SYNTAX          CfptTopologyEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information of a particular
+        FabricPath topology.
+
+        An entry is created for each FabricPath topology that is
+        managed by the system."
+    INDEX           { cfptTopologyIndex } 
+    ::= { cfptTopologyTable 1 }
+
+CfptTopologyEntry ::= SEQUENCE {
+        cfptTopologyIndex               Unsigned32,
+        cfptTopologyDescr               SnmpAdminString,
+        cfptTopologyState               INTEGER,
+        cfptTopologyStateChangeReason   SnmpAdminString,
+        cfptTopologyVlansFirst2K        Cisco2KVlanList,
+        cfptTopologyVlansSecond2K       Cisco2KVlanList,
+        cfptTopologyActiveVlansFirst2K  Cisco2KVlanList,
+        cfptTopologyActiveVlansSecond2K Cisco2KVlanList,
+        cfptTopologyStorageType         StorageType,
+        cfptTopologyRowStatus           RowStatus
+}
+
+cfptTopologyIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An identifier that uniquely identifies a FabricPath
+        topology." 
+    ::= { cfptTopologyEntry 1 }
+
+cfptTopologyDescr OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the description of the FabricPath
+        topology." 
+    ::= { cfptTopologyEntry 2 }
+
+cfptTopologyState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        up(2),
+                        down(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of the FabricPath
+        topology.
+           other       - none of the followings
+           up          - topology is up
+           down        - topology is down" 
+    ::= { cfptTopologyEntry 3 }
+
+cfptTopologyStateChangeReason OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason of the current
+        topology state that cfptTopologyState provides." 
+    ::= { cfptTopologyEntry 4 }
+
+cfptTopologyVlansFirst2K OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for
+        VLANs 0 to 2047 that are configured for this FabricPath
+        topology entry.
+
+        If the bit corresponding to a VLAN is set to '1', then 
+        the VLAN is configured in this FabricPath topology. If
+        the bit is set to '0', then the VLAN is not configured
+        in this FabricPath topology." 
+    ::= { cfptTopologyEntry 5 }
+
+cfptTopologyVlansSecond2K OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for
+        VLANs 2048 to 4095 that are configured for this FabricPath
+        topology entry.
+
+        If the bit corresponding to a VLAN is set to '1', then 
+        the VLAN is configured in this FabricPath topology. If
+        the bit is set to '0', then the VLAN is not configured
+        in this FabricPath topology." 
+    ::= { cfptTopologyEntry 6 }
+
+cfptTopologyActiveVlansFirst2K OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for
+        VLANs 0 to 2047 that are active in this FabricPath
+        topology entry.
+
+        If the bit corresponding to a VLAN is set to '1', then 
+        the VLAN is active in this FabricPath topology. If
+        the bit is set to '0', then the VLAN is not configured
+        in this FabricPath topology." 
+    ::= { cfptTopologyEntry 7 }
+
+cfptTopologyActiveVlansSecond2K OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for
+        VLANs 2048 to 4095 that are active in this FabricPath
+        topology entry.
+
+        If the bit corresponding to a VLAN is set to '1', then
+        the VLAN is active in this FabricPath topology.  If the 
+        bit is set to '0', then the VLAN is not active in this 
+        FabricPath topology." 
+    ::= { cfptTopologyEntry 8 }
+
+cfptTopologyStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { volatile } 
+    ::= { cfptTopologyEntry 9 }
+
+cfptTopologyRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row entry.
+
+        This object is used to manage creation and deletion of 
+        rows in this table. 
+
+        When this object value is 'active', other
+        writable objects in the same row may be modified." 
+    ::= { cfptTopologyEntry 10 }
+ 
+
+-- cfptTopologyIfTable
+
+cfptTopologyIfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfptTopologyIfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing a list of all FabricPath topology
+        interfaces."
+    ::= { ciscoFabricPathTopologyMIBObjects 2 }
+
+cfptTopologyIfEntry OBJECT-TYPE
+    SYNTAX          CfptTopologyIfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing information of one interface in
+        a FabricPath topology.
+
+        An entry is created for a FabricPath capable interface
+        that is a member of a particular FabricPath topology."
+    INDEX           {
+                        cfptTopologyIfTopoIndex,
+                        ifIndex
+                    } 
+    ::= { cfptTopologyIfTable 1 }
+
+CfptTopologyIfEntry ::= SEQUENCE {
+        cfptTopologyIfTopoIndex   Unsigned32,
+        cfptTopologyIfState       INTEGER,
+        cfptTopologyIfStorageType StorageType,
+        cfptTopologyIfRowStatus   RowStatus
+}
+
+cfptTopologyIfTopoIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An identifier that uniquely identifies a FabricPath
+        topology interface." 
+    ::= { cfptTopologyIfEntry 1 }
+
+cfptTopologyIfState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        up(2),
+                        down(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of a given
+        FabricPath topology interface.
+           other       - none of the followings
+           up          - interface is up
+           down        - interface is down" 
+    ::= { cfptTopologyIfEntry 2 }
+
+cfptTopologyIfStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The objects specifies the storage type for this conceptual
+        row."
+    DEFVAL          { volatile } 
+    ::= { cfptTopologyIfEntry 3 }
+
+cfptTopologyIfRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row entry.
+
+        This object is used to manage creation and deletion of 
+        rows in this table." 
+    ::= { cfptTopologyIfEntry 4 }
+ 
+
+-- cfptTopologyIfVlanTable
+
+cfptTopologyIfVlanTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfptTopologyIfVlanEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing a list of FabricPath interfaces and
+        their VLAN information."
+    ::= { ciscoFabricPathTopologyMIBObjects 3 }
+
+cfptTopologyIfVlanEntry OBJECT-TYPE
+    SYNTAX          CfptTopologyIfVlanEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing VLAN information for
+        each FabricPath interface.
+
+        An entry is created for each FabricPath topology
+        interface."
+    INDEX           { ifIndex } 
+    ::= { cfptTopologyIfVlanTable 1 }
+
+CfptTopologyIfVlanEntry ::= SEQUENCE {
+        cfptTopologyIfVlansFirst2K        Cisco2KVlanList,
+        cfptTopologyIfVlansSecond2K       Cisco2KVlanList,
+        cfptTopologyIfActiveVlansFirst2K  Cisco2KVlanList,
+        cfptTopologyIfActiveVlansSecond2K Cisco2KVlanList
+}
+
+cfptTopologyIfVlansFirst2K OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for VLANs
+        0 through 2047 that are configured for the FabricPath
+        interface specified by ifIndex in this entry.
+
+        If the bit corresponding to a VLAN is set to '1', then
+        the VLAN is configured for the interface, it is not
+        otherwise." 
+    ::= { cfptTopologyIfVlanEntry 1 }
+
+cfptTopologyIfVlansSecond2K OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for VLANs
+        2048 through 4095 that are configured for the FabricPath
+        interface specified by ifIndex in this entry.
+
+        If the bit corresponding to a VLAN is set to '1', then
+        the VLAN is configured for the interface, it is not
+        otherwise." 
+    ::= { cfptTopologyIfVlanEntry 2 }
+
+cfptTopologyIfActiveVlansFirst2K OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for VLANs
+        0 through 2047 that are operational on the FabricPath
+        interface specified by ifIndex in this entry.
+
+        If the bit corresponding to a VLAN is set to '1', then
+        the VLAN is active on the interface, it is not
+        otherwise." 
+    ::= { cfptTopologyIfVlanEntry 3 }
+
+cfptTopologyIfActiveVlansSecond2K OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for VLANs
+        2048 through 4095 that are operational on the FabricPath
+        interface specified by ifIndex in this entry.
+
+        If the bit corresponding to a VLAN is set to '1', then
+        the VLAN is active on the interface, it is not
+        otherwise." 
+    ::= { cfptTopologyIfVlanEntry 4 }
+ 
+
+-- cfptTopologyTreeTable
+
+cfptTopologyTreeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfptTopologyTreeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing a list of forwarding tree
+        information of the FabricPath topologies."
+    ::= { ciscoFabricPathTopologyMIBObjects 4 }
+
+cfptTopologyTreeEntry OBJECT-TYPE
+    SYNTAX          CfptTopologyTreeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing one forwarding tree information in
+        a particular FabricPath topology."
+    INDEX           {
+                        cfptTopologyIndex,
+                        cfptTopologyTreeId
+                    } 
+    ::= { cfptTopologyTreeTable 1 }
+
+CfptTopologyTreeEntry ::= SEQUENCE {
+        cfptTopologyTreeId    Unsigned32,
+        cfptTopologyTreeFtag  Unsigned32,
+        cfptTopologyTreeState INTEGER,
+        cfptTopologyTreeType  INTEGER
+}
+
+cfptTopologyTreeId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index number that uniquely identifies forwarding
+        tree of a particular FabricPath topology." 
+    ::= { cfptTopologyTreeEntry 1 }
+
+cfptTopologyTreeFtag OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the tree's forwarding tag." 
+    ::= { cfptTopologyTreeEntry 2 }
+
+cfptTopologyTreeState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        active(2),
+                        inactive(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the state of the tree.
+        other       - none of the followings
+        active      - the tree is active 
+        inactive    - the tree is inactive." 
+    ::= { cfptTopologyTreeEntry 3 }
+
+cfptTopologyTreeType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        mixed(2),
+                        multicast(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of the tree.
+        other        - none of the followings
+        mixed        - unknown unicast, broadcast and multicast tree
+        multicast    - multicast tree" 
+    ::= { cfptTopologyTreeEntry 4 }
+ 
+
+-- Conformance
+
+cfptFabricPathTopologyMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoFabricPathTopologyMIBConformance 1 }
+
+cfptFabricPathTopologyMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoFabricPathTopologyMIBConformance 2 }
+
+
+cfptFabricPathTopologyMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Describes the requirements for conformance to the
+        CISCO-FABRICPATH-TOPOLOGY-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cfptTopologyGroup,
+                        cfptTopologyIfGroup,
+                        cfptTopologyIfVlanGroup,
+                        cfptTopologyTreeGroup
+                    }
+
+    OBJECT          cfptTopologyDescr
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cfptTopologyVlansFirst2K
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cfptTopologyVlansSecond2K
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cfptTopologyStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cfptTopologyRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cfptTopologyIfStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cfptTopologyIfRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { cfptFabricPathTopologyMIBCompliances 1 }
+
+cfptTopologyGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfptTopologyDescr,
+                        cfptTopologyState,
+                        cfptTopologyStateChangeReason,
+                        cfptTopologyVlansFirst2K,
+                        cfptTopologyVlansSecond2K,
+                        cfptTopologyActiveVlansFirst2K,
+                        cfptTopologyActiveVlansSecond2K,
+                        cfptTopologyStorageType,
+                        cfptTopologyRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing FabricPath
+        topology information."
+    ::= { cfptFabricPathTopologyMIBGroups 1 }
+
+cfptTopologyIfGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfptTopologyIfState,
+                        cfptTopologyIfStorageType,
+                        cfptTopologyIfRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing per interface
+        FabricPath topology information."
+    ::= { cfptFabricPathTopologyMIBGroups 2 }
+
+cfptTopologyIfVlanGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfptTopologyIfVlansFirst2K,
+                        cfptTopologyIfVlansSecond2K,
+                        cfptTopologyIfActiveVlansFirst2K,
+                        cfptTopologyIfActiveVlansSecond2K
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing VLAN information for
+        each FabricPath interface."
+    ::= { cfptFabricPathTopologyMIBGroups 3 }
+
+cfptTopologyTreeGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfptTopologyTreeFtag,
+                        cfptTopologyTreeState,
+                        cfptTopologyTreeType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing FabricPath
+        topology forwarding tree information."
+    ::= { cfptFabricPathTopologyMIBGroups 4 }
+
+END
+
+
+

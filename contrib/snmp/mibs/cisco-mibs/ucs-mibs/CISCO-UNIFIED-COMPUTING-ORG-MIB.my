@@ -1,0 +1,221 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-ORG-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- ORG management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-ORG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsOrgLevel,
+    CucsOrgSrcMask
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsOrgObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        ORG management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 34 }
+
+cucsOrgOrgTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOrgOrgEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS org:Org managed object table"
+    ::= { cucsOrgObjects 1 }
+
+cucsOrgOrgEntry OBJECT-TYPE
+    SYNTAX           CucsOrgOrgEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOrgOrgTable table."
+    INDEX { cucsOrgOrgInstanceId }
+    ::= { cucsOrgOrgTable 1 }
+
+CucsOrgOrgEntry ::= SEQUENCE {
+    cucsOrgOrgInstanceId                                             CucsManagedObjectId,
+    cucsOrgOrgDn                                                     CucsManagedObjectDn,
+    cucsOrgOrgRn                                                     SnmpAdminString,
+    cucsOrgOrgDescr                                                  SnmpAdminString,
+    cucsOrgOrgFltAggr                                                Unsigned64,
+    cucsOrgOrgLevel                                                  CucsOrgLevel,
+    cucsOrgOrgName                                                   SnmpAdminString,
+    cucsOrgOrgPermAccess                                             TruthValue
+}
+
+cucsOrgOrgInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOrgOrgEntry 1 }
+
+cucsOrgOrgDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS org:Org:dn managed object property"
+    ::= { cucsOrgOrgEntry 2 }
+
+cucsOrgOrgRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS org:Org:rn managed object property"
+    ::= { cucsOrgOrgEntry 3 }
+
+cucsOrgOrgDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS org:Org:descr managed object property"
+    ::= { cucsOrgOrgEntry 4 }
+
+cucsOrgOrgFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS org:Org:fltAggr managed object property"
+    ::= { cucsOrgOrgEntry 5 }
+
+cucsOrgOrgLevel OBJECT-TYPE
+    SYNTAX       CucsOrgLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS org:Org:level managed object property"
+    ::= { cucsOrgOrgEntry 6 }
+
+cucsOrgOrgName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS org:Org:name managed object property"
+    ::= { cucsOrgOrgEntry 7 }
+
+cucsOrgOrgPermAccess OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS org:Org:permAccess managed object property"
+    ::= { cucsOrgOrgEntry 8 }
+
+cucsOrgSourceMaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsOrgSourceMaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS org:SourceMask managed object table"
+    ::= { cucsOrgObjects 2 }
+
+cucsOrgSourceMaskEntry OBJECT-TYPE
+    SYNTAX           CucsOrgSourceMaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsOrgSourceMaskTable table."
+    INDEX { cucsOrgSourceMaskInstanceId }
+    ::= { cucsOrgSourceMaskTable 1 }
+
+CucsOrgSourceMaskEntry ::= SEQUENCE {
+    cucsOrgSourceMaskInstanceId                                      CucsManagedObjectId,
+    cucsOrgSourceMaskDn                                              CucsManagedObjectDn,
+    cucsOrgSourceMaskRn                                              SnmpAdminString,
+    cucsOrgSourceMaskMask                                            CucsOrgSrcMask
+}
+
+cucsOrgSourceMaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsOrgSourceMaskEntry 1 }
+
+cucsOrgSourceMaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS org:SourceMask:dn managed object property"
+    ::= { cucsOrgSourceMaskEntry 2 }
+
+cucsOrgSourceMaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS org:SourceMask:rn managed object property"
+    ::= { cucsOrgSourceMaskEntry 3 }
+
+cucsOrgSourceMaskMask OBJECT-TYPE
+    SYNTAX       CucsOrgSrcMask
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS org:SourceMask:mask managed object property"
+    ::= { cucsOrgSourceMaskEntry 4 }
+
+END

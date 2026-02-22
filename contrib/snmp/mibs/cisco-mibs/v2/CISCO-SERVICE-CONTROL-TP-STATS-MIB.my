@@ -1,0 +1,545 @@
+-- *****************************************************************
+-- CISCO-SERVICE-CONTROL-TP-STATS-MIB.my
+--   
+-- MIB file for different statistics counters for
+-- traffic processors.
+-- March 2007, Zaryab Munir.
+--   
+-- Copyright (c) 2007 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-SERVICE-CONTROL-TP-STATS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    Unsigned32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    TimeStamp
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoServiceControlTpStatsMIB MODULE-IDENTITY
+    LAST-UPDATED    "200707220000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-excelsior-dev@cisco.com"
+    DESCRIPTION
+        "This MIB provides information and statistics on the traffic
+        processor(s) of a service control entity, which is a network
+        element that monitors network traffic between network
+        subscribers based on user configured policies.
+
+        A service control entity uses traffic processor(s) for packet
+        processing and flow handling in the host network.
+
+        The traffic processor(s) data obtained from this MIB may also
+        reflect the general load in the system."
+    REVISION        "200707220000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 634 }
+
+
+ciscoSCTpStatsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoServiceControlTpStatsMIB 0 }
+
+ciscoSCTpStatsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoServiceControlTpStatsMIB 1 }
+
+ciscoSCTpStatsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoServiceControlTpStatsMIB 2 }
+
+
+cscTpTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CscTpEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the traffic processor statistics."
+    ::= { ciscoSCTpStatsMIBObjects 1 }
+
+cscTpEntry OBJECT-TYPE
+    SYNTAX          CscTpEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry lists traffic data for packets and flows handled by
+        the traffic processor, identified by the entPhysicalIndex for an
+        entity with its entPhysicalClass equal to 'cpu' in  ENTITY-MIB."
+    INDEX           { entPhysicalIndex } 
+    ::= { cscTpTable 1 }
+
+CscTpEntry ::= SEQUENCE {
+        cscTpTotalHandledPackets            Counter64,
+        cscTpTotalHandledFlows              Counter64,
+        cscTpActiveFlows                    Gauge32,
+        cscTpTcpActiveFlows                 Gauge32,
+        cscTpUdpActiveFlows                 Gauge32,
+        cscTpTotalBlockedPackets            Counter32,
+        cscTpTotalBlockedFlows              Counter32,
+        cscTpTotalBandwidthDiscardedPackets Counter32,
+        cscTpTotalWredDiscardedPackets      Counter32,
+        cscTpTotalFragments                 Counter64,
+        cscTpTotalNonIpPackets              Counter64,
+        cscTpTotalIpChecksumErrPackets      Counter32,
+        cscTpTotalIpLengthErrPackets        Counter32,
+        cscTpTotalIpBroadcastPackets        Counter64,
+        cscTpTotalTTLErrPackets             Counter32,
+        cscTpTotalTcpUdpChksumErrPackets    Counter32,
+        cscTpHandledPacketsRate             Gauge32,
+        cscTpHandledFlowsRate               Gauge32,
+        cscTpFlowsCapacityUtilization       Unsigned32,
+        cscTpServiceLoss                    Unsigned32
+}
+
+cscTpTotalHandledPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets handled by this
+        traffic processor since last restart.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 1 }
+
+cscTpTotalHandledFlows OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of flows handled by this
+        traffic processor since last restart.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 2 }
+
+cscTpActiveFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of flows currently being
+        handled by this traffic processor." 
+    ::= { cscTpEntry 3 }
+
+cscTpTcpActiveFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of TCP flows currently
+        being handled by this traffic processor." 
+    ::= { cscTpEntry 4 }
+
+cscTpUdpActiveFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of UDP flows currently
+        being handled by this traffic processor." 
+    ::= { cscTpEntry 5 }
+
+cscTpTotalBlockedPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets discarded by this
+        traffic processor due to application blocking rules.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 6 }
+
+cscTpTotalBlockedFlows OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of flows discarded by this
+        traffic processor due to application blocking rules.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 7 }
+
+cscTpTotalBandwidthDiscardedPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets discarded by this
+        traffic processor due to subscriber bandwidth limitations.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 8 }
+
+cscTpTotalWredDiscardedPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets discarded by this
+        traffic processor due to congestion in the queues.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 9 }
+
+cscTpTotalFragments OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of fragmented packets handled
+        by this traffic processor.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 10 }
+
+cscTpTotalNonIpPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of non IP packets handled by
+        this traffic processor.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 11 }
+
+cscTpTotalIpChecksumErrPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "num-of-packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets with IP checksum
+        error handled by this traffic processor.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 12 }
+
+cscTpTotalIpLengthErrPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets with IP length
+        error handled by this traffic processor.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 13 }
+
+cscTpTotalIpBroadcastPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of IP broadcast packets
+        handled by this traffic processor.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 14 }
+
+cscTpTotalTTLErrPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets with TTL error
+        handled by this traffic processor.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 15 }
+
+cscTpTotalTcpUdpChksumErrPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of TCP/UDP packets with
+        checksum error handled by this traffic processor.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpEntry 16 }
+
+cscTpHandledPacketsRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets handled by this
+        traffic processor per second." 
+    ::= { cscTpEntry 17 }
+
+cscTpHandledFlowsRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of flow initiations per second on
+        this traffic processor." 
+    ::= { cscTpEntry 18 }
+
+cscTpFlowsCapacityUtilization OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100 )
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the percentage of open flows on this
+        traffic processor out of the maximum supported number of flows 
+        per traffic processor." 
+    ::= { cscTpEntry 19 }
+
+cscTpServiceLoss OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100000 )
+    UNITS           "0.001 percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the relative amount of service loss in
+        this traffic processor, in units of 0.001%, since last restart." 
+    ::= { cscTpEntry 20 }
+ 
+
+
+cscTpStatsTrafficCountersTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CscTpStatsTrafficCountersEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains various traffic counters pertaining to
+        traffic processing by the service control entity. 
+        These counters are defined, maintained and uniquely named by the
+        service control entity hosted by traffic processor(s) at run
+        time."
+    ::= { ciscoSCTpStatsMIBObjects 2 }
+
+cscTpStatsTrafficCountersEntry OBJECT-TYPE
+    SYNTAX          CscTpStatsTrafficCountersEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry contains the traffic counter data for a specific
+        traffic counter defined by the service control entity at run
+        time. The service control entity is indicated by
+        entPhysicalIndex in the ENTITY-MIB with entPhysicalClass of
+        either 'module' or 'chassis'."
+    INDEX           {
+                        entPhysicalIndex,
+                        cscTpStatsTrafficCounterIndex
+                    } 
+    ::= { cscTpStatsTrafficCountersTable 1 }
+
+CscTpStatsTrafficCountersEntry ::= SEQUENCE {
+        cscTpStatsTrafficCounterIndex Unsigned32,
+        cscTpStatsTrafficCounterName  SnmpAdminString,
+        cscTpStatsTrafficCounterValue Counter64,
+        cscTpStatsTrafficCounterType  INTEGER 
+}
+
+cscTpStatsTrafficCounterIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index value that uniquely identifies the counter." 
+    ::= { cscTpStatsTrafficCountersEntry 1 }
+
+cscTpStatsTrafficCounterName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the human-readable name of this counter.
+        The name is assigned by the service control entity when this
+        counter is created at run time." 
+    ::= { cscTpStatsTrafficCountersEntry 2 }
+
+cscTpStatsTrafficCounterValue OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a 64 bit counter value.
+
+        Discontinuities in the value of this counter can occur at
+        re-initialization of the management system, and at other times
+        as indicated by the value of cscTpCounterDiscontinuityTime." 
+    ::= { cscTpStatsTrafficCountersEntry 3 }
+
+cscTpStatsTrafficCounterType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        bytes(2),
+                        packets(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Specifies the measurement unit of the traffic counters measured
+        by cscTpStatsTrafficCounterValue and described by 
+        cscTpStatsTrafficCounterName.
+        'packets'       : counts by packets
+        'bytes'         : counts by bytes
+        'other'         : none of the above." 
+    ::= { cscTpStatsTrafficCountersEntry 4 }
+ 
+
+
+cscTpCounterDiscontinuityTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of sysUpTime on the most recent occasion at which any
+        one or more of the traffic processors's counters suffered a
+        discontinuity. If no such discontinuities have occurred since
+        the last re-initialization of the local management subsystem,
+        then this object contains a zero value." 
+    ::= { ciscoSCTpStatsMIBObjects 3 }
+-- Conformance
+
+cscTpStatsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSCTpStatsMIBConform 1 }
+
+cscTpStatsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSCTpStatsMIBConform 2 }
+
+
+cscTpStatsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for SNMP Agents which implement this
+        MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cscTpStatsMIBObjectGroup,
+                        cscTpStatsMIBTrafficCntrsObjGroup,
+                        cscTpCounterDiscontinuityGroup
+                    }
+    ::= { cscTpStatsMIBCompliances 1 }
+
+-- Units of Conformance
+
+cscTpStatsMIBObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cscTpTotalHandledPackets,
+                        cscTpTotalHandledFlows,
+                        cscTpActiveFlows,
+                        cscTpTcpActiveFlows,
+                        cscTpUdpActiveFlows,
+                        cscTpTotalBlockedPackets,
+                        cscTpTotalBlockedFlows,
+                        cscTpTotalBandwidthDiscardedPackets,
+                        cscTpTotalWredDiscardedPackets,
+                        cscTpTotalFragments,
+                        cscTpTotalNonIpPackets,
+                        cscTpTotalIpChecksumErrPackets,
+                        cscTpTotalIpLengthErrPackets,
+                        cscTpTotalIpBroadcastPackets,
+                        cscTpTotalTTLErrPackets,
+                        cscTpTotalTcpUdpChksumErrPackets,
+                        cscTpHandledPacketsRate,
+                        cscTpHandledFlowsRate,
+                        cscTpFlowsCapacityUtilization,
+                        cscTpServiceLoss
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group is a collection of objects for traffic processor
+        counters related to handling data."
+    ::= { cscTpStatsMIBGroups 1 }
+
+cscTpStatsMIBTrafficCntrsObjGroup OBJECT-GROUP
+    OBJECTS         {
+                        cscTpStatsTrafficCounterValue,
+                        cscTpStatsTrafficCounterName,
+                        cscTpStatsTrafficCounterType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group is a collection of objects for general traffic
+        processor counters."
+    ::= { cscTpStatsMIBGroups 2 }
+
+cscTpCounterDiscontinuityGroup OBJECT-GROUP
+    OBJECTS         { cscTpCounterDiscontinuityTime }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information specific to
+        traffic processor counter discontinuities."
+    ::= { cscTpStatsMIBGroups 3 }
+
+END
+
+
+

@@ -1,0 +1,146 @@
+-- *****************************************************************
+-- CISCO-VPC-CAPABILITY.my:
+-- Cisco CISCO-VPC-MIB AGENT-CAPABILITIES
+--   
+-- July 2013, Alex Zhang
+--   
+-- Copyright (c) 2013 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-VPC-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoVpcCapability MODULE-IDENTITY
+    LAST-UPDATED    "201307100000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-VPC-MIB."
+    REVISION        "201307100000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 619 }
+
+
+
+ciscoVpcCapNxOSV06R0202PN7K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(2) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-VPC-MIB capabilities."
+
+    SUPPORTS        CISCO-VPC-MIB
+    INCLUDES        {
+                        cVpcPeerKeepAliveConfigInfoGroup,
+                        cVpcPeerKeepAliveStatusInfoGroup,
+                        cVpcMIBRoleGroup,
+                        cVpcMIBStatisticsGroup,
+                        cVpcMIBPeerLinkStatusGroup,
+                        cVpcMIBHostLinkStatusGroup
+                    }
+    VARIATION       cVpcPeerKeepAliveDestAddrType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAliveDestAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAliveSourceAddrType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAliveSourceAddr
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAliveUdpPort
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAliveInterval
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAliveTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAliveHoldTimeout
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAliveTos
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAlivePrecedence
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAliveTosByte
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcPeerKeepAliveVrfName
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcSystemAdminMacAddress
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcSystemAdminPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cVpcLocalRoleAdminPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoVpcCapability 1 }
+
+END
+
+
+
+
+
+
+
+

@@ -1,0 +1,365 @@
+-- MIB file created 07-Jan-2004 15:57:36, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WAN-ATM-PARTY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WAN-ATM-PARTY-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TruthValue, DisplayString
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWanAtmPartyMIB OBJECT IDENTIFIER ::= { ciscoMgmt 99998 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200206170000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--                   Cisco Systems
+--                    Customer Service
+--    
+--                    Postal: 170 W Tasman Drive
+--                    San Jose, CA 95134
+--                    USA
+--    
+--                    Tel: +1 800 553-NETS
+--                    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    A management station can use this MIB to provision,
+--    manage or delete one or more 'parties' on an ATM
+--    point-to-multipoint Soft PVCC(SPVC) connection. 
+--    
+--    The user must add a root endpoint to the managed system 
+--    before proceed to add one or more 'parties' to the root.
+--    The provision and management of a 'root' endpoint is 
+--    beyond the scope of this MIB. Please refer to 
+--    CISCO-WAN-ATM-CONN-MIB.my for the provisioning and
+--    management of a 'root' endpoint.
+--    
+--    This MIB is based on 'ITU-T recommendation Q.2971 (10/95) 
+--    BROADBAND INTEGRATED SERVICES DIGITAL NETWORK (B-ISDN)
+--    - DIGITAL SUBSCRIBER SIGNALLING SYSTEM No. 2 (DSS 2) -
+--    USER-NETWORK INTERFACE LAYER 3 SPECIFICATION FOR POINT-
+--    TO-MULTIPOINT CALL/CONNECTION CONTROL
+--  RevDate
+--    200206170000Z
+--  RevDescr
+--    Initial version of the MIB
+
+ciscoWanAtmPartyMIBNotifs OBJECT IDENTIFIER ::= { ciscoWanAtmPartyMIB 0 }
+ciscoWanAtmPartyMIBObjects OBJECT IDENTIFIER ::= { ciscoWanAtmPartyMIB 1 }
+cwapConfig      OBJECT IDENTIFIER ::= { ciscoWanAtmPartyMIBObjects 1 }
+ciscoWanAtmPartyMIBConform OBJECT IDENTIFIER ::= { ciscoWanAtmPartyMIB 2 }
+ciscoWanAtmPartyMIBCompliances OBJECT IDENTIFIER ::= { ciscoWanAtmPartyMIBConform 1 }
+ciscoWanAtmPartyMIBGroups OBJECT IDENTIFIER ::= { ciscoWanAtmPartyMIBConform 2 }
+
+WanPartyAdminStatus ::= INTEGER {
+        up(1),
+        down(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Defines 'administrative status' of a 'party'.
+
+WanPartyOperStatus ::= INTEGER {
+        ok(1),
+        fail(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Defines 'operational status' of a 'party'.
+
+WanNsapAtmAddress ::= OCTET STRING(SIZE(20))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    ATM address used by the managed system. The only
+--    address type presently supported is ATM Network Service
+--    Access Point (NSAP) addresses (20 octets).
+
+cwapConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CwapConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains mandatory 'party' configuration
+        for all ATM point-to-multipoint Soft Permanent Virtual
+        Channel Connections (SPVC)."
+    ::= { cwapConfig 1 }
+
+cwapConfigEntry OBJECT-TYPE
+    SYNTAX CwapConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the 'cwapConfigTable'. Each entry
+        corresponds to one party of a point-to-multipoint
+        connection.
+        
+        (1) To add an entry, the management 
+        application must first provision a 'root' endpoint. 
+        
+        (2) While adding an entry, the variables
+        'cwapNSAPAddress', 'cwapVpi' and 'cwapVci' are 
+        mandatory. The 'cwapNSAPAddress', 'csapVpi'  
+        and 'cwapVci' are not required to be unique.  
+        
+        (3) The row creation will fail if the root endpoint does 
+        not exist.
+        
+        (4) The following management operations are permitted on
+        a row when the 'cwapRowStatus' is 'active':
+            a) row deletion.
+            b) toggling of the administrative status of a 'party'
+               via the 'cwapAdminStatus' object. 
+            c) triggering a reroute via the 'cwapReroute' object.
+        
+        (5) The table index 'ifIndex' refers to that of the root.
+        The 'ifIndex' identifies an ATM Virtual Interface
+        ('ifType' atmVirtual(149)). "
+    INDEX { ifIndex, cwapRootVpi, cwapRootVci, cwapReference }
+    ::= { cwapConfigTable 1 }
+
+CwapConfigEntry ::= SEQUENCE {
+    cwapRootVpi INTEGER,
+    cwapRootVci INTEGER,
+    cwapReference INTEGER,
+    cwapNSAPAddress WanNsapAtmAddress,
+    cwapVpi INTEGER,
+    cwapVci INTEGER,
+    cwapAdminStatus WanPartyAdminStatus,
+    cwapOperStatus WanPartyOperStatus,
+    cwapReroute TruthValue,
+    cwapIdentifier Gauge,
+    cwapUploadCounter Gauge,
+    cwapRootPhysicalId DisplayString,
+    cwapRowStatus RowStatus
+    }
+
+cwapRootVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the Virtual Path
+        Identifier(VPI) of the root endpoint
+        this party is associated with."
+    ::= { cwapConfigEntry 1 }
+
+cwapRootVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the Virtual 
+        Channel Identifier (VCI) of the root 
+        endpoint this party is associated with."
+    ::= { cwapConfigEntry 2 }
+
+cwapReference OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer which serves to distinguish
+        between the multiple parties attached to a root of
+        a point-to-multipoint SPVC."
+    ::= { cwapConfigEntry 3 }
+
+cwapNSAPAddress OBJECT-TYPE
+    SYNTAX WanNsapAtmAddress
+--    Rsyntax OCTET STRING(SIZE(20))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The ATM NSAP address of this party."
+    ::= { cwapConfigEntry 4 }
+
+cwapVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI value of this party."
+    ::= { cwapConfigEntry 5 }
+
+cwapVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI value of this party."
+    ::= { cwapConfigEntry 6 }
+
+cwapReroute OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The management station uses this object to trigger the
+        re-routing of the party.
+        
+        * Rerouting takes effect, when this object is set to true(1).
+          When set to false(2), no action is taken.
+        
+        * The value 'false' will always be returned on snmp query
+          to this variable. 
+        
+        * During reroute operation, the 'cwapOperStatus' will contain
+          the value 'fail'. Upon successful completion of reroute,
+          the 'cwapOperStatus' will change to the value 'ok'. If the  
+          reroute operation failed, the 'cwapOperStatus' will stay in   
+          'fail'. The management station should query the 
+          'cwapOperStatus' to decide if a reroute request is 
+          successful or not."
+    DEFVAL { false }
+    ::= { cwapConfigEntry 7 }
+
+cwapAdminStatus OBJECT-TYPE
+    SYNTAX WanPartyAdminStatus
+--    Rsyntax INTEGER {
+--        up(1),
+--        down(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The 'administrative status' of this party. "
+    DEFVAL { up }
+    ::= { cwapConfigEntry 8 }
+
+cwapOperStatus OBJECT-TYPE
+    SYNTAX WanPartyOperStatus
+--    Rsyntax INTEGER {
+--        ok(1),
+--        fail(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The 'operational status' of this party."
+    ::= { cwapConfigEntry 9 }
+
+cwapIdentifier OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary integer which serves to 
+        distinguish all parties on a node.
+        This value is assigned by the managed
+        system when a party is added.
+        
+        The use of this variable is implementation specific."
+    ::= { cwapConfigEntry 10 }
+
+cwapUploadCounter OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This counter is used by the management station to 
+        determine if a party had been modified and requires 
+        further action from management station.
+        
+        The use of this variable is implementation specific.
+        
+        This functionality is conventionally achieved by time
+        stamping using a time-of-day clock. However, in switches
+        where time-of-day clock is not available, the following
+        scheme is used:
+        
+        The upload counter is incremented, when:
+        
+        * assignment of a party to a cwapIdentifier. This
+          happens when a party is added and assigned this
+          cwapIdentifier.
+        * de-assignment of connection from a cwapIdentifier. This
+          happens when a connection is deleted. 
+        * When there is a status change done to this party."
+    ::= { cwapConfigEntry 11 }
+
+cwapRootPhysicalId OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains physical description of the
+        physical interface the root resides. The presentation of
+        this object is implementation specific."
+    ::= { cwapConfigEntry 12 }
+
+cwapRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create, modify or delete an entry
+        in the ciscoWanAtmPartyTable.
+        
+        * A row may be created using the 'CreateAndGo' option. When
+          the row is successfully created, the RowStatus would be
+          set to 'active' by the agent.
+        
+        * A row may be deleted by setting the RowStatus to 'destroy'."
+    ::= { cwapConfigEntry 13 }
+
+ciscoWanAtmPartyGroup OBJECT IDENTIFIER ::= { ciscoWanAtmPartyMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the information of a
+--    'party' per each SPVC point-to-multipoint
+--    connection.
+--  objects
+--    cwapNSAPAddress, cwapVpi, cwapVci, cwapAdminStatus, 
+--    cwapOperStatus, cwapReroute, cwapIdentifier, 
+--    cwapUploadCounter, cwapRootPhysicalId, cwapRowStatus
+
+ciscoWanAtmPartyMIBCompliance OBJECT IDENTIFIER ::= { ciscoWanAtmPartyMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMPv2 entities which
+--    implement one or more parties of an ATM point-to-
+--    multi-point connection.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoWanAtmPartyGroup
+--   ObjVar
+--    cwapRowStatus
+
+
+END
+

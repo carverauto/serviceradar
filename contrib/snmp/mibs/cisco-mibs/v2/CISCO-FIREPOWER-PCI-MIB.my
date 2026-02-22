@@ -1,0 +1,427 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-PCI-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- PCI management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-PCI-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprEquipmentDiscoveryState,
+    CfprEquipmentOperability,
+    CfprEquipmentPowerState,
+    CfprEquipmentPresence,
+    CfprEquipmentSensorThresholdStatus,
+    CfprPciEquipSlotId
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprPciObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        PCI management information model package"
+    ::= { ciscoFirepowerMIBObjects 60 }
+
+cfprPciEquipSlotTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPciEquipSlotEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot managed object table"
+    ::= { cfprPciObjects 1 }
+
+cfprPciEquipSlotEntry OBJECT-TYPE
+    SYNTAX           CfprPciEquipSlotEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPciEquipSlotTable table."
+    INDEX { cfprPciEquipSlotInstanceId }
+    ::= { cfprPciEquipSlotTable 1 }
+
+CfprPciEquipSlotEntry ::= SEQUENCE {
+    cfprPciEquipSlotInstanceId                                       CfprManagedObjectId,
+    cfprPciEquipSlotDn                                               CfprManagedObjectDn,
+    cfprPciEquipSlotRn                                               SnmpAdminString,
+    cfprPciEquipSlotControllerReported                               SnmpAdminString,
+    cfprPciEquipSlotDiscoveryState                                   CfprEquipmentDiscoveryState,
+    cfprPciEquipSlotFltAggr                                          Unsigned64,
+    cfprPciEquipSlotHostReported                                     SnmpAdminString,
+    cfprPciEquipSlotId                                               CfprPciEquipSlotId,
+    cfprPciEquipSlotMacLeft                                          MacAddress,
+    cfprPciEquipSlotMacRight                                         MacAddress,
+    cfprPciEquipSlotModel                                            SnmpAdminString,
+    cfprPciEquipSlotRevision                                         SnmpAdminString,
+    cfprPciEquipSlotSerial                                           SnmpAdminString,
+    cfprPciEquipSlotSmbiosId                                         Gauge32,
+    cfprPciEquipSlotVendor                                           SnmpAdminString
+}
+
+cfprPciEquipSlotInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPciEquipSlotEntry 1 }
+
+cfprPciEquipSlotDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:dn managed object property"
+    ::= { cfprPciEquipSlotEntry 2 }
+
+cfprPciEquipSlotRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:rn managed object property"
+    ::= { cfprPciEquipSlotEntry 3 }
+
+cfprPciEquipSlotControllerReported OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:controllerReported
+        managed object property"
+    ::= { cfprPciEquipSlotEntry 4 }
+
+cfprPciEquipSlotDiscoveryState OBJECT-TYPE
+    SYNTAX       CfprEquipmentDiscoveryState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:discoveryState managed
+        object property"
+    ::= { cfprPciEquipSlotEntry 5 }
+
+cfprPciEquipSlotFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:fltAggr managed object property"
+    ::= { cfprPciEquipSlotEntry 6 }
+
+cfprPciEquipSlotHostReported OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:hostReported managed
+        object property"
+    ::= { cfprPciEquipSlotEntry 7 }
+
+cfprPciEquipSlotId OBJECT-TYPE
+    SYNTAX       CfprPciEquipSlotId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:id managed object property"
+    ::= { cfprPciEquipSlotEntry 8 }
+
+cfprPciEquipSlotMacLeft OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:macLeft managed object property"
+    ::= { cfprPciEquipSlotEntry 9 }
+
+cfprPciEquipSlotMacRight OBJECT-TYPE
+    SYNTAX       MacAddress
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:macRight managed object property"
+    ::= { cfprPciEquipSlotEntry 10 }
+
+cfprPciEquipSlotModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:model managed object property"
+    ::= { cfprPciEquipSlotEntry 11 }
+
+cfprPciEquipSlotRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:revision managed object property"
+    ::= { cfprPciEquipSlotEntry 12 }
+
+cfprPciEquipSlotSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:serial managed object property"
+    ::= { cfprPciEquipSlotEntry 13 }
+
+cfprPciEquipSlotSmbiosId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:smbiosId managed object property"
+    ::= { cfprPciEquipSlotEntry 14 }
+
+cfprPciEquipSlotVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:EquipSlot:vendor managed object property"
+    ::= { cfprPciEquipSlotEntry 15 }
+
+cfprPciUnitTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprPciUnitEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit managed object table"
+    ::= { cfprPciObjects 2 }
+
+cfprPciUnitEntry OBJECT-TYPE
+    SYNTAX           CfprPciUnitEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprPciUnitTable table."
+    INDEX { cfprPciUnitInstanceId }
+    ::= { cfprPciUnitTable 1 }
+
+CfprPciUnitEntry ::= SEQUENCE {
+    cfprPciUnitInstanceId                                            CfprManagedObjectId,
+    cfprPciUnitDn                                                    CfprManagedObjectDn,
+    cfprPciUnitRn                                                    SnmpAdminString,
+    cfprPciUnitId                                                    Gauge32,
+    cfprPciUnitLocationDn                                            SnmpAdminString,
+    cfprPciUnitModel                                                 SnmpAdminString,
+    cfprPciUnitOperQualifierReason                                   SnmpAdminString,
+    cfprPciUnitOperState                                             CfprEquipmentOperability,
+    cfprPciUnitOperability                                           CfprEquipmentOperability,
+    cfprPciUnitPciAddr                                               SnmpAdminString,
+    cfprPciUnitPciSlot                                               SnmpAdminString,
+    cfprPciUnitPerf                                                  CfprEquipmentSensorThresholdStatus,
+    cfprPciUnitPower                                                 CfprEquipmentPowerState,
+    cfprPciUnitPresence                                              CfprEquipmentPresence,
+    cfprPciUnitRevision                                              SnmpAdminString,
+    cfprPciUnitSerial                                                SnmpAdminString,
+    cfprPciUnitThermal                                               CfprEquipmentSensorThresholdStatus,
+    cfprPciUnitVendor                                                SnmpAdminString,
+    cfprPciUnitVoltage                                               CfprEquipmentSensorThresholdStatus
+}
+
+cfprPciUnitInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprPciUnitEntry 1 }
+
+cfprPciUnitDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:dn managed object property"
+    ::= { cfprPciUnitEntry 2 }
+
+cfprPciUnitRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:rn managed object property"
+    ::= { cfprPciUnitEntry 3 }
+
+cfprPciUnitId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:id managed object property"
+    ::= { cfprPciUnitEntry 4 }
+
+cfprPciUnitLocationDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:locationDn managed object property"
+    ::= { cfprPciUnitEntry 5 }
+
+cfprPciUnitModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:model managed object property"
+    ::= { cfprPciUnitEntry 6 }
+
+cfprPciUnitOperQualifierReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:operQualifierReason managed
+        object property"
+    ::= { cfprPciUnitEntry 7 }
+
+cfprPciUnitOperState OBJECT-TYPE
+    SYNTAX       CfprEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:operState managed object property"
+    ::= { cfprPciUnitEntry 8 }
+
+cfprPciUnitOperability OBJECT-TYPE
+    SYNTAX       CfprEquipmentOperability
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:operability managed object property"
+    ::= { cfprPciUnitEntry 9 }
+
+cfprPciUnitPciAddr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:pciAddr managed object property"
+    ::= { cfprPciUnitEntry 10 }
+
+cfprPciUnitPciSlot OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:pciSlot managed object property"
+    ::= { cfprPciUnitEntry 11 }
+
+cfprPciUnitPerf OBJECT-TYPE
+    SYNTAX       CfprEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:perf managed object property"
+    ::= { cfprPciUnitEntry 12 }
+
+cfprPciUnitPower OBJECT-TYPE
+    SYNTAX       CfprEquipmentPowerState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:power managed object property"
+    ::= { cfprPciUnitEntry 13 }
+
+cfprPciUnitPresence OBJECT-TYPE
+    SYNTAX       CfprEquipmentPresence
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:presence managed object property"
+    ::= { cfprPciUnitEntry 14 }
+
+cfprPciUnitRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:revision managed object property"
+    ::= { cfprPciUnitEntry 15 }
+
+cfprPciUnitSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:serial managed object property"
+    ::= { cfprPciUnitEntry 16 }
+
+cfprPciUnitThermal OBJECT-TYPE
+    SYNTAX       CfprEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:thermal managed object property"
+    ::= { cfprPciUnitEntry 17 }
+
+cfprPciUnitVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:vendor managed object property"
+    ::= { cfprPciUnitEntry 18 }
+
+cfprPciUnitVoltage OBJECT-TYPE
+    SYNTAX       CfprEquipmentSensorThresholdStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower pci:Unit:voltage managed object property"
+    ::= { cfprPciUnitEntry 19 }
+
+END

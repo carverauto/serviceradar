@@ -1,0 +1,137 @@
+-- *****************************************************************
+-- CISCO-OTN-IF-CAPABILITY.my
+-- DWDM OTN INTERFACE MIB CAPABILITY
+--   
+-- October 2007 Hameed Yasser Shahul (hsahul)
+--   
+-- Copyright (c) 2007 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-OTN-IF-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoOtnIfMIBCapability MODULE-IDENTITY
+    LAST-UPDATED    "200710200000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+
+            Tel: +1 800 553-NETS
+
+
+            E-mail: cs-dwdm-mibs@cisco.com"
+    DESCRIPTION
+        "capabilities description for CISCO-OTN-IF-MIB"
+    REVISION        "200710200000Z"
+    DESCRIPTION
+        "First version of this MIB module."
+    ::= { ciscoAgentCapability 562 }
+
+
+
+ciscoOtnIfCapIOSXRV3R06CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS-XR Release 3.6 for CRS-1"
+    STATUS          current
+    DESCRIPTION
+        "Cisco OTN IF MIB capabilities for IOX-XR Release 3.6 for CRS 1"
+
+    SUPPORTS        CISCO-OTN-IF-MIB
+    INCLUDES        {
+                        coiIfControllerGroup,
+                        coiIfOtnGroup,
+                        coiIfFECGroup
+                    }
+    VARIATION       coiIfControllerLoopback
+    WRITE-SYNTAX    INTEGER  {
+                        noLoop(1),
+                        otherLoop(2),
+                        diagnosticLoop(3),
+                        lineLoop(4)
+                    }
+    DESCRIPTION
+        "The enumeration otherLoop(2) is not supported"
+
+    VARIATION       coiFECThreshType
+    SYNTAX          INTEGER  {
+                        bitErrCor(1),
+                        byteErrcor(2),
+                        zeroErrDet(3),
+                        oneErrDet(4),
+                        unCorWords(5)
+                    }
+    DESCRIPTION
+        "This implementation only support enumerations
+        bitErrCor(1) and unCorWords(5)."
+
+    VARIATION       coiFECCurrentCorByteErrs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       coiFECIntervalDetZeroErrs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       coiFECCurrentDetOneErrs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       coiFECIntervalCorByteErrs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       coiFECIntervalDetOneErrs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       coiFECCurrentDetZeroErrs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not Supported"
+
+    VARIATION       coiOtnNearEndThreshStorageType
+    ACCESS          read-only
+    DEFVAL          { nonVolatile }
+    DESCRIPTION
+        "This implementation doesn't support Write operations on this
+        object and it always returns nonVolatile(3)"
+
+    VARIATION       coiOtnFarEndThreshStorageType
+    ACCESS          not-implemented
+    DEFVAL          { nonVolatile }
+    DESCRIPTION
+        "This implementation doesn't support Write operations on this
+        object and it always returns nonVolatile(3)"
+
+    VARIATION       coiFECThreshStorageType
+    ACCESS          read-only
+    DEFVAL          { nonVolatile }
+    DESCRIPTION
+        "This implementation doesn't support Write operations on this
+        object and it always returns nonVolatile(3)"
+
+    ::= { ciscoOtnIfMIBCapability 1 }
+
+END

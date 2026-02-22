@@ -1,0 +1,239 @@
+-- ********************************************************************
+-- CISCO-GGSN-CAPABILITY.my CISCO-GGSN-MIB AGENT-CAPABILITIES
+--
+-- April 2003, Muthukumar Subramanian
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- ********************************************************************
+
+CISCO-GGSN-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        Unsigned32
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+cggsnCapability MODULE-IDENTITY
+        LAST-UPDATED    "200610090100Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                        Postal: 170 West Tasman Drive
+                                San Jose, CA  95134
+                                USA
+                                Tel: +1 800 553-NETS
+
+                        E-mail: cs-gprs@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for CISCO-GGSN-MIB"
+        REVISION        "200610090100Z"
+        DESCRIPTION
+                "Added cggsnCapabilityV12R4M9XG."
+        REVISION        "200304080330Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 296 }
+
+
+cggsnCapabilityV12R2M8YD AGENT-CAPABILITIES
+    PRODUCT-RELEASE  "Cisco IOS 12.2(4)MX & 12.2(8)YD"
+    STATUS           current
+    DESCRIPTION      "Cisco GGSN MIB capabilities."
+    SUPPORTS         CISCO-GGSN-MIB
+    INCLUDES         { cGgsnStatisticsGroup, 
+                       cGgsnNotifMgmtGroup,
+                       cGgsnConfigurationsGroup, 
+                       cGgsnNotifGroup,
+                       cGgsnStatusGroup
+                     }
+
+
+    VARIATION        cGgsnIpDupProtectRowStatus
+    SYNTAX           INTEGER { active(1), 
+                               createAndGo(4), 
+                               destroy(6) 
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported. Modification of existing row is not 
+                     supported."
+
+    VARIATION        cGgsnDefaultAggregRowStatus
+    SYNTAX           INTEGER { active(1), 
+                               createAndGo(4), 
+                               destroy(6) 
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported."
+
+    ::= { cggsnCapability 1 }
+
+cggsnCapabilityV12R2M8YY1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE  "Cisco IOS 12.2(8)YY1"
+    STATUS           current
+    DESCRIPTION      "Cisco GGSN MIB capabilities."
+    SUPPORTS         CISCO-GGSN-MIB
+    INCLUDES         { cGgsnStatisticsGroup,
+                       cGgsnNotifMgmtGroup,
+                       cGgsnConfigurationsGroup,
+                       cGgsnNotifGroup,
+                       cGgsnStatusGroup
+                     }
+
+    VARIATION        cGgsnIpDupProtectRowStatus
+    SYNTAX           INTEGER { active(1), 
+                               createAndGo(4), 
+                               destroy(6) 
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported. Modification of existing row is not 
+                     supported."
+
+    VARIATION        cGgsnDefaultAggregRowStatus
+    SYNTAX           INTEGER { active(1), 
+                               createAndGo(4), 
+                               destroy(6) 
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported."
+
+    ::= { cggsnCapability 2 }
+
+cggsnCapabilityV12R2M8YW AGENT-CAPABILITIES
+    PRODUCT-RELEASE  "Cisco IOS 12.2(8)YW"
+    STATUS           current
+    DESCRIPTION      "Cisco GGSN MIB capabilities."
+    SUPPORTS         CISCO-GGSN-MIB
+    INCLUDES         { cGgsnStatisticsGroup,
+                       cGgsnNotifMgmtGroup,
+                       cGgsnConfigurationsGroupRev1,
+                       cGgsnNotifGroup,
+                       cGgsnStatusGroup,
+                       cGgsnUmtsGroup
+                     }
+
+    VARIATION        cGgsnIpDupProtectRowStatus
+    SYNTAX           INTEGER { active(1), 
+                               createAndGo(4), 
+                               destroy(6) 
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported. Modification of existing row is not 
+                     supported."
+
+    VARIATION        cGgsnDefaultAggregRowStatus
+    SYNTAX           INTEGER { active(1), 
+                               createAndGo(4), 
+                               destroy(6) 
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported."
+
+    VARIATION        cGgsnPlmnAddrRangeRowStatus
+    SYNTAX           INTEGER { active(1), 
+                               createAndGo(4), 
+                               destroy(6) 
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported. Modification of existing row is not 
+                     supported."
+    ::= { cggsnCapability 3 }
+
+cggsnCapabilityV12R4M9XG AGENT-CAPABILITIES
+    PRODUCT-RELEASE  "Cisco IOS 12.4(9)XG"
+    STATUS           current
+    DESCRIPTION      "Cisco GGSN MIB capabilities."
+    SUPPORTS         CISCO-GGSN-MIB
+    INCLUDES         { cGgsnStatisticsGroupRev2,
+                       cGgsnNotifMgmtGroupRev2,
+                       cGgsnConfigurationsGroupRev3,
+                       cGgsnNotifGroupRev3, 
+                       cGgsnStatusGroupRev1,
+                       cGgsnNotifInfoGroupRev2,
+                       cGgsnStatusGroupConfigVer,
+                       cGgsnStatisticsGroupR60, 
+                       cGgsnStatusGroupR60,
+                       cGgsnNotifInfoGroupR60,
+                       cGgsnConfigurationsGroupR60Rev1,
+                       cGgsnStatusGroupR70 
+                     }
+    VARIATION        cGgsnIpDupProtectRowStatus
+    SYNTAX           INTEGER { active(1),
+                               createAndGo(4),
+                               destroy(6)
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported. Modification of existing row is not
+                     supported."
+
+    VARIATION        cGgsnDefaultAggregRowStatus
+    SYNTAX           INTEGER { active(1),
+                               createAndGo(4),
+                               destroy(6)
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported."
+
+    VARIATION        cGgsnPlmnAddrRangeRowStatus
+    SYNTAX           INTEGER { active(1),
+                               createAndGo(4),
+                               destroy(6)
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported. Modification of existing row is not
+                     supported."
+
+    VARIATION        cGgsnSlbVserRowStatus
+    SYNTAX           INTEGER { active(1),
+                               createAndGo(4),
+                               destroy(6)
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported. Modification of existing row is not
+                     supported."
+
+    VARIATION        cGgsnPcscfRowStatus
+    SYNTAX           INTEGER { active(1),
+                               createAndGo(4),
+                               destroy(6)
+                             }
+    DESCRIPTION      "Creation of new entries using createAndWait(5) and
+                     suspension of entries using notInService(2) is not
+                     supported. Modification of existing row is not
+                     supported."
+   
+    VARIATION        cGgsnServiceModeStatus
+    SYNTAX           INTEGER { inService(1),
+                               maintenance(2),
+                               outOfServiceInProgress(3),
+                               outOfService(4)
+                             }
+    DESCRIPTION      "Service modes outOfServiceInProgress(3) and 
+                     outOfService(4) are not supported."  
+
+    VARIATION        cGgsnMemoryThreshold
+    SYNTAX           Unsigned32(0..1024)
+    DESCRIPTION      "The default value of this object is 10 percent of
+                     available memory on device, unlike '0' as 
+                     mentioned in DEFVAL of the object."
+
+    ::= { cggsnCapability 4 }
+
+END

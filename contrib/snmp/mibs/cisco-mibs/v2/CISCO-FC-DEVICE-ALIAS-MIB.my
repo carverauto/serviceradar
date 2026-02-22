@@ -1,0 +1,206 @@
+-- *********************************************************************
+-- CISCO-FC-DEVICE-ALIAS-MIB.my: Fibre Channel Device Alias MIB
+--
+-- September 2004 H K Vivek
+--
+-- Copyright (c) 2004 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+
+ 
+CISCO-FC-DEVICE-ALIAS-MIB  DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY, 
+        OBJECT-TYPE                       FROM    SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP                      FROM    SNMPv2-CONF
+        RowStatus                         FROM    SNMPv2-TC
+        ciscoMgmt                         FROM    CISCO-SMI
+        SnmpAdminString                   FROM    SNMP-FRAMEWORK-MIB
+        CdpvmDevType                      FROM    CISCO-DYNAMIC-PORT-VSAN-MIB;
+
+ciscoFcDeviceAliasMIB  MODULE-IDENTITY
+        LAST-UPDATED  "200409200000Z"
+        ORGANIZATION  "Cisco Systems Inc."
+        CONTACT-INFO
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "The MIB module for the management of Device
+                 Aliases in a Fibre Channel Fabric. A Fibre
+                 Channel fabric consists of devices such as 
+                 disks, hosts and switches. The disks and
+                 hosts login to the switches and avail services
+                 available to them in the fabric.
+                 These devices are identified by means of their
+                 World Wide Names (WWN). The WWNs are 8-byte
+                 cryptic identifiers, which are cumbersome
+                 for human use. 
+                 A Device Alias is a human readable string which
+                 can be used to alias a World Wide Name (WWN).
+                 So, a Device Alias is used to map a WWN to
+                 a user friendly name. Once configured, the
+                 Device Alias can be used in place of the
+                 WWN. On the switch, this MIB assists in
+                 defining the Device Aliases for the remote
+                 devices and using these Aliases instead of the
+                 cryptic WWNs." 
+        REVISION "200409200000Z"
+        DESCRIPTION
+                "Initial version of this MIB."
+        ::= { ciscoMgmt 430 }
+
+
+cfdaMIBNotifs  OBJECT IDENTIFIER ::= { ciscoFcDeviceAliasMIB 0 }
+cfdaMIBObjects OBJECT IDENTIFIER ::= { ciscoFcDeviceAliasMIB 1 }
+cfdaMIBConform OBJECT IDENTIFIER ::= { ciscoFcDeviceAliasMIB 2 }
+cfdaConfiguration  OBJECT IDENTIFIER
+                        ::= { cfdaMIBObjects 1 }
+
+
+cfdaConfigTable OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CfdaConfigEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "A table containing information on all
+                 device aliases that have been configured
+                 on the local switch." 
+        ::= { cfdaConfiguration 1 }
+
+cfdaConfigEntry OBJECT-TYPE
+        SYNTAX         CfdaConfigEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                 "Each entry in this table contains the
+                  mapping between the alias for a Fibre Channel
+                  device and its World Wide Name (WWN)."
+        INDEX { cfdaConfigDeviceAlias }
+        ::= { cfdaConfigTable 1 }
+
+CfdaConfigEntry ::= SEQUENCE {
+        cfdaConfigDeviceAlias  SnmpAdminString,
+        cfdaConfigDeviceType   CdpvmDevType,
+        cfdaConfigDeviceId     OCTET STRING,
+        cfdaConfigRowStatus    RowStatus
+}
+
+cfdaConfigDeviceAlias OBJECT-TYPE
+        SYNTAX          SnmpAdminString (SIZE(1..64))
+        MAX-ACCESS      not-accessible
+        STATUS          current
+        DESCRIPTION
+                "The device alias of this entry. This object
+                 is the human friendly string for the device
+                 represented by the corresponding instance of
+                 cfdaConfigDeviceWwn. A device can have only one
+                 alias configured.
+
+                 The value of this object MUST begin with an
+                 alphabet."
+        ::= { cfdaConfigEntry 1 }
+
+cfdaConfigDeviceType OBJECT-TYPE
+        SYNTAX          CdpvmDevType 
+        MAX-ACCESS      read-create
+        STATUS          current
+        DESCRIPTION
+                "The type of the Fibre Channel device represented 
+                 by the corresponding instance of 
+                 cfdaConfigDeviceId.
+
+                 This object cannot be modified while the value
+                 of the corresponding instance of 
+                 cfdaConfigRowStatus is 'active'."
+        DEFVAL { pwwn }
+        ::= { cfdaConfigEntry 2 }
+
+cfdaConfigDeviceId OBJECT-TYPE
+        SYNTAX          OCTET STRING (SIZE(8))
+        MAX-ACCESS      read-create
+        STATUS          current
+        DESCRIPTION
+                "The Fibre Channel device which is given a device 
+                 alias as indicated by the corresponding instance
+                 of cfdaConfigDeviceAlias. This object MUST be set 
+                 to a valid value before or concurrently with 
+                 setting the corresponding instance of 
+                 cfdaConfigRowStatus object to 'active'. This
+                 object cannot be modified while the value of
+                 the corresponding instance of cfdaConfigRowStatus
+                 object is 'active'."
+        ::= { cfdaConfigEntry 3 }
+
+cfdaConfigRowStatus OBJECT-TYPE
+        SYNTAX          RowStatus
+        MAX-ACCESS      read-create
+        STATUS          current
+        DESCRIPTION
+                "The status of this conceptual row.
+                 Before setting this object to 'active', the
+                 corresponding instance of cfdaConfigDeviceId
+                 MUST be set to a valid value.
+                 None of the objects can be modified while the
+                 value of this object is 'active'."
+        ::= { cfdaConfigEntry 4 }
+
+-- Conformance
+
+ciscoFcDaMIBCompliances OBJECT IDENTIFIER
+                       ::= { cfdaMIBConform 1 }
+
+ciscoFcDaMIBGroups      OBJECT IDENTIFIER
+                       ::= { cfdaMIBConform 2 }
+
+ciscoFcDaMIBCompliance MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement Device Aliases."
+        MODULE  MANDATORY-GROUPS {
+                     ciscoFcDaConfigGroup
+                }
+
+        OBJECT   cfdaConfigRowStatus
+        SYNTAX   INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)
+                 }
+        MIN-ACCESS read-create
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+
+        OBJECT   cfdaConfigDeviceType
+        SYNTAX   INTEGER {
+                     pwwn(1)
+                 }
+        MIN-ACCESS read-create
+        DESCRIPTION
+                "Only one value 'pwwn', out of the three enumerated
+                 values need to be supported."
+
+        ::= { ciscoFcDaMIBCompliances 1 }
+
+ciscoFcDaConfigGroup OBJECT-GROUP
+        OBJECTS {
+            cfdaConfigDeviceType,
+            cfdaConfigDeviceId,
+            cfdaConfigRowStatus
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects for configuring and
+                 distributing device aliases."
+        ::= { ciscoFcDaMIBGroups 1 }
+
+END

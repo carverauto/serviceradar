@@ -1,0 +1,637 @@
+-- MIB file created 09-Oct-2002 21:54:54, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-MGX82XX-RPM-CONN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-MGX82XX-RPM-CONN-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    rpmChanGrp
+            FROM BASIS-MIB
+    ciscoWan
+            FROM CISCOWAN-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoMgx82xxRpmConnMIB OBJECT IDENTIFIER ::= { ciscoWan 62 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209080000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA 95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The connection MIB module for RPM(Router Blade)
+--           service module in MGX8250/MGX8230 products.
+--    
+--           The 'channel' and 'connection' and 'connection endpoint'
+--           mean same in this MIB.
+--  RevDate
+--    200209080000Z
+--  RevDescr
+--    Initial version of the MIB.
+--    
+--    The content of this MIB was originally available
+--    in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+--    The applicable objects from CISCO-WAN-AXIPOP-MIB
+--    are defined using SMIv2 in this MIB. Also the
+--    descriptions of some of the objects have been 
+--    modified.
+
+cmrConnMIBConformance OBJECT IDENTIFIER ::= { ciscoMgx82xxRpmConnMIB 2 }
+cmrConnMIBCompliances OBJECT IDENTIFIER ::= { cmrConnMIBConformance 1 }
+cmrConnMIBGroups OBJECT IDENTIFIER ::= { cmrConnMIBConformance 2 }
+
+RpmNsapAddress ::= OCTET STRING(SIZE(20))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    ATM address used by the networking entity. The only 
+--    address type presently supported is NSAP (20 octets)
+
+rpmChanGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF RpmChanGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains endpoint configuration
+               information for connections applicable to
+               RPM service module."
+    ::= { rpmChanGrp 1 }
+
+rpmChanGrpEntry OBJECT-TYPE
+    SYNTAX RpmChanGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry for logical channel. Each entry
+               corresponds to a connection endpoint identified
+               by Slot number and channel number."
+    INDEX { rpmChanSlotNum, rpmChanNum }
+    ::= { rpmChanGrpTable 1 }
+
+RpmChanGrpEntry ::= SEQUENCE {
+    rpmChanSlotNum INTEGER,
+    rpmChanInterface INTEGER,
+    rpmChanNum INTEGER,
+    rpmChanRowStatus INTEGER,
+    rpmChanVcd INTEGER,
+    rpmChanVpi INTEGER,
+    rpmChanVci INTEGER,
+    rpmChanSubInterface INTEGER,
+    rpmChanLocalVpi INTEGER,
+    rpmChanLocalVci INTEGER,
+    rpmChanLocalNsap RpmNsapAddress,
+    rpmChanRemoteVpi INTEGER,
+    rpmChanRemoteVci INTEGER,
+    rpmChanRemoteNsap RpmNsapAddress,
+    rpmChanType INTEGER,
+    rpmChanConnType INTEGER,
+    rpmChanServiceType INTEGER,
+    rpmChanMastership INTEGER,
+    rpmChanRtePriority INTEGER,
+    rpmChanMaxCost INTEGER,
+    rpmChanRestrictTrkType INTEGER,
+    rpmChanPCR INTEGER,
+    rpmChanRemotePCR INTEGER,
+    rpmChanMCR INTEGER,
+    rpmChanRemoteMCR INTEGER,
+    rpmChanPercentUtil INTEGER,
+    rpmChanRemotePercentUtil INTEGER,
+    rpmChanMidLow INTEGER,
+    rpmChanMidHigh INTEGER,
+    rpmChanBurstSize INTEGER,
+    rpmChanEncapType INTEGER,
+    rpmChanInArpFreq INTEGER,
+    rpmChanOAMloopback INTEGER,
+    rpmChanState INTEGER,
+    rpmChanVirtualTemplate INTEGER,
+    rpmChanAbrRDF INTEGER,
+    rpmChanAbrRIF INTEGER
+    }
+
+rpmChanSlotNum OBJECT-TYPE
+    SYNTAX INTEGER(1..30)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the slot number of the RPM card."
+    ::= { rpmChanGrpEntry 1 }
+
+rpmChanInterface OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the RPM's backplane interface.
+               Currently there is only one interface."
+    ::= { rpmChanGrpEntry 2 }
+
+rpmChanNum OBJECT-TYPE
+    SYNTAX INTEGER(16..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the channel number.
+               This is also called Logical Connection Number(LCN).
+               This is a unique number which identifies a
+        connection. 
+               The LCN maps VPI and VCI.
+        For VCC, VCI range is 1..3825, and LCN range is 16..3840. 
+        LCN = VCI + 16.
+        For VPC, VPI range is 1..255 and LCN range is 3841..4095. 
+        LCN = VPI + 3840."
+    ::= { rpmChanGrpEntry 3 }
+
+rpmChanRowStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        add(1),
+        del(2),
+        mod(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This indicates the status of this channel.
+                
+                add(1) : Channel is added.
+                del(2) : channel is deleted.
+                mod(3) : Set to this value before modifying objects
+                         related to connection endpoints."
+    ::= { rpmChanGrpEntry 4 }
+
+rpmChanVcd OBJECT-TYPE
+    SYNTAX INTEGER(0..4095)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Virtual Circuit Descriptor. A unique number
+                which identifies a connection."
+    ::= { rpmChanGrpEntry 5 }
+
+rpmChanVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VPI value for this channel.
+        For VPC, VPI range is 1..255 and 
+               LCN range is 3841..4095. 
+        LCN = VPI + 3840"
+    ::= { rpmChanGrpEntry 6 }
+
+rpmChanVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VCI value for this channel.
+        For VCC, VCI range is 1..3825, and 
+               LCN range is 16..3840. 
+        LCN = VCI + 16."
+    ::= { rpmChanGrpEntry 7 }
+
+rpmChanSubInterface OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the RPM's backplane sub-interface."
+    ::= { rpmChanGrpEntry 8 }
+
+rpmChanLocalVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This VPI together with the local VCI 
+               and NSAP represents the local end point 
+               in this connection. The VPI value is zero for
+               rpmChanConnType value of vcc(2)."
+    ::= { rpmChanGrpEntry 9 }
+
+rpmChanLocalVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This VCI together with the local 
+               VPI and NSAP represents the local 
+               end point in this connection."
+    ::= { rpmChanGrpEntry 10 }
+
+rpmChanLocalNsap OBJECT-TYPE
+    SYNTAX RpmNsapAddress
+--    Rsyntax OCTET STRING(SIZE(20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the local NSAP address.
+        
+                 The bytes are mapped as follows:
+                    prefix    : 13 bytes
+                    Cisco ID  : 2 bytes
+                    Reserved  : 2 bytes
+                    Slot/Port : 2 bytes[5 bit slot, 11 bits port]
+                    Selector  : 1 byte.
+        
+                Of the 13 bytes for the node name, only the first 
+                8 bytes are used. If the node name is n 
+                (0 < n < 8) bytes long, the node name must be left 
+                justified ( Bytes 1 to n contain the node name
+                and bytes (n+1) to 8 must be 0 ). 
+                Bytes 9-13 must be always 0."
+    ::= { rpmChanGrpEntry 11 }
+
+rpmChanRemoteVpi OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This VPI together with the remote 
+               VCI and NSAP represents the remote 
+               end point in this connection."
+    ::= { rpmChanGrpEntry 12 }
+
+rpmChanRemoteVci OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This VCI together with the remote 
+               VPI and NSAP represents the remote 
+               end point in this connection."
+    ::= { rpmChanGrpEntry 13 }
+
+rpmChanRemoteNsap OBJECT-TYPE
+    SYNTAX RpmNsapAddress
+--    Rsyntax OCTET STRING(SIZE(20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the remote NSAP address.
+        
+                 The bytes are mapped as follows:
+                    prefix    : 13 bytes
+                    Cisco ID  : 2 bytes
+                    Reserved  : 2 bytes
+                    Slot/Port : 2 bytes[5 bit slot, 11 bits port]
+                    Selector  : 1 byte."
+    ::= { rpmChanGrpEntry 14 }
+
+rpmChanType OBJECT-TYPE
+    SYNTAX INTEGER {
+        svc(1),
+        pvc(2),
+        spvc(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the channel type
+                 
+                svc(1)  : Switched Virtual Connection
+                pvc(2)  : Permanent Virtual Connection
+                spvc(3) : Soft PVC."
+    ::= { rpmChanGrpEntry 15 }
+
+rpmChanConnType OBJECT-TYPE
+    SYNTAX INTEGER {
+        vpc(1),
+        vcc(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This specifies the connection type
+                vpc(1) : Virtual Path Connection
+                vcc(1) : Virtual Channel Connection"
+    ::= { rpmChanGrpEntry 16 }
+
+rpmChanServiceType OBJECT-TYPE
+    SYNTAX INTEGER {
+        cbr(1),
+        vbr(2),
+        ubr(4),
+        atfr(5),
+        abrstd(6),
+        abrfst(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the connection service type.
+        
+                  cbr    (1) : Constant Bit Rate
+                  vbr    (2) : Variable Bit Rate
+                  ubr    (4) : Unspecified Bit Rate
+                  atfr   (5) : ATM Frame Relay
+           abrstd (6) : Standard ABR
+           abrfst (7) : foresight ABR."
+    ::= { rpmChanGrpEntry 17 }
+
+rpmChanMastership OBJECT-TYPE
+    SYNTAX INTEGER {
+        master(1),
+        slave(2),
+        unknown(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This specifies which end of the connection 
+               is the master. This is used by PXM to determine 
+               if this end point is master or slave."
+    ::= { rpmChanGrpEntry 18 }
+
+rpmChanRtePriority OBJECT-TYPE
+    SYNTAX INTEGER(1..15)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is also known as class of service, 
+               it is used by PXM to determine how important 
+               this connection is when selecting connections 
+               to route."
+    ::= { rpmChanGrpEntry 19 }
+
+rpmChanMaxCost OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Maximum allowed cost. It is related to 
+               Cost Based Routing. This is used by PXM so 
+               that it won't choose a path with a cost 
+               greater than this configured level."
+    ::= { rpmChanGrpEntry 20 }
+
+rpmChanRestrictTrkType OBJECT-TYPE
+    SYNTAX INTEGER {
+        noRestriction(1),
+        terrestrialTrunk(2),
+        satelliteTrunk(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Restricted trunk type for routing, used by PXM.
+               It specifies that the connection either cannot 
+               be routed over satellite trunks or terrestrial
+               trunks, or it can be on any type of trunk."
+    ::= { rpmChanGrpEntry 21 }
+
+rpmChanPCR OBJECT-TYPE
+    SYNTAX INTEGER(0..353208)
+--  Units
+--    cells-per-second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Peak cell rate.(in cells per sec.)"
+    ::= { rpmChanGrpEntry 22 }
+
+rpmChanRemotePCR OBJECT-TYPE
+    SYNTAX INTEGER(0..353208)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Peak cell rate of the remote endpoint of
+               the connection. If not set, its value will
+               be same as the value of rpmChanPCR."
+    ::= { rpmChanGrpEntry 23 }
+
+rpmChanMCR OBJECT-TYPE
+    SYNTAX INTEGER(0..353208)
+--  Units
+--    cells-per-second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum cell rate.(in cells per sec.)."
+    ::= { rpmChanGrpEntry 24 }
+
+rpmChanRemoteMCR OBJECT-TYPE
+    SYNTAX INTEGER(0..353208)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Minimum cell rate of the remote endpoint. 
+               If this is not set, its value will be same
+               as value of rpmChanMCR."
+    ::= { rpmChanGrpEntry 25 }
+
+rpmChanPercentUtil OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the expected long-term utilization of the
+            channel by this end-point."
+    ::= { rpmChanGrpEntry 26 }
+
+rpmChanRemotePercentUtil OBJECT-TYPE
+    SYNTAX INTEGER(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the expected long-term utilization of the
+        channel by the other end-point. If this is not 
+               specified in the connection setup request, 
+               it'll be set to be the same as the local end."
+    ::= { rpmChanGrpEntry 27 }
+
+rpmChanEncapType OBJECT-TYPE
+    SYNTAX INTEGER {
+        aal5snap(1),
+        aal34smds(2),
+        aal5nlpid(3),
+        qsaal(4),
+        ilmi(5),
+        aal5muxXNS(6),
+        aal5muxIP(7),
+        aal5muxVINES(8),
+        aal5muxDECNET(9),
+        aal5muxNOVELL1(10),
+        ppp(11),
+        unknown(12)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the ATM adaptation 
+               layer (AAL) and Encapsulation type.
+        
+        aal5snap - LLC/SNAP precedes the protocol datagram.
+        aal34smds - Encapsulation for SMDS network.
+        aal5nlpid - Encapsulation that allows ATM interfaces  to
+                 interoperate with HSSI.
+        qsaal - signaling type PVC used  for setting up or 
+             tearing down SVCs.
+        ilmi - used to set up communication with ILMI.
+        aal5mux[protocol] - a MUX-type Virtual circuit.
+        ppp - PPP over ATM.
+        
+                The Encapsulation types aal34smds, qsaal and ilmi 
+                are not supported."
+    ::= { rpmChanGrpEntry 28 }
+
+rpmChanMidLow OBJECT-TYPE
+    SYNTAX INTEGER(0..1023)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Starting Message Identifier Number for this PVC."
+    ::= { rpmChanGrpEntry 29 }
+
+rpmChanMidHigh OBJECT-TYPE
+    SYNTAX INTEGER(0..1023)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Ending Message Identifier Number for this PVC."
+    ::= { rpmChanGrpEntry 30 }
+
+rpmChanBurstSize OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Maximum number of ATM cells the 
+               virtual circuit can transmit."
+    ::= { rpmChanGrpEntry 31 }
+
+rpmChanInArpFreq OBJECT-TYPE
+    SYNTAX INTEGER(0..60)
+--  Units
+--    minutes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies how often Inverse ARP datagrams
+               will be sent on this virtual circuit. The
+               value zero will disable the IN-ARP for this
+               channel. This object is supported only
+               for the value of rpmChanEncapType = aal5snap."
+    ::= { rpmChanGrpEntry 32 }
+
+rpmChanOAMloopback OBJECT-TYPE
+    SYNTAX INTEGER(0..600)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies how often to generate 
+               an OAM F5 loopback cell from this virtual circuit.
+               The value zero will disable generation of OAM F5
+               loopback cells."
+    ::= { rpmChanGrpEntry 33 }
+
+rpmChanState OBJECT-TYPE
+    SYNTAX INTEGER {
+        notConfigured(1),
+        active(2),
+        failed(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This indicates the status of this channel.
+         1 ==> notConfigured
+         2 ==> active
+         3 ==> failed.
+        
+         Currently 'failed' state is not supported.
+         When the channel is not added, the state is 
+         notConfigured."
+    ::= { rpmChanGrpEntry 34 }
+
+rpmChanVirtualTemplate OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the Virtual Template used for CISCO PPP.
+        If it is not using Virtual Template then this value
+        is zero."
+    ::= { rpmChanGrpEntry 35 }
+
+rpmChanAbrRDF OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is valid only for ABR Service Type.
+         Rate Decrease Factor: Controls the rate 
+                decrease which occurs when backward RM-cells 
+                with CI=1 are received. Larger values lead to 
+                faster rate decrease."
+    REFERENCE
+        "ATM Forum Traffic Management Specification
+        Version 4.0 Section 5.10.2"
+    ::= { rpmChanGrpEntry 36 }
+
+rpmChanAbrRIF OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is valid only for ABR Service Type.
+         Rate Increase Factor: Controls the rate 
+                increase which occurs when a backward RM-cell 
+                is received with CI=0 and NI=0. Larger values 
+                lead to faster rate increase."
+    REFERENCE
+        "ATM Forum Traffic Management Specification
+        Version 4.0 Section 5.10.2"
+    ::= { rpmChanGrpEntry 37 }
+
+cmrConnConfGroup OBJECT IDENTIFIER ::= { cmrConnMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects related to Connections on RPM 
+--           card.
+--  objects
+--    rpmChanSlotNum, rpmChanInterface, rpmChanNum, 
+--    rpmChanRowStatus, rpmChanVcd, rpmChanVpi, rpmChanVci, 
+--    rpmChanSubInterface, rpmChanLocalVpi, rpmChanLocalVci, 
+--    rpmChanLocalNsap, rpmChanRemoteVpi, rpmChanRemoteVci, 
+--    rpmChanRemoteNsap, rpmChanType, rpmChanConnType, 
+--    rpmChanServiceType, rpmChanMastership, rpmChanRtePriority, 
+--    rpmChanMaxCost, rpmChanRestrictTrkType, rpmChanPCR, 
+--    rpmChanRemotePCR, rpmChanMCR, rpmChanRemoteMCR, 
+--    rpmChanPercentUtil, rpmChanRemotePercentUtil, rpmChanMidLow, 
+--    rpmChanMidHigh, rpmChanBurstSize, rpmChanEncapType, 
+--    rpmChanInArpFreq, rpmChanOAMloopback, rpmChanState, 
+--    rpmChanVirtualTemplate, rpmChanAbrRDF, rpmChanAbrRIF
+
+cmrConnMIBCompliance OBJECT IDENTIFIER ::= { cmrConnMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the 
+--           Cisco MGX RPM connection management group.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmrConnConfGroup
+
+
+END
+

@@ -1,0 +1,1529 @@
+-- *****************************************************************
+-- BASIS Generic MIB
+--
+-- September 2002
+--
+-- Copyright (c) 1996-2001, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+-- 
+-- LAST-UPDATED "200209240000Z"
+-- DESCRIPTION
+--     "The Card Generic mib containing generic information about
+--     the service modules(Function Modules),back cards(Line Modules).
+--     This contains information such as card type, back card type,
+--     card status, back card status,serial number, 
+--     hardware revision, firmware version,reset reasons etc."
+--
+-- REVISION "200209240000Z"
+-- DESCRIPTION
+--     "Clarified the descriptions of some of the objects.
+--     Added transId OBJECT-TYPE.
+--
+-- REVISION "200110150000Z"
+-- DESCRIPTION
+-- 	"Added following enumeration in <functionModuleType>
+-- 	vism-pr-8T1   (563)
+--	vism-pr-8E1   (564)
+--	"
+-- REVISION "200110020000Z"
+-- DESCRIPTION
+--      "Modified description for configChangeTypeBitMap.
+--       Added configChangeParentObjectIndex,
+--             configChangeGrandParentObjectIndex and
+--             configChangeSMSpecificObject in 
+--       cardInformation Table
+--      "
+--
+-- REVISION "200109240000Z"
+-- DESCRIPTION
+--     "Added following enumeration in <functionModuleType>
+--      cesmB-8T1 (787)
+--     "
+--
+-- REVISION "200109210000Z"
+-- DESCRIPTION
+--    "Added following enumerations in <functionModuleState>
+--     notResponding(14)
+--     cardinit(17)
+--    "
+--
+-- REVISION "200108230000Z"
+-- DESCRIPTION
+--        CONTACT-INFO
+--              "         Cisco Systems
+--                        Customer Service
+--
+--                Postal: 170 W Tasman Drive
+--                        San Jose, CA  95134
+--                        USA
+--
+--                        Tel: +1 800 553-NETS
+--
+--                E-mail: cs-wanatm@cisco.com"
+--    "
+
+BASIS-GENERIC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+    Counter                 FROM RFC1155-SMI
+    OBJECT-TYPE             FROM RFC-1212
+    DisplayString           FROM RFC1213-MIB
+    cardGeneric             FROM BASIS-MIB;
+
+cardInformation             OBJECT IDENTIFIER ::= { cardGeneric 1 }
+cardInterface               OBJECT IDENTIFIER ::= { cardGeneric 2 }
+cardSelfTest                OBJECT IDENTIFIER ::= { cardGeneric 3 }
+ 
+
+
+-- ------------------------------------------------------------------
+--
+-- Group "cardInformation"
+-- This group contains information which is generic to all cards in BASIS.
+-- ------------------------------------------------------------------
+
+moduleSlotNumber OBJECT-TYPE
+    SYNTAX INTEGER (1..32)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Slot number this card is present
+        "
+    ::= { cardInformation 1 }
+
+-- function Module is also referred to as front card in some instances
+--
+functionModuleType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other     (1),
+        asc       (2),
+        bnm-T3    (10),
+        bnm-E3    (11),
+	bnm-155	  (12),
+        srm-4T1E1 (20),
+        srm-3T3   (21),
+-- SRME
+        srme-1OC3 (22),
+        srme-1STS3(23),
+        srme-NOBC(24),
+        srm-3T3-NOBC(25),
+
+        frsm-4T1  (30),
+        frsm-4E1  (31),
+        frsm-4T1-C(32),
+        frsm-4E1-C(33),
+-- HSSI
+	frsm-hs1  (34),
+	frsm-8T1  (35),
+	frsm-8E1  (36),
+        frsm-hs1b (37),
+        ausm-4T1  (40),
+        ausm-4E1  (41),
+        ausm-8T1  (50),
+        ausm-8E1   (51),
+-- AUSM Model B 
+        ausmB-8T1  (52),
+        ausmB-8E1   (53),
+ 
+        cesm-4T1  (60),
+        cesm-4E1  (61),
+        imatm-T3T1 (70),
+        imatm-E3E1 (71),
+-- imatm model B
+	imatmB-8T1 (72),
+	imatmB-8E1 (73),
+
+	frasm-8T1 (80),
+
+	cesm-8T1  (90),
+        cesm-8E1  (91),
+
+-- SM from Netro
+	bscsm-2	   (100),
+	bscsm-4	   (101),
+
+-- testers
+	atmt-8T1   (110),
+	atmt-8E1   (111),
+	frt-8T1    (120),
+	frt-8E1    (121),
+
+-- frsm_vhs cards
+    frsm-2ct3 (130),
+	frsm-2t3  (131),
+	frsm-2e3  (132),
+	frsm-hs2  (133),
+	frsm-2t3b (134),
+	frsm-2e3b (135),
+	frsm-hs2b-hssi (136),
+	frsm-hs2b-12In1 (137),
+
+-- cesm_t3e3 cards
+	cesm-T3   (140),
+	cesm-E3   (141),
+
+-- VISM 
+        vism-8T1  (150),
+        vism-8E1  (151),
+
+-- VISM PR 
+        vism-pr-8T1   (563),
+        vism-pr-8E1   (564),
+
+	cesmB-8T1 (787),
+
+        pxm1       (1000),
+        pxm1-2t3e3  (1001),
+        pxm1-4oc3   (1002),
+        pxm1-oc12  (1003),
+
+        rpm        (2000),
+	rpm-pr     (2001)	
+                                    
+    }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object holds the type of the card. The card 
+         can type is for Processor module as well as service module.
+        "
+    DEFVAL { other }
+    ::= { cardInformation 2 }
+
+functionModuleDescription OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Describes the card
+        "
+    ::= { cardInformation 3 }
+
+functionModuleSerialNum OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Serial number of the function Module."
+    ::= { cardInformation 4 }
+
+functionModuleHWRev OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..2))  
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Hardware revision number for function Module."
+    ::= { cardInformation 5 }
+
+functionModuleFWRev OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..8)) 
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Firmware revision number of the function Module."
+    ::= { cardInformation 6 }
+
+functionModuleState OBJECT-TYPE
+    SYNTAX  INTEGER{
+        nocard (1),
+        standby (2),
+        active (3),
+        failed (4),
+        selfTest (5),
+        heldInReset (6),
+        boot (7),
+        mismatch (8),
+        unknown (9),
+        coreCardMisMatch (10),
+        blocked (11),
+        reserved (12),
+        hold (13),
+        notResponding (14),
+        cardinit (17)
+    }
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+        "This object holds the status of a card in a particular shelf-slot.
+
+        The possible values are :
+
+         nocard(1)      : card not present.
+         standby(2)     : card in standby state. The card is in ready state
+                          and will be ready to take over the service if
+                          the corresponding active card(redundant)
+                          fails.
+         active(3)      : card in active state. The card is providing
+                          the service.
+         failed(4)      : card in failed state. The card can come out
+                          of this state only after user intervention
+                          (Reset or running some CLI commands).
+
+         selfTest(5)    : online diagnostics is being run in card.
+         heldInReset(6) : The card configuration is being cleared.
+                          No requests can be serviced.
+         boot(7)        : card in boot state.
+         mismatch(8)    : card is not compatible with the current
+                          configuration. Card was correctly provisioned
+                          earlier, however the card was replaced by
+                          an incompatible card. This state can be
+                          resolved by clearing the configuration, or
+                          replacing with the appropriate card.
+         unknown(9)     : could not determine the state
+         coreCardMisMatch(10) : Controller Card(PXM/ASC etc)
+                                and SRM(Service Resource Module) 
+                                combination does not match.
+
+         blocked(11)    : In case of 1:N redundancy configuration
+                          the secondary card(backup card) is covering
+                          one of the primary card and can not cover
+                          any other card in the group if there is a failure.
+                          Redundancy is blocked.
+
+         hold(13)       : The standby controller card assumes the hold
+                          state during PXM upgrades. In this state,
+                          the standby PXM will be running a different
+                          software but will be receiving all standby
+                          updates(BRAM and Database). This state is
+                          applicable only for MGX8250 Platform.
+         notResponding(14): Response from the Service Module has become 
+                            slow probably due to overloading of CPU.
+                            No recovery action is required on user part.
+                            At present, this state is applicable only
+                            for Router Blade(RPM).
+         cardinit(17)   : When the physical presence of card has been 
+                          detected but the communication hasn't yet 
+                          been established between the controller card 
+                         (PXM) and Service Module.
+        "
+    ::= { cardInformation 7 }
+ 
+functionModuleResetReason OBJECT-TYPE
+    SYNTAX INTEGER{
+        powerUp (1),
+        parityError (2),
+        watchDog (3),
+        resourceOverflow (4),
+        clrAllCnf (5),
+        missingTask (6), 
+        pxmLowVoltage(7),
+        resetByEventLogTask(8),
+        resetFromShell(9),
+        unknown(10),
+        resetFromPXM(11),
+        resetSys(12),
+        switchCC(13),
+        sCacheError(14),
+        swError(15),
+        upgrade(16),
+        restoreAllCnf(17),
+        driverError(18)
+    }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Last reason for card to reset.
+         
+        The possible values are :
+     
+         powerUp(1)      : power up
+         parityError(2)  : parity error
+         watchDog(3)     : watchdog
+         resourceOverflow (4) : resource overflow
+         clrAllCnf (5)   : configuration of the shelf is cleared.
+         missingTask (6) : task is missing
+         pxmLowVoltage(7): low voltage detected on PXM
+         resetByEventLogTask(8):
+         resetFromShell(9): command is run from command shell
+         unknown(10)      :
+         resetFromPXM(11) : Controller Card(PXM) reset the card.
+         resetSys(12)     : due to resetsys CLI Command.
+         switchCC(13)     : due to switch over CLI command.
+         sCacheError(14)  :
+         swError(15)      : software error.
+         upgrade(16)      : upgrade
+         restoreAllCnf(17): restore configuration.
+         driverError(18)  : driver error.
+
+         Valid values for VISM:
+             powerUp, watchDog, resetFromShell and resetFromPXM.
+        "
+    ::= { cardInformation 8 }
+
+lineModuleType OBJECT-TYPE
+    SYNTAX INTEGER {
+       other        (1),
+       	lm-ASC       (2),
+       	lm-DB15-4T1  (16),
+       	lm-DB15-4E1  (17),
+       	lm-BNC-4E1   (18),
+	lm-DB15-4T1-R(19),
+	lm-DB15-4E1-R(20),
+	lm-BNC-4E1-R (21),
+	lm-RJ48-8T1  (22),
+	lm-RJ48-8E1  (23),
+	lm-SMB-8E1   (24),
+	lm-RJ48-T3T1 (25),
+	lm-RJ48-E3E1 (26),
+	lm-RJ48-T3E1 (27),
+	lm-SMB-E3E1  (28),
+	lm-RJ48-E3T1 (29),
+	lm-SMB-T3E1 (30),
+        lm-T3E3-D    (32),
+        lm-T3E3-B    (33),
+	lm-155-SMF   (34),
+	lm-155-UTP   (35),
+	lm-RJ48-8T1-R(48),
+	lm-RJ48-8E1-R(49),
+	lm-SMB-8E1-R (50),
+	lm-3T3-B      (51),
+-- HSSI/X.21 
+	lm-HS1-4X21  (60),
+	lm-HS1-3HSSI (61),
+-- HSSI/X.21
+	lm-HS1-4V35 (62),
+
+	lm-12In1-8s (63),
+
+        lm-BSCSM-2   (70),
+	lm-BSCSM-4   (71),
+
+	lm-BNC-2T3 (80),
+	lm-BNC-2E3 (81),
+
+	pxm-ui		(500),
+	smfir-1-622	(501),
+	smflr-1-622	(502),
+	smfir15-1-622	(503),
+	smflr15-1-622	(504),
+	mmf-4-155	(505),
+	smfir-4-155	(506),
+	smflr-4-155	(507),
+	rj45-fe		(511),
+	mmf-fe		(512),
+	mmf-fddi	(513),
+	smf-fddi	(514),
+	rj45-4e		(515),
+	pxm-ui-s3       (1006),
+-- SRME back card
+	lm-srme-1OC3-smlr   (1050),
+	lm-srme-1OC3-smir   (1051),
+	lm-srme-1OC3-smb    (1052)
+    }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the Line Module(back card) type.
+         Physically it is behind the backplane, normally with
+         connectors for physical devices.
+         These are specific to the front or functional modules.
+        "
+    DEFVAL { other }
+    ::= { cardInformation 9 }
+
+lineModuleDescription OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains description of the line module."
+    ::= { cardInformation 10 }
+
+lineModuleSerialNum OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains Serial number of the line module."
+    ::= { cardInformation 11 }
+
+lineModuleHWRev OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..2)) 
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains Hardware revision for line module."
+    ::= { cardInformation 12 }
+
+lineModuleFWRev OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Firmware revision for line module.
+        The current version does not have any
+        firmware, hence will always contains
+        zero length octet string."
+    ::= { cardInformation 13 }
+
+lineModuleState OBJECT-TYPE
+    SYNTAX INTEGER {
+       notPresent (1),
+       present    (2),
+       invalid    (3)
+    }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION 
+        "line module status."
+    ::= { cardInformation 14 }
+
+moduleTrapAlarmSeverity OBJECT-TYPE
+    SYNTAX INTEGER {
+       minor    (1),
+       major    (2),
+       dontCare (3),
+       critical (4),
+       error    (5),
+       warning  (6),
+       notice   (7),
+       info     (8)
+    }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is sent to managers as part of all Trap PDUs, to
+         determine the module alarm severity. An implementation may
+	 not support all the possible values.
+
+	 The Possible values are :
+
+	  major    (1) : Major Service has been impacted
+	  minor    (2) : Minor Service has been lost
+	  dontCare (3) : severity is not applicable
+          critical (4) : affects existing data traffic
+          error    (5) : error has occurred
+          warning  (6) : a threshold has been reached
+          notice   (7) : a normal but significant event has occurred
+          info     (8) : informational
+        "
+    ::= { cardInformation 15 }
+
+mibVersionNumber OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "MIB version number. Updated when any part of
+         the MIB changes. 
+        "
+    DEFVAL { 2 }
+    ::= { cardInformation 16 }
+
+configChangeTypeBitMap OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Configuration change Type BitMap
+	 bit 0 set = Card Configuration Change
+	 bit 1 set = Line Configuration Change
+	 bit 2 set = Port Configuration Change
+	 bit 3 set = Chan Configuration Change
+	 bit 4 set = STUN protocol group configuration Change
+	 bit 5 set = STUN port configuration Change
+	 bit 6 set = STUN route configuration Change
+	 bit 7 set = BSTUN protocol configuration Change
+	 bit 8 set = BSTUN port configuration Change
+	 bit 9 set = BSTUN route configuration Change
+	 bit 10 set = FRASBNN route configuration Change
+	 bit 11 set = FRASBAN route configuration Change
+	 bit 12 set = SDLC port configuration Change
+	 bit 13 set = SDLC LS configuration Change
+	 bit 14 set = BSC port configuration Change
+	 bit 15 set = LLC port configuration Change
+	 bit 16 set = card LCN partition change (controller based only)
+	 bit 17 set = port resource partition change (under any partition type)
+	 bit 18 set = VISM Endpoint Configuration Change
+	 bit 19 set = Egress Q configuration change
+
+	 default value is 0, no change
+
+	 This object makes sense only in traps. A GET
+	 on this may not return a Useful result.
+
+	 Bit 19 is not applicable for MGX 8850 Release 1.x.x
+	 and MGX 8220
+
+        "
+    DEFVAL { 0 }
+    ::= { cardInformation 17 }
+
+configChangeObjectIndex OBJECT-TYPE
+    SYNTAX  INTEGER (1..1024)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Configuration change object index, could be 
+	line number or port number or channel number
+	depends on the type bitmap, for port resouce
+	partition change (bit 17), this index is actually
+	constructed by (portNum << 16 | controller)
+	because the table has two indices.
+        When the 'Line Configuration Change' bit is set,
+        the configChangeObjectIndex has the following special meanings
+        in IMATM and FRSM-2CT3 cards:
+        IMATM - configChangeObjectIndex range between 1..8 
+                indicates that the configuration change refers 
+                to the DS1 line index. A value of 9 indicates that 
+                the configuration change refers to the DS3 line index.
+        FRSM-2CT3 - configChangeObjectIndex range between 1..56
+                    indicates that the configuration change refers 
+                    to the DS1 line index. A value of (128 + n)
+                    refers to DS3 line index numbered 'n'.
+
+         This object makes sense only in traps. A GET
+         on this may not return a Useful result. 
+        "
+    ::= { cardInformation 18 }
+
+configChangeStatus OBJECT-TYPE
+    SYNTAX  INTEGER (0..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is applicable only for traps.
+        The SNMP operation may not be meaningful.
+
+        The value contained in this object is same as
+        the value of the other objects which are used
+        for adding/deleting/modifying the row.
+
+        The possible values are 
+        0 - No meaning and is not applicable.
+        1 - add    [ Row added ]
+        2 - delete [ Row deleted ]
+        3 - mod    [ Row modified ]
+  
+
+        This value and value contained in configChangeTypeBitMap
+        represent the configuration change operation.
+
+	The default value is 0 and it does not
+        represent any status."
+    DEFVAL {0}
+    ::= { cardInformation 19 }
+ 
+cardIntegratedAlarmBitMap OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Bit position represents the different types of alarm
+         for ASC:
+                bit 0: ShelfFunctionModuleState (BNM only)
+                        (failed/boot/mismatch/heldinReset)
+                bit 1: LineModuleState (BNM only) (notPresent/invalid)
+                bit 2: ASMPhysicalAlarmState (BNM only)
+                bit 3: ATMLMIFailure (ASC only)
+                bit 4: LineAlarmState (BNM only)
+                bit 5: LineStatisticalAlarmState (BNM only)
+                bit 6: PLCPAlarmState (BNM only)
+                bit 7: PLCPStatisticalAlarmState (BNM only)
+                bit 8: SmConnectionFailureAlarm
+        for SM:
+                bit 0: ShelfFunctionModuleState
+                        (failed/boot/mismatch/heldinReset)
+                bit 1: LineModuleState  (notPresent/invalid)
+                bit 2: PortLMIFailure
+                bit 3: LineAlarmState
+                bit 4: LineStatisticalAlarmState
+                bit 5: FrameRelayPortState (RemoteLoopback/
+                                            FailedDueToLine/
+                                            FailedDueToSig)
+                bit 6: ChannelState
+
+	for PXM/SRM Only (MGX8850 Platfrom):
+		Only those marked with SRM are valid for both PXM/SRM.
+                The rest are valid only for PXM.
+		bit 0	: ShelfFunctionModuleState
+		bit 1	: Backcard Line Module		(SRM/PXM)
+		     	  This Alarm is generated when the Line Module
+                          (Trunk Backcard) is removed or goes to a mismatch
+                          state(or backcard type is unknown).
+		bit 2  	: Backcard UIModule
+			  This Alarm is generated when the UI backcard is
+                          removed or goes to a mismatch state
+                          (or backcard type is unknown).
+		bit 3  	: ASM Physical Alarm
+			  This specifies whether any of the 
+                          environmental monitoring components like 
+                          Temperature, Voltage Supply, Fan Speed
+                          have gone into alarm.
+		bit 4	: ATM LMI Failure 
+		bit 5	: Line Alarm	(SRM/PXM)
+		bit 6	: Line Statistical Alarm	(SRM/PXM)
+		bit 7  	: Lines Alarm	(SRM/PXM)
+		bit 8   : PLCP Alarm
+		bit 9   : PLCP Statistical Alarm
+		bit 10 	: Connections exist on removed SM
+		bit 11 	: Disk related Failure on first PXM slot
+		bit 12  : Disk related Failure on second PXM slot
+			  The Disk Alarms are generated when any of the
+                          file operations on Disk like open,read,write,
+                          lseek etc fail. 
+			VSM Alarms
+		bit 13 	: Port LMI Failure
+		bit 14  : Port State Alarm
+		bit 15	: Channel Shelf Alarm
+
+		bit 16	: Taskmon Task Suspended
+		bit 17	: Excess Power Consumption
+		bit 30  : bit set(1) major alarm, else (0) minor alarm
+
+        "
+    DEFVAL {0}
+    ::= { cardInformation 20 }
+
+
+cleiCode OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..10))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Common Language Equipment(CLEI) Code.
+        "
+    ::= { cardInformation 21 }
+
+
+macAddress OBJECT-TYPE
+    SYNTAX  DisplayString
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "Ethernet address (base address) stored in 
+             NVRAM, entered by manfacturing.
+            "
+    ::= { cardInformation 22 }
+
+macAddrBlkSize OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The MAC address block size, entered by
+         manufacturing.
+        "
+    ::= { cardInformation 23 }
+
+finalTestTechnician OBJECT-TYPE
+    SYNTAX  DisplayString (SIZE (0..6))
+    ACCESS  read-only
+    STATUS  mandatory
+    DESCRIPTION
+            "The Final Test Technician Employee Identification Number.
+            "
+    ::= { cardInformation 24 }
+
+hwFailures OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Hardware failure code."
+    ::= { cardInformation 25 }
+
+
+hwHistory OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "RMA Test History - RMA Failure Code."
+    ::= { cardInformation 26 }
+
+
+secLineModuleType OBJECT-TYPE
+    SYNTAX INTEGER {
+       other        (1),
+       	lm-ASC       (2),
+       	lm-DB15-4T1  (16),
+       	lm-DB15-4E1  (17),
+       	lm-BNC-4E1   (18),
+	lm-DB15-4T1-R(19),
+	lm-DB15-4E1-R(20),
+	lm-BNC-4E1-R (21),
+	lm-RJ48-8T1  (22),
+	lm-RJ48-8E1  (23),
+	lm-SMB-8E1   (24),
+	lm-RJ48-T3T1 (25),
+	lm-RJ48-E3E1 (26),
+	lm-RJ48-T3E1 (27),
+	lm-SMB-E3E1  (28),
+	lm-RJ48-E3T1 (29),
+	lm-SMB-T3E1 (30),
+        lm-T3E3-D    (32),
+        lm-T3E3-B    (33),
+	lm-155-SMF   (34),
+	lm-155-UTP   (35),
+	lm-RJ48-8T1-R(48),
+	lm-RJ48-8E1-R(49),
+	lm-SMB-8E1-R (50),
+	lm-3T3-B      (51),
+	lm-HS1-4X21  (60),
+	lm-HS1-3HSSI (61),
+-- HSSI/X.21
+	lm-HS1-4V35 (62),
+
+	lm-12In1-8s (63),
+
+        lm-BSCSM-2   (70),
+	lm-BSCSM-4   (71),
+
+	lm-BNC-2T3 (80),
+	lm-BNC-2E3 (81),
+
+	pxm-ui		(500),
+	smfir-1-622	(501),
+	smflr-1-622	(502),
+	smfir15-1-622	(503),
+	smflr15-1-622	(504),
+	mmf-4-155	(505),
+	smfir-4-155	(506),
+	smflr-4-155	(507),
+	rj45-fe		(511),
+	mmf-fe		(512),
+	mmf-fddi	(513),
+	smf-fddi	(514),
+	rj45-4e		(515),
+	pxm-ui-s3       (1006)
+    }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the type of secondary
+        line module(back card).
+        Physically it is the bottom card behind the backplane.  
+        Normally with connectors for physical devices.
+        These are specific to the front or function modules.
+        This Object is applicable only to selected MGX switches.
+        "
+    DEFVAL { other }
+    ::= { cardInformation 27 }
+
+secLineModuleDescription OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..20))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Description of the Secondary line module.
+         This Object is applicable only to selected MGX switches.
+        "
+    ::= { cardInformation 28 }
+
+secLineModuleSerialNum OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Serial number of the secondary(bottom) line module.
+         This object is applicable only to selected MGX switches.
+        "
+    ::= { cardInformation 29 }
+
+secLineModuleHWRev OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..2)) 
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Hardware revision for secondary (bottom) line module 
+         This object is applicable only to selected MGX switches.
+        "
+    ::= { cardInformation 30 }
+
+secLineModuleFWRev OBJECT-TYPE
+    SYNTAX DisplayString (SIZE (0..8))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Firmware revision for Secondary line module
+         This object is applicable only to selected MGX switches.
+         If there is no Firmware revision, 
+         then this object returns 0.
+        "
+    ::= { cardInformation 31 }
+ 
+
+secLineModuleState OBJECT-TYPE
+    SYNTAX INTEGER {
+       notPresent (1),
+       present    (2),
+       invalid    (3)
+    }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "line module status  of secondary (bottom) back card.
+         This object is applicable only to selected MGX switches."
+    ::= { cardInformation 32 }
+
+configChangeParentObjectIndex OBJECT-TYPE 
+    SYNTAX  INTEGER (1..1024) 
+    ACCESS read-only 
+    STATUS mandatory
+    DESCRIPTION
+       " Parent object index, could be
+           - line index
+           - port index
+
+        This object will indicate the index of the immediate
+        higher level object (line or port) of configChangeObjectIndex.
+        This object is applicable only when configChangeObjectIndex 
+        represents a channel, port, egress Q or resource partition
+        index.
+
+        Following specifies the mapping between the 
+        configChangeObjectIndex and its corresponding
+        configChangeParentObjectIndex.
+
+        configChangeObjectIndex         configChangeParentObjectIndex
+        -----------------------         -----------------------------
+        Port Index                      Line Index
+        Egress Q Index                  Port Index
+        Resource Partition Index        Port Index
+        Channel Index                   Port Index
+
+        When the 'Port Configuration Change' bit is set,
+        the configChangeParentObjectIndex will represent
+        a 'Line Index' which in turn has the following
+        special meaning in FRSM-2CT3 cards.
+
+        - configChangeParentObjectIndex range between 1..56
+          indicates that the configuration change refers to the DS1 line
+          index. A value of (128 + n) refers to DS3 line index 
+          numbered 'n'.
+
+        This object object is applicable only in traps.
+        A GET on this may not return a useful result.
+
+        This object Object is not applicable to MGX 8850 
+        Release 1.x.x and MGX8220
+       "
+      ::= { cardInformation 33 }
+
+configChangeGrandParentObjectIndex OBJECT-TYPE 
+    SYNTAX  INTEGER (1..1024) 
+    ACCESS read-only 
+    STATUS mandatory
+    DESCRIPTION
+       " Grand Parent object index, could be
+         - line index
+
+         This object will indicate the index of the immediate
+         higher level object (line) of configChangeParentObjectIndex.
+         This object is applicable only when configChangeParentObjectIndex 
+         represents a port index.
+
+         Following specifies the mapping between the 
+         configChangeParentObjectIndex and its corresponding
+         configChangeGrandParentObjectIndex.
+
+         When the 'Port Configuration Change' bit is set 
+         the configChangeGrandParentObjectIndex will represent
+         a 'Line Index' which in turn has the following
+         special meaning in FRSM-2CT3 cards.
+
+        - configChangeParentObjectIndex range between 1..56
+          indicates that the configuration change refers to the DS1 line
+          index. A value of (128 + n) refers to DS3 line index 
+          numbered 'n'.
+
+         This object is applicable only in traps.
+         A GET on this may not return a useful result.
+
+         This object is not applicable to MGX 8850 
+         release 1.x.x and MGX8220."
+
+     ::= { cardInformation 34 }
+
+configChangeSMSpecificObject OBJECT-TYPE 
+    SYNTAX  INTEGER (0..'ffffff'h)
+    ACCESS read-only 
+    STATUS mandatory
+	DESCRIPTION
+       " configChangeSMSpecificObject is a generic object
+	     which is Service Module Specific. It can be used
+		 for different purposes in different cards. The
+		 usage of the same with regard to very card type is
+		 listed below.
+
+		 FRSM-8T1E1 - used to store portDs0ConfigBitMap
+		 FRSM-VHS   - used to store portDs0ConfigBitMap
+		 CESM-8T1E1 - used to store cesPortDs0ConfigBitMap
+		 CESM-T3E3  - not used
+		 AUSM-8T1E1 - not used
+
+         This object is not applicable to MGX 8850 
+         Release 1.x.x and MGX8220." 
+     ::= { cardInformation 35 }
+
+transId OBJECT-TYPE
+    SYNTAX  INTEGER (0..'7fffffff'h)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Per card transaction ID. This object is used to keep 
+        track of configuration change on the card.
+        The transId will be incremented by one for every
+        configuration change on the card."
+     ::= { cardInformation 36 }
+
+
+-- ******************************************************************
+--
+-- Group "Interface"
+-- This group contains list of physical interfaces and service types
+-- available on a card. 
+-- Different line types are e.g. DS1,DS3,OC3 etc.
+-- Different services are e.g. ATM,FrameRelay etc.
+-- Any combination of line type and service type are possible for a card.
+--
+-- ******************************************************************
+
+interfaceNumOfValidEntries        OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of rows in interface Table
+         The number represents the physcial interfaces the module has.
+        "
+    ::= { cardInterface 2 }
+
+interfaceLineTable   OBJECT-TYPE
+    SYNTAX SEQUENCE OF InterfaceLineEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table has list of the physical interfaces 
+         and the services available on this module.
+        "
+    ::= { cardInterface 1 }
+
+interfaceLineEntry OBJECT-TYPE
+    SYNTAX InterfaceLineEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry for physical interface
+        "
+    INDEX { interfaceLineNum }
+    ::= { interfaceLineTable 1 }
+
+InterfaceLineEntry ::= 
+    SEQUENCE {
+        interfaceLineNum             INTEGER,
+        interfaceLineType            INTEGER,
+        interfaceNumOfPortsPerLine   INTEGER,
+        interfaceServiceType         INTEGER,
+        interfaceNumOfPVC            INTEGER,
+        interfaceNumOfEgressQueue    INTEGER
+    }
+
+interfaceLineNum OBJECT-TYPE
+    SYNTAX INTEGER (1..10)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "An index to uniquely indentify the physical interface and service.
+         Indices 1..8 are used for VISM-8T1/E1.
+        "
+    ::= { interfaceLineEntry 1 }
+
+interfaceLineType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        ds1(18),
+        e1(19),
+        ethernet-3Mbit (26),
+        ds3(30),
+        rs232(33),
+	v35(45),
+-- HSSI/X.21 
+-- Unable to find for X.21 interface
+	hssi(46)
+-- HSSI/X.21
+    }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of interfaces provided by 
+        this Module. These numbers are from RFC1700."
+    ::= { interfaceLineEntry 2 }
+
+interfaceNumOfPortsPerLine OBJECT-TYPE
+    SYNTAX INTEGER (0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of physical ports of the line type.
+         VISM has a port, but is not linked to these physical lines,
+         hence value=0 is returned.
+        "
+    DEFVAL {672}
+    ::= { interfaceLineEntry 3 }
+
+interfaceServiceType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        ethernet-3Mbit (26),
+        slip (28),
+        frameRelay(32),
+        atm(37),
+        voice(42)
+    }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The services available on the interfaceLineType object
+        "
+    ::= { interfaceLineEntry 4 }
+
+interfaceNumOfPVC OBJECT-TYPE
+    SYNTAX INTEGER 
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Max number of Permanent Virtual Channels available per physical
+         line (line as defined in interfaceLineType).
+         VISM has a PVC but is not linked to the lines,
+         hence value=0 is returned.
+        "
+    ::= { interfaceLineEntry 5 }
+
+interfaceNumOfEgressQueue OBJECT-TYPE
+    SYNTAX INTEGER 
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Max number of Queues per port.
+         Value=0 is returned for VISM card.
+        "
+    ::= { interfaceLineEntry 6 }
+
+-- ----------------------------------------------------------------
+--
+-- Group "cardTest"
+-- The cardTest group contains self test results.
+-- All cards in BASIS have this group defined.
+--
+-- ----------------------------------------------------------------
+
+selfTestEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        disable  (1),
+        enable   (2)
+    }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the self test state
+         1 ==> self test enabled
+         2 ==> self test disabled
+        "
+    DEFVAL { disable }
+    ::= { cardSelfTest 1 }
+
+selfTestPeriod OBJECT-TYPE
+    SYNTAX INTEGER (1..60)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Interval (in minutes) for self test.
+        "
+    DEFVAL { 1 }
+    ::= { cardSelfTest 2 }
+
+selfTestState OBJECT-TYPE
+    SYNTAX INTEGER {
+        passed (1),
+        failed (2)
+    }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Self test results for the module.
+        "
+    ::= { cardSelfTest 3 }
+
+selfTestResultDescription OBJECT-TYPE
+    SYNTAX DisplayString (SIZE(0..40))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Self test Result description
+        "
+    ::= { cardSelfTest 4 }
+
+selfTestClrResultButton OBJECT-TYPE
+    SYNTAX INTEGER {
+        other (1),
+        clear (2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for clearing the result
+        of an online diagnostics(or other self tests)."
+    ::= { cardSelfTest 5 }
+
+
+controlMsgCounter  OBJECT IDENTIFIER ::= { cardGeneric 4 }
+
+riscXmtCtrlMsg OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS read-only
+    STATUS  mandatory
+    DESCRIPTION
+    "The number of control Frames transmitted to SAR (from RISC)
+     maintained by RISC
+    "
+    ::= { controlMsgCounter 1 }
+
+riscRcvCtrlMsg OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS read-only
+    STATUS  mandatory
+    DESCRIPTION
+    "The number of control Frames received from SAR (to RISC)
+     maintained by RISC
+    "
+    ::= { controlMsgCounter 2 }
+
+sarXmtCtrlMsg  OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS read-only
+    STATUS  mandatory
+    DESCRIPTION
+    "The number of control Frames transmitted to RISC from SAR 
+     maintained by SAR (should be equal to (riscRcvCtrlMsg)
+    "
+    ::= { controlMsgCounter 3 }
+
+sarRcvCtrlMsg OBJECT-TYPE
+    SYNTAX  Counter
+    ACCESS read-only
+    STATUS  mandatory
+    DESCRIPTION
+    "The number of control Frames received to SAR from RISC
+     maintained by SAR (should be equal to (riscXmtCtrlMsg)
+    "
+    ::= { controlMsgCounter 4 }
+
+sarCtrlMsgDiscLenErr  OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS  mandatory
+    DESCRIPTION
+    "Total control (management) frames (for MGX8800) or
+    cells(for MGX8220) discarded due to illegal length error
+    "
+    ::= { controlMsgCounter 5 }
+ 
+sarCtrlMsgDiscCRCErr  OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS  mandatory
+    DESCRIPTION
+    "Total control (management) frames (MGX8800) or cells(MGX8220) 
+     discard due to illegal CRC error.
+    "
+    ::= { controlMsgCounter 6 }
+
+sarCtrlMsgDiscUnknownChan    OBJECT-TYPE
+    SYNTAX  Counter 
+    ACCESS read-only
+    STATUS  mandatory
+    DESCRIPTION
+    "Count of discarded control message due to unknown channel error."
+    ::= { controlMsgCounter 7 }
+
+sarCtrlMsgLastUnkownChan    OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS read-only
+    STATUS  mandatory
+    DESCRIPTION
+    "The control cell header Rcvd of the last unknown channel."
+    ::= { controlMsgCounter 8 }
+
+ctrlMsgClrButton    OBJECT-TYPE
+    SYNTAX  INTEGER {
+       other (1),
+       clear (2)
+       }
+    ACCESS read-write
+    STATUS  mandatory
+    DESCRIPTION
+    "This object is used for clearing the messages
+    in controlMsgCounter group."
+    ::= { controlMsgCounter 9 }
+
+
+sarChannelCounter  OBJECT IDENTIFIER ::= { cardGeneric 5 }
+
+-- ----------------------------------------------------------------
+--
+-- Group "sarCounters"
+-- This group contains list of SAR counters and RISC counters
+-- This group is common to all cards. All cards in BASIS have
+-- SAR and RISC counters.
+--
+-- ----------------------------------------------------------------
+
+-- ---------------------------------------------------------------------
+-- 
+--         SAR channel counters group
+--
+--         These are counter maintained by the SAR and supplied to the
+--         manager by RISC, the counters are per VC and counters are
+--         for ATM cells
+--
+-- cell counters
+-- ---------------------------------------------------------------------
+
+chanNumOfValidEntries OBJECT-TYPE
+	SYNTAX INTEGER
+	ACCESS read-only
+	STATUS mandatory
+	DESCRIPTION
+		"Number of entries in the sar channel table
+		"
+	::= { sarChannelCounter	2 }
+
+sarChannelCounterTable	OBJECT-TYPE
+	SYNTAX	SEQUENCE OF SarChannelCounterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+            "The table is for logical channels
+            This table contains the counters for cells 
+            transmitted on each channel."
+	::= { sarChannelCounter 1 }
+
+sarChannelCounterEntry	OBJECT-TYPE
+	SYNTAX	SarChannelCounterEntry
+	ACCESS	not-accessible
+	STATUS	mandatory
+	DESCRIPTION
+		" An entry for logical channel
+		"
+	INDEX	{ sarShelfNum, sarSlotNum, sarChanNum }
+	::= { sarChannelCounterTable 1 }
+
+SarChannelCounterEntry ::=
+	SEQUENCE {
+            sarShelfNum 	        INTEGER,
+		sarSlotNum 	        INTEGER,
+		sarChanNum        	INTEGER,
+-- Xmt Cell stats
+		xmtCells		Counter,
+		xmtCellsCLP		Counter,
+		xmtCellsAIS		Counter,
+		xmtCellsFERF	        Counter,
+		xmtCellsBCM		Counter,
+		xmtCellsEnd2EndLpBk     Counter,
+		xmtCellsSegmentLpBk	Counter,
+		xmtCellsDiscShelfAlarm	Counter,
+-- Rcv Cell stats
+		rcvCells		Counter,
+		rcvCellsCLP		Counter,
+		rcvCellsAIS		Counter,
+		rcvCellsFERF	        Counter,
+		rcvCellsBCM		Counter,
+		rcvCellsEnd2EndLpBk	Counter,
+		rcvCellsSegmentLpBk	Counter,
+		rcvCellsDiscOAM	        Counter,
+		sarClrButton            INTEGER 
+}
+
+sarShelfNum OBJECT-TYPE
+ 	SYNTAX	INTEGER (1..4)
+ 	ACCESS	read-only
+ 	STATUS	mandatory
+ 	DESCRIPTION		  
+ 		"Shelf number
+ 		"
+ 	::= { sarChannelCounterEntry	1 }
+ 
+sarSlotNum OBJECT-TYPE
+ 	SYNTAX	INTEGER (1..16)
+ 	ACCESS	read-only
+ 	STATUS	mandatory
+ 	DESCRIPTION		  
+            "Slot number, the slot and shelf info is required here
+            because BSC sends the OAM cells for the FRSM cards 
+            that have failed BSC could have upto 4000 connections
+            in this table."
+	::= { sarChannelCounterEntry	2 }
+
+sarChanNum OBJECT-TYPE
+	SYNTAX	INTEGER (0..4015)
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		" BSC could have upto 4000 connections in this table
+		"
+	::= { sarChannelCounterEntry	3 }
+
+xmtCells OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		"The number of cells transmitted on this channel.
+		"
+	::= { sarChannelCounterEntry	4 }
+
+
+xmtCellsCLP OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+	    "The total number of CLP cells that were 
+            transmitted on this channel."
+	::= { sarChannelCounterEntry	5 }
+
+xmtCellsAIS OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		"The number of AIS cells that were transmitted on this channel.
+		"
+	::= { sarChannelCounterEntry	6 }
+
+xmtCellsFERF OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		"The number of FERF cells that were transmitted on this channel.
+		"
+	::= { sarChannelCounterEntry	7 }
+
+xmtCellsBCM OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+            "The number of BCM cells that were transmitted on this channel."
+	::= { sarChannelCounterEntry	8 }
+
+xmtCellsEnd2EndLpBk OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+            "The number of End2End loop cells that were transmitted on 
+             this channel."
+	::= { sarChannelCounterEntry	9 }
+
+xmtCellsSegmentLpBk OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+	    "The number of segment loop cells that were transmitted 
+             on this channel."
+	::= { sarChannelCounterEntry	10 }
+
+xmtCellsDiscShelfAlarm OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		"The number of cells discard due to Shelfalarm on this channel.
+		"
+	::= { sarChannelCounterEntry	11 }
+
+-- receiver cell counters
+
+rcvCells OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		"The number of cells that were received on this channel.
+		"
+	::= { sarChannelCounterEntry	12 }
+
+rcvCellsCLP OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		"The number of CLP cells that were received on this channel.
+		"
+	::= { sarChannelCounterEntry	13 }
+
+rcvCellsAIS OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		"The number of AIS cells that were received on this channel.
+		"
+	::= { sarChannelCounterEntry	14 }
+
+rcvCellsFERF OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		"The number of FERF cells that were received on this channel.
+		"
+	::= { sarChannelCounterEntry	15 }
+
+rcvCellsBCM OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		"The number of BCM cells that were received on this channel.
+		"
+	::= { sarChannelCounterEntry	16 }
+
+rcvCellsEnd2EndLpBk OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+            "The number of End2End loop cells that were received on 
+             this channel."
+	::= { sarChannelCounterEntry	17 }
+
+rcvCellsSegmentLpBk OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+	    "The number of segment loop cells that were received on
+             this channel. "
+	::= { sarChannelCounterEntry	18 }
+
+rcvCellsDiscOAM OBJECT-TYPE
+	SYNTAX	Counter
+	ACCESS	read-only
+	STATUS	mandatory
+	DESCRIPTION		  
+		"The number of cells that had CRC error on
+		 OAM cells
+		"
+	::= { sarChannelCounterEntry	19 }
+
+sarClrButton OBJECT-TYPE
+    SYNTAX  INTEGER {
+       other (1),
+       clear (2)
+       }
+	ACCESS read-write
+	STATUS mandatory
+	DESCRIPTION
+		"clear the counters in the table
+		"
+	::= { sarChannelCounterEntry	20 }
+
+END

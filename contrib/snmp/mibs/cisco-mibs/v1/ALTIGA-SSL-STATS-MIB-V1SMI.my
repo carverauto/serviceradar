@@ -1,0 +1,142 @@
+-- MIB file created 04-Dec-2002 18:55:55, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-SSL-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-SSL-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    alStatsSsl, alSslGroup
+            FROM ALTIGA-MIB
+    alSslMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaSslStatsMibModule OBJECT IDENTIFIER ::= { alSslMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga SSL Statistics MIB models counters and objects that are 
+--     of management interest for SSL. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       MIB:        Management Information Base 
+--    
+--       SSL:        Secure Sockets Layer 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsSslGlobal OBJECT IDENTIFIER ::= { alStatsSsl 1 }
+altigaSslStatsMibConformance OBJECT IDENTIFIER ::= { altigaSslStatsMibModule 1 }
+altigaSslStatsMibCompliances OBJECT IDENTIFIER ::= { altigaSslStatsMibConformance 1 }
+
+alSslStatsTotalSessions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of total sessions."
+    ::= { alStatsSslGlobal 1 }
+
+alSslStatsActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of active sessions."
+    ::= { alStatsSslGlobal 2 }
+
+alSslStatsMaxSessions OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number current of active sessions at  
+        any one time."
+    ::= { alStatsSslGlobal 3 }
+
+alSslStatsPreDecryptOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets sent to the decryption engine. Includes  
+        octets used as part of negotiation."
+    ::= { alStatsSslGlobal 4 }
+
+alSslStatsPostDecryptOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets received from the decryption engine."
+    ::= { alStatsSslGlobal 5 }
+
+alSslStatsPreEncryptOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets send to the encryption engine."
+    ::= { alStatsSslGlobal 6 }
+
+alSslStatsPostEncryptOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of octets received from the encryption engine. 
+        Includes octets used as part of negitiation."
+    ::= { alStatsSslGlobal 7 }
+
+altigaSslStatsGroup OBJECT IDENTIFIER ::= { alSslGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for SSL statistics.
+--  objects
+--    alSslStatsTotalSessions, alSslStatsActiveSessions, 
+--    alSslStatsMaxSessions, alSslStatsPreDecryptOctets, 
+--    alSslStatsPostDecryptOctets, alSslStatsPreEncryptOctets, 
+--    alSslStatsPostEncryptOctets
+
+altigaSslStatsMibCompliance OBJECT IDENTIFIER ::= { altigaSslStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga SSL Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaSslStatsGroup
+
+
+END
+

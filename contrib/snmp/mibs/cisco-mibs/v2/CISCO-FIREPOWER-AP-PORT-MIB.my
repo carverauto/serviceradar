@@ -1,0 +1,792 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-PORT-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- PORT management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-PORT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApConditionRemoteInvRslt,
+    CfprApFsmCompletion,
+    CfprApFsmFlags,
+    CfprApFsmFsmStageStatus,
+    CfprApLicenseState,
+    CfprApNetworkConnectionType,
+    CfprApNetworkLocale,
+    CfprApNetworkPortRole,
+    CfprApNetworkPortType,
+    CfprApNetworkSwitchId,
+    CfprApNetworkTransport,
+    CfprApPortGroupType,
+    CfprApPortPIoFsmCurrentFsm,
+    CfprApPortPIoFsmStageName,
+    CfprApPortPIoFsmTaskItem,
+    CfprApPortSubGroupConfigState,
+    CfprApPortSubGroupSlotId,
+    CfprApPortTrust
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApPortObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        PORT management information model package"
+    ::= { ciscoFirepowerApMIBObjects 63 }
+
+cfprApPortDomainEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApPortDomainEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp managed object table"
+    ::= { cfprApPortObjects 1 }
+
+cfprApPortDomainEpEntry OBJECT-TYPE
+    SYNTAX           CfprApPortDomainEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApPortDomainEpTable table."
+    INDEX { cfprApPortDomainEpInstanceId }
+    ::= { cfprApPortDomainEpTable 1 }
+
+CfprApPortDomainEpEntry ::= SEQUENCE {
+    cfprApPortDomainEpInstanceId                                     CfprApManagedObjectId,
+    cfprApPortDomainEpDn                                             CfprApManagedObjectDn,
+    cfprApPortDomainEpRn                                             SnmpAdminString,
+    cfprApPortDomainEpEpDn                                           SnmpAdminString,
+    cfprApPortDomainEpIfRole                                         CfprApNetworkPortRole,
+    cfprApPortDomainEpIfType                                         CfprApNetworkPortType,
+    cfprApPortDomainEpLocale                                         CfprApNetworkLocale,
+    cfprApPortDomainEpName                                           SnmpAdminString,
+    cfprApPortDomainEpPeerDn                                         SnmpAdminString,
+    cfprApPortDomainEpTransport                                      CfprApNetworkTransport,
+    cfprApPortDomainEpType                                           CfprApNetworkConnectionType
+}
+
+cfprApPortDomainEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApPortDomainEpEntry 1 }
+
+cfprApPortDomainEpDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp:dn managed object property"
+    ::= { cfprApPortDomainEpEntry 2 }
+
+cfprApPortDomainEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp:rn managed object property"
+    ::= { cfprApPortDomainEpEntry 3 }
+
+cfprApPortDomainEpEpDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp:epDn managed object property"
+    ::= { cfprApPortDomainEpEntry 4 }
+
+cfprApPortDomainEpIfRole OBJECT-TYPE
+    SYNTAX       CfprApNetworkPortRole
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp:ifRole managed object property"
+    ::= { cfprApPortDomainEpEntry 5 }
+
+cfprApPortDomainEpIfType OBJECT-TYPE
+    SYNTAX       CfprApNetworkPortType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp:ifType managed object property"
+    ::= { cfprApPortDomainEpEntry 6 }
+
+cfprApPortDomainEpLocale OBJECT-TYPE
+    SYNTAX       CfprApNetworkLocale
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp:locale managed object property"
+    ::= { cfprApPortDomainEpEntry 7 }
+
+cfprApPortDomainEpName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp:name managed object property"
+    ::= { cfprApPortDomainEpEntry 8 }
+
+cfprApPortDomainEpPeerDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp:peerDn managed object property"
+    ::= { cfprApPortDomainEpEntry 9 }
+
+cfprApPortDomainEpTransport OBJECT-TYPE
+    SYNTAX       CfprApNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp:transport managed object property"
+    ::= { cfprApPortDomainEpEntry 10 }
+
+cfprApPortDomainEpType OBJECT-TYPE
+    SYNTAX       CfprApNetworkConnectionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:DomainEp:type managed object property"
+    ::= { cfprApPortDomainEpEntry 11 }
+
+cfprApPortGroupTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApPortGroupEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower port:Group managed object table"
+    ::= { cfprApPortObjects 2 }
+
+cfprApPortGroupEntry OBJECT-TYPE
+    SYNTAX           CfprApPortGroupEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApPortGroupTable table."
+    INDEX { cfprApPortGroupInstanceId }
+    ::= { cfprApPortGroupTable 1 }
+
+CfprApPortGroupEntry ::= SEQUENCE {
+    cfprApPortGroupInstanceId                                        CfprApManagedObjectId,
+    cfprApPortGroupDn                                                CfprApManagedObjectDn,
+    cfprApPortGroupRn                                                SnmpAdminString,
+    cfprApPortGroupLocale                                            CfprApNetworkLocale,
+    cfprApPortGroupName                                              SnmpAdminString,
+    cfprApPortGroupTransport                                         CfprApNetworkTransport,
+    cfprApPortGroupType                                              CfprApPortGroupType
+}
+
+cfprApPortGroupInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApPortGroupEntry 1 }
+
+cfprApPortGroupDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:Group:dn managed object property"
+    ::= { cfprApPortGroupEntry 2 }
+
+cfprApPortGroupRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:Group:rn managed object property"
+    ::= { cfprApPortGroupEntry 3 }
+
+cfprApPortGroupLocale OBJECT-TYPE
+    SYNTAX       CfprApNetworkLocale
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:Group:locale managed object property"
+    ::= { cfprApPortGroupEntry 4 }
+
+cfprApPortGroupName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:Group:name managed object property"
+    ::= { cfprApPortGroupEntry 5 }
+
+cfprApPortGroupTransport OBJECT-TYPE
+    SYNTAX       CfprApNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:Group:transport managed object property"
+    ::= { cfprApPortGroupEntry 6 }
+
+cfprApPortGroupType OBJECT-TYPE
+    SYNTAX       CfprApPortGroupType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:Group:type managed object property"
+    ::= { cfprApPortGroupEntry 7 }
+
+cfprApPortPIoFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApPortPIoFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm managed object table"
+    ::= { cfprApPortObjects 3 }
+
+cfprApPortPIoFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApPortPIoFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApPortPIoFsmTable table."
+    INDEX { cfprApPortPIoFsmInstanceId }
+    ::= { cfprApPortPIoFsmTable 1 }
+
+CfprApPortPIoFsmEntry ::= SEQUENCE {
+    cfprApPortPIoFsmInstanceId                                       CfprApManagedObjectId,
+    cfprApPortPIoFsmDn                                               CfprApManagedObjectDn,
+    cfprApPortPIoFsmRn                                               SnmpAdminString,
+    cfprApPortPIoFsmCompletionTime                                   DateAndTime,
+    cfprApPortPIoFsmCurrentFsm                                       CfprApPortPIoFsmCurrentFsm,
+    cfprApPortPIoFsmDescr                                            SnmpAdminString,
+    cfprApPortPIoFsmFsmStatus                                        CfprApFsmFsmStageStatus,
+    cfprApPortPIoFsmProgress                                         Gauge32,
+    cfprApPortPIoFsmRmtErrCode                                       Gauge32,
+    cfprApPortPIoFsmRmtErrDescr                                      SnmpAdminString,
+    cfprApPortPIoFsmRmtRslt                                          CfprApConditionRemoteInvRslt
+}
+
+cfprApPortPIoFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApPortPIoFsmEntry 1 }
+
+cfprApPortPIoFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm:dn managed object property"
+    ::= { cfprApPortPIoFsmEntry 2 }
+
+cfprApPortPIoFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm:rn managed object property"
+    ::= { cfprApPortPIoFsmEntry 3 }
+
+cfprApPortPIoFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm:completionTime managed
+        object property"
+    ::= { cfprApPortPIoFsmEntry 4 }
+
+cfprApPortPIoFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApPortPIoFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm:currentFsm managed object property"
+    ::= { cfprApPortPIoFsmEntry 5 }
+
+cfprApPortPIoFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm:descr managed object property"
+    ::= { cfprApPortPIoFsmEntry 6 }
+
+cfprApPortPIoFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm:fsmStatus managed object property"
+    ::= { cfprApPortPIoFsmEntry 7 }
+
+cfprApPortPIoFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm:progress managed object property"
+    ::= { cfprApPortPIoFsmEntry 8 }
+
+cfprApPortPIoFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm:rmtErrCode managed object property"
+    ::= { cfprApPortPIoFsmEntry 9 }
+
+cfprApPortPIoFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm:rmtErrDescr managed object property"
+    ::= { cfprApPortPIoFsmEntry 10 }
+
+cfprApPortPIoFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsm:rmtRslt managed object property"
+    ::= { cfprApPortPIoFsmEntry 11 }
+
+cfprApPortPIoFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApPortPIoFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmStage managed object table"
+    ::= { cfprApPortObjects 4 }
+
+cfprApPortPIoFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApPortPIoFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApPortPIoFsmStageTable table."
+    INDEX { cfprApPortPIoFsmStageInstanceId }
+    ::= { cfprApPortPIoFsmStageTable 1 }
+
+CfprApPortPIoFsmStageEntry ::= SEQUENCE {
+    cfprApPortPIoFsmStageInstanceId                                  CfprApManagedObjectId,
+    cfprApPortPIoFsmStageDn                                          CfprApManagedObjectDn,
+    cfprApPortPIoFsmStageRn                                          SnmpAdminString,
+    cfprApPortPIoFsmStageDescr                                       SnmpAdminString,
+    cfprApPortPIoFsmStageLastUpdateTime                              DateAndTime,
+    cfprApPortPIoFsmStageName                                        CfprApPortPIoFsmStageName,
+    cfprApPortPIoFsmStageOrder                                       Gauge32,
+    cfprApPortPIoFsmStageRetry                                       Gauge32,
+    cfprApPortPIoFsmStageStageStatus                                 CfprApFsmFsmStageStatus
+}
+
+cfprApPortPIoFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApPortPIoFsmStageEntry 1 }
+
+cfprApPortPIoFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmStage:dn managed object property"
+    ::= { cfprApPortPIoFsmStageEntry 2 }
+
+cfprApPortPIoFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmStage:rn managed object property"
+    ::= { cfprApPortPIoFsmStageEntry 3 }
+
+cfprApPortPIoFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmStage:descr managed object property"
+    ::= { cfprApPortPIoFsmStageEntry 4 }
+
+cfprApPortPIoFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprApPortPIoFsmStageEntry 5 }
+
+cfprApPortPIoFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApPortPIoFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmStage:name managed object property"
+    ::= { cfprApPortPIoFsmStageEntry 6 }
+
+cfprApPortPIoFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmStage:order managed object property"
+    ::= { cfprApPortPIoFsmStageEntry 7 }
+
+cfprApPortPIoFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmStage:retry managed object property"
+    ::= { cfprApPortPIoFsmStageEntry 8 }
+
+cfprApPortPIoFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmStage:stageStatus managed
+        object property"
+    ::= { cfprApPortPIoFsmStageEntry 9 }
+
+cfprApPortPIoFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApPortPIoFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmTask managed object table"
+    ::= { cfprApPortObjects 5 }
+
+cfprApPortPIoFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApPortPIoFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApPortPIoFsmTaskTable table."
+    INDEX { cfprApPortPIoFsmTaskInstanceId }
+    ::= { cfprApPortPIoFsmTaskTable 1 }
+
+CfprApPortPIoFsmTaskEntry ::= SEQUENCE {
+    cfprApPortPIoFsmTaskInstanceId                                   CfprApManagedObjectId,
+    cfprApPortPIoFsmTaskDn                                           CfprApManagedObjectDn,
+    cfprApPortPIoFsmTaskRn                                           SnmpAdminString,
+    cfprApPortPIoFsmTaskCompletion                                   CfprApFsmCompletion,
+    cfprApPortPIoFsmTaskFlags                                        CfprApFsmFlags,
+    cfprApPortPIoFsmTaskItem                                         CfprApPortPIoFsmTaskItem,
+    cfprApPortPIoFsmTaskSeqId                                        Gauge32
+}
+
+cfprApPortPIoFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApPortPIoFsmTaskEntry 1 }
+
+cfprApPortPIoFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmTask:dn managed object property"
+    ::= { cfprApPortPIoFsmTaskEntry 2 }
+
+cfprApPortPIoFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmTask:rn managed object property"
+    ::= { cfprApPortPIoFsmTaskEntry 3 }
+
+cfprApPortPIoFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmTask:completion managed
+        object property"
+    ::= { cfprApPortPIoFsmTaskEntry 4 }
+
+cfprApPortPIoFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmTask:flags managed object property"
+    ::= { cfprApPortPIoFsmTaskEntry 5 }
+
+cfprApPortPIoFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApPortPIoFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmTask:item managed object property"
+    ::= { cfprApPortPIoFsmTaskEntry 6 }
+
+cfprApPortPIoFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:PIoFsmTask:seqId managed object property"
+    ::= { cfprApPortPIoFsmTaskEntry 7 }
+
+cfprApPortSubGroupTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApPortSubGroupEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup managed object table"
+    ::= { cfprApPortObjects 6 }
+
+cfprApPortSubGroupEntry OBJECT-TYPE
+    SYNTAX           CfprApPortSubGroupEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApPortSubGroupTable table."
+    INDEX { cfprApPortSubGroupInstanceId }
+    ::= { cfprApPortSubGroupTable 1 }
+
+CfprApPortSubGroupEntry ::= SEQUENCE {
+    cfprApPortSubGroupInstanceId                                     CfprApManagedObjectId,
+    cfprApPortSubGroupDn                                             CfprApManagedObjectDn,
+    cfprApPortSubGroupRn                                             SnmpAdminString,
+    cfprApPortSubGroupAggrPortId                                     Gauge32,
+    cfprApPortSubGroupConfigState                                    CfprApPortSubGroupConfigState,
+    cfprApPortSubGroupLicGP                                          Unsigned64,
+    cfprApPortSubGroupLicState                                       CfprApLicenseState,
+    cfprApPortSubGroupLocale                                         CfprApNetworkLocale,
+    cfprApPortSubGroupName                                           SnmpAdminString,
+    cfprApPortSubGroupSlotId                                         CfprApPortSubGroupSlotId,
+    cfprApPortSubGroupSwitchId                                       CfprApNetworkSwitchId,
+    cfprApPortSubGroupTransport                                      CfprApNetworkTransport,
+    cfprApPortSubGroupType                                           CfprApNetworkConnectionType
+}
+
+cfprApPortSubGroupInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApPortSubGroupEntry 1 }
+
+cfprApPortSubGroupDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:dn managed object property"
+    ::= { cfprApPortSubGroupEntry 2 }
+
+cfprApPortSubGroupRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:rn managed object property"
+    ::= { cfprApPortSubGroupEntry 3 }
+
+cfprApPortSubGroupAggrPortId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:aggrPortId managed object property"
+    ::= { cfprApPortSubGroupEntry 4 }
+
+cfprApPortSubGroupConfigState OBJECT-TYPE
+    SYNTAX       CfprApPortSubGroupConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:configState managed
+        object property"
+    ::= { cfprApPortSubGroupEntry 5 }
+
+cfprApPortSubGroupLicGP OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:licGP managed object property"
+    ::= { cfprApPortSubGroupEntry 6 }
+
+cfprApPortSubGroupLicState OBJECT-TYPE
+    SYNTAX       CfprApLicenseState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:licState managed object property"
+    ::= { cfprApPortSubGroupEntry 7 }
+
+cfprApPortSubGroupLocale OBJECT-TYPE
+    SYNTAX       CfprApNetworkLocale
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:locale managed object property"
+    ::= { cfprApPortSubGroupEntry 8 }
+
+cfprApPortSubGroupName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:name managed object property"
+    ::= { cfprApPortSubGroupEntry 9 }
+
+cfprApPortSubGroupSlotId OBJECT-TYPE
+    SYNTAX       CfprApPortSubGroupSlotId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:slotId managed object property"
+    ::= { cfprApPortSubGroupEntry 10 }
+
+cfprApPortSubGroupSwitchId OBJECT-TYPE
+    SYNTAX       CfprApNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:switchId managed object property"
+    ::= { cfprApPortSubGroupEntry 11 }
+
+cfprApPortSubGroupTransport OBJECT-TYPE
+    SYNTAX       CfprApNetworkTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:transport managed object property"
+    ::= { cfprApPortSubGroupEntry 12 }
+
+cfprApPortSubGroupType OBJECT-TYPE
+    SYNTAX       CfprApNetworkConnectionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:SubGroup:type managed object property"
+    ::= { cfprApPortSubGroupEntry 13 }
+
+cfprApPortTrustModeTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApPortTrustModeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower port:TrustMode managed object table"
+    ::= { cfprApPortObjects 7 }
+
+cfprApPortTrustModeEntry OBJECT-TYPE
+    SYNTAX           CfprApPortTrustModeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApPortTrustModeTable table."
+    INDEX { cfprApPortTrustModeInstanceId }
+    ::= { cfprApPortTrustModeTable 1 }
+
+CfprApPortTrustModeEntry ::= SEQUENCE {
+    cfprApPortTrustModeInstanceId                                    CfprApManagedObjectId,
+    cfprApPortTrustModeDn                                            CfprApManagedObjectDn,
+    cfprApPortTrustModeRn                                            SnmpAdminString,
+    cfprApPortTrustModeState                                         CfprApPortTrust
+}
+
+cfprApPortTrustModeInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApPortTrustModeEntry 1 }
+
+cfprApPortTrustModeDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:TrustMode:dn managed object property"
+    ::= { cfprApPortTrustModeEntry 2 }
+
+cfprApPortTrustModeRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:TrustMode:rn managed object property"
+    ::= { cfprApPortTrustModeEntry 3 }
+
+cfprApPortTrustModeState OBJECT-TYPE
+    SYNTAX       CfprApPortTrust
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower port:TrustMode:state managed object property"
+    ::= { cfprApPortTrustModeEntry 4 }
+
+END

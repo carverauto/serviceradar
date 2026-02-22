@@ -1,0 +1,69 @@
+-- *****************************************************************
+-- CISCO-VISM-DSX1-CAPABILITY.my:
+-- CISCO-VISM-DSX1-MIB AGENT-CAPABILITIES
+--
+-- September 2005, Rashmi Purandare
+--
+-- Copyright (c) 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VISM-DSX1-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoVismDsx1Capability MODULE-IDENTITY
+        LAST-UPDATED    "200509260000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+        DESCRIPTION
+                "Agent capabilities for 
+                 CISCO-VISM-DSX1-MIB."
+
+        REVISION        "200509260000Z"
+        DESCRIPTION
+                "Initial version of this capability file."
+        ::= { ciscoAgentCapability 450 }
+
+cVismDsx1CapabilityV3325 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco VISM Release 3.3.25"
+    STATUS               current
+    DESCRIPTION          "CISCO-VISM-DSX1-MIB capabilities."
+
+    SUPPORTS             CISCO-VISM-DSX1-MIB
+        INCLUDES         { cvDsx1ConfGroupSup2 }
+
+        VARIATION        vismDsx1AlarmLogAdminTimer
+            SYNTAX       Unsigned32 (1..7200)
+            DESCRIPTION  "Only the range of 1 to 7200 
+                          is supported."
+
+        VARIATION        vismDsx1AlarmLogOperTimer
+            SYNTAX       Unsigned32 (1..7200)
+            DESCRIPTION  "Only the range of 1 to 7200 
+                          is supported."
+
+        VARIATION        vismDsx1ElectricalSignalEnable
+            ACCESS       not-implemented
+            DESCRIPTION  "Not supported."
+
+    ::= { ciscoVismDsx1Capability 1 }
+
+END
+

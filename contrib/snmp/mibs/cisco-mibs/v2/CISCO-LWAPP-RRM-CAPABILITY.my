@@ -1,0 +1,210 @@
+-- *******************************************************************
+-- CISCO-LWAPP-RRM MIB CAPABILITY
+--
+-- November 18, 2020
+--
+-- Copyright (c) 2020, 2022 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-RRM-CAPABILITY DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+       MODULE-IDENTITY
+           FROM SNMPv2-SMI
+       AGENT-CAPABILITIES
+           FROM SNMPv2-CONF
+       ciscoAgentCapability
+           FROM CISCO-SMI;
+
+
+ciscoLwappRrmCapability  MODULE-IDENTITY
+
+       LAST-UPDATED         "202011180000Z"
+       ORGANIZATION         "Cisco Systems, Inc."
+       CONTACT-INFO
+               "Cisco Systems
+               Customer Service
+
+               Postal: 170 W Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+
+               E-mail: cs-wnbu-snmp@cisco.com"
+
+       DESCRIPTION
+               "Agent capabilities for
+               CISCO-LWAPP-RRM-MIB "
+       REVISION      "202011180000Z"
+       DESCRIPTION
+               "Initial version of this MIB module. "
+
+   ::= { ciscoAgentCapability 1153 }
+
+ciscoLwappRrmCapabilityCEV1R0 AGENT-CAPABILITIES
+
+       PRODUCT-RELEASE "Cisco EWLC 1.0"
+       STATUS          current
+       DESCRIPTION     "CISCO-LWAPP-RRM--MIB capabilities."
+
+       SUPPORTS        CISCO-LWAPP-RRM-MIB
+       INCLUDES        {
+                           clrRrmDcaChannelListTable,
+                           clrRrmChannelTable,
+                           clrRrmBcoTable,
+                           clrRrmParametersTable,
+                           clrRrmTupleTable,
+                           clrRrmDot11BandGrpMemberTable,
+                           clrRrmDot11BandJoinedGrpMemberTable
+                       }
+
+       VARIATION       clrRrmPakRssiNtpIpAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmFraSensorThreshold
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmFraSensorCoverage
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmFraServicePriority
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmFraSensorDensityOptimisationTargetRssi
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmChannelEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmChannelNum
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmChannelDcaState
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmChannelRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmRssiHistogramValues
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmRssiHistogramValuesRev
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmNeighborApCountRev
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmNeighborApMacAddressRev
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmNeighborApRssiRev
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmNeighborApIfTypeRev
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmSysMacAddressRev
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmSysIpAddressType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmParametersPicoCellMode
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmParametersTpcVersion
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmParametersRssiCheckEnable
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmParametersRssiThreshold
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmParametersOptRoamInterval
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmParametersClientNetworkPreference
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleRxSenseThresholdMin
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleRxSenseThresholdMax
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleRxSenseThreshold
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleCcaSenseThresholdMin
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleCcaSenseThresholdMax
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleCcaSenseThreshold
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleTransmitPowerLevelMin
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleTransmitPowerLevelMax
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleTransmitPowerLevel
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmTupleSetDefault
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmDcaDot11aOutdoorAPDca
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       clrRrmDot11BandJoinedGrpMemberEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+   ::= { ciscoLwappRrmCapability 1 }
+
+END

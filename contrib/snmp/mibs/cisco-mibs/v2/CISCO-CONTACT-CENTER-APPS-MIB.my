@@ -1,0 +1,3647 @@
+-- ******************************************************************
+-- CISCO-CONTACT-CENTER-APPS-MIB.my:
+-- Cisco Contact Center Applications MIB file.
+--   
+-- Supported by Cisco Unified Intelligent Contact Management (ICM)
+-- Enterprise and Hosted and Cisco Unified Contact Center
+-- Enterprise and Hosted and Unified System Contact Center
+-- Enterprise.
+--   
+-- Initial Revision: April 2005
+-- Latest  Revision: May 2009
+--   
+-- Copyright (c) 2005, 2009 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ******************************************************************
+
+CISCO-CONTACT-CENTER-APPS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32,
+    Gauge32
+        FROM SNMPv2-SMI
+    CiscoURLString
+        FROM CISCO-TC
+    InetAddressDNS
+        FROM INET-ADDRESS-MIB
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    DateAndTime
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCcaMIB MODULE-IDENTITY
+    LAST-UPDATED    "200905061700Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems Customer Service
+
+            Postal:
+            170 W. Tasman Drive
+            San Jose, CA  95134  USA
+
+            Tel: +1 800 553-NETS
+            E-mail: ccbu-serviceability@cisco.com"
+    DESCRIPTION
+        "The Cisco Contact Center Applications (CCCA) Management
+        Information Base (MIB) module defines management
+        instrumentation for applications that deliver enterprise-wide
+        intelligent contact routing, call treatment, network-to-
+        desktop computer telephony integration (CTI), and multi-media
+        (e.g. voice, email, chat) contact management over an IP
+        infrastructure.
+
+        Cisco enterprise contact center applications are distributed,
+        fault-tolerant, contact routing and management solutions that
+        encompass multiple, dependent host servers.  Each host is
+        capable of implementing one or more functions of the
+        application.  How many functions a single host is capable of
+        providing is dependent upon capacity and/or performance
+        limitations.  However, the architecture supports virtually any
+        combination.
+
+        The main functional components of Cisco enterprise contact
+        center applications are:
+
+        1.  Router:  The router component provides intelligent routing
+            of inbound contacts, e.g. voice calls, emails, chat
+            sessions, to contact center agents.
+
+            A subcomponent of the router is the Network Interface
+            Controller (NIC).  A NIC, in the context of a Cisco
+            enterprise contact center application, is a gateway to a
+            voice telephony network.  (A NIC here should not be
+            confused with a network interface card on a host
+            computer.)  A router component can have one or more NIC
+            subcomponents.
+
+        2.  Logger:  The logger component maintains the enterprise
+            contact center solution configuration and real-time data
+            store.
+
+        3.  Administration and Data Server:  The administration and
+            data server provides access to configuration, historical
+            and detailed data, serving one or more reporting clients
+            or data archival or aggregation components.  Note that
+            this component was previously known as the Administrator
+            Workstation (AW) (specifically, the Distributor AW).
+
+        4.  Peripheral Gateway (PG):  The PG provides an interface to
+            one or more peripheral devices such as a private branch
+            exchange (PBX), an automatic call distributor (ACD) or a
+            voice response unit (VRU).
+
+            A subcomponent of the PG is the Peripheral Interface
+            Manager or 'PIM'.  A PIM acts as a gateway between the PG
+            and a single PBX or VRU.  A PG may have multiple PIMs.
+
+        5.  Computer Telephony Integration (CTI) Gateway (CG):  The
+            CTI gateway is the solution integration point for desktop
+            CTI clients.  The CTI client application exposes contact
+            data served by the CG to the agent (via 'screen pops') and
+            allows the agent to control the contact state, e.g.
+            answer/hang-up or transfer voice calls, respond to emails
+            or chat with contacts.
+
+        6.  CTI Object Server (CTIOS):  CTIOS, as compared to the CTI
+            gateway, is a more intelligent and more scalable server
+            for desktop CTI clients and offers a higher-level
+            interface to those client applications.
+
+        7.  Outbound Option (OO):  Outbound Option is an optional,
+            add-on product having two primary runtime components:
+            the Campaign Manager and the Dialer.  The Campaign Manager
+            is deployed co-resident with the Logger while the Dialer
+            is deployed co-resident with a Peripheral Gateway.  No
+            more than one instance of an Outbound Option component may
+            be installed on a server.
+
+        Each server of the enterprise contact center solution,
+        regardless of its specific function, implements the contact
+        center applications MIB, however, it only populates those
+        tables that are appropriate for its specific function.
+        Implementing the same MIB on all hosts simplifies the
+        acquisition of management instrumentation from the entire
+        contact center solution.
+
+        The instrumentation in each table of this MIB provides three
+        types of data:
+
+        1) dependent host addresses (for topology building),
+        2) critical configuration information that uniquely identifies
+           the functional component and,
+        3) operational status instrumentation.
+
+        The quantity of entries (i.e. rows) in the tables of this MIB
+        is static while the application is running on the host; rows
+        cannot be added or deleted at runtime by the management
+        station.
+
+        Glossary of acronyms and terms:
+
+        ACD         Automatic Call Distributor
+        BA          Blended Agent (now called Outbound Option)
+        CCE         (Cisco Unified) Contact Center Enterprise
+        CCH         (Cisco Unified) Contact Center Hosted
+        CG          CTI Gateway
+        CICM        Customer Intelligent Contact Manager
+        CTI         Computer Telephony Integration
+        CTIOS       CTI Object Server
+        DMP         Device Management Protocol
+        ICM         (Cisco Unified) Intelligent Contact Management
+        ICME        (Cisco Unified) Intelligent Contact Management
+                    Enterprise
+        ICMH        (Cisco Unified) Intelligent Contact Management
+                    Hosted
+        IPCC        (Cisco) IP Contact Center -
+                    Old name, replaced by Cisco Unified Contact Center
+        IVR         Interactive Voice Response
+        NAM         Network Application Manager
+        NIC         Network Interface Controller
+        OO          Outbound Option
+        PBX         Private Branch Exchange
+        PG          Peripheral Gateway
+        PIM         Peripheral Interface Manager
+        VRU         Voice Response Unit
+
+        duplex      A term used herein to indicate that the functional
+                    component is fault tolerant.  The component is
+                    installed on two separate servers (a side A and a
+                    side B); one side is active while the other is on
+                    hot standby.  Should a failure occur on one side,
+                    the other side will immediately activate and
+                    continue its function with virtually no loss in
+                    functionality.
+
+        instance    A collection of enterprise contact center
+                    application functional components that encompass
+                    a complete solution.
+
+        simplex     A term used herein to indicate that the functional
+                    component is not fault tolerant.  The component is
+                    installed on a single server; if the component
+                    fails, the system will then be impaired or
+                    entirely non-functional."
+    REVISION        "200905061700Z"
+    DESCRIPTION
+        "This is the second version of this MIB module;
+        this revision aligns with release 8.0 of Cisco
+        Unified Intelligent Contact Management and Contact
+        Center Enterprise and Hosted products."
+    REVISION        "200504051700Z"
+    DESCRIPTION
+        "This is the initial version of this MIB module."
+    ::= { ciscoMgmt 473 }
+
+
+-- *******************************************************************
+-- Notifications
+-- *******************************************************************
+
+ciscoCcaMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCcaMIB 0 }
+
+-- *******************************************************************
+-- MIB Objects
+-- *******************************************************************
+
+ciscoCcaMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCcaMIB 1 }
+
+cccaGeneralInfo  OBJECT IDENTIFIER
+    ::= { ciscoCcaMIBObjects 1 }
+
+cccaComponents  OBJECT IDENTIFIER
+    ::= { ciscoCcaMIBObjects 2 }
+
+cccaComponentInfo  OBJECT IDENTIFIER
+    ::= { ciscoCcaMIBObjects 3 }
+
+cccaNotificationInfo  OBJECT IDENTIFIER
+    ::= { ciscoCcaMIBObjects 4 }
+
+-- *******************************************************************
+-- Conformance
+-- *******************************************************************
+
+ciscoCcaMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCcaMIB 2 }
+
+ciscoCcaMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCcaMIBConform 1 }
+
+ciscoCcaMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCcaMIBConform 2 }
+
+
+-- *******************************************************************
+-- Textual Conventions
+-- *******************************************************************
+
+CcaIndex ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "This syntax is used as the index into a table.  A positive
+        value is used to identify a unique entry in the table."
+    SYNTAX          Unsigned32 (1..4294967295)
+
+CcaComponentType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This syntax is used to identify the type of enterprise
+        contact center application functional component.
+
+        'router':   A router provides intelligent routing of inbound
+                    contacts to contact center agents.
+
+        'logger':   The logger maintains the configuration and real-
+                    time data store.
+
+        'distAW':   A distributor AW or administration and data server
+                    manages configuration, historical and detail data,
+                    serving one or more reporting clients.
+
+        'pg':       A peripheral gateway provides an interface to one
+                    or more peripherals, e.g. a PBX, an ACD or a VRU.
+
+        'cg':       A CTI gateway is the solution integration point
+                    for desktop CTI clients.
+
+        'ctios':    A CTI object server is an intelligent, scalable
+                    server for desktop CTI clients.
+
+        'campaign': The Outbound Option Campaign Manager manages an
+                    outbound dialing campaign and maintains pertinent
+                    data about outbound dialing campaigns.
+
+        'dialer':   The Outbound Option Dialer places calls during an
+                    outbound dialing campaign and determines optimal
+                    usage of available telephony ports."
+    SYNTAX          INTEGER  {
+                        router(1),
+                        logger(2),
+                        distAW(3),
+                        pg(4),
+                        cg(5),
+                        ctios(6),
+                        campaign(7),
+                        dialer(8)
+                    }
+
+CcaComponentStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This syntax is used to identify the run status of an
+        enterprise contact center application distributed functional
+        component.  The value shown is the result of evaluating the
+        current run status of services and processes associated with
+        the functional component.
+
+        'unknown':       The status of the functional component
+                         cannot be determined.
+
+        'disabled':      The functional component has been explicitly
+                         disabled by an administrator.
+
+        'stopped':       The functional component is stopped.  The
+                         component may be dysfunctional or impaired.
+
+        'started':       The functional component has been started.
+
+        'active':        The functional component has been started,
+                         is currently running and, where appropriate,
+                         is the active side of a fault tolerant
+                         component duplex pair.
+
+        'standby':       The functional component has been started,
+                         is currently running and is the
+                         'hot-standby' side of a fault tolerant
+                         duplex pair.
+
+        'disconnected':  The component is unexpectedly disconnected
+                         from a dependent component or service.
+
+        'uninitialized': The component has not yet completed its
+                         initialization process.
+
+        'notRoutable':   The component is currently unable to make
+                         routing decisions."
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        disabled(2),
+                        stopped(3),
+                        started(4),
+                        active(5),
+                        standby(6),
+                        disconnected(7),
+                        uninitialized(8),
+                        notRoutable(9)
+                    }
+
+CcaComponentSide ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The functional components of the enterprise contact center
+        application are fault tolerant.  To achieve fault tolerance,
+        two separate, interconnected, dependent hosts (one identified
+        as 'sideA' and the other identified as 'sideB') will implement
+        the functional component; one host will be the 'active' side
+        and the other will be the 'standby' side. The two hosts are
+        considered to be a 'duplex pair' of a functional component.
+
+        This syntax is used to identify the side (A or B) that this
+        host represents of a duplex pair of an enterprise contact
+        center fault tolerant functional component.
+
+        That one side is identified as 'sideA' does not imply that
+        the 'A' side is always the primary; at any given time, either
+        side could be the 'active' side.  Setting the side identifier
+        is completely arbitrary; the side is designated when installed
+        and configured by the system administrator.
+
+        When an event occurs that causes a fail-over from one side to
+        the other, the side which was the 'standby' side then becomes
+        the 'active' side while the previously-active side thus
+        becomes the standby side.  Most often, when the fail-over
+        occurs, the side which was 'active' initiates a restart and
+        then comes back up as the 'standby' side.
+
+        The standby side is completely aware of the current status of
+        the enterprise contact center application and is ready to
+        assume functional responsibility immediately when instructed.
+        When a fail-over occurs, there is little, if any, loss of
+        functionality or context.
+
+        Typically, a system impairment or failure event will cause a
+        fail-over to occur but an administrator can initiate a fail-
+        over by deliberately stopping the active side of a functional
+        component."
+    SYNTAX          INTEGER  {
+                        sideA(1),
+                        sideB(2)
+                    }
+
+CcaPeripheralType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The peripheral type textual convention indicates the type
+        of peripheral device that the enterprise contact center
+        application functional component or subcomponent is
+        associated.  The peripheral is typically a private branch
+        exchange (PBX), automatic call distributor (ACD) or a voice
+        response unit (VRU).
+
+        'aspect':        Aspect Communications CallCenter ACD;
+                         Interface via Application Bridge (AB) or
+                         Computer Media Integration (CMI) and Real-
+                         Time Bridge (RTB).
+
+        'meridian':      Nortel Meridian 1; interface via MeridianLink
+                         SCCS with MLS.
+
+        'dms100':        Nortel DMS-100, DMS-500/SL-100; interface via
+                         CompuCall.
+
+        'g2':            AT&T G2 ACD with 3B2 CMS.
+
+        'g3':            Lucent/Avaya Definity; interface via ECS,
+                         CVLAN.
+
+        'galaxy':        Rockwell Galaxy
+
+        'spectrum':      Rockwell Spectrum; interface via
+                         TransactionLink.
+
+        'neax2400':      NEC NEAX-2400, 7400 and APEX-7600; interface
+                         via Infolink/OAI.
+
+        'acp1000':       Ericsson ACP-1000 switch; interface via
+                         ApplicationLink.
+
+        'rolm9005':      Siemens Rolm-9751 CBX
+
+        'siemensHicom':  Siemens Hicom 300/E; interface via CSTA
+                         CallBridge.
+
+        'ericssonMD110': Ericsson MD-110; interface via
+                         ApplicationLink CSTA Gateway.
+
+        'alcatel':       Alcatel A4400; interface via CSTA-2.
+
+        'mediaRouting':  The ICM/CCE Media Routing PIM provides task
+                         routing of non-voice contacts in a mixed-
+                         media contact center.
+
+        'nonVoiceAgent': The ICM/CCE Non-Voice Agent PIM integrates
+                         strickly non-voice agents into the contact
+                         center solution.
+
+        'symposium':     Nortel Symposium; interface via MeridianLink
+                         Host Data Exchange (HDX) and Real-Time Data
+                         (RTD) interface.
+
+        'callManager':   Cisco CallManager IP PBX (also known as Cisco
+                         Unified Communications Manager); interface
+                         via Java Telephony Application Programming
+                         Interface (JTAPI).
+
+        'acmiIPCC':      Advanced Call Management Interface (ACMI)
+                         provides the interface to implement a parent/
+                         child IP Contact Center (IPCC) (also known as
+                         Cisco Unified Contact Center Enterprise or
+                         CCE) relationship whereby the ACMI PIM in a
+                         parent IPCC (CCE) system represents a child
+                         IPCC (CCE) system as a peripheral.
+
+        'acmiCRS':       Advanced Call Management Interface (ACMI)
+                         provides the interface to implement a parent/
+                         child relationship whereby the ACMI PIM in a
+                         parent IPCC (CCE) system represents a child
+                         Cisco Customer Response Suite (CRS) (also
+                         known as Cisco Unified Contact Center Express
+                         or CCX) system as a peripheral.
+
+        'vru':           A Voice Response Unit peripheral.
+
+        'softACD':       Cisco SoftACD peripheral interface - this may
+                         be either the Agent Reporting Interface (ARI)
+                         or the Event Reporting Interface (ERI).
+
+        'systemIPCC':    Cisco System IP Contact Center (IPCC) (also
+                         known as Cisco Unified System Contact Center
+                         Enterprise or SCCE) peripheral (typically
+                         called the Agent/IVR Controller)."
+    SYNTAX          INTEGER  {
+                        aspect(1),
+                        meridian(2),
+                        dms100(3),
+                        g2(4),
+                        g3(5),
+                        galaxy(6),
+                        spectrum(7),
+                        neax2400(8),
+                        acp1000(9),
+                        rolm9005(10),
+                        siemensHicom(11),
+                        ericssonMD110(12),
+                        alcatel(13),
+                        mediaRouting(14),
+                        nonVoiceAgent(15),
+                        symposium(16),
+                        callManager(17),
+                        acmiIPCC(18),
+                        acmiCRS(19),
+                        vru(20),
+                        softACD(21),
+                        systemIPCC(23)
+                    }
+
+-- ******************************************************************
+-- General Information Objects
+-- ******************************************************************
+
+cccaName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The name is the fully-qualified domain name of the enterprise
+        contact center application server." 
+    ::= { cccaGeneralInfo 1 }
+
+cccaDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The description object holds a textual description of the
+        enterprise contact center application installed on this
+        server.  This is typically the full name of the application." 
+    ::= { cccaGeneralInfo 2 }
+
+cccaVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The version object identifies the version number of the
+        enterprise contact center application software installed on
+        this server." 
+    ::= { cccaGeneralInfo 3 }
+
+cccaTimeZoneName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time zone name object specifies the name of the time zone
+        where the enterprise contact center application server is
+        physically located." 
+    ::= { cccaGeneralInfo 4 }
+
+cccaTimeZoneOffsetHours OBJECT-TYPE
+    SYNTAX          Integer32 (-12..12)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time zone offset hours object represents the number of
+        hours that the local time, in the time zone where the
+        enterprise contact center application server is physically
+        located, differs from Greenwich Mean Time (GMT)." 
+    ::= { cccaGeneralInfo 5 }
+
+cccaTimeZoneOffsetMinutes OBJECT-TYPE
+    SYNTAX          Integer32 (-59..59)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time zone offset minutes object represents the number of
+        minutes that the local time, in the time zone where the
+        enterprise contact center application server is physically
+        located, differs from Greenwich Mean Time (GMT).  This object
+        is combined with cccaTimeZoneOffsetHours object to represent
+        the local time zone's total offset from GMT." 
+    ::= { cccaGeneralInfo 6 }
+
+cccaSupportToolsURL OBJECT-TYPE
+    SYNTAX          CiscoURLString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The support tools URL object holds the URL for the enterprise
+        contact center application support tools application server.
+        The support tools application server is an optional component
+        of the solution and offers a centralized server for diagnostic
+        and troubleshooting tools.  This application server resides on
+        a dedicated server or may be co-resident with a Client
+        Administrator Workstation application component.  This object
+        offers a navigation point from the management station
+        (assuming a web interface) whereby a user can quickly access
+        the support tools application server." 
+    ::= { cccaGeneralInfo 7 }
+
+cccaWebSetupURL OBJECT-TYPE
+    SYNTAX          CiscoURLString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Web setup URL object holds the URL for the enterprise
+        contact center application setup web service.  The setup web
+        service is a component of every Cisco Unified ICM and Contact
+        Center Enterprise/Hosted server and allows for an
+        administrator to configure parameters of the contact center
+        application as it relates to the installation of the product
+        itself (not to be confused with provisioning)." 
+    ::= { cccaGeneralInfo 8 }
+
+cccaNotificationsEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The notifications enabled object allows a management station
+        to disable, during run time, all outgoing contact center
+        application notifications.  This is typically done during a
+        maintenance window where many application components are
+        frequently stopped, reconfigured and restarted, which can
+        generate periodic floods of notifications that are not
+        desireable during that maintenance period.  Please note that
+        this setting is persistent even after a restart of the agent;
+        the management station must explicitly reset this object
+        value to 'true' to re-enable outgoing application
+        notifications." 
+    ::= { cccaGeneralInfo 9 }
+-- ******************************************************************
+-- Instance Table
+-- ******************************************************************
+
+cccaInstanceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaInstanceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The instance table is a list of enterprise contact center
+        application instances.  Each instance represents a contact
+        center application solution.  A solution includes a collection
+        of interconnected functional components (e.g. a router, a
+        logger and a peripheral gateway), each of which perform a
+        specific, necessary function of the contact center
+        application.
+
+        A single server is permitted to have multiple functional
+        components of a different type, but also multiple components
+        of the same type, each of which may be part of a different
+        instance.  A perfect example of the latter is in a telephony
+        service provider environment where a single server could have
+        ten router components, each assigned to a different 'customer'
+        instance.  All ten are concurrently functional but route
+        contacts only within the context of the instance that they are
+        assigned.  In this scenario, the instance table would have ten
+        entries.
+
+        The instance table is not directly dependent upon any other
+        table, however, the other functional component tables are
+        dependent upon the instance table.  The instance table index
+        serves as a primary index for all other functional component
+        tables in order to properly relate the functional components
+        to the appropriate instance.
+
+        The SNMP agent constructs the instance table at startup.
+        Since instances can only be configured while the enterprise
+        contact center application is stopped, instance table entries
+        cannot be added to or deleted from the table nor can object
+        values be modified either by the agent or the management
+        station.  All objects in this table are read-only."
+    ::= { cccaComponents 1 }
+
+cccaInstanceEntry OBJECT-TYPE
+    SYNTAX          CccaInstanceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each instance entry represents a contact center application
+        solution.  A solution includes a collection of interconnected
+        functional components, each of which perform a specific,
+        necessary function of the contact center application.  At
+        minimum, an instance would include one router component, one
+        logger component and one peripheral gateway component.  While
+        each functional component may reside on a separate server,
+        they are identified as being a part of the collective instance
+        by having the same instance name and instance number."
+    INDEX           { cccaInstanceNumber } 
+    ::= { cccaInstanceTable 1 }
+
+CccaInstanceEntry ::= SEQUENCE {
+        cccaInstanceNumber Unsigned32,
+        cccaInstanceName   SnmpAdminString
+}
+
+cccaInstanceNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The instance number is a numeric value that uniquely
+        identifies an enterprise contact center application instance.
+        The instance number is a user-defined value configured when
+        the instance is created by the administrator." 
+    ::= { cccaInstanceEntry 1 }
+
+cccaInstanceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The instance name is the configured textual identification
+        for the enterprise contact center application instance." 
+    ::= { cccaInstanceEntry 2 }
+ 
+
+-- ******************************************************************
+-- Component Table
+-- ******************************************************************
+
+cccaComponentTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaComponentEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The component table is a list of enterprise contact center
+        application functional components.  A contact center
+        application solution includes a collection of interconnected
+        functional components (e.g. a router, a logger and a
+        peripheral gateway), each of which perform a specific,
+        necessary function of the contact center application.  This
+        table enumerates and lists all contact center application
+        functional components installed and configured on this server.
+        A single server is permitted to have multiple functional
+        components of a different type, but also multiple components
+        of the same type.
+
+        This table has an expansion relationship with the instance
+        table; there will be one or many entries in this table that
+        relate to a single entry in the instance table.
+
+        The component table is indexed by two different values: the
+        primary index is the instance index; the secondary index is a
+        unique identifier for each functional component.  This
+        component index is arbitrarily assigned by the SNMP agent.
+        These same index values are used in the individual component
+        information tables, thus, the individual component information
+        tables have a sparse dependency relationship with this table.
+
+        The SNMP agent constructs the component table at startup.
+        Since components can only be configured while the enterprise
+        contact center application is stopped, component table entries
+        cannot be added to or deleted from the table.  Object values
+        can be modified by the agent but not the management station.
+        All objects in this table are read-only to the management
+        station."
+    ::= { cccaComponents 2 }
+
+cccaComponentEntry OBJECT-TYPE
+    SYNTAX          CccaComponentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each component entry represents a contact center application
+        functional component installed and configured on this server.
+        This table lists these functional components and provides
+        a map to the component resource table."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex
+                    } 
+    ::= { cccaComponentTable 1 }
+
+CccaComponentEntry ::= SEQUENCE {
+        cccaComponentIndex  CcaIndex,
+        cccaComponentType   CcaComponentType,
+        cccaComponentName   SnmpAdminString,
+        cccaComponentStatus CcaComponentStatus
+}
+
+cccaComponentIndex OBJECT-TYPE
+    SYNTAX          CcaIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The component index is a value that uniquely identifies an
+        entry in the component table.  This value is arbitrarily
+        assigned by the SNMP agent." 
+    ::= { cccaComponentEntry 1 }
+
+cccaComponentType OBJECT-TYPE
+    SYNTAX          CcaComponentType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The component type object identifies the type of enterprise
+        contact center application functional component." 
+    ::= { cccaComponentEntry 2 }
+
+cccaComponentName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The component name is a user-intuitive textual name for the
+        enterprise contact center application functional component.
+        Typically, this name is constructed using the component type
+        text, the letter that indicates which side this component
+        represents of a fault tolerant duplex pair and potentially a
+        configured numeric identifier assigned to the component. For
+        example, a router component might be 'RouterB'; a peripheral
+        gateway might be 'PG3A'.  Often, this name is used elsewhere
+        (in contact center application tools) to identify this
+        functional component." 
+    ::= { cccaComponentEntry 3 }
+
+cccaComponentStatus OBJECT-TYPE
+    SYNTAX          CcaComponentStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The component status is the last known status of the
+        enterprise contact center application functional component." 
+    ::= { cccaComponentEntry 4 }
+ 
+
+-- ******************************************************************
+-- Component Element Table
+-- ******************************************************************
+
+cccaComponentElmtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaComponentElmtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The component element table provides a list of component
+        (operating system) services or processes that are elements of
+        an enterprise contact center application functional component.
+        Each entry identifies a single process that is a necessary
+        element of the functional component.
+
+        This table also provides a one-to-one mapping of entries to a
+        corresponding entry in IETF standard host and application MIB
+        tables.  The HOST-RESOURCES and SYSAPPL MIBs expose tables
+        that provide additional instrumentation for software and
+        applications and for the processes that make up that software
+        or those applications.  The HOST-RESOURCES-MIB entries in
+        'hrSWRunTable' and 'hrSWRunPerfTable' and the SYSAPPL-MIB
+        entries in 'sysApplElmtRunTable' have a one-to-one
+        relationship to entries in the component element table.  The
+        entries in these standard MIB tables are solely or partially
+        indexed by the operating system process identifier (ID).  The
+        process ID is an integer value that uniquely identifies a
+        single process that is currently running on the host.  Entries
+        in the component element table maintain its process ID; this
+        value is used to relate the entry to a corresponding entry in
+        the referenced tables of HOST-RESOURCES-MIB and SYSAPPL-MIB.
+
+        Entries in these tables of the HOST-RESOURCES and SYSAPPL MIBs
+        expose similar information about each process; in some cases,
+        objects are duplicated.  However, while the HOST-RESOURCES-MIB
+        lists processes with no further relationship, the SYSAPPL-MIB
+        relates these same processes to installed software packages
+        and the elements that make up those packages.
+
+        Entries in the component element table cannot be similarly
+        indexed as the referenced standard MIB tables because, should
+        the process terminate (expectedly or unexpectedly), the entry
+        would need to be removed from the table since its index or
+        process ID is thus unknown.  This behavior diminishes the
+        agent's ability to express a component element's current
+        status since the entry no longer exists.  However, to relate
+        this table to the referenced standard MIB tables, entries in
+        the component element table maintain the current process ID
+        of the element.  This provides the one-to-one relationship
+        that allows the management station to drill down further on
+        each functional component and present instrumentation related
+        to each element of that component from these standard MIB
+        tables.
+
+        This table has a expansion relationship with the component
+        table; there will be one or many entries in this table that
+        relate to a single entry in the component table.
+
+        Because the set of elements of a contact center functional
+        component are finite and static, this table is constructed by
+        the SNMP agent at startup; entries cannot be added or deleted
+        at run time.  The object values of each element entry may
+        change periodically if the run state of the process changes.
+        The SNMP agent will alter the RunID and Status object values
+        to reflect the correct process ID and run status of that
+        process.  All objects in this table are read-only to the
+        management station."
+    REFERENCE
+        "S. Waldbusser, P. Grillo, Host Resources MIB, RFC-2790,
+            March 2000.
+         C. Krupczak, J. Saperia, Definitions of System-Level
+            Managed Objects for Applications, RFC-2287, February 1998."
+    ::= { cccaComponents 3 }
+
+cccaComponentElmtEntry OBJECT-TYPE
+    SYNTAX          CccaComponentElmtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the component element identifies a single
+        process that is a necessary element of the enterprise contact
+        center functional component.  Each entry in the 'hrSWRunTable'
+        and the 'hrSWRunPerfTable' of the HOST-RESOURCES-MIB as well
+        as the 'sysApplElmtRunTable' of the SYSAPPL-MIB maps to a
+        corresponding entry of the component element table.  An entry
+        in this table is an operating system process or service."
+    REFERENCE
+        "S. Waldbusser, P. Grillo, Host Resources MIB, RFC-2790,
+            March 2000.
+         C. Krupczak, J. Saperia, Definitions of System-Level
+            Managed Objects for Applications, RFC-2287, February 1998."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex,
+                        cccaComponentElmtIndex
+                    } 
+    ::= { cccaComponentElmtTable 1 }
+
+CccaComponentElmtEntry ::= SEQUENCE {
+        cccaComponentElmtIndex  Unsigned32,
+        cccaComponentElmtName   SnmpAdminString,
+        cccaComponentElmtRunID  Unsigned32,
+        cccaComponentElmtStatus CcaComponentStatus
+}
+
+cccaComponentElmtIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..'FFFFFFFF'H)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The component element index is a unique numeric identifier
+        for a system process or service that is a necessary element of
+        an enterprise contact center application functional component.
+        This value is arbitrarily assigned by the SNMP agent." 
+    ::= { cccaComponentElmtEntry 1 }
+
+cccaComponentElmtName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The component element name is the textual name of the
+        component element, as known by the contact center application.
+        The component element is an operating system process which is
+        a necessary element of the enterprise contact center
+        application functional component.  Most often, this name is
+        the host executable file name, without the file extension." 
+    ::= { cccaComponentElmtEntry 2 }
+
+cccaComponentElmtRunID OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..'FFFFFFFF'H)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The component element run ID is the actual operating system
+        process ID for the process or service that is an element of
+        this enterprise contact center application functional
+        component.  The component element run ID maps directly to the
+        'hrSWRunIndex' value of 'hrSWRunTable' and 'hrSWRunPerfTable'
+        (which augments 'hrSWRunTable') of the HOST-RESOURCES-MIB and
+        the 'sysApplElmtRunIndex' value of 'sysApplElmtRunTable' of
+        the SYSAPPL-MIB.  This object value provides the mechanism for
+        a one-to-one relationship between an entry in the referenced
+        tables of these standard MIBs and an entry in the component
+        element table."
+    REFERENCE
+        "- S. Waldbusser, P. Grillo, Host Resources MIB, RFC-2790,
+           March 2000.
+         - C. Krupczak, J. Saperia, Definitions of System-Level
+           Managed Objects for Applications, RFC-2287, February 1998." 
+    ::= { cccaComponentElmtEntry 3 }
+
+cccaComponentElmtStatus OBJECT-TYPE
+    SYNTAX          CcaComponentStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The component element status is the last known status of a
+        system process or service that is a necessary element of an
+        enterprise contact center application functional component." 
+    ::= { cccaComponentElmtEntry 4 }
+ 
+
+-- ******************************************************************
+-- Router Component Table
+-- ******************************************************************
+
+cccaRouterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaRouterEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The router table lists each enterprise contact center
+        application router component configured on this server.  Each
+        entry in the table defines a separate router functional
+        component; a single server is permitted to have multiple
+        router components.
+
+        The router table has a sparse dependent relationship with the
+        component table.  The instance number acts as the primary
+        index for the router table in order to properly relate a
+        router component entry to the appropriate instance entry.  The
+        component index acts as the secondary index, relating the
+        entry to the corresponding entry in the component table.
+
+        The SNMP agent constructs the router table at startup.  Since
+        routers can only be configured while the enterprise contact
+        center application is stopped, router table entries cannot be
+        added to or deleted from the table either by the agent or the
+        management station when the application is running.  The agent
+        will update router entry objects as their values change when
+        the application is running.  All objects in this table are
+        read-only to the management station."
+    ::= { cccaComponentInfo 1 }
+
+cccaRouterEntry OBJECT-TYPE
+    SYNTAX          CccaRouterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each router entry represents an enterprise contact center
+        application router functional component configured on the
+        server.  The router component provides intelligent routing of
+        inbound contacts, e.g. voice calls, to contact center agents.
+        The objects in the router entry provide information in three
+        areas: 1) identify which part of the fault tolerant duplex
+        pair this component represents and which server is its duplex
+        pair, 2) provide health instrumentation that indicates the
+        component's status and load and 3) supply a count of NIC
+        subcomponents configured and enabled on this router component."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex
+                    } 
+    ::= { cccaRouterTable 1 }
+
+CccaRouterEntry ::= SEQUENCE {
+        cccaRouterSide               CcaComponentSide,
+        cccaRouterCallsPerSec        Gauge32,
+        cccaRouterAgentsLoggedOn     Gauge32,
+        cccaRouterCallsInProgress    Gauge32,
+        cccaRouterDuplexPairName     InetAddressDNS,
+        cccaRouterNicCount           Gauge32,
+        cccaRouterPGsEnabledCount    Gauge32,
+        cccaRouterCallsInQueue       Gauge32,
+        cccaRouterAppGwEnabled       TruthValue,
+        cccaRouterDBWorkerEnabled    TruthValue,
+        cccaRouterPublicHighAddr     InetAddressDNS,
+        cccaRouterPublicNonHighAddr  InetAddressDNS,
+        cccaRouterPrivateHighAddr    InetAddressDNS,
+        cccaRouterPrivateNonHighAddr InetAddressDNS
+}
+
+cccaRouterSide OBJECT-TYPE
+    SYNTAX          CcaComponentSide
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router side indicates which of the duplex pair this
+        entry represents of an enterprise contact center application
+        fault tolerant router functional component.  The router side
+        value is either 'A' or 'B'.  For simplex configurations, the
+        router side value defaults to 'A'." 
+    ::= { cccaRouterEntry 1 }
+
+cccaRouterCallsPerSec OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router calls per sec object indicates the current inbound
+        call rate; that is, the calculated number of inbound calls per
+        second." 
+    ::= { cccaRouterEntry 2 }
+
+cccaRouterAgentsLoggedOn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router agents logged on object represents the number of
+        contact center agents currently managed by the enterprise
+        contact center application.  This does not necessarily
+        represent the number of contact center agents that can receive
+        routed calls, but rather the number of agents for which the
+        application is recording statistical information." 
+    ::= { cccaRouterEntry 3 }
+
+cccaRouterCallsInProgress OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router calls in progress object indicates the current
+        number of active (voice) calls being managed by the enterprise
+        contact center application.  The calls will be in various
+        states of treatment." 
+    ::= { cccaRouterEntry 4 }
+
+cccaRouterDuplexPairName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router duplex pair name object is the host name of the
+        duplex pair (i.e. the other side) server of an enterprise
+        contact center application fault tolerant router component.
+        If this component is not part of a duplex pair (i.e. simplex),
+        the object value will be the null string." 
+    ::= { cccaRouterEntry 5 }
+
+cccaRouterNicCount OBJECT-TYPE
+    SYNTAX          Gauge32 (0..32)
+    UNITS           "entries"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router NIC count object is the number of network interface
+        controllers configured and enabled for this enterprise contact
+        center application router functional component.  There is an
+        imposed architectural limit of 32 configured NICs per router.
+        This object holds a count of rows in the NIC table
+        (cccaNicTable)." 
+    ::= { cccaRouterEntry 6 }
+
+cccaRouterPGsEnabledCount OBJECT-TYPE
+    SYNTAX          Gauge32 (0..250)
+    UNITS           "peripherals"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router PGs enabled count object holds the number of
+        Peripheral Gateways (PGs) that have been enabled for this
+        router; during normal operation, this is the number of PGs
+        that will connect to this router functional component.  The
+        application limits the number of configured PGs to a maximum
+        of 250 per deployment." 
+    ::= { cccaRouterEntry 7 }
+
+cccaRouterCallsInQueue OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router calls in queue object indicates the total number
+        of calls queued in all network Voice Response Units (VRUs),
+        from the router's perspective, including those calls that are
+        in the process of transferring to the VRU for queuing." 
+    ::= { cccaRouterEntry 8 }
+
+cccaRouterAppGwEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router application gateway enabled object indicates
+        whether an application gateway is configured and a part of
+        this contact center application deployment.  An application
+        gateway provides an external interface to business back-end
+        systems that may be used as external input to call scripting
+        logic, or, that logic which controls how a customer call is
+        handled (routed)." 
+    ::= { cccaRouterEntry 9 }
+
+cccaRouterDBWorkerEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router database worker enabled object indicates whether
+        a database worker process has been configured and is a part
+        of this contact center application deployment.  A database
+        worker provides an interface to an external database from
+        which data may be retrieved and used as input to call
+        scripting logic, or, that logic which controls how a customer
+        call is handled (routed)." 
+    ::= { cccaRouterEntry 10 }
+
+cccaRouterPublicHighAddr OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router public high address object holds the address of
+        the local high-priority interface of this router functional
+        component to the public network.  The 'public' network
+        interface is exposed outside the realm of the ICM or Contact
+        Center application and is used for the transfer of data
+        between this router and other functional components of the
+        contact center deployment.  This interface is reserved for
+        high-priority messages; network prioritization is typically
+        configured for this interface to ensure a level of quality of
+        service." 
+    ::= { cccaRouterEntry 11 }
+
+cccaRouterPublicNonHighAddr OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router public non-high address object holds the address
+        of the local interface of this router functional component
+        to the public network that is used for best effort priority
+        messages.  The 'public' network interface is exposed outside
+        the realm of the ICM or Contact Center application and is
+        used for the transfer of data between this router and other
+        functional components of the deployment.  This interface is
+        used for normal-priority messages." 
+    ::= { cccaRouterEntry 12 }
+
+cccaRouterPrivateHighAddr OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router private high address object holds the address of
+        the local high-priority interface of this router functional
+        component to the private network.  The 'private' network
+        interface is used exclusively by the ICM or Contact Center
+        application for the transfer of synchronization data between
+        duplexed pairs and for the transfer of application data from
+        the router to the logger.  This interface is reserved for
+        high-priority messages and as much as 90% of the available
+        network bandwidth is allocated to this interface." 
+    ::= { cccaRouterEntry 13 }
+
+cccaRouterPrivateNonHighAddr OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router private non-high address object holds the address
+        of the local interface of this router functional component
+        to the private network that is used for best effort priority
+        messages.  The 'private' network is used exclusively by the
+        ICM or Contact Center application for the transfer of
+        synchronization data between duplexed pairs and for the
+        transfer of application data from the router to the logger.
+        This interface is used for normal-priority messages." 
+    ::= { cccaRouterEntry 14 }
+ 
+
+-- ******************************************************************
+-- NIC (Network Interface Controller) Component Table
+-- ******************************************************************
+
+cccaNicTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaNicEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The NIC table lists the enterprise contact center application
+        network interface controllers enabled on this router
+        functional component.
+
+        The NIC table has an expansion dependent relationship with the
+        router table.  There may be one or more NIC entries associated
+        with a single router entry.  The instance index acts as the
+        primary index and the component index a secondary index.  This
+        indexing method ensures that NIC entries are properly related
+        to its parent router and to the appropriate instance.  The
+        SNMP agent arbitrarily assigns the NIC index when each NIC
+        table entry is created.
+
+        The SNMP agent constructs the NIC table at startup.  Since
+        NICs can only be configured while the enterprise contact
+        center application is stopped, NIC table entries cannot be
+        added to or deleted from the table either by the agent or the
+        management station when the application is running.  The agent
+        will update NIC entry objects as their values change when
+        the application is running.  All objects in this table are
+        read-only to the management station."
+    ::= { cccaComponentInfo 2 }
+
+cccaNicEntry OBJECT-TYPE
+    SYNTAX          CccaNicEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each NIC entry represents an enterprise contact center
+        application network interface controller functional component
+        configured and enabled on the server.  The NIC component
+        provides an interface between the enterprise contact center
+        application and a telephony network.  The objects in the NIC
+        entry provide the NIC type and the current status of the NIC
+        functional component."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex,
+                        cccaNicIndex
+                    } 
+    ::= { cccaNicTable 1 }
+
+CccaNicEntry ::= SEQUENCE {
+        cccaNicIndex  CcaIndex,
+        cccaNicType   INTEGER,
+        cccaNicStatus CcaComponentStatus
+}
+
+cccaNicIndex OBJECT-TYPE
+    SYNTAX          CcaIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The NIC index is a value that uniquely identifies an entry
+        in the network interface controller table.  The value of this
+        object is arbitrarily assigned by the SNMP agent." 
+    ::= { cccaNicEntry 1 }
+
+cccaNicType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        generic(1),
+                        att(2),
+                        aucsINAP(3),
+                        cain(4),
+                        crsp(5),
+                        cwc(6),
+                        gktmp(7),
+                        incrp(8),
+                        mci(9),
+                        nortel(10),
+                        ntl(11),
+                        sprint(12),
+                        ss7in(13),
+                        stentor(14),
+                        timINAP(15)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Network Interface Controller (NIC) type indicates which
+        telephony network that this NIC functional component provides
+        an interface.  The possible options are:
+
+        'generic':      Generic NIC (typically only used for testing)
+
+        'att':          AT&T NIC
+
+        'aucsINAP':     AT&T Unisource Capability Set Intelligent
+                        Network Application Protocol NIC
+
+        'cain':         Nortel Carrier Advanced Intelligent Network
+                        NIC
+
+        'crsp':         Call Routing Service Protocol NIC
+
+        'cwc':          Cable & Wireless Communications NIC
+
+        'gktmp':        Gatekeeper Transaction Message Protocol NIC
+
+        'incrp':        Intelligent Network Call Routing Protocol NIC
+
+        'mci':          MCI NIC
+
+        'nortel':       Nortel NIC
+
+        'ntl':          ntl Group Ltd. NIC
+
+        'sprint':       Sprint NIC
+
+        'ss7in':        Signaling System 7 Intelligent Network NIC
+
+        'stentor':      Stentor NIC
+
+        'timINAP':      Telecom Italia Mobile Intelligent Network
+                        Application Protocol NIC" 
+    ::= { cccaNicEntry 2 }
+
+cccaNicStatus OBJECT-TYPE
+    SYNTAX          CcaComponentStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The NIC status is the last known status of the enterprise
+        contact center application network interface controller
+        functional component." 
+    ::= { cccaNicEntry 3 }
+ 
+
+-- ******************************************************************
+-- Logger Component Table
+-- ******************************************************************
+
+cccaLoggerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaLoggerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The logger table lists the enterprise contact center
+        application logger functional components installed and enabled
+        on this server.
+
+        The logger table has a sparse dependent relationship with the
+        component table.  The instance number acts as the primary
+        index for the logger table in order to properly relate a
+        logger component entry to the appropriate instance entry.  The
+        component index acts as the secondary index, relating the
+        entry to the corresponding entry in the component table.
+
+        The SNMP agent constructs the logger table at startup.  Since
+        loggers can only be configured while the enterprise contact
+        center application is stopped, logger table entries cannot be
+        added to or deleted from the table either by the agent or the
+        management station when the application is running.  The agent
+        will update the values of logger entry objects as their values
+        change when the application is running.  All objects in this
+        table are read-only to the management station."
+    ::= { cccaComponentInfo 3 }
+
+cccaLoggerEntry OBJECT-TYPE
+    SYNTAX          CccaLoggerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each logger entry represents an enterprise contact center
+        application logger functional component configured and enabled
+        on the server.  The logger component maintains the enterprise
+        contact center solution configuration and real-time data
+        store.  The objects in each logger entry provide configuration
+        and component status information."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex
+                    } 
+    ::= { cccaLoggerTable 1 }
+
+CccaLoggerEntry ::= SEQUENCE {
+        cccaLoggerSide            CcaComponentSide,
+        cccaLoggerType            INTEGER,
+        cccaLoggerRouterSideAName InetAddressDNS,
+        cccaLoggerRouterSideBName InetAddressDNS,
+        cccaLoggerDuplexPairName  InetAddressDNS,
+        cccaLoggerHDSReplication  TruthValue,
+        cccaLoggerAvgDBWriteTime  Unsigned32
+}
+
+cccaLoggerSide OBJECT-TYPE
+    SYNTAX          CcaComponentSide
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The logger side indicates which of the duplex pair this
+        entry represents of an enterprise contact center application
+        fault tolerant logger functional component.  The logger side
+        value is either 'A' or 'B'.  For simplex configurations, the
+        logger side value defaults to 'A'." 
+    ::= { cccaLoggerEntry 1 }
+
+cccaLoggerType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        standard(1),
+                        nam(2),
+                        cicm(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The logger type object indicates which type of enterprise
+        contact center application logger is installed on this
+        server.  The logger type varies based on the configuration
+        of the contact center solution.
+
+        'standard': The default logger type configured for an
+                    enterprise contact center solution.
+
+        'nam':      The network application manager (NAM) logger type
+                    is installed at a telephony service provider and
+                    supports the routing of inbound voice calls to a
+                    customer intelligent contact management
+                    application solution.
+
+        'cicm':     The customer intelligent contact manager (CICM)
+                    logger type is installed as part of a customer
+                    instance of an enterprise contact center
+                    application solution.  The CICM component manages
+                    contacts routed by the NAM component, distributing
+                    contacts to customer premise peripheral devices or
+                    contact center agents." 
+    ::= { cccaLoggerEntry 2 }
+
+cccaLoggerRouterSideAName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router side A name object holds the host name of the side
+        'A' router that this enterprise contact center application
+        logger functional component is associated.  The logger
+        component must be connected to a router that is part of the
+        same instance.
+
+        The logger connects to the router via a 'private' interface --
+        a closed subnet that guarantees a quality of service level
+        that will not impact the performance of the contact center
+        application.  This private subnet is not accessible by the
+        management station.
+
+                 _____
+                |     |
+                | NMS |
+                |_____|
+                   |            Visible Subnet
+        =======+===+==========+================+=============+=======
+               |              |                |             |
+           ____|____       ___|__           ___|__       ____|____
+          |         |     |      |         |      |     |         |
+          | RouterA |     | PG1A |         | PG1B |     | RouterB |
+          |_________|     |______|         |______|     |_________|
+               |              |____private_____|             |
+               |                                             |
+        =======+=======+=============================+=======+=======
+                       |        Private Subnet       |
+                   ____|____                     ____|____ 
+                  |         |                   |         |
+                  | LoggerA |                   | LoggerB |
+                  |_________|                   |_________|" 
+    ::= { cccaLoggerEntry 3 }
+
+cccaLoggerRouterSideBName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The router side B name object holds the host name of the side
+        'B' router that this enterprise contact center application
+        logger functional component is associated.  The logger
+        component must be connected to a router that is part of the
+        same instance.
+
+        The logger connects to the router via a 'private' interface --
+        a closed subnet that guarantees a quality of service level
+        that will not impact the performance of the contact center
+        application.  This private subnet is not accessible by the
+        management station.
+
+                 _____
+                |     |
+                | NMS |
+                |_____|
+                   |            Visible Subnet
+        =======+===+==========+================+=============+=======
+               |              |                |             |
+           ____|____       ___|__           ___|__       ____|____
+          |         |     |      |         |      |     |         |
+          | RouterA |     | PG1A |         | PG1B |     | RouterB |
+          |_________|     |______|         |______|     |_________|
+               |              |____private_____|             |
+               |                                             |
+        =======+=======+=============================+=======+=======
+                       |        Private Subnet       |
+                   ____|____                     ____|____ 
+                  |         |                   |         |
+                  | LoggerA |                   | LoggerB |
+                  |_________|                   |_________|" 
+    ::= { cccaLoggerEntry 4 }
+
+cccaLoggerDuplexPairName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The logger duplex pair name object is the host name of the
+        duplex pair (i.e. the other side) server of an enterprise
+        contact center application fault tolerant logger component.
+        If this component is not part of a duplex pair (i.e. simplex),
+        the object value will be the null string.
+
+        The logger connects to its duplex pair via a 'private'
+        interface -- a closed subnet that guarantees a quality of
+        service level that will not impact the performance of the
+        contact center application.  This private subnet is not
+        accessible by the management station." 
+    ::= { cccaLoggerEntry 5 }
+
+cccaLoggerHDSReplication OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The logger HDS replication Boolean object indicates whether
+        the logger component will be replicating data to a distributor
+        AW Historical Data Server (HDS).  If 'true', the logger feeds
+        historical data at regular intervals to the HDS for long-term
+        storage.  In this configuration, administrator reports are
+        generated by accessing data from the HDS rather than the
+        logger in order to remove the performance impact of reporting
+        on the logger." 
+    ::= { cccaLoggerEntry 6 }
+
+cccaLoggerAvgDBWriteTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "hundred nanoseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The logger average database write time expresses the average
+        amount of time, in 100 nanosecond units, required to write
+        data to a table in the central controller database.  This
+        value represents the average time per write of the last 100
+        write operations.  This object is a good indicator of
+        contention for database access." 
+    ::= { cccaLoggerEntry 7 }
+ 
+
+-- ******************************************************************
+-- Distributor AW / Administration and Data Server Component Table
+-- ******************************************************************
+
+cccaDistAwTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaDistAwEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) table lists the
+        enterprise contact center application distributor AW
+        functional components installed and enabled on this server.
+
+        The distributor AW table has a sparse dependent relationship
+        with the component table.  The instance number acts as the
+        primary index for the distributor AW table in order to
+        properly relate a distributor AW component entry to the
+        appropriate instance entry.  The component index acts as the
+        secondary index, relating the entry to the corresponding
+        entry in the component table.
+
+        The SNMP agent constructs the distributor AW table at startup.
+        Since distributor AWs can only be configured while the
+        enterprise contact center application is stopped, distributor
+        AW table entries cannot be added to or deleted from the table
+        either by the agent or the management station when the
+        application is running.  The agent will update the values of
+        distributor AW entry objects as their values change when the
+        application is running.  All objects in this table are read-
+        only to the management station."
+    ::= { cccaComponentInfo 4 }
+
+cccaDistAwEntry OBJECT-TYPE
+    SYNTAX          CccaDistAwEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each distributor administrator workstation (AW) (also known
+        as the administration and data server) entry represents an
+        enterprise contact center application distributor AW
+        functional component configured on this server.  The
+        distributor AW component maintains a configuration, historical
+        and 'detail data' database that serves one or more reporting
+        clients or provides a data feed to data archival or aggregation
+        components.  The objects in each distributor AW entry provide
+        configuration and component status information."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex
+                    } 
+    ::= { cccaDistAwTable 1 }
+
+CccaDistAwEntry ::= SEQUENCE {
+        cccaDistAwSide              CcaComponentSide,
+        cccaDistAwType              INTEGER,
+        cccaDistAwAdminSiteName     SnmpAdminString,
+        cccaDistAwRouterSideAName   InetAddressDNS,
+        cccaDistAwRouterSideBName   InetAddressDNS,
+        cccaDistAwLoggerSideAName   InetAddressDNS,
+        cccaDistAwLoggerSideBName   InetAddressDNS,
+        cccaDistAwDuplexPairName    InetAddressDNS,
+        cccaDistAwHDSEnabled        TruthValue,
+        cccaDistAwWebViewEnabled    TruthValue,
+        cccaDistAwWebViewServerName SnmpAdminString,
+        cccaDistAwWebReskillingURL  SnmpAdminString
+}
+
+cccaDistAwSide OBJECT-TYPE
+    SYNTAX          CcaComponentSide
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) side indicates which
+        of the duplex pair this entry represents of an enterprise
+        contact center application distributor AW functional
+        component.
+        
+        The Distributor Admin Workstation implements an N+1 fault
+        tolerance model vs. the 1+1 model implemented by the Router
+        and Peripheral Gateways.  As such, this object has been
+        deprecated since it is inconsistent with the Dist AW fault
+        tolerance model." 
+    ::= { cccaDistAwEntry 1 }
+
+cccaDistAwType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        standard(0),
+                        nam(1),
+                        cicm(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) type object indicates
+        which type of enterprise contact center application
+        distributor AW is installed on this server.  The distributor
+        AW type varies based on the size and configuration of the
+        contact center solution.
+
+        'standard': The default distributor AW type configured for an
+                    enterprise contact center solution.
+
+        'nam':      The network application manager (NAM) distributor
+                    AW type is installed at a telephony service
+                    provider.
+
+        'cicm':     The customer intelligent contact manager (CICM)
+                    distributor AW type is installed as part of a
+                    customer instance of an enterprise contact center
+                    hosted application solution." 
+    ::= { cccaDistAwEntry 2 }
+
+cccaDistAwAdminSiteName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) administrative site name
+        is a user-defined textual name that uniquely identifies the
+        location or the configuration of the distributor AW component." 
+    ::= { cccaDistAwEntry 3 }
+
+cccaDistAwRouterSideAName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) router side A name
+        object holds the host name of the side 'A' router that this
+        enterprise contact center application distributor AW
+        functional component is associated.  The distributor AW
+        component must be connected to a router that is part of the
+        same instance.  If the side B router is the active router and
+        a failure occurs, the side A router then immediately assumes
+        the role.  In this case, the distributor AW will lose its
+        connection to the side B router and thus use this object value
+        to connect to the side A router." 
+    ::= { cccaDistAwEntry 4 }
+
+cccaDistAwRouterSideBName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) router side B name
+        object holds the host name of the side 'B' router that this
+        enterprise contact center distributor AW functional component
+        is associated.  The distributor AW component must be connected
+        to a router that is part of the same instance.  If the side A
+        router is the active router and a failure occurs, the side B
+        router then immediately assumes the role.  In this case, the
+        distributor AW will lose its connection to the side A router
+        and thus use this object value to connect to the side B
+        router." 
+    ::= { cccaDistAwEntry 5 }
+
+cccaDistAwLoggerSideAName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) logger side A name
+        object holds the host name of the side 'A' logger that this
+        enterprise contact center application distributor AW
+        functional component is associated.  The distributor AW
+        component must be connected to a logger that is part of the
+        same instance.  If the side B logger is the active logger and
+        a failure occurs, the side A logger then immediately assumes
+        the role.  In this case, the distributor AW will lose its
+        connection to the side B logger and thus use this object value
+        to connect to the side A logger." 
+    ::= { cccaDistAwEntry 6 }
+
+cccaDistAwLoggerSideBName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) logger side B name
+        object holds the host name of the side 'B' logger that this
+        enterprise contact center application distributor AW
+        functional component is associated.  The distributor AW
+        component must be connected to a logger that is part of the
+        same instance.  If the side A logger is the active logger and
+        a failure occurs, the side B logger then immediately assumes
+        the role.  In this case, the distributor AW will lose its
+        connection to the side A logger and thus use this object value
+        to connect to the side B logger." 
+    ::= { cccaDistAwEntry 7 }
+
+cccaDistAwDuplexPairName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) duplex pair name object
+        is the host name of the duplex pair (i.e. the other side)
+        server of an enterprise contact center application distributor
+        AW component.  If this component is not part of a duplex pair
+        (i.e. simplex), the object value will be the null string.
+        
+        The Distributor Admin Workstation implements an N+1 fault
+        tolerance model vs. the 1+1 model implemented by the Router
+        and Peripheral Gateways.  As such, this object has been
+        deprecated since it is inconsistent with the Dist AW fault
+        tolerance model." 
+    ::= { cccaDistAwEntry 8 }
+
+cccaDistAwHDSEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) HDS enabled Boolean
+        object indicates whether this enterprise contact center
+        application distributor AW has a historical database server
+        (HDS) configured and enabled.  If so, this distributor AW will
+        receive replicated data from the logger at periodic intervals
+        and add the data to the HDS.  Administration clients will
+        generate reports based on the data in this HDS." 
+    ::= { cccaDistAwEntry 9 }
+
+cccaDistAwWebViewEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) WebView enabled Boolean
+        object indicates whether this enterprise contact center
+        application distributor AW has a web-based reporting server
+        (WebView) configured and enabled.  Having WebView configured
+        and enabled does not imply that a historical database is also
+        present on this server; the data may be accessed by the
+        WebView server from a database on a different host." 
+    ::= { cccaDistAwEntry 10 }
+
+cccaDistAwWebViewServerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) WebView server name
+        object holds the server (universal naming convention (UNC))
+        name of the server where the enterprise contact center
+        application database resides.  The WebView server accesses
+        this database to serve WebView client reports." 
+    ::= { cccaDistAwEntry 11 }
+
+cccaDistAwWebReskillingURL OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The distributor administrator workstation (AW) (also known
+        as the administration and data server) web reskilling URL
+        object holds the URL for the contact center application web
+        reskilling tool.  The web reskilling tool allows contact
+        center administrators and supervisors to reskill agents
+        (reassign contact center agents to different skill groups
+        allowing them to take calls of a different topic)." 
+    ::= { cccaDistAwEntry 12 }
+ 
+
+-- ******************************************************************
+-- PG (Peripheral Gateway) Component Table
+-- ******************************************************************
+
+cccaPgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaPgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The PG table lists the enterprise contact center application
+        peripheral gateway functional components installed and enabled
+        on this server.
+
+        The peripheral gateway table has a sparse dependent
+        relationship with the component table.  The instance number
+        acts as the primary index for the peripheral gateway table in
+        order to properly relate a peripheral gateway component entry
+        to the appropriate instance entry.  The component index acts
+        as the secondary index, relating the entry to the
+        corresponding entry in the component table.
+
+        The SNMP agent constructs the peripheral gateway table at
+        startup.  Since peripheral gateways can only be configured
+        while the enterprise contact center application is stopped,
+        peripheral gateway table entries cannot be added to or deleted
+        from the table either by the agent or the management station
+        when the application is running.  The agent will update the
+        values of peripheral gateway entry objects as their values
+        change when the application is running.  All objects in this
+        table are read-only to the management station."
+    ::= { cccaComponentInfo 5 }
+
+cccaPgEntry OBJECT-TYPE
+    SYNTAX          CccaPgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each PG entry represents an enterprise contact center
+        application peripheral gateway functional component configured
+        on the server.  The peripheral gateway component provides an
+        interface to one or more peripheral devices such as a private
+        branch exchange (PBX) or a voice response unit (VRU).  The
+        objects in each PG entry provide configuration and component
+        status information as well as a count of peripheral interface
+        manager (PIM) subcomponents that have been configured and
+        enabled."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex
+                    } 
+    ::= { cccaPgTable 1 }
+
+CccaPgEntry ::= SEQUENCE {
+        cccaPgNumber          Unsigned32,
+        cccaPgSide            CcaComponentSide,
+        cccaPgRouterSideAName InetAddressDNS,
+        cccaPgRouterSideBName InetAddressDNS,
+        cccaPgDuplexPairName  InetAddressDNS,
+        cccaPgPimCount        Gauge32,
+        cccaPgCallsInProgress Gauge32,
+        cccaPgAgentsLoggedOn  Gauge32,
+        cccaPgAgentsReady     Gauge32,
+        cccaPgAgentsTalking   Gauge32,
+        cccaPgID              Unsigned32
+}
+
+cccaPgNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..80)
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The PG number is a user-defined numeric identifier for this
+        enterprise contact center application peripheral gateway.  The
+        value is limited by the contact center application to a value
+        between 1 and 80; 80 is the maximum number of peripheral
+        gateways supported by the application.
+        
+        This object has been deprecated since its range is now
+        inappropriate; the number of peripheral gateways supported in
+        a deployment increased to 150 in ICM/CC version 7.5 and again
+        up to 250 in ICM/CC version 8.0." 
+    ::= { cccaPgEntry 1 }
+
+cccaPgSide OBJECT-TYPE
+    SYNTAX          CcaComponentSide
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PG side indicates which of the duplex pair this entry
+        represents of an enterprise contact center application fault
+        tolerant peripheral gateway functional component.  The PG side
+        value is either 'A' or 'B'.  For simplex configurations, the
+        PG side value defaults to 'A'." 
+    ::= { cccaPgEntry 2 }
+
+cccaPgRouterSideAName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PG router side A name object holds the host name of the
+        side A router that this enterprise contact center application
+        peripheral gateway functional component is associated.  The
+        peripheral gateway component must be connected to a router
+        that is part of the same instance.  If the side B router is
+        the active router and a failure occurs, the side A router then
+        immediately assumes the role.  In this case, the peripheral
+        gateway will lose its connection to the side B router and thus
+        use this object value to connect to the side A router." 
+    ::= { cccaPgEntry 3 }
+
+cccaPgRouterSideBName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PG router side B name object holds the host name of the
+        side B router that this enterprise contact center application
+        peripheral gateway functional component is associated.  The
+        peripheral gateway component must be connected to a router
+        that is part of the same instance.  If the side A router is
+        the active router and a failure occurs, the side B router then
+        immediately assumes the role.  In this case, the peripheral
+        gateway will lose its connection to the side A router and thus
+        use this object value to connect to the side B router." 
+    ::= { cccaPgEntry 4 }
+
+cccaPgDuplexPairName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PG duplex pair name object is the host name of the
+        duplex pair (i.e. the other side) server of an enterprise
+        contact center application fault tolerant peripheral gateway
+        component.  If this component is not part of a duplex pair
+        (i.e. simplex), the object value will be the null string." 
+    ::= { cccaPgEntry 5 }
+
+cccaPgPimCount OBJECT-TYPE
+    SYNTAX          Gauge32 (1..32)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PG PIM count object indicates the number of peripheral
+        interface managers configured and enabled for this enterprise
+        contact center application peripheral gateway functional
+        component.  This value is limited to 32 - this is the maximum
+        number of PIMs supported on a single peripheral gateway." 
+    ::= { cccaPgEntry 6 }
+
+cccaPgCallsInProgress OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The calls in progress object shows the number of calls that
+        are currently active and being managed/monitored by this
+        peripheral gateway." 
+    ::= { cccaPgEntry 7 }
+
+cccaPgAgentsLoggedOn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The agents logged On object shows the number of agents
+        associated with this peripheral gateway that are currently
+        logged on and are being managed/monitored by this peripheral
+        gateway." 
+    ::= { cccaPgEntry 8 }
+
+cccaPgAgentsReady OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The agents ready object shows the number of agents
+        associated with this peripheral gateway that are currently
+        logged on and in a 'Ready' state, i.e., ready to receive
+        calls." 
+    ::= { cccaPgEntry 9 }
+
+cccaPgAgentsTalking OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The agents talking object shows the number of agents
+        associated with this peripheral gateway that are currently
+        logged on and taking a call (in a 'Talking' state." 
+    ::= { cccaPgEntry 10 }
+
+cccaPgID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PG number is a unique numeric identifier for this
+        enterprise contact center application peripheral gateway.
+        The identifier is assigned by the contact center application." 
+    ::= { cccaPgEntry 11 }
+ 
+
+-- ******************************************************************
+-- PIM (Peripheral Interface Manager) Component Table
+-- ******************************************************************
+
+cccaPimTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaPimEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The PIM table lists the enterprise contact center application
+        peripheral interface managers (PIM) configured and enabled on
+        this peripheral gateway functional component.
+
+        The PIM table is dependent upon both the instance table and
+        the PG table; the instance index acts as the primary index
+        and the PG index a secondary index.  This indexing method
+        ensures that PIM entries are properly related to its parent
+        peripheral gateway and to the appropriate instance.
+
+        The PIM table has an expansion dependent relationship with the
+        peripheral gateway table.  There may be one or more PIM
+        entries associated with a single peripheral gateway entry.
+        The instance index acts as the primary index and the component
+        index a secondary index.  This indexing method ensures that
+        PIM entries are properly related to its parent peripheral
+        gateway and to the appropriate instance.  The SNMP agent
+        assigns the PIM number, based upon the configuration, when
+        each PIM table entry is created.
+
+        The SNMP agent constructs the PIM table at startup.  Since
+        PIMs can only be configured while the enterprise contact
+        center application is stopped, PIM table entries cannot be
+        added to or deleted from the table either by the agent or the
+        management station when the application is running.  The agent
+        will update PIM entry objects as their values change when
+        the application is running.  All objects in this table are
+        read-only to the management station."
+    ::= { cccaComponentInfo 6 }
+
+cccaPimEntry OBJECT-TYPE
+    SYNTAX          CccaPimEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each PIM entry represents an enterprise contact center
+        application peripheral interface manager functional component
+        configured on the server.  The PIM component provides an
+        interface between the enterprise contact center application
+        and a telephony switch: a private branch exchange (PBX), an
+        automatic call distributor (ACD) or a voice response unit
+        (VRU).  The objects in each PIM entry provide PIM type
+        information, the current status of the PIM functional
+        component and the host name of the telephony switch it
+        interfaces."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex,
+                        cccaPimNumber
+                    } 
+    ::= { cccaPimTable 1 }
+
+CccaPimEntry ::= SEQUENCE {
+        cccaPimNumber             Unsigned32,
+        cccaPimPeripheralName     SnmpAdminString,
+        cccaPimPeripheralType     CcaPeripheralType,
+        cccaPimStatus             CcaComponentStatus,
+        cccaPimPeripheralHostName InetAddressDNS
+}
+
+cccaPimNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..32)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The PIM number is the numeric identifier for this enterprise
+        contact center application PIM.  This object value is a
+        user-defined numeric value and is limited to a maximum of 32
+        since this is the maximum number of PIMs supported on a single
+        peripheral gateway." 
+    ::= { cccaPimEntry 1 }
+
+cccaPimPeripheralName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PIM peripheral name is the user-defined textual name of
+        the enterprise contact center application PIM.  This name
+        uniquely identifies the PIM." 
+    ::= { cccaPimEntry 2 }
+
+cccaPimPeripheralType OBJECT-TYPE
+    SYNTAX          CcaPeripheralType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PIM peripheral type object specifies the type of the
+        enterprise contact center application PIM, e.g. the brand name
+        and/or model of the automatic call distributor (ACD), private
+        branch exchange (PBX) or voice response unit (VRU)." 
+    ::= { cccaPimEntry 3 }
+
+cccaPimStatus OBJECT-TYPE
+    SYNTAX          CcaComponentStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PIM status object holds the last known status of the
+        enterprise contact center application peripheral interface
+        manager functional component." 
+    ::= { cccaPimEntry 4 }
+
+cccaPimPeripheralHostName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PIM peripheral host name object holds the host name or IP
+        address of the peripheral (the PBX, ACD or VRU) that the
+        enterprise contact center application PIM will be connected.
+        If there are multiple interfaces to the peripheral, each host
+        name or IP address will be separated by a comma." 
+    ::= { cccaPimEntry 5 }
+ 
+
+-- ******************************************************************
+-- CTI Gateway Component Table
+-- ******************************************************************
+
+cccaCgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaCgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The CG table lists the enterprise contact center application
+        computer telephony integration (CTI) gateway functional
+        components installed and enabled on this server.
+
+        The CTI gateway table has a sparse dependent relationship with
+        the component table.  The instance number acts as the primary
+        index for the CTI gateway table in order to properly relate a
+        CTI gateway component entry to the appropriate instance entry.
+        The component index acts as the secondary index, relating the
+        entry to the corresponding entry in the component table.
+
+        The SNMP agent constructs the CTI gateway table at startup.
+        Since CTI gateways can only be configured while the enterprise
+        contact center application is stopped, CTI gateway table
+        entries cannot be added to or deleted from the table either by
+        the agent or the management station when the application is
+        running.  The agent will update the values of CTI gateway
+        entry objects as their values change when the application is
+        running.  All objects in this table are read-only to the
+        management station."
+    ::= { cccaComponentInfo 7 }
+
+cccaCgEntry OBJECT-TYPE
+    SYNTAX          CccaCgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each CG entry represents an enterprise contact center
+        application CTI gateway functional component configured and
+        enabled on the server.  The CTI gateway is the solution
+        integration point for desktop CTI clients.  The objects in
+        each CG entry provide configuration and component status
+        information."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex
+                    } 
+    ::= { cccaCgTable 1 }
+
+CccaCgEntry ::= SEQUENCE {
+        cccaCgNumber         Unsigned32,
+        cccaCgSide           CcaComponentSide,
+        cccaCgPgSideAName    InetAddressDNS,
+        cccaCgPgSideBName    InetAddressDNS,
+        cccaCgDuplexPairName InetAddressDNS,
+        cccaCgOpenSessions   Gauge32,
+        cccaCgOtherSessions  Gauge32,
+        cccaCgID             Unsigned32
+}
+
+cccaCgNumber OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..80)
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The CG number is a numeric identifier for this enterprise
+        contact center application CTI gateway.  This is a user-
+        defined numeric value and may not be identical to the table
+        index.  The value is limited by the contact center application
+        to a value between 1 and 80 as this is the maximum number of
+        CTI gateways supported by the application.
+        
+        This object has been deprecated since its range is now
+        inappropriate; the number of CTI gateways supported in a
+        deployment increased to 150 in ICM/CC version 7.5 and again
+        up to 250 in ICM/CC version 8.0." 
+    ::= { cccaCgEntry 1 }
+
+cccaCgSide OBJECT-TYPE
+    SYNTAX          CcaComponentSide
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CG side indicates which of the duplex pair this entry
+        represents of an enterprise contact center application fault
+        tolerant CTI gateway functional component.  The CG side value
+        is either 'A' or 'B'.  For simplex configurations, the CG side
+        value defaults to 'A'." 
+    ::= { cccaCgEntry 2 }
+
+cccaCgPgSideAName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CG PG side A name object holds the host name of the side
+        A peripheral gateway (PG) that this enterprise contact center
+        application CTI gateway (CG) functional component is
+        associated.  The CG component must be connected to a PG that
+        is part of the same instance.  If the side B PG is the active
+        PG and a failure occurs, the side A PG then immediately
+        assumes the role.  In this case, the CG will lose its
+        connection to the side B PG and thus use this object value to
+        connect to the side A PG." 
+    ::= { cccaCgEntry 3 }
+
+cccaCgPgSideBName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CG PG side B name object holds the host name of the side
+        'B' peripheral gateway (PG) that this enterprise contact
+        center application CTI gateway (CG) functional component is
+        associated. The CG component must be connected to a PG that is
+        part of the same instance.  If the side A PG is the active PG
+        and a failure occurs, the side B PG then immediately assumes
+        the role.  In this case, the CG will lose its connection to
+        the side A PG and thus use this object value to connect to the
+        side B PG." 
+    ::= { cccaCgEntry 4 }
+
+cccaCgDuplexPairName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CG duplex pair name object is the host name of the duplex
+        pair (i.e. the other side) server of an enterprise contact
+        center application fault tolerant CTI gateway component.  If
+        this component is not part of a duplex pair (i.e. simplex),
+        the object value will be the null string." 
+    ::= { cccaCgEntry 5 }
+
+cccaCgOpenSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CG open sessions object indicates the number of sessions
+        (connections) that have been established between the CTI
+        Gateway and CTI clients.  These are active sessions that are
+        functioning normally." 
+    ::= { cccaCgEntry 6 }
+
+cccaCgOtherSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CG other sessions object indicates the total number of
+        sessions (connections) between the CTI Gateway and CTI
+        clients that are not normal, open/active sessions.  This
+        includes sessions that are 'opening' (not yet established and
+        initialized), session that are 'closing' (connections being
+        torn down) as well as sessions that are in an 'unknown' state
+        and sessions that have failed.  While this object value will
+        fluctuate from time to time, during normal operation, it will
+        stabilize.  A steadily increasing value indicates a problem
+        that should be investigated." 
+    ::= { cccaCgEntry 7 }
+
+cccaCgID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CG number is a unique numeric identifier for this
+        enterprise contact center application CTI gateway.  The
+        identifier is assigned by the contact center application." 
+    ::= { cccaCgEntry 8 }
+ 
+
+-- ******************************************************************
+-- CTI OS Server Component Table
+-- ******************************************************************
+
+cccaCtiOsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaCtiOsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The CTI OS table lists the enterprise contact center
+        application computer telephony integration object server
+        (CTI OS) functional components installed and enabled on this
+        server.
+
+        The CTI OS table has a sparse dependent relationship with the
+        component table.  The instance number acts as the primary
+        index for the CTI OS table in order to properly relate a
+        CTI OS component entry to the appropriate instance entry.
+        The component index acts as the secondary index, relating the
+        entry to the corresponding entry in the component table.
+
+        The SNMP agent constructs the CTI OS table at startup.  Since
+        CTI OS components can only be configured while the enterprise
+        contact center application is stopped, CTI OS table entries
+        cannot be added to or deleted from the table either by the
+        agent or the management station when the application is
+        running.  The agent will update the values of CTI OS entry
+        objects as their values change when the application is
+        running.  All objects in this table are read-only to the
+        management station."
+    ::= { cccaComponentInfo 8 }
+
+cccaCtiOsEntry OBJECT-TYPE
+    SYNTAX          CccaCtiOsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each CTI OS entry represents an enterprise contact center
+        application CTI object server functional component configured
+        on the server.  The CTI object server, as compared to the CTI
+        gateway, is a more intelligent and more scalable server for
+        desktop CTI clients and offers a higher-level interface to
+        those client applications.  The objects in each CTI OS entry
+        provide configuration and component status information."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex
+                    } 
+    ::= { cccaCtiOsTable 1 }
+
+CccaCtiOsEntry ::= SEQUENCE {
+        cccaCtiOsServerName      SnmpAdminString,
+        cccaCtiOsPeripheralName  SnmpAdminString,
+        cccaCtiOsPeripheralType  CcaPeripheralType,
+        cccaCtiOsCgSideAName     InetAddressDNS,
+        cccaCtiOsCgSideBName     InetAddressDNS,
+        cccaCtiOsPeerName        InetAddressDNS,
+        cccaCtiOsActiveClients   Gauge32,
+        cccaCtiOsActiveMonitors  Gauge32,
+        cccaCtiOsCallsInProgress Gauge32,
+        cccaCtiOsCallsFailed     Unsigned32
+}
+
+cccaCtiOsServerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CTI OS server name object specifies the user-defined
+        textual name assigned to this enterprise contact center
+        application CTI OS component to uniquely identify it." 
+    ::= { cccaCtiOsEntry 1 }
+
+cccaCtiOsPeripheralName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CTI OS peripheral name is the unique identifier for the
+        peripheral that the enterprise contact center application
+        CTI OS component is associated.  This association links the
+        CTI desktop clients with a particular peripheral PBX." 
+    ::= { cccaCtiOsEntry 2 }
+
+cccaCtiOsPeripheralType OBJECT-TYPE
+    SYNTAX          CcaPeripheralType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CTI OS peripheral type object indicates the peripheral
+        type that the enterprise contact center application CTI OS is
+        associated.  This also then identifies the peripheral PBX
+        type that the CTI desktop clients are associated." 
+    ::= { cccaCtiOsEntry 3 }
+
+cccaCtiOsCgSideAName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CTI OS CG side A name object holds the host name of the
+        side A CTI gateway (CG) that this enterprise contact center
+        application CTI object server (CTI OS) functional component
+        is associated.  The CTI OS component must be connected to a
+        CG that is part of the same instance.  If the side B CG is
+        the active CG and a failure occurs, the side A CG then
+        immediately assumes the role.  In this case, CTI OS will lose
+        its connection to the side B CG and thus use this object
+        value to connect to the side A CG." 
+    ::= { cccaCtiOsEntry 4 }
+
+cccaCtiOsCgSideBName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CTI OS CG side B name object holds the host name of the
+        side B CTI gateway (CG) that this enterprise contact center
+        application CTI object server (CTI OS) functional component is
+        associated.  The CTI OS component must be connected to a CG
+        that is part of the same instance.  If the side A CG is the
+        active CG and a failure occurs, the side B CG then immediately
+        assumes the role.  In this case, CTI OS will lose its
+        connection to the side A CG and thus use this object value to
+        connect to the side B CG." 
+    ::= { cccaCtiOsEntry 5 }
+
+cccaCtiOsPeerName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CTI OS peer name object is the host name of the peer
+        server of an enterprise contact center application CTI object
+        server functional component.  If this component does not have
+        a peer, the object value will be the null string.  Note that
+        the CTI OS component implements fault tolerance slightly
+        differently than other components of the contact center
+        solution.  CTI OS maintains two active peer object servers to
+        serve client desktop CTI applications.  If a failure occurs
+        on one of the two servers, its clients will connect to the
+        peer server." 
+    ::= { cccaCtiOsEntry 6 }
+
+cccaCtiOsActiveClients OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The active clients object holds the number of CTI OS active
+        client mode desktop connections. This value indicates the
+        total number of desktops connected to the CTI OS server. The
+        number of desktops connected to the A and B side of CTI OS
+        determine the total desktops connected through this instance
+        of CTI OS server." 
+    ::= { cccaCtiOsEntry 7 }
+
+cccaCtiOsActiveMonitors OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The active monitors object holds the number of CTI OS active
+        monitor mode desktop connections. CTI OS only supports two
+        monitor mode connections per each CTI OS server. This value
+        indicates how many monitor mode connections are in use.
+        Once there are two in use further monitor mode connection
+        attempts are rejected." 
+    ::= { cccaCtiOsEntry 8 }
+
+cccaCtiOsCallsInProgress OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The calls in progress object indicates the total number of
+        active calls being tracked by CTI OS. This value shows how
+        many calls are currently being handled by CTI OS. This value
+        should go up and down based on the call arrival rate and the
+        agent call completion rate." 
+    ::= { cccaCtiOsEntry 9 }
+
+cccaCtiOsCallsFailed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The calls failed object holds the total number of calls
+        that failed via a failure event being reported to CTI OS.
+        If this count begins to rise, the log file should be
+        captured to gather more specific information on the failure
+        events." 
+    ::= { cccaCtiOsEntry 10 }
+ 
+
+-- ******************************************************************
+-- Outbound Option Campaign Manager Component Table
+-- ******************************************************************
+
+cccaCampaignMgrTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaCampaignMgrEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The campaign manager table lists each enterprise contact
+        center application Outbound Option Campaign Manager component
+        configured on this server.  Each entry in the table defines a
+        separate campaign manager functional component.
+
+        The campaign manager table has a sparse dependent relationship
+        with the component table.  The instance number acts as the
+        primary index for the campaign manager table in order to
+        properly relate a campaign manager component entry to the
+        appropriate instance entry.  The component index acts as the
+        secondary index, relating the entry to the corresponding entry
+        in the component table.
+
+        The SNMP agent constructs the campaign manager table at
+        startup.  Since campaign managers can only be configured while
+        the enterprise contact center application is stopped, campaign
+        manager table entries cannot be added to or deleted from the
+        table either by the agent or the management station when the
+        application is running.  The agent will update campaign
+        manager entry objects as their values change when the
+        application is running.  All objects in this table are read-
+        only to the management station."
+    ::= { cccaComponentInfo 9 }
+
+cccaCampaignMgrEntry OBJECT-TYPE
+    SYNTAX          CccaCampaignMgrEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each campaign manager entry represents an enterprise contact
+        center application Outbound Option Campaign Manager server
+        functional component configured on this server.  The campaign
+        manager component, which resides on the ICM/CC logger (side
+        A), is responsible for:
+          - Managing when a campaign runs.
+          - Maintaining system and dialer configurations.
+          - Making decisions about which contact records to retrieve
+            from a campaign based upon configurable query rules and
+            then delivering those contact records to dialers.
+          - Distributing configuration data to the import process and
+            all available dialers in the system.
+          - Collecting real-time and historical data and sending it
+            to the Router for subsequent storage and distribution.
+          - Managing the Do Not Call list, ensuring no numbers on it
+            are sent to the Dialers.
+        The objects in each campaign manager entry provide
+        configuration, performance and component status information."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex
+                    } 
+    ::= { cccaCampaignMgrTable 1 }
+
+CccaCampaignMgrEntry ::= SEQUENCE {
+        cccaCampaignMgrDbUtilization Gauge32,
+        cccaCampaignMgrQueueDepth    Gauge32,
+        cccaCampaignMgrAvgQueueTime  Gauge32,
+        cccaCampaignMgrActiveDialers Gauge32
+}
+
+cccaCampaignMgrDbUtilization OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The campaign manager and import processes share a private
+        database on the side A logger.  The campaign manager database
+        utilization object shows what percentage of allocated space
+        in the database is currently utilized.  An administrator
+        should start paying attention when this value exceeds 80
+        percent." 
+    ::= { cccaCampaignMgrEntry 1 }
+
+cccaCampaignMgrQueueDepth OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "entries"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The campaign manager is a multithreaded process.  There is
+        one main dispatch thread that is involved in most processing.
+        The queue depth object indicates how many messages are queued
+        to this internal dispatch thread.  By default, the campaign
+        manager will deliberately restart when this value exceeds
+        10,000 messages in queue as a self-defense mechanism; the
+        administrator must then investigate the reason for this
+        performance bottleneck." 
+    ::= { cccaCampaignMgrEntry 2 }
+
+cccaCampaignMgrAvgQueueTime OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The campaign manager is a multithreaded process; however,
+        there is one main dispatch thread that is involved in most
+        message processing.  The average queue time object shows the
+        average amount of time a message spends in the main dispatch
+        thread queue awaiting processing (in milliseconds)." 
+    ::= { cccaCampaignMgrEntry 3 }
+
+cccaCampaignMgrActiveDialers OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "dialers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The campaign manager process feeds several dialer components
+        which manage the dialing of customers for outbound campaigns.
+        The active dialers counter indicates how many dialers are
+        currently registered to this campaign manager." 
+    ::= { cccaCampaignMgrEntry 4 }
+ 
+
+-- ******************************************************************
+-- Outbound Option Dialer Component Table
+-- ******************************************************************
+
+cccaDialerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CccaDialerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Dialer table lists each enterprise contact center
+        application Outbound Option Dialer component configured on
+        this server.  Each entry in the table defines a separate
+        Dialer functional component.
+
+        The Dialer table has a sparse dependent relationship with the
+        component table.  The instance number acts as the primary
+        index for the Dialer table in order to properly relate a
+        Dialer component entry to the appropriate instance entry.
+        The component index acts as the secondary index, relating the
+        entry to the corresponding entry in the component table.
+
+        The SNMP agent constructs the Dialer table at startup.  Since
+        a Dialer can only be configured while the enterprise contact
+        center application is stopped, Dialer table entries cannot be
+        added to or deleted from the table either by the agent or the
+        management station when the application is running.  The
+        agent will update Dialer entry objects as their values change
+        when the application is running.  All objects in this table
+        are read-only to the management station."
+    ::= { cccaComponentInfo 10 }
+
+cccaDialerEntry OBJECT-TYPE
+    SYNTAX          CccaDialerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each dialer entry represents an enterprise contact center
+        application Outbound Option Dialer functional component
+        configured on the server.  The dialer component maximizes the
+        resources in a contact center by dialing several customers
+        per agent. The dialer component resides on the peripheral
+        gateway (PG) server, where it does the following:
+          - Dials customers
+          - Reserves agents
+          - Performs call classification
+          - Calculates agent availability
+          - Keeps outbound dialing at a level where the abandon rate
+            is below the maximum allowed abandon rate
+        The objects in the dialer entry provide information about
+        dependent components, performance metrics and port usage."
+    INDEX           {
+                        cccaInstanceNumber,
+                        cccaComponentIndex
+                    } 
+    ::= { cccaDialerTable 1 }
+
+CccaDialerEntry ::= SEQUENCE {
+        cccaDialerCampaignMgrName      InetAddressDNS,
+        cccaDialerCampaignMgrStatus    CcaComponentStatus,
+        cccaDialerCtiServerAName       InetAddressDNS,
+        cccaDialerCtiServerBName       InetAddressDNS,
+        cccaDialerCtiServerStatus      CcaComponentStatus,
+        cccaDialerMediaRouterStatus    CcaComponentStatus,
+        cccaDialerQueueDepth           Gauge32,
+        cccaDialerAvgQueueTime         Gauge32,
+        cccaDialerTalkingAgents        Gauge32,
+        cccaDialerCallAttemptsPerSec   Gauge32,
+        cccaDialerConfiguredPorts      Gauge32,
+        cccaDialerBusyCustomerPorts    Gauge32,
+        cccaDialerBusyReservationPorts Gauge32,
+        cccaDialerIdlePorts            Gauge32,
+        cccaDialerBlockedPorts         Gauge32
+}
+
+cccaDialerCampaignMgrName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer campaign manager name object holds the host name
+        or IP address of the Outbound Option Campaign Manager to
+        which this dialer is associated. The dialer connects to the
+        campaign manager to exchange data related to an outbound
+        dialing campaign." 
+    ::= { cccaDialerEntry 1 }
+
+cccaDialerCampaignMgrStatus OBJECT-TYPE
+    SYNTAX          CcaComponentStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer campaign manager status indicates the current
+        connection status between this dialer and the Outbound Option
+        Campaign Manager component which is co-resident with the
+        logger (side A)." 
+    ::= { cccaDialerEntry 2 }
+
+cccaDialerCtiServerAName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer CTI server A name object holds the host name or
+        IP address of the contact center application CTI Server side
+        A functional component which this dialer is dependent upon.
+        The dialer connects to the CTI Server to monitor skill group
+        statistics (to choose an agent) and execute call control once
+        an available agent is selected." 
+    ::= { cccaDialerEntry 3 }
+
+cccaDialerCtiServerBName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer CTI server B name object holds the host name or
+        IP address of the contact center application CTI server side
+        B functional component which this dialer is dependent upon.
+        The dialer connects to the CTI server to monitor skill group
+        statistics (to choose an agent) and execute call control once
+        an available agent is selected." 
+    ::= { cccaDialerEntry 4 }
+
+cccaDialerCtiServerStatus OBJECT-TYPE
+    SYNTAX          CcaComponentStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer CTI server status indicates the current
+        connection status between this dialer and the active CTI
+        server component." 
+    ::= { cccaDialerEntry 5 }
+
+cccaDialerMediaRouterStatus OBJECT-TYPE
+    SYNTAX          CcaComponentStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer media router status indicates the current
+        connection status between this dialer and the Media Routing
+        (MR) Peripheral Interface Manager (PIM) component.  The
+        dialer uses the MR PIM interface to reserve an available
+        agent as a recipient for a dialed customer call." 
+    ::= { cccaDialerEntry 6 }
+
+cccaDialerQueueDepth OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer is a multithreaded process which communicates
+        between threads using inter-thread messaging.  The queue
+        depth object indicates how many messages are currently queued
+        for the main dispatch thread.  When this object is used in
+        combination with the average queue time object, message
+        processing performance can be gauged.  By default, the dialer
+        process will deliberately restart when this value exceeds
+        10,000 messages." 
+    ::= { cccaDialerEntry 7 }
+
+cccaDialerAvgQueueTime OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer is a multithreaded process that communicates
+        between threads using messaging.  There is one main dispatch
+        thread that is involved in most message processing.  The
+        average queue time shows the average amount of time (in
+        milliseconds) that a message spent in the queue before being
+        de-queued for processing.  When this object used in
+        combination with the queue depth object, message processing
+        performance can be gauged." 
+    ::= { cccaDialerEntry 8 }
+
+cccaDialerTalkingAgents OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "For an agent campaign, the dialer places calls to customers
+        and transfers those customer calls to agents.  The talking
+        agents object indicates how many agents are currently talking
+        in the monitored campaign skill group." 
+    ::= { cccaDialerEntry 9 }
+
+cccaDialerCallAttemptsPerSec OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The call attempts per second object tracks how many calls
+        the dialer is placing per second, rounded to the nearest
+        integer.  If the dialing rate is too high, it can result in
+        network congestion on the voice network which can result in
+        inefficient dialing." 
+    ::= { cccaDialerEntry 10 }
+
+cccaDialerConfiguredPorts OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer configured ports object is a count of the total
+        number of ports that have been configured for placing calls
+        to customers and for transferring calls to agents during
+        outbound calling campaigns.  During normal operation, the
+        dialer configured ports object value is equal to a sum of
+        busy and idle ports." 
+    ::= { cccaDialerEntry 11 }
+
+cccaDialerBusyCustomerPorts OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer busy customer ports object is a count of the
+        number of ports currently in use for customer calls.  The
+        port is the unit on the dialer that places calls to reserve
+        agents and to contact customers." 
+    ::= { cccaDialerEntry 12 }
+
+cccaDialerBusyReservationPorts OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer busy reservation ports object tracks how many
+        ports are currently busy reserving agents.  The port is the
+        unit on the dialer that places calls to reserve agents and to
+        contact customers." 
+    ::= { cccaDialerEntry 13 }
+
+cccaDialerIdlePorts OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer idle ports object is a count of the number of
+        ports that are currently idle, i.e. there are no calls to
+        customers or to agents using these ports and they are
+        available to the dialer for placing new calls." 
+    ::= { cccaDialerEntry 14 }
+
+cccaDialerBlockedPorts OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The dialer blocked ports object is a count of the number of
+        ports that are currently unusable for placing calls.  A
+        blocked port may be an impaired or inoperable port or one
+        that has a 'stuck' call that has not been dropped.  A 'stuck'
+        call is a call that has been identified by the application as
+        exceeding a duration threshold." 
+    ::= { cccaDialerEntry 15 }
+ 
+
+
+-- ******************************************************************
+-- cccaNotificationInfo group
+-- ******************************************************************
+
+cccaEventComponentId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event component ID specifies a unique identifier used to
+        correlate multiple notifications generated by a single
+        enterprise contact center application functional component or
+        subcomponent.  A functional component constructs its unique
+        identifier based upon configured parameters; all notifications
+        by that component will include this event component ID." 
+    ::= { cccaNotificationInfo 1 }
+
+cccaEventState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        clear(0),
+                        applicationError(2),
+                        raise(4),
+                        singleStateRaise(9)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event state object identifies the state (not to be
+        confused with severity) of the notification and potentially
+        the current state of the functional component that generated
+        the notification.  The possible states are:
+
+        'clear':            The clear state indicates that the
+                            condition which generated a previous raise
+                            notification has been resolved.
+
+        'applicationError': The application error state alerts the
+                            recipient that an error exists in the
+                            enterprise contact center application but
+                            that the error does not affect the
+                            operational status of the functional
+                            component.
+
+        'raise':            A raise state identifies a notification
+                            received as a result of a health-impacting
+                            condition, such as a process failure.  A
+                            subsequent clear state notification will
+                            follow when the error condition is
+                            resolved.
+
+        'singleStateRaise': The single state raise state indicates
+                            that a health-impacting error has occurred
+                            and that a subsequent clear state
+                            notification will not be forthcoming.  An
+                            example of a single state raise condition
+                            is an application configuration error that
+                            requires the system to be stopped and the
+                            problem resolved by an administrator
+                            before the affected component will
+                            function properly." 
+    ::= { cccaNotificationInfo 2 }
+
+cccaEventMessageId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event message ID is the unique notification message
+        identifier (value) that was assigned by the enterprise contact
+        center application.  This identifier is unique for each
+        different notification but consistent for each instance of the
+        same notification." 
+    ::= { cccaNotificationInfo 3 }
+
+cccaEventOriginatingNode OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event originating node objects specifies the application-
+        defined name of the enterprise contact center application
+        functional component that generated this notification.  This
+        name will vary, both in content and in format, based on the
+        component that generated the notification.  For example, the
+        name for a router component may be 'RouterA', a combination of
+        the component identification and the 'side' identifier, while
+        the name 'PG1A' is a combination of the peripheral gateway
+        acronym followed by the peripheral gateway number and the
+        'side' identifier." 
+    ::= { cccaNotificationInfo 4 }
+
+cccaEventOriginatingNodeType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(0),
+                        router(1),
+                        pg(2),
+                        nic(3),
+                        aw(4),
+                        logger(5),
+                        listener(6),
+                        cg(7),
+                        ba(8)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event originating node type indicates the type of
+        enterprise contact center application functional component or
+        subcomponent that generated this notification.  The node types
+        are:
+
+        'unknown':  The notification originates from an unknown
+                    source.
+
+        'router':   The notification was generated by the router
+                    functional component.
+
+        'pg':       The notification was generated by the
+                    peripheral gateway functional component.
+
+        'nic':      The notification was generated by the network
+                    interface controller functional component.
+
+        'aw':       The notification was generated by the
+                    administrator workstation functional component.
+
+        'logger':   The notification was generated by the logger
+                    functional component.
+
+        'listener': The notification was generated by the listener
+                    functional component.  The listener is an
+                    enterprise contact center application process
+                    that collects event messages from the logger
+                    for display in a Cisco proprietary event
+                    management application that is part of the Remote
+                    Management Suite (RMS).
+
+        'cg':       The notification was generated by the CTI gateway
+                    functional component.
+
+        'ba':       The notification was generated by the Blended
+                    Agent functional component.  Blended Agent is an
+                    enterprise contact center 'outbound option'
+                    functional component that manages campaigns of
+                    outbound dialing." 
+    ::= { cccaNotificationInfo 5 }
+
+cccaEventOriginatingProcessName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "Each enterprise contact center application functional
+        component includes one or more operating system processes,
+        each of which performs a specific function.  The event
+        originating process object identifies the name of the
+        application process that generated this notification." 
+    ::= { cccaNotificationInfo 6 }
+
+cccaEventOriginatingSide OBJECT-TYPE
+    SYNTAX          CcaComponentSide
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event originating side object specifies the enterprise
+        contact center application functional component fault tolerant
+        side (either 'A' or 'B') that generated this notification." 
+    ::= { cccaNotificationInfo 7 }
+
+cccaEventDmpId OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The Device Management Protocol (DMP) is a session layer
+        protocol used for network communication between enterprise
+        contact center application functional components.  The DMP
+        ID uniquely identifies the session layer addresses of an
+        application functional component.  A single component may
+        have multiple DMP IDs since a functional component will
+        communicate with other functional components (or its duplex
+        pair) via multiple physical network interfaces and maintain
+        multiple DMP session connections on each interface.  Should
+        a communications failure occur, the event DMP ID identifies
+        the physical and logical address that the error occurred." 
+    ::= { cccaNotificationInfo 8 }
+
+cccaEventSeverity OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        informational(1),
+                        warning(2),
+                        error(3)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event severity object indicates the severity level of
+        this notification.  The severity levels are:
+
+        'informational':    The notification contains important health
+                            or operational state information that is
+                            valuable to an administrator, however, the
+                            event itself does not indicate a failure or
+                            impairment condition.
+
+        'warning':          The notification contains serious health or
+                            operational state information that could be
+                            a precursor to system impairment or
+                            eventual failure.
+
+        'error':            The notification contains critical health
+                            or operational state information and
+                            indicates that the system has experienced
+                            an impairment and/or a functional failure." 
+    ::= { cccaNotificationInfo 9 }
+
+cccaEventTimestamp OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event time stamp object specifies the date and time that
+        the notification was generated on the originating node.  All
+        notification timestamps are in Greenwich Mean Time (GMT)." 
+    ::= { cccaNotificationInfo 10 }
+
+cccaEventText OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event text is the full text of the notification.  This
+        text includes a description of the event that was generated,
+        component state information and potentially a brief
+        description of administrative action that may be necessary
+        to correct the condition that caused the event to occur." 
+    ::= { cccaNotificationInfo 11 }
+
+-- ******************************************************************
+-- Notification Type(s)
+-- ******************************************************************
+
+cccaIcmEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        cccaEventComponentId,
+                        cccaEventState,
+                        cccaEventMessageId,
+                        cccaEventOriginatingNode,
+                        cccaEventOriginatingNodeType,
+                        cccaEventOriginatingProcessName,
+                        cccaEventOriginatingSide,
+                        cccaEventDmpId,
+                        cccaEventSeverity,
+                        cccaEventTimestamp,
+                        cccaEventText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "An ICM event is a notification that is sent by a functional
+        component of the Cisco Unified Intelligent Contact Management
+        and the Cisco Unified Contact Center, Enterprise and Hosted
+        applications."
+   ::= { ciscoCcaMIBNotifs 1 }
+
+-- ******************************************************************
+-- Compliance
+-- ******************************************************************
+
+ciscoCccaMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This object is the compliance statement for entities which
+        implement the Cisco Contact Center Applications MIB."
+    MODULE          CISCO-CONTACT-CENTER-APPS-MIB
+    MANDATORY-GROUPS {
+                        cccaGeneralInfoGroup,
+                        cccaInstanceTableGroup,
+                        cccaComponentTableGroup,
+                        cccaComponentElmtTableGroup,
+                        cccaRouterTableGroup,
+                        cccaNicTableGroup,
+                        cccaLoggerTableGroup,
+                        cccaDistAwTableGroup,
+                        cccaPgTableGroup,
+                        cccaPimTableGroup,
+                        cccaCgTableGroup,
+                        cccaCtiOsTableGroup,
+                        cccaIcmNotificationInfoGroup,
+                        cccaIcmEventsGroup
+                    }
+    ::= { ciscoCcaMIBCompliances 1 }
+
+ciscoCccaMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This object is the compliance statement for entities which
+        implement the Cisco Contact Center Applications MIB."
+    MODULE          CISCO-CONTACT-CENTER-APPS-MIB
+    MANDATORY-GROUPS {
+                        cccaGeneralInfoGroup,
+                        cccaGeneralInfoGroupSup1,
+                        cccaInstanceTableGroup,
+                        cccaComponentTableGroup,
+                        cccaComponentElmtTableGroup,
+                        cccaRouterTableGroup,
+                        cccaRouterTableGroupSup1,
+                        cccaNicTableGroup,
+                        cccaLoggerTableGroup,
+                        cccaLoggerTableGroupSup1,
+                        cccaDistAwTableGroup,
+                        cccaDistAwTableGroupSup1,
+                        cccaPgTableGroup,
+                        cccaPgTableGroupSup1,
+                        cccaPimTableGroup,
+                        cccaCgTableGroup,
+                        cccaCgTableGroupSup1,
+                        cccaCtiOsTableGroup,
+                        cccaCtiOsTableGroupSup1,
+                        cccaIcmNotificationInfoGroup,
+                        cccaIcmEventsGroup,
+                        cccaCampaignMgrTableGroup,
+                        cccaDialerTableGroup
+                    }
+    ::= { ciscoCcaMIBCompliances 2 }
+
+cccaGeneralInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaName,
+                        cccaDescription,
+                        cccaVersion,
+                        cccaTimeZoneName,
+                        cccaTimeZoneOffsetHours,
+                        cccaTimeZoneOffsetMinutes,
+                        cccaSupportToolsURL
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The general info group defines the general enterprise contact
+        center application information objects.  All application
+        servers will populate these objects."
+    ::= { ciscoCcaMIBGroups 1 }
+
+cccaInstanceTableGroup OBJECT-GROUP
+    OBJECTS         { cccaInstanceName }
+    STATUS          current
+    DESCRIPTION
+        "The instance table group defines the enterprise contact
+        center application instance table objects."
+    ::= { ciscoCcaMIBGroups 2 }
+
+cccaComponentTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaComponentType,
+                        cccaComponentName,
+                        cccaComponentStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The component table group defines the enterprise contact
+        center application functional component table objects."
+    ::= { ciscoCcaMIBGroups 3 }
+
+cccaComponentElmtTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaComponentElmtName,
+                        cccaComponentElmtRunID,
+                        cccaComponentElmtStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The component element table group defines the enterprise
+        contact center application functional component element table
+        objects."
+    ::= { ciscoCcaMIBGroups 4 }
+
+cccaRouterTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaRouterSide,
+                        cccaRouterCallsPerSec,
+                        cccaRouterAgentsLoggedOn,
+                        cccaRouterCallsInProgress,
+                        cccaRouterDuplexPairName,
+                        cccaRouterNicCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The router table group defines the enterprise contact center
+        application router table objects."
+    ::= { ciscoCcaMIBGroups 5 }
+
+cccaNicTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaNicType,
+                        cccaNicStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The NIC table group defines the enterprise contact center
+        application network interface controller table objects."
+    ::= { ciscoCcaMIBGroups 6 }
+
+cccaLoggerTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaLoggerSide,
+                        cccaLoggerType,
+                        cccaLoggerRouterSideAName,
+                        cccaLoggerRouterSideBName,
+                        cccaLoggerDuplexPairName,
+                        cccaLoggerHDSReplication
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The logger table group defines the enterprise contact center
+        application logger table objects."
+    ::= { ciscoCcaMIBGroups 7 }
+
+cccaDistAwTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaDistAwSide,
+                        cccaDistAwType,
+                        cccaDistAwAdminSiteName,
+                        cccaDistAwRouterSideAName,
+                        cccaDistAwRouterSideBName,
+                        cccaDistAwLoggerSideAName,
+                        cccaDistAwLoggerSideBName,
+                        cccaDistAwDuplexPairName,
+                        cccaDistAwHDSEnabled,
+                        cccaDistAwWebViewEnabled,
+                        cccaDistAwWebViewServerName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The distributor AW table group defines the enterprise
+        contact center application distributor admin workstation
+        table objects."
+    ::= { ciscoCcaMIBGroups 8 }
+
+cccaPgTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaPgNumber,
+                        cccaPgSide,
+                        cccaPgRouterSideAName,
+                        cccaPgRouterSideBName,
+                        cccaPgDuplexPairName,
+                        cccaPgPimCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The PG table group defines the enterprise contact center
+        application peripheral gateway table objects."
+    ::= { ciscoCcaMIBGroups 9 }
+
+cccaPimTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaPimPeripheralName,
+                        cccaPimPeripheralType,
+                        cccaPimStatus,
+                        cccaPimPeripheralHostName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The PIM table group defines the enterprise contact center
+        application peripheral interface manager table objects."
+    ::= { ciscoCcaMIBGroups 10 }
+
+cccaCgTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaCgNumber,
+                        cccaCgSide,
+                        cccaCgPgSideAName,
+                        cccaCgPgSideBName,
+                        cccaCgDuplexPairName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The CG table group defines the enterprise contact center
+        application CTI gateway table objects."
+    ::= { ciscoCcaMIBGroups 11 }
+
+cccaCtiOsTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaCtiOsServerName,
+                        cccaCtiOsPeripheralName,
+                        cccaCtiOsPeripheralType,
+                        cccaCtiOsCgSideAName,
+                        cccaCtiOsCgSideBName,
+                        cccaCtiOsPeerName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The CTI OS table group defines the enterprise contact center
+        application CTI object server table objects."
+    ::= { ciscoCcaMIBGroups 12 }
+
+cccaIcmNotificationInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaEventComponentId,
+                        cccaEventState,
+                        cccaEventMessageId,
+                        cccaEventOriginatingNode,
+                        cccaEventOriginatingNodeType,
+                        cccaEventOriginatingProcessName,
+                        cccaEventOriginatingSide,
+                        cccaEventDmpId,
+                        cccaEventSeverity,
+                        cccaEventTimestamp,
+                        cccaEventText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The ICM notification info group defines the enterprise
+        contact center application 'Cisco Unified Intelligent
+        Contact Management' and 'Cisco Unified Contact Center'
+        (Enterprise and Hosted) notification objects."
+    ::= { ciscoCcaMIBGroups 13 }
+
+cccaIcmEventsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cccaIcmEvent }
+    STATUS          current
+    DESCRIPTION
+        "The ICM events group defines the notification types
+        identified in this MIB."
+    ::= { ciscoCcaMIBGroups 14 }
+
+cccaCampaignMgrTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaCampaignMgrDbUtilization,
+                        cccaCampaignMgrQueueDepth,
+                        cccaCampaignMgrAvgQueueTime,
+                        cccaCampaignMgrActiveDialers
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Campaign Managers table group defines the enterprise
+        contact center application Outbound Option Campaign Manager
+        table objects."
+    ::= { ciscoCcaMIBGroups 15 }
+
+cccaDialerTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cccaDialerCampaignMgrName,
+                        cccaDialerCampaignMgrStatus,
+                        cccaDialerCtiServerAName,
+                        cccaDialerCtiServerBName,
+                        cccaDialerCtiServerStatus,
+                        cccaDialerMediaRouterStatus,
+                        cccaDialerQueueDepth,
+                        cccaDialerAvgQueueTime,
+                        cccaDialerTalkingAgents,
+                        cccaDialerCallAttemptsPerSec,
+                        cccaDialerConfiguredPorts,
+                        cccaDialerBusyCustomerPorts,
+                        cccaDialerBusyReservationPorts,
+                        cccaDialerIdlePorts,
+                        cccaDialerBlockedPorts
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Dialer table group defines the enterprise contact center
+        application Outbound Option Dialer table objects."
+    ::= { ciscoCcaMIBGroups 16 }
+
+cccaGeneralInfoGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cccaWebSetupURL,
+                        cccaNotificationsEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The general info group sup1 objects supplement the general
+        info group, which defines the general enterprise contact
+        center application information objects.  All application
+        servers will populate these objects."
+    ::= { ciscoCcaMIBGroups 17 }
+
+cccaRouterTableGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cccaRouterPGsEnabledCount,
+                        cccaRouterCallsInQueue,
+                        cccaRouterAppGwEnabled,
+                        cccaRouterDBWorkerEnabled,
+                        cccaRouterPublicHighAddr,
+                        cccaRouterPublicNonHighAddr,
+                        cccaRouterPrivateHighAddr,
+                        cccaRouterPrivateNonHighAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The router table group sup1 objects supplement the router
+        table group, which defines the enterprise contact center
+        application router table objects."
+    ::= { ciscoCcaMIBGroups 18 }
+
+cccaLoggerTableGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cccaLoggerAvgDBWriteTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The logger table group sup1 object supplements the logger
+        table group, which defines the enterprise contact center
+        application logger table objects."
+    ::= { ciscoCcaMIBGroups 19 }
+
+cccaDistAwTableGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cccaDistAwWebReskillingURL
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The distributor admin workstation table group sup1 object
+        supplements the distributor admin workstation table group,
+        which defines the enterprise contact center application
+        distributor admin workstation table objects."
+    ::= { ciscoCcaMIBGroups 20 }
+
+cccaPgTableGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cccaPgCallsInProgress,
+                        cccaPgAgentsLoggedOn,
+                        cccaPgAgentsReady,
+                        cccaPgAgentsTalking,
+                        cccaPgID
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The PG table group sup1 objects supplement the PG table
+        group, which defines the enterprise contact center
+        application peripheral gateway table objects."
+    ::= { ciscoCcaMIBGroups 21 }
+
+cccaCgTableGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cccaCgOpenSessions,
+                        cccaCgOtherSessions,
+                        cccaCgID
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The CG table group sup1 objects supplement the CG table
+        group, which defines the enterprise contact center
+        application CTI gateway table objects."
+    ::= { ciscoCcaMIBGroups 22 }
+
+cccaCtiOsTableGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cccaCtiOsActiveClients,
+                        cccaCtiOsActiveMonitors,
+                        cccaCtiOsCallsInProgress,
+                        cccaCtiOsCallsFailed
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The CTI OS table group sup1 objects supplement the CTI OS
+        table group, which defines the enterprise contact center
+        application CTI object server table objects."
+    ::= { ciscoCcaMIBGroups 23 }
+
+END
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,287 @@
+-- *****************************************************************
+-- UDLD-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-UDLD-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    Unsigned32 FROM SNMPv2-SMI
+    ;
+
+me1200UdldMib MODULE-IDENTITY
+    LAST-UPDATED "201403110000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private MIB for udld"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 123 }
+
+
+ME1200UdldDetectionState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the link detection state."
+    SYNTAX      INTEGER { inDeterminant(0), uniDirectional(1), biDirectional(2), neighborMismatch(3), loopback(4), multipleNeighbor(5) }
+
+ME1200UdldMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the available udld mode."
+    SYNTAX      INTEGER { disable(0), normal(1), aggressive(2) }
+
+me1200UdldMibObjects OBJECT IDENTIFIER
+    ::= { me1200UdldMib 1 }
+
+me1200UdldConfig OBJECT IDENTIFIER
+    ::= { me1200UdldMibObjects 2 }
+
+me1200UdldConfigInterface OBJECT IDENTIFIER
+    ::= { me1200UdldConfig 1 }
+
+me1200UdldConfigInterfaceParamTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200UdldConfigInterfaceParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of udld interface conf parameters"
+    ::= { me1200UdldConfigInterface 1 }
+
+me1200UdldConfigInterfaceParamEntry OBJECT-TYPE
+    SYNTAX      ME1200UdldConfigInterfaceParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each physical interface has a set of configurable parameters"
+    INDEX       { me1200UdldConfigInterfaceParamIfIndex }
+    ::= { me1200UdldConfigInterfaceParamTable 1 }
+
+ME1200UdldConfigInterfaceParamEntry ::= SEQUENCE {
+    me1200UdldConfigInterfaceParamIfIndex     ME1200InterfaceIndex,
+    me1200UdldConfigInterfaceParamUdldMode    ME1200UdldMode,
+    me1200UdldConfigInterfaceParamProbeMsgInterval    Unsigned32
+}
+
+me1200UdldConfigInterfaceParamIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200UdldConfigInterfaceParamEntry 1 }
+
+me1200UdldConfigInterfaceParamUdldMode OBJECT-TYPE
+    SYNTAX      ME1200UdldMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Port udld mode disable/normal/aggresive."
+    ::= { me1200UdldConfigInterfaceParamEntry 2 }
+
+me1200UdldConfigInterfaceParamProbeMsgInterval OBJECT-TYPE
+    SYNTAX      Unsigned32 (7..90)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Port probe message interval(seconds). Valid range: 7 to 90 seconds."
+    ::= { me1200UdldConfigInterfaceParamEntry 3 }
+
+me1200UdldStatus OBJECT IDENTIFIER
+    ::= { me1200UdldMibObjects 3 }
+
+me1200UdldStatusInterface OBJECT IDENTIFIER
+    ::= { me1200UdldStatus 1 }
+
+me1200UdldStatusInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200UdldStatusInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of udld interface local device information"
+    ::= { me1200UdldStatusInterface 1 }
+
+me1200UdldStatusInterfaceEntry OBJECT-TYPE
+    SYNTAX      ME1200UdldStatusInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each udld enabled interface has a local device information"
+    INDEX       { me1200UdldStatusInterfaceIfIndex }
+    ::= { me1200UdldStatusInterfaceTable 1 }
+
+ME1200UdldStatusInterfaceEntry ::= SEQUENCE {
+    me1200UdldStatusInterfaceIfIndex      ME1200InterfaceIndex,
+    me1200UdldStatusInterfaceDeviceID     ME1200DisplayString,
+    me1200UdldStatusInterfaceDeviceName   ME1200DisplayString,
+    me1200UdldStatusInterfaceLinkState    ME1200UdldDetectionState
+}
+
+me1200UdldStatusInterfaceIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200UdldStatusInterfaceEntry 1 }
+
+me1200UdldStatusInterfaceDeviceID OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..254))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Local device id."
+    ::= { me1200UdldStatusInterfaceEntry 2 }
+
+me1200UdldStatusInterfaceDeviceName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..254))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Local device name."
+    ::= { me1200UdldStatusInterfaceEntry 3 }
+
+me1200UdldStatusInterfaceLinkState OBJECT-TYPE
+    SYNTAX      ME1200UdldDetectionState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Local device link detected state."
+    ::= { me1200UdldStatusInterfaceEntry 4 }
+
+me1200UdldStatusInterfaceNeighborTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200UdldStatusInterfaceNeighborEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of udld interface neighbor cache information"
+    ::= { me1200UdldStatusInterface 2 }
+
+me1200UdldStatusInterfaceNeighborEntry OBJECT-TYPE
+    SYNTAX      ME1200UdldStatusInterfaceNeighborEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each udld enabled interface has a neighbor cache information"
+    INDEX       { me1200UdldStatusInterfaceNeighborIfIndex }
+    ::= { me1200UdldStatusInterfaceNeighborTable 1 }
+
+ME1200UdldStatusInterfaceNeighborEntry ::= SEQUENCE {
+    me1200UdldStatusInterfaceNeighborIfIndex      ME1200InterfaceIndex,
+    me1200UdldStatusInterfaceNeighborNeighborDeviceID     ME1200DisplayString,
+    me1200UdldStatusInterfaceNeighborNeighborPortID   ME1200DisplayString,
+    me1200UdldStatusInterfaceNeighborNeighborDeviceName   ME1200DisplayString,
+    me1200UdldStatusInterfaceNeighborLinkDetectionState   ME1200UdldDetectionState
+}
+
+me1200UdldStatusInterfaceNeighborIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200UdldStatusInterfaceNeighborEntry 1 }
+
+me1200UdldStatusInterfaceNeighborNeighborDeviceID OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..254))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Neighbor device id."
+    ::= { me1200UdldStatusInterfaceNeighborEntry 2 }
+
+me1200UdldStatusInterfaceNeighborNeighborPortID OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..254))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Neighbor port id."
+    ::= { me1200UdldStatusInterfaceNeighborEntry 3 }
+
+me1200UdldStatusInterfaceNeighborNeighborDeviceName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..254))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Neighbor device name."
+    ::= { me1200UdldStatusInterfaceNeighborEntry 4 }
+
+me1200UdldStatusInterfaceNeighborLinkDetectionState OBJECT-TYPE
+    SYNTAX      ME1200UdldDetectionState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Neighbor device link detected state."
+    ::= { me1200UdldStatusInterfaceNeighborEntry 5 }
+
+me1200UdldMibConformance OBJECT IDENTIFIER
+    ::= { me1200UdldMib 2 }
+
+me1200UdldMibCompliances OBJECT IDENTIFIER
+    ::= { me1200UdldMibConformance 1 }
+
+me1200UdldMibGroups OBJECT IDENTIFIER
+    ::= { me1200UdldMibConformance 2 }
+
+me1200UdldConfigInterfaceParamTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200UdldConfigInterfaceParamUdldMode, 
+                  me1200UdldConfigInterfaceParamProbeMsgInterval }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200UdldMibGroups 1 }
+
+me1200UdldStatusInterfaceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200UdldStatusInterfaceDeviceID, 
+                  me1200UdldStatusInterfaceDeviceName, 
+                  me1200UdldStatusInterfaceLinkState }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200UdldMibGroups 2 }
+
+me1200UdldStatusInterfaceNeighborTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200UdldStatusInterfaceNeighborNeighborDeviceID, 
+                  me1200UdldStatusInterfaceNeighborNeighborPortID, 
+                  me1200UdldStatusInterfaceNeighborNeighborDeviceName, 
+                  me1200UdldStatusInterfaceNeighborLinkDetectionState }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200UdldMibGroups 3 }
+
+me1200UdldMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200UdldConfigInterfaceParamTableInfoGroup, 
+                  me1200UdldStatusInterfaceTableInfoGroup, 
+                  me1200UdldStatusInterfaceNeighborTableInfoGroup }
+
+    ::= { me1200UdldMibCompliances 1 }
+
+END

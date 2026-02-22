@@ -1,0 +1,293 @@
+-- MIB file created 09-Oct-2002 14:14:50, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SYSLOG-EVENT-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SYSLOG-EVENT-EXT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SyslogSeverity
+            FROM CISCO-SYSLOG-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoSyslogEventExtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 270 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200202120000Z
+--  OrgName
+--    Cisco System Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 West Tasman Drive,
+--            San Jose CA 95134-1706.
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This MIB module extends the Cisco Syslog 
+--    MIB and provides network management support 
+--    to handle and process Syslog messages as 
+--    device events.
+--  RevDate
+--    200202120000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoSyslogEventExtMIBObjects OBJECT IDENTIFIER ::= { ciscoSyslogEventExtMIB 1 }
+cslogEventConfig OBJECT IDENTIFIER ::= { ciscoSyslogEventExtMIBObjects 1 }
+ciscoSlogEventExtMIBConformance OBJECT IDENTIFIER ::= { ciscoSyslogEventExtMIB 2 }
+ciscoSlogEventExtMIBCompliances OBJECT IDENTIFIER ::= { ciscoSlogEventExtMIBConformance 1 }
+ciscoSlogEventExtMIBGroups OBJECT IDENTIFIER ::= { ciscoSlogEventExtMIBConformance 2 }
+
+CslogEventDisposition ::= OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   none(0)
+        --   count(1)
+        --   display(2)
+        --   notify(3)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This definition specifies the manner in which a 
+--    Syslog message should be handled by the system as 
+--    a device event. Events are first recorded by the 
+--    Syslog subsystem, and then they can be counted, 
+--    displayed on the console, or forward to external 
+--    device. The four disposition mechanisms are:
+--        none(0)     - Record only, no further handling. 
+--        count(1)    - All Syslog messages received after
+--                      this bit is set will be counted 
+--                      according to their corresponding 
+--                      event types.  
+--        display(2)  - All Syslog messages received after
+--                      this bit is set will be displayed on 
+--                      the device console, HTML console 
+--                      or WEB pages (pending on severity 
+--                      level configuration of each display 
+--                      types).
+--        notify(3)   - All Syslog messages received after
+--                      this bit is set will cause 
+--                      notification to be sent.
+
+cslogEventDetailDefault OBJECT-TYPE
+    SYNTAX INTEGER {
+        noDisplay(1),
+        sparseDetail(2),
+        normalDetail(3),
+        verboseDetail(4),
+        exhaustiveDetail(5)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the detail level at which
+        Syslog messages are displayed on the console or 
+        HTML user interface. Detail level classifications 
+        are:
+            noDisplay(1)         - No display at all.
+            sparseDetail(2)      - Minimum detail.
+            normalDetail(3)      - General detail.
+            verboseDetail(4)     - Verbose detail.
+            exhaustiveDetail(5)  - Full detail."
+    DEFVAL { normalDetail }
+    ::= { cslogEventConfig 1 }
+
+cslogEventSeverityDispConsole OBJECT-TYPE
+    SYNTAX SyslogSeverity
+--    Rsyntax INTEGER {
+--        emergency(1),
+--        alert(2),
+--        critical(3),
+--        error(4),
+--        warning(5),
+--        notice(6),
+--        info(7),
+--        debug(8)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates which syslog severity 
+        level messages can be displayed on the console. 
+        A high severity value implies a low severity.
+        If the display bit on the object 
+        cslogEventDisposition is set for this severity, 
+        all messages have severity values less than or 
+        equal to clogMaxSeverity and this object will 
+        be displayed on the console."
+    DEFVAL { info }
+    ::= { cslogEventConfig 2 }
+
+cslogEventSeverityDispHtmlGUI OBJECT-TYPE
+    SYNTAX SyslogSeverity
+--    Rsyntax INTEGER {
+--        emergency(1),
+--        alert(2),
+--        critical(3),
+--        error(4),
+--        warning(5),
+--        notice(6),
+--        info(7),
+--        debug(8)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates which syslog severity 
+        level messages can be displayed on the event log 
+        GUI. A high severity value implies a low severity.
+        If the display bit on the object 
+        cslogEventDisposition is set for this severity, 
+        all messages have severity values less than or 
+        equal to clogMaxSeverity and this object will 
+        be displayed on the event log GUI web pages."
+    DEFVAL { info }
+    ::= { cslogEventConfig 3 }
+
+cslogEventSeverityDispHtmlConsol OBJECT-TYPE
+    SYNTAX SyslogSeverity
+--    Rsyntax INTEGER {
+--        emergency(1),
+--        alert(2),
+--        critical(3),
+--        error(4),
+--        warning(5),
+--        notice(6),
+--        info(7),
+--        debug(8)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates which syslog severity 
+        level messages can be displayed on the HTML 
+        event log console. 
+        A high severity value implies a low severity.
+        If the display bit on the object 
+        cslogEventDisposition is set for this severity, 
+        all messages have severity values less than or 
+        equal to clogMaxSeverity and this object will 
+        be displayed on the GUI browser console page."
+    DEFVAL { info }
+    ::= { cslogEventConfig 4 }
+
+cslogEventDispositionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CslogEventDispositionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains parameters to configure 
+        Syslog message disposition mechanisms and keep
+        message counts."
+    ::= { cslogEventConfig 5 }
+
+cslogEventDispositionEntry OBJECT-TYPE
+    SYNTAX CslogEventDispositionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There is one entry per Syslog severity in the
+        cslogEventDispositionTable. Each entry contains 
+        parameters for message disposition and count."
+    INDEX { cslogEventDispositionSeverity }
+    ::= { cslogEventDispositionTable 1 }
+
+CslogEventDispositionEntry ::= SEQUENCE {
+    cslogEventDispositionSeverity SyslogSeverity,
+    cslogEventDisposition CslogEventDisposition,
+    cslogEventDispositionCount Counter
+    }
+
+cslogEventDispositionSeverity OBJECT-TYPE
+    SYNTAX SyslogSeverity
+--    Rsyntax INTEGER {
+--        emergency(1),
+--        alert(2),
+--        critical(3),
+--        error(4),
+--        warning(5),
+--        notice(6),
+--        info(7),
+--        debug(8)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the Syslog serverity."
+    ::= { cslogEventDispositionEntry 1 }
+
+cslogEventDisposition OBJECT-TYPE
+    SYNTAX CslogEventDisposition
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           none(0)
+--           count(1)
+--           display(2)
+--           notify(3)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the disposition method for 
+        Syslog messages of a specific severity."
+    DEFVAL { '80'h }
+    ::= { cslogEventDispositionEntry 2 }
+
+cslogEventDispositionCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is the number of Syslog messages of a specific
+        severity."
+    ::= { cslogEventDispositionEntry 3 }
+
+ciscoSlogEventExtConfigGroup OBJECT IDENTIFIER ::= { ciscoSlogEventExtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are objects supporting Syslog event 
+--    configuration.
+--  objects
+--    cslogEventDetailDefault, cslogEventSeverityDispConsole, 
+--    cslogEventSeverityDispHtmlGUI, 
+--    cslogEventSeverityDispHtmlConsol, cslogEventDisposition
+
+ciscoSlogEventExtStatsGroup OBJECT IDENTIFIER ::= { ciscoSlogEventExtMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are objects to provide Syslog event 
+--    statistics.
+--  objects
+--    cslogEventDispositionCount
+
+ciscoSlogEventExtCompliance OBJECT IDENTIFIER ::= { ciscoSlogEventExtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the cslogEventExt 
+--    groups.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSlogEventExtConfigGroup
+--   MandGroup
+--    ciscoSlogEventExtStatsGroup
+
+
+END
+

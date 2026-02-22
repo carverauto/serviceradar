@@ -1,0 +1,1654 @@
+-- *****************************************************************
+-- DHCP-SERVER-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-DHCP-SERVER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    IpAddress FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    MacAddress FROM SNMPv2-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200DhcpServerMIB MODULE-IDENTITY
+    LAST-UPDATED "201403110000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of DhcpServer"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402210000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 109 }
+
+
+ME1200BindingState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the state of binding."
+    SYNTAX      INTEGER { none(0), allocated(1), committed(2), expired(3) }
+
+ME1200BindingType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of binding."
+    SYNTAX      INTEGER { none(0), automatic(1), manual(2), expired(3) }
+
+ME1200ClientIdentifierType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of client identifier."
+    SYNTAX      INTEGER { none(0), fqdn(1), mac(2) }
+
+ME1200NetbiosNodeType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of NetBIOS node."
+    SYNTAX      INTEGER { nodeNone(0), nodeB(1), nodeP(2), nodeM(3), nodeH(4) }
+
+ME1200PoolType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of DHCP pool."
+    SYNTAX      INTEGER { none(0), network(1), host(2) }
+
+me1200DhcpServerMIBObjects OBJECT IDENTIFIER
+    ::= { me1200DhcpServerMIB 1 }
+
+me1200DhcpServerConfig OBJECT IDENTIFIER
+    ::= { me1200DhcpServerMIBObjects 2 }
+
+me1200DhcpServerConfigGlobals OBJECT IDENTIFIER
+    ::= { me1200DhcpServerConfig 1 }
+
+me1200DhcpServerConfigGlobalsMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global mode of DHCP server. true(1) is to enable the functions of DHCP
+         server and false(2) is to disable it."
+    ::= { me1200DhcpServerConfigGlobals 1 }
+
+me1200DhcpServerConfigVlanTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200DhcpServerConfigVlanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the table of DHCP server VLAN configuration. The index is VLAN
+         ID."
+    ::= { me1200DhcpServerConfig 2 }
+
+me1200DhcpServerConfigVlanEntry OBJECT-TYPE
+    SYNTAX      ME1200DhcpServerConfigVlanEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each VLAN has a set of parameters"
+    INDEX       { me1200DhcpServerConfigVlanIfIndex }
+    ::= { me1200DhcpServerConfigVlanTable 1 }
+
+ME1200DhcpServerConfigVlanEntry ::= SEQUENCE {
+    me1200DhcpServerConfigVlanIfIndex     ME1200InterfaceIndex,
+    me1200DhcpServerConfigVlanMode    TruthValue
+}
+
+me1200DhcpServerConfigVlanIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of VLAN."
+    ::= { me1200DhcpServerConfigVlanEntry 1 }
+
+me1200DhcpServerConfigVlanMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "VLAN mode of DHCP server. true(1) is to enable DHCP server per VLAN and
+         false(2) is to disable it per VLAN."
+    ::= { me1200DhcpServerConfigVlanEntry 2 }
+
+me1200DhcpServerConfigExcludedTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200DhcpServerConfigExcludedEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The table is DHCP server excluded IP onfiguration table. The indexes
+         are low IP and high IP address."
+    ::= { me1200DhcpServerConfig 3 }
+
+me1200DhcpServerConfigExcludedEntry OBJECT-TYPE
+    SYNTAX      ME1200DhcpServerConfigExcludedEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200DhcpServerConfigExcludedLowIpAddress, me1200DhcpServerConfigExcludedHighIpAddress }
+    ::= { me1200DhcpServerConfigExcludedTable 1 }
+
+ME1200DhcpServerConfigExcludedEntry ::= SEQUENCE {
+    me1200DhcpServerConfigExcludedLowIpAddress    IpAddress,
+    me1200DhcpServerConfigExcludedHighIpAddress   IpAddress,
+    me1200DhcpServerConfigExcludedAction      ME1200RowEditorState
+}
+
+me1200DhcpServerConfigExcludedLowIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Low IP address."
+    ::= { me1200DhcpServerConfigExcludedEntry 1 }
+
+me1200DhcpServerConfigExcludedHighIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "High IP address."
+    ::= { me1200DhcpServerConfigExcludedEntry 2 }
+
+me1200DhcpServerConfigExcludedAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200DhcpServerConfigExcludedEntry 100 }
+
+me1200DhcpServerConfigExcludedIpTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200DhcpServerConfig 4 }
+
+me1200DhcpServerConfigExcludedIpTableRowEditorLowIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Low IP address."
+    ::= { me1200DhcpServerConfigExcludedIpTableRowEditor 1 }
+
+me1200DhcpServerConfigExcludedIpTableRowEditorHighIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "High IP address."
+    ::= { me1200DhcpServerConfigExcludedIpTableRowEditor 2 }
+
+me1200DhcpServerConfigExcludedIpTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200DhcpServerConfigExcludedIpTableRowEditor 100 }
+
+me1200DhcpServerConfigPoolTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200DhcpServerConfigPoolEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The table is DHCP server pool onfiguration table. The indexe is pool
+         name."
+    ::= { me1200DhcpServerConfig 5 }
+
+me1200DhcpServerConfigPoolEntry OBJECT-TYPE
+    SYNTAX      ME1200DhcpServerConfigPoolEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200DhcpServerConfigPoolPoolName }
+    ::= { me1200DhcpServerConfigPoolTable 1 }
+
+ME1200DhcpServerConfigPoolEntry ::= SEQUENCE {
+    me1200DhcpServerConfigPoolPoolName    ME1200DisplayString,
+    me1200DhcpServerConfigPoolPoolType    ME1200PoolType,
+    me1200DhcpServerConfigPoolIpv4Address     IpAddress,
+    me1200DhcpServerConfigPoolSubnetMask      IpAddress,
+    me1200DhcpServerConfigPoolSubnetBroadcast     IpAddress,
+    me1200DhcpServerConfigPoolLeaseDay    Unsigned32,
+    me1200DhcpServerConfigPoolLeaseHour   Unsigned32,
+    me1200DhcpServerConfigPoolLeaseMinute     Unsigned32,
+    me1200DhcpServerConfigPoolDomainName      ME1200DisplayString,
+    me1200DhcpServerConfigPoolDefaultRouter1      IpAddress,
+    me1200DhcpServerConfigPoolDefaultRouter2      IpAddress,
+    me1200DhcpServerConfigPoolDefaultRouter3      IpAddress,
+    me1200DhcpServerConfigPoolDefaultRouter4      IpAddress,
+    me1200DhcpServerConfigPoolDnsServer1      IpAddress,
+    me1200DhcpServerConfigPoolDnsServer2      IpAddress,
+    me1200DhcpServerConfigPoolDnsServer3      IpAddress,
+    me1200DhcpServerConfigPoolDnsServer4      IpAddress,
+    me1200DhcpServerConfigPoolNtpServer1      IpAddress,
+    me1200DhcpServerConfigPoolNtpServer2      IpAddress,
+    me1200DhcpServerConfigPoolNtpServer3      IpAddress,
+    me1200DhcpServerConfigPoolNtpServer4      IpAddress,
+    me1200DhcpServerConfigPoolNetbiosNodeType     ME1200NetbiosNodeType,
+    me1200DhcpServerConfigPoolNetbiosScope    ME1200DisplayString,
+    me1200DhcpServerConfigPoolNetbiosNameServer1      IpAddress,
+    me1200DhcpServerConfigPoolNetbiosNameServer2      IpAddress,
+    me1200DhcpServerConfigPoolNetbiosNameServer3      IpAddress,
+    me1200DhcpServerConfigPoolNetbiosNameServer4      IpAddress,
+    me1200DhcpServerConfigPoolNisDomainName   ME1200DisplayString,
+    me1200DhcpServerConfigPoolNisServer1      IpAddress,
+    me1200DhcpServerConfigPoolNisServer2      IpAddress,
+    me1200DhcpServerConfigPoolNisServer3      IpAddress,
+    me1200DhcpServerConfigPoolNisServer4      IpAddress,
+    me1200DhcpServerConfigPoolClientIdentifierType    ME1200ClientIdentifierType,
+    me1200DhcpServerConfigPoolClientIdentifierFqdn    ME1200DisplayString,
+    me1200DhcpServerConfigPoolClientIdentifierMac     MacAddress,
+    me1200DhcpServerConfigPoolClientHardwareAddress   MacAddress,
+    me1200DhcpServerConfigPoolClientName      ME1200DisplayString,
+    me1200DhcpServerConfigPoolVendorClassId1      ME1200DisplayString,
+    me1200DhcpServerConfigPoolVendorSpecificInfo1     ME1200DisplayString,
+    me1200DhcpServerConfigPoolVendorClassId2      ME1200DisplayString,
+    me1200DhcpServerConfigPoolVendorSpecificInfo2     ME1200DisplayString,
+    me1200DhcpServerConfigPoolVendorClassId3      ME1200DisplayString,
+    me1200DhcpServerConfigPoolVendorSpecificInfo3     ME1200DisplayString,
+    me1200DhcpServerConfigPoolVendorClassId4      ME1200DisplayString,
+    me1200DhcpServerConfigPoolVendorSpecificInfo4     ME1200DisplayString,
+    me1200DhcpServerConfigPoolAction      ME1200RowEditorState
+}
+
+me1200DhcpServerConfigPoolPoolName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Name of DHCP pool."
+    ::= { me1200DhcpServerConfigPoolEntry 1 }
+
+me1200DhcpServerConfigPoolPoolType OBJECT-TYPE
+    SYNTAX      ME1200PoolType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of pool. none(0) means the pool type is not defined yet.
+         network(1) means the pool defines a pool of IP addresses to service
+         more than one DHCP client. host(2) means the pool services for a
+         specific DHCP client identified by client identifier or hardware
+         address."
+    ::= { me1200DhcpServerConfigPoolEntry 2 }
+
+me1200DhcpServerConfigPoolIpv4Address OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Network number of the subnet. If the pool type is of network, the IP
+         address can be any general IP address. If the pool type is of host, the
+         IP address must be a unicast IP address."
+    ::= { me1200DhcpServerConfigPoolEntry 3 }
+
+me1200DhcpServerConfigPoolSubnetMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Subnet Mask. DHCP option 1. Specify subnet mask of the DHCP address
+         pool, excluding 0.0.0.0 and 255.255.255.255."
+    ::= { me1200DhcpServerConfigPoolEntry 4 }
+
+me1200DhcpServerConfigPoolSubnetBroadcast OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Broadcast IP address in the subnet. DHCP option 28. Specify the
+         broadcast address in use on the client's subnet."
+    ::= { me1200DhcpServerConfigPoolEntry 5 }
+
+me1200DhcpServerConfigPoolLeaseDay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of days of lease time. DHCP option 51, 58 and 59. The value
+         range is 0-365. Specify lease time that allows the client to request a
+         lease time for the IP address. If all of LeaseDay, LeaseHour and
+         LeaseMinute are 0's, then it means the lease time is infinite."
+    ::= { me1200DhcpServerConfigPoolEntry 6 }
+
+me1200DhcpServerConfigPoolLeaseHour OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of hours of lease time. DHCP option 51, 58 and 59. The value
+         range is 0-23. Specify lease time that allows the client to request a
+         lease time for the IP address. If all of LeaseDay, LeaseHour and
+         LeaseMinute are 0's, then it means the lease time is infinite."
+    ::= { me1200DhcpServerConfigPoolEntry 7 }
+
+me1200DhcpServerConfigPoolLeaseMinute OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of minutes of lease time. DHCP option 51, 58 and 59. The value
+         range is 0-59. Specify lease time that allows the client to request a
+         lease time for the IP address. If all of LeaseDay, LeaseHour and
+         LeaseMinute are 0's, then it means the lease time is infinite."
+    ::= { me1200DhcpServerConfigPoolEntry 8 }
+
+me1200DhcpServerConfigPoolDomainName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Domain name. DHCP option 15. Specify domain name that client should use
+         when resolving hostname via DNS."
+    ::= { me1200DhcpServerConfigPoolEntry 9 }
+
+me1200DhcpServerConfigPoolDefaultRouter1 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Default router 1."
+    ::= { me1200DhcpServerConfigPoolEntry 10 }
+
+me1200DhcpServerConfigPoolDefaultRouter2 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Default router 2."
+    ::= { me1200DhcpServerConfigPoolEntry 11 }
+
+me1200DhcpServerConfigPoolDefaultRouter3 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Default router 3."
+    ::= { me1200DhcpServerConfigPoolEntry 12 }
+
+me1200DhcpServerConfigPoolDefaultRouter4 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Default router 4."
+    ::= { me1200DhcpServerConfigPoolEntry 13 }
+
+me1200DhcpServerConfigPoolDnsServer1 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "DNS server 1."
+    ::= { me1200DhcpServerConfigPoolEntry 14 }
+
+me1200DhcpServerConfigPoolDnsServer2 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "DNS server 2."
+    ::= { me1200DhcpServerConfigPoolEntry 15 }
+
+me1200DhcpServerConfigPoolDnsServer3 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "DNS server 3."
+    ::= { me1200DhcpServerConfigPoolEntry 16 }
+
+me1200DhcpServerConfigPoolDnsServer4 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "DNS server 4."
+    ::= { me1200DhcpServerConfigPoolEntry 17 }
+
+me1200DhcpServerConfigPoolNtpServer1 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NTP server 1."
+    ::= { me1200DhcpServerConfigPoolEntry 18 }
+
+me1200DhcpServerConfigPoolNtpServer2 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NTP server 2."
+    ::= { me1200DhcpServerConfigPoolEntry 19 }
+
+me1200DhcpServerConfigPoolNtpServer3 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NTP server 3."
+    ::= { me1200DhcpServerConfigPoolEntry 20 }
+
+me1200DhcpServerConfigPoolNtpServer4 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NTP server 4."
+    ::= { me1200DhcpServerConfigPoolEntry 21 }
+
+me1200DhcpServerConfigPoolNetbiosNodeType OBJECT-TYPE
+    SYNTAX      ME1200NetbiosNodeType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of NetBIOS node. DHCP option 46. Specify NetBIOS node type option
+         to allow Netbios over TCP/IP clients which are configurable to be
+         configured as described in RFC 1001/1002. nodeNone(0) means the node
+         type is not defined yet. nodeB(1) means the node type is type of B.
+         nodeP(2) means the node type is type of P. nodeM(3) means the node type
+         is type of M. nodeH(4) means the node type is type of H."
+    ::= { me1200DhcpServerConfigPoolEntry 22 }
+
+me1200DhcpServerConfigPoolNetbiosScope OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NetBIOS scope. DHCP option 47. Specify the NetBIOS over TCP/IP scope
+         parameter for the client as specified in RFC 1001/1002."
+    ::= { me1200DhcpServerConfigPoolEntry 23 }
+
+me1200DhcpServerConfigPoolNetbiosNameServer1 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NetBIOS name server 1."
+    ::= { me1200DhcpServerConfigPoolEntry 24 }
+
+me1200DhcpServerConfigPoolNetbiosNameServer2 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NetBIOS name server 2."
+    ::= { me1200DhcpServerConfigPoolEntry 25 }
+
+me1200DhcpServerConfigPoolNetbiosNameServer3 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NetBIOS name server 3."
+    ::= { me1200DhcpServerConfigPoolEntry 26 }
+
+me1200DhcpServerConfigPoolNetbiosNameServer4 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NetBIOS name server 4."
+    ::= { me1200DhcpServerConfigPoolEntry 27 }
+
+me1200DhcpServerConfigPoolNisDomainName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NIS Domain Name. DHCP option 40. Specify the name of the client's NIS
+         domain."
+    ::= { me1200DhcpServerConfigPoolEntry 28 }
+
+me1200DhcpServerConfigPoolNisServer1 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NIS server 1."
+    ::= { me1200DhcpServerConfigPoolEntry 29 }
+
+me1200DhcpServerConfigPoolNisServer2 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NIS server 2."
+    ::= { me1200DhcpServerConfigPoolEntry 30 }
+
+me1200DhcpServerConfigPoolNisServer3 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NIS server 3."
+    ::= { me1200DhcpServerConfigPoolEntry 31 }
+
+me1200DhcpServerConfigPoolNisServer4 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NIS server 4."
+    ::= { me1200DhcpServerConfigPoolEntry 32 }
+
+me1200DhcpServerConfigPoolClientIdentifierType OBJECT-TYPE
+    SYNTAX      ME1200ClientIdentifierType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of client identifier. DHCP option 61. Specify client's unique
+         identifier to be used when the pool is the type of host. none(0) means
+         the client identifier type is not defined yet. fqdn(1) means the client
+         identifier type is type of FQDN (Fully Qualified Domain Name). mac(2)
+         means the client identifier type is type of MAC address."
+    ::= { me1200DhcpServerConfigPoolEntry 33 }
+
+me1200DhcpServerConfigPoolClientIdentifierFqdn OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client's Fully Qualified Domain Name. DHCP option 61. Specify client's
+         unique identifier to be used when the pool is the type of host. This
+         takes effect only if ClientIdentifierType is defined fqdn(1)."
+    ::= { me1200DhcpServerConfigPoolEntry 34 }
+
+me1200DhcpServerConfigPoolClientIdentifierMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client's MAC address. DHCP option 61. Specify client's unique
+         identifier to be used when the pool is the type of host. This takes
+         effect only if ClientIdentifierType is defined as mac(2)."
+    ::= { me1200DhcpServerConfigPoolEntry 35 }
+
+me1200DhcpServerConfigPoolClientHardwareAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client's hardware address. Specify client's hardware(MAC) address to be
+         used when the pool is the type of host."
+    ::= { me1200DhcpServerConfigPoolEntry 36 }
+
+me1200DhcpServerConfigPoolClientName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client name. DHCP option 12. Specify the name of client to be used when
+         the pool is the type of host."
+    ::= { me1200DhcpServerConfigPoolEntry 37 }
+
+me1200DhcpServerConfigPoolVendorClassId1 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Class Identifier. DHCP option 60. Specify to be used by DHCP
+         client to optionally identify the vendor type and configuration of a
+         DHCP client. DHCP server will deliver the corresponding option 43
+         specific information to the client that sends option 60 vendor class
+         identifier."
+    ::= { me1200DhcpServerConfigPoolEntry 38 }
+
+me1200DhcpServerConfigPoolVendorSpecificInfo1 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..66))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Specific Information. DHCP option 43. Specify vendor specific
+         information corresponding to option 60 vendor class identifier.
+         Therefore, the corresponding vendor class identifier must be defined
+         before this specific information."
+    ::= { me1200DhcpServerConfigPoolEntry 39 }
+
+me1200DhcpServerConfigPoolVendorClassId2 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Class Identifier. DHCP option 60. Specify to be used by DHCP
+         client to optionally identify the vendor type and configuration of a
+         DHCP client. DHCP server will deliver the corresponding option 43
+         specific information to the client that sends option 60 vendor class
+         identifier."
+    ::= { me1200DhcpServerConfigPoolEntry 40 }
+
+me1200DhcpServerConfigPoolVendorSpecificInfo2 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..66))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Specific Information. DHCP option 43. Specify vendor specific
+         information corresponding to option 60 vendor class identifier.
+         Therefore, the corresponding vendor class identifier must be defined
+         before this specific information."
+    ::= { me1200DhcpServerConfigPoolEntry 41 }
+
+me1200DhcpServerConfigPoolVendorClassId3 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Class Identifier. DHCP option 60. Specify to be used by DHCP
+         client to optionally identify the vendor type and configuration of a
+         DHCP client. DHCP server will deliver the corresponding option 43
+         specific information to the client that sends option 60 vendor class
+         identifier."
+    ::= { me1200DhcpServerConfigPoolEntry 42 }
+
+me1200DhcpServerConfigPoolVendorSpecificInfo3 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..66))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Specific Information. DHCP option 43. Specify vendor specific
+         information corresponding to option 60 vendor class identifier.
+         Therefore, the corresponding vendor class identifier must be defined
+         before this specific information."
+    ::= { me1200DhcpServerConfigPoolEntry 43 }
+
+me1200DhcpServerConfigPoolVendorClassId4 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Class Identifier. DHCP option 60. Specify to be used by DHCP
+         client to optionally identify the vendor type and configuration of a
+         DHCP client. DHCP server will deliver the corresponding option 43
+         specific information to the client that sends option 60 vendor class
+         identifier."
+    ::= { me1200DhcpServerConfigPoolEntry 44 }
+
+me1200DhcpServerConfigPoolVendorSpecificInfo4 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..66))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Specific Information. DHCP option 43. Specify vendor specific
+         information corresponding to option 60 vendor class identifier.
+         Therefore, the corresponding vendor class identifier must be defined
+         before this specific information."
+    ::= { me1200DhcpServerConfigPoolEntry 45 }
+
+me1200DhcpServerConfigPoolAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200DhcpServerConfigPoolEntry 100 }
+
+me1200DhcpServerConfigPoolTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200DhcpServerConfig 6 }
+
+me1200DhcpServerConfigPoolTableRowEditorPoolName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Name of DHCP pool."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 1 }
+
+me1200DhcpServerConfigPoolTableRowEditorPoolType OBJECT-TYPE
+    SYNTAX      ME1200PoolType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of pool. none(0) means the pool type is not defined yet.
+         network(1) means the pool defines a pool of IP addresses to service
+         more than one DHCP client. host(2) means the pool services for a
+         specific DHCP client identified by client identifier or hardware
+         address."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 2 }
+
+me1200DhcpServerConfigPoolTableRowEditorIpv4Address OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Network number of the subnet. If the pool type is of network, the IP
+         address can be any general IP address. If the pool type is of host, the
+         IP address must be a unicast IP address."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 3 }
+
+me1200DhcpServerConfigPoolTableRowEditorSubnetMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Subnet Mask. DHCP option 1. Specify subnet mask of the DHCP address
+         pool, excluding 0.0.0.0 and 255.255.255.255."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 4 }
+
+me1200DhcpServerConfigPoolTableRowEditorSubnetBroadcast OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Broadcast IP address in the subnet. DHCP option 28. Specify the
+         broadcast address in use on the client's subnet."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 5 }
+
+me1200DhcpServerConfigPoolTableRowEditorLeaseDay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of days of lease time. DHCP option 51, 58 and 59. The value
+         range is 0-365. Specify lease time that allows the client to request a
+         lease time for the IP address. If all of LeaseDay, LeaseHour and
+         LeaseMinute are 0's, then it means the lease time is infinite."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 6 }
+
+me1200DhcpServerConfigPoolTableRowEditorLeaseHour OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of hours of lease time. DHCP option 51, 58 and 59. The value
+         range is 0-23. Specify lease time that allows the client to request a
+         lease time for the IP address. If all of LeaseDay, LeaseHour and
+         LeaseMinute are 0's, then it means the lease time is infinite."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 7 }
+
+me1200DhcpServerConfigPoolTableRowEditorLeaseMinute OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of minutes of lease time. DHCP option 51, 58 and 59. The value
+         range is 0-59. Specify lease time that allows the client to request a
+         lease time for the IP address. If all of LeaseDay, LeaseHour and
+         LeaseMinute are 0's, then it means the lease time is infinite."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 8 }
+
+me1200DhcpServerConfigPoolTableRowEditorDomainName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Domain name. DHCP option 15. Specify domain name that client should use
+         when resolving hostname via DNS."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 9 }
+
+me1200DhcpServerConfigPoolTableRowEditorDefaultRouter1 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Default router 1."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 10 }
+
+me1200DhcpServerConfigPoolTableRowEditorDefaultRouter2 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Default router 2."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 11 }
+
+me1200DhcpServerConfigPoolTableRowEditorDefaultRouter3 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Default router 3."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 12 }
+
+me1200DhcpServerConfigPoolTableRowEditorDefaultRouter4 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Default router 4."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 13 }
+
+me1200DhcpServerConfigPoolTableRowEditorDnsServer1 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "DNS server 1."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 14 }
+
+me1200DhcpServerConfigPoolTableRowEditorDnsServer2 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "DNS server 2."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 15 }
+
+me1200DhcpServerConfigPoolTableRowEditorDnsServer3 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "DNS server 3."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 16 }
+
+me1200DhcpServerConfigPoolTableRowEditorDnsServer4 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "DNS server 4."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 17 }
+
+me1200DhcpServerConfigPoolTableRowEditorNtpServer1 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NTP server 1."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 18 }
+
+me1200DhcpServerConfigPoolTableRowEditorNtpServer2 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NTP server 2."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 19 }
+
+me1200DhcpServerConfigPoolTableRowEditorNtpServer3 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NTP server 3."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 20 }
+
+me1200DhcpServerConfigPoolTableRowEditorNtpServer4 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NTP server 4."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 21 }
+
+me1200DhcpServerConfigPoolTableRowEditorNetbiosNodeType OBJECT-TYPE
+    SYNTAX      ME1200NetbiosNodeType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of NetBIOS node. DHCP option 46. Specify NetBIOS node type option
+         to allow Netbios over TCP/IP clients which are configurable to be
+         configured as described in RFC 1001/1002. nodeNone(0) means the node
+         type is not defined yet. nodeB(1) means the node type is type of B.
+         nodeP(2) means the node type is type of P. nodeM(3) means the node type
+         is type of M. nodeH(4) means the node type is type of H."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 22 }
+
+me1200DhcpServerConfigPoolTableRowEditorNetbiosScope OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NetBIOS scope. DHCP option 47. Specify the NetBIOS over TCP/IP scope
+         parameter for the client as specified in RFC 1001/1002."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 23 }
+
+me1200DhcpServerConfigPoolTableRowEditorNetbiosNameServer1 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NetBIOS name server 1."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 24 }
+
+me1200DhcpServerConfigPoolTableRowEditorNetbiosNameServer2 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NetBIOS name server 2."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 25 }
+
+me1200DhcpServerConfigPoolTableRowEditorNetbiosNameServer3 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NetBIOS name server 3."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 26 }
+
+me1200DhcpServerConfigPoolTableRowEditorNetbiosNameServer4 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NetBIOS name server 4."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 27 }
+
+me1200DhcpServerConfigPoolTableRowEditorNisDomainName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NIS Domain Name. DHCP option 40. Specify the name of the client's NIS
+         domain."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 28 }
+
+me1200DhcpServerConfigPoolTableRowEditorNisServer1 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NIS server 1."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 29 }
+
+me1200DhcpServerConfigPoolTableRowEditorNisServer2 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NIS server 2."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 30 }
+
+me1200DhcpServerConfigPoolTableRowEditorNisServer3 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NIS server 3."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 31 }
+
+me1200DhcpServerConfigPoolTableRowEditorNisServer4 OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "NIS server 4."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 32 }
+
+me1200DhcpServerConfigPoolTableRowEditorClientIdentifierType OBJECT-TYPE
+    SYNTAX      ME1200ClientIdentifierType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of client identifier. DHCP option 61. Specify client's unique
+         identifier to be used when the pool is the type of host. none(0) means
+         the client identifier type is not defined yet. fqdn(1) means the client
+         identifier type is type of FQDN (Fully Qualified Domain Name). mac(2)
+         means the client identifier type is type of MAC address."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 33 }
+
+me1200DhcpServerConfigPoolTableRowEditorClientIdentifierFqdn OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client's Fully Qualified Domain Name. DHCP option 61. Specify client's
+         unique identifier to be used when the pool is the type of host. This
+         takes effect only if ClientIdentifierType is defined fqdn(1)."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 34 }
+
+me1200DhcpServerConfigPoolTableRowEditorClientIdentifierMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client's MAC address. DHCP option 61. Specify client's unique
+         identifier to be used when the pool is the type of host. This takes
+         effect only if ClientIdentifierType is defined as mac(2)."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 35 }
+
+me1200DhcpServerConfigPoolTableRowEditorClientHardwareAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client's hardware address. Specify client's hardware(MAC) address to be
+         used when the pool is the type of host."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 36 }
+
+me1200DhcpServerConfigPoolTableRowEditorClientName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Client name. DHCP option 12. Specify the name of client to be used when
+         the pool is the type of host."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 37 }
+
+me1200DhcpServerConfigPoolTableRowEditorVendorClassId1 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Class Identifier. DHCP option 60. Specify to be used by DHCP
+         client to optionally identify the vendor type and configuration of a
+         DHCP client. DHCP server will deliver the corresponding option 43
+         specific information to the client that sends option 60 vendor class
+         identifier."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 38 }
+
+me1200DhcpServerConfigPoolTableRowEditorVendorSpecificInfo1 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..66))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Specific Information. DHCP option 43. Specify vendor specific
+         information corresponding to option 60 vendor class identifier.
+         Therefore, the corresponding vendor class identifier must be defined
+         before this specific information."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 39 }
+
+me1200DhcpServerConfigPoolTableRowEditorVendorClassId2 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Class Identifier. DHCP option 60. Specify to be used by DHCP
+         client to optionally identify the vendor type and configuration of a
+         DHCP client. DHCP server will deliver the corresponding option 43
+         specific information to the client that sends option 60 vendor class
+         identifier."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 40 }
+
+me1200DhcpServerConfigPoolTableRowEditorVendorSpecificInfo2 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..66))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Specific Information. DHCP option 43. Specify vendor specific
+         information corresponding to option 60 vendor class identifier.
+         Therefore, the corresponding vendor class identifier must be defined
+         before this specific information."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 41 }
+
+me1200DhcpServerConfigPoolTableRowEditorVendorClassId3 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Class Identifier. DHCP option 60. Specify to be used by DHCP
+         client to optionally identify the vendor type and configuration of a
+         DHCP client. DHCP server will deliver the corresponding option 43
+         specific information to the client that sends option 60 vendor class
+         identifier."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 42 }
+
+me1200DhcpServerConfigPoolTableRowEditorVendorSpecificInfo3 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..66))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Specific Information. DHCP option 43. Specify vendor specific
+         information corresponding to option 60 vendor class identifier.
+         Therefore, the corresponding vendor class identifier must be defined
+         before this specific information."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 43 }
+
+me1200DhcpServerConfigPoolTableRowEditorVendorClassId4 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Class Identifier. DHCP option 60. Specify to be used by DHCP
+         client to optionally identify the vendor type and configuration of a
+         DHCP client. DHCP server will deliver the corresponding option 43
+         specific information to the client that sends option 60 vendor class
+         identifier."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 44 }
+
+me1200DhcpServerConfigPoolTableRowEditorVendorSpecificInfo4 OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..66))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Vendor Specific Information. DHCP option 43. Specify vendor specific
+         information corresponding to option 60 vendor class identifier.
+         Therefore, the corresponding vendor class identifier must be defined
+         before this specific information."
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 45 }
+
+me1200DhcpServerConfigPoolTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200DhcpServerConfigPoolTableRowEditor 100 }
+
+me1200DhcpServerStatus OBJECT IDENTIFIER
+    ::= { me1200DhcpServerMIBObjects 3 }
+
+me1200DhcpServerStatusDeclinedTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200DhcpServerStatusDeclinedEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of IP addresses declined by DHCP client."
+    ::= { me1200DhcpServerStatus 1 }
+
+me1200DhcpServerStatusDeclinedEntry OBJECT-TYPE
+    SYNTAX      ME1200DhcpServerStatusDeclinedEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a declined IP address."
+    INDEX       { me1200DhcpServerStatusDeclinedEntryNo }
+    ::= { me1200DhcpServerStatusDeclinedTable 1 }
+
+ME1200DhcpServerStatusDeclinedEntry ::= SEQUENCE {
+    me1200DhcpServerStatusDeclinedEntryNo     Integer32,
+    me1200DhcpServerStatusDeclinedIpv4Address     IpAddress
+}
+
+me1200DhcpServerStatusDeclinedEntryNo OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The number of entry. The number starts from 1."
+    ::= { me1200DhcpServerStatusDeclinedEntry 1 }
+
+me1200DhcpServerStatusDeclinedIpv4Address OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "IPv4 address declined by DHCP client."
+    ::= { me1200DhcpServerStatusDeclinedEntry 2 }
+
+me1200DhcpServerStatusStatistics OBJECT IDENTIFIER
+    ::= { me1200DhcpServerStatus 2 }
+
+me1200DhcpServerStatusStatisticsDiscoverCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of DHCP DISCOVER messages received."
+    ::= { me1200DhcpServerStatusStatistics 1 }
+
+me1200DhcpServerStatusStatisticsOfferCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of DHCP OFFER messages sent."
+    ::= { me1200DhcpServerStatusStatistics 2 }
+
+me1200DhcpServerStatusStatisticsRequestCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of DHCP REQUEST messages received."
+    ::= { me1200DhcpServerStatusStatistics 3 }
+
+me1200DhcpServerStatusStatisticsAckCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of DHCP ACK messages sent."
+    ::= { me1200DhcpServerStatusStatistics 4 }
+
+me1200DhcpServerStatusStatisticsNakCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of DHCP NAK messages sent."
+    ::= { me1200DhcpServerStatusStatistics 5 }
+
+me1200DhcpServerStatusStatisticsDeclineCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of DHCP DECLINE messages received."
+    ::= { me1200DhcpServerStatusStatistics 6 }
+
+me1200DhcpServerStatusStatisticsReleaseCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of DHCP RELEASE messages received."
+    ::= { me1200DhcpServerStatusStatistics 7 }
+
+me1200DhcpServerStatusStatisticsInformCnt OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of DHCP INFORM messages received."
+    ::= { me1200DhcpServerStatusStatistics 8 }
+
+me1200DhcpServerStatusBindingTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200DhcpServerStatusBindingEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of binding data."
+    ::= { me1200DhcpServerStatus 3 }
+
+me1200DhcpServerStatusBindingEntry OBJECT-TYPE
+    SYNTAX      ME1200DhcpServerStatusBindingEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has the binding data."
+    INDEX       { me1200DhcpServerStatusBindingIpAddress }
+    ::= { me1200DhcpServerStatusBindingTable 1 }
+
+ME1200DhcpServerStatusBindingEntry ::= SEQUENCE {
+    me1200DhcpServerStatusBindingIpAddress    IpAddress,
+    me1200DhcpServerStatusBindingState    ME1200BindingState,
+    me1200DhcpServerStatusBindingType     ME1200BindingType,
+    me1200DhcpServerStatusBindingPoolName     ME1200DisplayString,
+    me1200DhcpServerStatusBindingServerId     IpAddress,
+    me1200DhcpServerStatusBindingVlanId   ME1200Unsigned16,
+    me1200DhcpServerStatusBindingSubnetMask   IpAddress,
+    me1200DhcpServerStatusBindingClientIdentifierType     ME1200ClientIdentifierType,
+    me1200DhcpServerStatusBindingClientIdentifierFqdn     ME1200DisplayString,
+    me1200DhcpServerStatusBindingClientIdentifierMac      MacAddress,
+    me1200DhcpServerStatusBindingMacAddress   MacAddress,
+    me1200DhcpServerStatusBindingLease    ME1200DisplayString,
+    me1200DhcpServerStatusBindingTimeToExpire     ME1200DisplayString
+}
+
+me1200DhcpServerStatusBindingIpAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "IP address."
+    ::= { me1200DhcpServerStatusBindingEntry 1 }
+
+me1200DhcpServerStatusBindingState OBJECT-TYPE
+    SYNTAX      ME1200BindingState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "State of binding. none(0) means the binding is not in use. allocated(1)
+         means the binding is allocated to the new DHCP client who send
+         DHCPDISCOVER. committed(2) means the binding is committed as the DHCP
+         process is completed successfully. expired(3) means the lease of the
+         binding expired."
+    ::= { me1200DhcpServerStatusBindingEntry 2 }
+
+me1200DhcpServerStatusBindingType OBJECT-TYPE
+    SYNTAX      ME1200BindingType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Type of binding. none(0) means the binding is not in use. automatic(1)
+         means the binding is mapped to network-type pool. manual(2) means the
+         binding is mapped to host-type pool. expired(3) means the lease of the
+         binding expired."
+    ::= { me1200DhcpServerStatusBindingEntry 3 }
+
+me1200DhcpServerStatusBindingPoolName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..32))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Name of the pool that creates the binding."
+    ::= { me1200DhcpServerStatusBindingEntry 4 }
+
+me1200DhcpServerStatusBindingServerId OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "IP address of the DHCP server to service the binding."
+    ::= { me1200DhcpServerStatusBindingEntry 5 }
+
+me1200DhcpServerStatusBindingVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN where the binding works on."
+    ::= { me1200DhcpServerStatusBindingEntry 6 }
+
+me1200DhcpServerStatusBindingSubnetMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Subnet mask of the DHCP client."
+    ::= { me1200DhcpServerStatusBindingEntry 7 }
+
+me1200DhcpServerStatusBindingClientIdentifierType OBJECT-TYPE
+    SYNTAX      ME1200ClientIdentifierType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Type of client identifier. DHCP option 61. Specify client's unique
+         identifier to be used when the pool is the type of host. none(0) means
+         the client identifier type is not defined yet. fqdn(1) means the client
+         identifier type is type of FQDN (Fully Qualified Domain Name). mac(2)
+         means the client identifier type is type of MAC address."
+    ::= { me1200DhcpServerStatusBindingEntry 8 }
+
+me1200DhcpServerStatusBindingClientIdentifierFqdn OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Client's Fully Qualified Domain Name. DHCP option 61."
+    ::= { me1200DhcpServerStatusBindingEntry 9 }
+
+me1200DhcpServerStatusBindingClientIdentifierMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Client's MAC address. DHCP option 61."
+    ::= { me1200DhcpServerStatusBindingEntry 10 }
+
+me1200DhcpServerStatusBindingMacAddress OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MAC address of the DHCP client."
+    ::= { me1200DhcpServerStatusBindingEntry 11 }
+
+me1200DhcpServerStatusBindingLease OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Lease time of the binding."
+    ::= { me1200DhcpServerStatusBindingEntry 12 }
+
+me1200DhcpServerStatusBindingTimeToExpire OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "remaining time to expire."
+    ::= { me1200DhcpServerStatusBindingEntry 13 }
+
+me1200DhcpServerControl OBJECT IDENTIFIER
+    ::= { me1200DhcpServerMIBObjects 4 }
+
+me1200DhcpServerControlStatistics OBJECT IDENTIFIER
+    ::= { me1200DhcpServerControl 1 }
+
+me1200DhcpServerControlStatisticsClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear all statistics."
+    ::= { me1200DhcpServerControlStatistics 1 }
+
+me1200DhcpServerControlBinding OBJECT IDENTIFIER
+    ::= { me1200DhcpServerControl 2 }
+
+me1200DhcpServerControlBindingClearByIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear binding with the IP address. If 0.0.0.0 then do nothing."
+    ::= { me1200DhcpServerControlBinding 1 }
+
+me1200DhcpServerControlBindingClearByType OBJECT-TYPE
+    SYNTAX      ME1200BindingType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear binding by binding type. If none(0) then do nothing."
+    ::= { me1200DhcpServerControlBinding 2 }
+
+me1200DhcpServerMIBConformance OBJECT IDENTIFIER
+    ::= { me1200DhcpServerMIB 2 }
+
+me1200DhcpServerMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200DhcpServerMIBConformance 1 }
+
+me1200DhcpServerMIBGroups OBJECT IDENTIFIER
+    ::= { me1200DhcpServerMIBConformance 2 }
+
+me1200DhcpServerConfigGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerConfigGlobalsMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 1 }
+
+me1200DhcpServerConfigVlanTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerConfigVlanMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 2 }
+
+me1200DhcpServerConfigExcludedTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerConfigExcludedAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 3 }
+
+me1200DhcpServerConfigExcludedIpTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerConfigExcludedIpTableRowEditorLowIpAddress, 
+                  me1200DhcpServerConfigExcludedIpTableRowEditorHighIpAddress, 
+                  me1200DhcpServerConfigExcludedIpTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 4 }
+
+me1200DhcpServerConfigPoolTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerConfigPoolPoolType, 
+                  me1200DhcpServerConfigPoolIpv4Address, 
+                  me1200DhcpServerConfigPoolSubnetMask, 
+                  me1200DhcpServerConfigPoolSubnetBroadcast, 
+                  me1200DhcpServerConfigPoolLeaseDay, 
+                  me1200DhcpServerConfigPoolLeaseHour, 
+                  me1200DhcpServerConfigPoolLeaseMinute, 
+                  me1200DhcpServerConfigPoolDomainName, 
+                  me1200DhcpServerConfigPoolDefaultRouter1, 
+                  me1200DhcpServerConfigPoolDefaultRouter2, 
+                  me1200DhcpServerConfigPoolDefaultRouter3, 
+                  me1200DhcpServerConfigPoolDefaultRouter4, 
+                  me1200DhcpServerConfigPoolDnsServer1, 
+                  me1200DhcpServerConfigPoolDnsServer2, 
+                  me1200DhcpServerConfigPoolDnsServer3, 
+                  me1200DhcpServerConfigPoolDnsServer4, 
+                  me1200DhcpServerConfigPoolNtpServer1, 
+                  me1200DhcpServerConfigPoolNtpServer2, 
+                  me1200DhcpServerConfigPoolNtpServer3, 
+                  me1200DhcpServerConfigPoolNtpServer4, 
+                  me1200DhcpServerConfigPoolNetbiosNodeType, 
+                  me1200DhcpServerConfigPoolNetbiosScope, 
+                  me1200DhcpServerConfigPoolNetbiosNameServer1, 
+                  me1200DhcpServerConfigPoolNetbiosNameServer2, 
+                  me1200DhcpServerConfigPoolNetbiosNameServer3, 
+                  me1200DhcpServerConfigPoolNetbiosNameServer4, 
+                  me1200DhcpServerConfigPoolNisDomainName, 
+                  me1200DhcpServerConfigPoolNisServer1, 
+                  me1200DhcpServerConfigPoolNisServer2, 
+                  me1200DhcpServerConfigPoolNisServer3, 
+                  me1200DhcpServerConfigPoolNisServer4, 
+                  me1200DhcpServerConfigPoolClientIdentifierType, 
+                  me1200DhcpServerConfigPoolClientIdentifierFqdn, 
+                  me1200DhcpServerConfigPoolClientIdentifierMac, 
+                  me1200DhcpServerConfigPoolClientHardwareAddress, 
+                  me1200DhcpServerConfigPoolClientName, 
+                  me1200DhcpServerConfigPoolVendorClassId1, 
+                  me1200DhcpServerConfigPoolVendorSpecificInfo1, 
+                  me1200DhcpServerConfigPoolVendorClassId2, 
+                  me1200DhcpServerConfigPoolVendorSpecificInfo2, 
+                  me1200DhcpServerConfigPoolVendorClassId3, 
+                  me1200DhcpServerConfigPoolVendorSpecificInfo3, 
+                  me1200DhcpServerConfigPoolVendorClassId4, 
+                  me1200DhcpServerConfigPoolVendorSpecificInfo4, 
+                  me1200DhcpServerConfigPoolAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 5 }
+
+me1200DhcpServerConfigPoolTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerConfigPoolTableRowEditorPoolName, 
+                  me1200DhcpServerConfigPoolTableRowEditorPoolType, 
+                  me1200DhcpServerConfigPoolTableRowEditorIpv4Address, 
+                  me1200DhcpServerConfigPoolTableRowEditorSubnetMask, 
+                  me1200DhcpServerConfigPoolTableRowEditorSubnetBroadcast, 
+                  me1200DhcpServerConfigPoolTableRowEditorLeaseDay, 
+                  me1200DhcpServerConfigPoolTableRowEditorLeaseHour, 
+                  me1200DhcpServerConfigPoolTableRowEditorLeaseMinute, 
+                  me1200DhcpServerConfigPoolTableRowEditorDomainName, 
+                  me1200DhcpServerConfigPoolTableRowEditorDefaultRouter1, 
+                  me1200DhcpServerConfigPoolTableRowEditorDefaultRouter2, 
+                  me1200DhcpServerConfigPoolTableRowEditorDefaultRouter3, 
+                  me1200DhcpServerConfigPoolTableRowEditorDefaultRouter4, 
+                  me1200DhcpServerConfigPoolTableRowEditorDnsServer1, 
+                  me1200DhcpServerConfigPoolTableRowEditorDnsServer2, 
+                  me1200DhcpServerConfigPoolTableRowEditorDnsServer3, 
+                  me1200DhcpServerConfigPoolTableRowEditorDnsServer4, 
+                  me1200DhcpServerConfigPoolTableRowEditorNtpServer1, 
+                  me1200DhcpServerConfigPoolTableRowEditorNtpServer2, 
+                  me1200DhcpServerConfigPoolTableRowEditorNtpServer3, 
+                  me1200DhcpServerConfigPoolTableRowEditorNtpServer4, 
+                  me1200DhcpServerConfigPoolTableRowEditorNetbiosNodeType, 
+                  me1200DhcpServerConfigPoolTableRowEditorNetbiosScope, 
+                  me1200DhcpServerConfigPoolTableRowEditorNetbiosNameServer1, 
+                  me1200DhcpServerConfigPoolTableRowEditorNetbiosNameServer2, 
+                  me1200DhcpServerConfigPoolTableRowEditorNetbiosNameServer3, 
+                  me1200DhcpServerConfigPoolTableRowEditorNetbiosNameServer4, 
+                  me1200DhcpServerConfigPoolTableRowEditorNisDomainName, 
+                  me1200DhcpServerConfigPoolTableRowEditorNisServer1, 
+                  me1200DhcpServerConfigPoolTableRowEditorNisServer2, 
+                  me1200DhcpServerConfigPoolTableRowEditorNisServer3, 
+                  me1200DhcpServerConfigPoolTableRowEditorNisServer4, 
+                  me1200DhcpServerConfigPoolTableRowEditorClientIdentifierType, 
+                  me1200DhcpServerConfigPoolTableRowEditorClientIdentifierFqdn, 
+                  me1200DhcpServerConfigPoolTableRowEditorClientIdentifierMac, 
+                  me1200DhcpServerConfigPoolTableRowEditorClientHardwareAddress, 
+                  me1200DhcpServerConfigPoolTableRowEditorClientName, 
+                  me1200DhcpServerConfigPoolTableRowEditorVendorClassId1, 
+                  me1200DhcpServerConfigPoolTableRowEditorVendorSpecificInfo1, 
+                  me1200DhcpServerConfigPoolTableRowEditorVendorClassId2, 
+                  me1200DhcpServerConfigPoolTableRowEditorVendorSpecificInfo2, 
+                  me1200DhcpServerConfigPoolTableRowEditorVendorClassId3, 
+                  me1200DhcpServerConfigPoolTableRowEditorVendorSpecificInfo3, 
+                  me1200DhcpServerConfigPoolTableRowEditorVendorClassId4, 
+                  me1200DhcpServerConfigPoolTableRowEditorVendorSpecificInfo4, 
+                  me1200DhcpServerConfigPoolTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 6 }
+
+me1200DhcpServerStatusDeclinedTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerStatusDeclinedIpv4Address }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 7 }
+
+me1200DhcpServerStatusStatisticsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerStatusStatisticsDiscoverCnt, 
+                  me1200DhcpServerStatusStatisticsOfferCnt, 
+                  me1200DhcpServerStatusStatisticsRequestCnt, 
+                  me1200DhcpServerStatusStatisticsAckCnt, 
+                  me1200DhcpServerStatusStatisticsNakCnt, 
+                  me1200DhcpServerStatusStatisticsDeclineCnt, 
+                  me1200DhcpServerStatusStatisticsReleaseCnt, 
+                  me1200DhcpServerStatusStatisticsInformCnt }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 8 }
+
+me1200DhcpServerStatusBindingTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerStatusBindingState, 
+                  me1200DhcpServerStatusBindingType, 
+                  me1200DhcpServerStatusBindingPoolName, 
+                  me1200DhcpServerStatusBindingServerId, 
+                  me1200DhcpServerStatusBindingVlanId, 
+                  me1200DhcpServerStatusBindingSubnetMask, 
+                  me1200DhcpServerStatusBindingClientIdentifierType, 
+                  me1200DhcpServerStatusBindingClientIdentifierFqdn, 
+                  me1200DhcpServerStatusBindingClientIdentifierMac, 
+                  me1200DhcpServerStatusBindingMacAddress, 
+                  me1200DhcpServerStatusBindingLease, 
+                  me1200DhcpServerStatusBindingTimeToExpire }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 9 }
+
+me1200DhcpServerControlStatisticsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerControlStatisticsClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 10 }
+
+me1200DhcpServerControlBindingInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DhcpServerControlBindingClearByIp, 
+                  me1200DhcpServerControlBindingClearByType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DhcpServerMIBGroups 11 }
+
+me1200DhcpServerMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200DhcpServerConfigGlobalsInfoGroup, 
+                  me1200DhcpServerConfigVlanTableInfoGroup, 
+                  me1200DhcpServerConfigExcludedTableInfoGroup, 
+                  me1200DhcpServerConfigExcludedIpTableRowEditorInfoGroup, 
+                  me1200DhcpServerConfigPoolTableInfoGroup, 
+                  me1200DhcpServerConfigPoolTableRowEditorInfoGroup, 
+                  me1200DhcpServerStatusDeclinedTableInfoGroup, 
+                  me1200DhcpServerStatusStatisticsInfoGroup, 
+                  me1200DhcpServerStatusBindingTableInfoGroup, 
+                  me1200DhcpServerControlStatisticsInfoGroup, 
+                  me1200DhcpServerControlBindingInfoGroup }
+
+    ::= { me1200DhcpServerMIBCompliances 1 }
+
+END

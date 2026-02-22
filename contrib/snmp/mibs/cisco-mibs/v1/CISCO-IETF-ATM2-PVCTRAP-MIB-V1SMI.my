@@ -1,0 +1,233 @@
+-- MIB created 6/25/99 12:57:18, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-IETF-ATM2-PVCTRAP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-ATM2-PVCTRAP-MIB.my"
+
+IMPORTS
+    Gauge32, Counter32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    TruthValue, TimeStamp
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    atmInterfaceConfEntry, atmVclVpi, atmVclVci
+            FROM ATM-MIB
+    ciscoExperiment
+            FROM CISCO-SMI;
+
+ciscoIetfAtm2PvctrapMIB OBJECT IDENTIFIER ::= { ciscoExperiment 29 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9802030000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-atm@cisco.com
+--  Descr
+--    This MIB Module is a supplement to the
+--     ATM-MIB.
+
+atm2MIBObjects  OBJECT IDENTIFIER ::= { ciscoIetfAtm2PvctrapMIB 1 }
+atm2MIBTraps    OBJECT IDENTIFIER ::= { ciscoIetfAtm2PvctrapMIB 2 }
+atmPvcTraps     OBJECT IDENTIFIER ::= { atm2MIBTraps 1 }
+atmPvcTrapsPrefix OBJECT IDENTIFIER ::= { atmPvcTraps 0 }
+atm2MIBConformance OBJECT IDENTIFIER ::= { ciscoIetfAtm2PvctrapMIB 3 }
+atm2MIBGroups   OBJECT IDENTIFIER ::= { atm2MIBConformance 1 }
+atm2MIBCompliances OBJECT IDENTIFIER ::= { atm2MIBConformance 2 }
+
+atmInterfaceExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AtmInterfaceExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains ATM interface monitoring
+         information not defined in the
+         atmInterfaceConfTable from the ATM-MIB."
+    ::= { atm2MIBObjects 14 }
+
+atmInterfaceExtEntry OBJECT-TYPE
+    SYNTAX AtmInterfaceExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry extends the atmInterfaceConfEntry
+                defined in ATM MIB.  Each entry corresponds
+                to an ATM interface."
+    INDEX { ifIndex }
+-- Augments atmInterfaceConfEntry FROM ATM-MIB
+    ::= { atmInterfaceExtTable 1 }
+
+AtmInterfaceExtEntry ::= SEQUENCE {
+    atmIntfPvcFailures Counter32,
+    atmIntfCurrentlyFailingPVcls Gauge32,
+    atmIntfPvcFailuresTrapEnable TruthValue,
+    atmIntfPvcNotificationInterval INTEGER,
+    atmPreviouslyFailedPVclInterval INTEGER
+    }
+
+atmIntfPvcFailures OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times the operational status of a PVCL
+         on this interface has gone down."
+    ::= { atmInterfaceExtEntry 20 }
+
+atmIntfCurrentlyFailingPVcls OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of VCLs on this interface for which
+         there is an active row in the atmVclTable having an
+         atmVclConnKind value of `pvc' and an atmVclOperStatus
+         with a value other than `up'."
+    ::= { atmInterfaceExtEntry 22 }
+
+atmIntfPvcFailuresTrapEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Allows the generation of traps in response to PVCL
+         failures on this interface."
+    DEFVAL { false }
+    ::= { atmInterfaceExtEntry 23 }
+
+atmIntfPvcNotificationInterval OBJECT-TYPE
+    SYNTAX INTEGER(1..3600)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The minimum interval between the sending of
+         cIntfPvcFailuresTrap notifications for this
+         interface."
+    DEFVAL { 30 }
+    ::= { atmInterfaceExtEntry 24 }
+
+atmPreviouslyFailedPVclInterval OBJECT-TYPE
+    SYNTAX INTEGER(0..3600)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The interval for storing the failed
+         time in atmPreviouslyFailedPVclTimeStamp"
+    DEFVAL { 0 }
+    ::= { atmInterfaceExtEntry 25 }
+
+atmCurrentlyFailingPVclTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AtmCurrentlyFailingPVclEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table indicating all VCLs for which there is an
+         active row in the atmVclTable having an atmVclConnKind
+         value of `pvc' and an atmVclOperStatus with a value
+         other than `up'."
+    ::= { atm2MIBObjects 21 }
+
+atmCurrentlyFailingPVclEntry OBJECT-TYPE
+    SYNTAX AtmCurrentlyFailingPVclEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table represents a VCL for which
+         the atmVclRowStatus is `active', the atmVclConnKind is
+         `pvc', and the atmVclOperStatus is other than `up'."
+    INDEX { ifIndex, atmVclVpi, atmVclVci }
+    ::= { atmCurrentlyFailingPVclTable 1 }
+
+AtmCurrentlyFailingPVclEntry ::= SEQUENCE {
+    atmCurrentlyFailingPVclTimeStamp TimeStamp,
+    atmPreviouslyFailedPVclTimeStamp TimeStamp
+    }
+
+atmCurrentlyFailingPVclTimeStamp OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time at which this PVCL began to fail."
+    ::= { atmCurrentlyFailingPVclEntry 1 }
+
+atmPreviouslyFailedPVclTimeStamp OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time at which this PVCL began to fail
+         during the PVC Notification interval."
+    ::= { atmCurrentlyFailingPVclEntry 2 }
+
+atmIntfPvcFailuresTrap TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE atmPvcTraps
+    VARIABLES {
+        ifIndex, atmIntfPvcFailures, atmIntfCurrentlyFailingPVcls }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A notification indicating that one or more
+         PVCLs on this interface has failed since the last
+         cIntfPvcFailuresTrap was sent.  If this trap has not been
+         sent for the last cIntfPvcNotificationInterval, then
+         it will be sent on the next increment of
+         cIntfPvcFailures."
+    ::= 1
+
+atmSwitchServcHostGroup OBJECT IDENTIFIER ::= { atm2MIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information
+--     for a Switch/Service/Host that implements
+--     PVC traps for an ATM interfaces.
+--  objects
+--    atmIntfPvcFailures, atmIntfCurrentlyFailingPVcls, 
+--    atmIntfPvcFailuresTrapEnable, atmIntfPvcNotificationInterval, 
+--    atmPreviouslyFailedPVclInterval, 
+--    atmCurrentlyFailingPVclTimeStamp, 
+--    atmPreviouslyFailedPVclTimeStamp
+
+atm2MIBCompliance OBJECT IDENTIFIER ::= { atm2MIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities which
+--     implement PVC traps.
+--  Module
+--    >>current<<
+--   MandGroup
+--    atmSwitchServcHostGroup
+
+
+END
+

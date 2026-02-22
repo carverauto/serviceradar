@@ -1,0 +1,1698 @@
+This is the trap definition directory. The files located in this directory list traps that are supported by cisco products.
+
+Files that end in the .trap extension are SunNet Manager (SNM) trap definition files. They should be added to the snmp.trap filenormally found in /var/adm/snm.
+
+The following is a list of directories which are in this directory.
+The file you're reading is the one named "README", in directorypub/mibs/traps.
+
+====================================================================
+=======================================================================
+
+Acquisition MIBs
+-----------------------
+
+ACTONA-ACTASTOR-MIB.traps 
+	
+	The MIB module for the management of Cisco WAFS devices.
+
+AIRESPACE-SWITCHING-MIB.traps 
+	This MIB is intended to be implemented on all those                
+	devices operating as Central Controllers (CC) that                
+	terminate the Light Weight Access Point Protocol                tunnel 
+	from Light-weight LWAPP Access Points
+
+AIRESPACE-WIRELESS-MIB.traps 
+	This MIB provides configuration and status information                
+	for 802.11 Access Points, LAN configuration, AAA,                
+	Mobility, IpSec, Radio Rescouce Management and 802.11                glo
+	bal parameter
+
+AWCVX-MIB.traps 
+	
+	VxWork platform Wireless LAN Access Point Configuration
+
+CISCO-LATITUDE-MIB.traps 
+	The MIB module for the managment of Cisco Latitude MeetingPlace 
+	conferencing solution.
+
+PCUBE-SE-MIB.traps 
+	Main SNMP MIB for Cisco's SCE OS products such asSCE2000 and SE100. 
+	This MIB provides configuration and runtime status for chassis, 
+	control modules, and line modules on the SCOS systems.
+
+CISCO-AON-STATUS-MIB.traps 
+	This MIB module defines managed objects that facilitate the management 
+	of AON node.
+
+CISCO-APPLIANCE-REDUNDANCY-MIB.traps 
+	This mib defines SNMP objects to report the status of High Availability 
+	functionality in Cisco network management appliances.
+
+CISCO-APPLICATION-ACCELERATION-MIB.traps 
+	This is a MIB for managing Application Acceleration System(s).        
+	This MIB includes instrumentation for providing the        performance 
+	statistics and status of the condenser which is        the core of the A
+	pplication Acceleration System.        A condenser is a software 
+	accelerator that applies several        optimization techniques to 
+	accelerate Web application access.
+
+CISCO-ASN-GATEWAY-MIB.traps 
+	This module manages Cisco's WiMAX ASN Gateway (ASN-GW). A WiMAX 
+	network supports wireless data communication through WiMAX radio (802.16
+	) technology.
+
+CISCO-ATM-NETWORK-CLOCK-MIB.traps 
+	The MIB module for management of network clock  distribution and the 
+	Network Clock Distribution Protocol (NCDP) in Cisco devices
+
+CISCO-ATM-PVCTRAP-EXTN-MIB.traps 
+	
+	This MIB Module is a supplement to theCISCO-IETF-ATM2-PVCTRAP-MIB
+
+CISCO-AUTH-FRAMEWORK-MIB.traps 
+	
+	MIB module for Authentication Framework in the system
+
+CISCO-BBSM-MIB.traps 
+	This mib is designed to send BBSM specific       notifications.  There 
+	are variables that contain detail data that are bind to a notification. 
+	The SNMP Manager that receives the notifications should look at the 
+	binding variables for further details of the notification data. BBSM 
+	stands for Building Broadband Service Manager.  It is a software-based 
+	service platform that enables customers to create, market, and operate b
+	roadband access services, such as high-speed Internet access with 
+	plug-and-play, multiple authentication and billing options and 
+	Web-based management, reporting, and configuration.
+
+CISCO-BGP4-MIB.traps 
+	
+	Cisco BGP MIB
+
+CISCO-BITS-CLOCK-MIB.traps 
+	This MIB provides information on Building Integrated Timing 
+	Supply(BITS) clocking sources and modes of operations.  It is used to 
+	generate notifications to indicate when clocking sources change roles or
+	 become unavailable.          GR-1233CORE sections 8.1.2 Major Alarms 
+	and                               8.1.3 Critical Alarms
+
+CISCO-BULK-FILE-MIB.traps 
+	The MIB module for creating and deleting bulk files of        SNMP data 
+	for file transfer
+
+CISCO-CABLE-ADMISSION-CTRL-MIB.traps 
+	
+	SNMP MIB for Cisco Cable Service Flow Admission Control feature.
+
+CISCO-CABLE-AVAILABILITY-MIB.traps 
+	This is the MIB module for management of Hot Standby Connection to 
+	Connection Protocol (HCCP) features. HCCP is a Cisco proprietary 
+	solution for High System Availability for Cable Modem Termination 
+	Systems (CMTS).
+
+CISCO-CABLE-METERING-MIB.traps 
+	
+	MIB module for Usage based Metering for DOCSIS-compliant CMTS
+
+CISCO-CABLE-QOS-MONITOR-MIB.traps 
+	
+	Provides Substriber Traffic Management configuration for CMTS.
+
+CISCO-CALLHOME-MIB.traps 
+	The MIB module for the management of Call Home feature within the 
+	framework of Cisco's Call Home architecture.
+
+CISCO-CASA-FA-MIB.traps 
+	
+	MIB for CASA forwarding agent.
+
+CISCO-CASA-MIB.traps 
+	
+	MIB for CASA entities
+
+CISCO-CAT6K-CROSSBAR-MIB.traps 
+	The Catalyst 6000 Crossbar MIB provides instrumentation for        
+	configuration and operation of the crossbar switching fabric        modu
+	le, and additional functionalities for switching bus         and 
+	internal bus, etc.
+
+CISCO-CCME-MIB.traps 
+	This MIB allows management of Cisco CallManager Express (CCME) feature 
+	in Cisco IOS.
+
+CISCO-CDL-MIB.traps 
+	
+	This MIB module defines objects to manage Converged Data Link (CDL).
+
+CISCO-CDMA-AHDLC-MIB.traps 
+	
+	Managed Object Definitions for HDLC framing/deframing 
+
+CISCO-CDMA-PDSN-EXT-MIB.traps 
+	This MIB is to support the CDMA PDSN(Packet Data Serving Node)4.0 
+	feature of Cisco IOS.
+
+CISCO-CDMA-PDSN-MIB.traps 
+	This MIB is to support the CDMA PDSN(Packet Data Serving Node)feature 
+	of Cisco IOS.
+
+CISCO-CEF-MIB.traps 
+	
+	This MIB module is used to manage CISCO Express Forwarding (CEF).
+
+CISCO-CFS-MIB.traps 
+	
+	MIB for managing CFS infrastructure
+
+CISCO-CIDS-MIB.traps 
+	Cisco Intrusion Detection System MIB.  Provides trap definitions for 
+	the evAlert and evError elements of the IDIOM (Intrusion Detection and 
+	Operations Messages) document and read support for the Intrusion 
+	Detection System (sensor) health information.
+
+CISCO-CONTENT-SERVICES-MIB.traps 
+	Content Service is a capability to examine IP/TCP/UDP headers, payload 
+	and enable billing based on the content being provided.
+
+CISCO-CRYPTO-ACCELERATOR-MIB.traps 
+	
+	
+
+CISCO-CSG-MIB.traps 
+	This MIB supports the Cisco Content Services Gateway (CSG) product. It 
+	includes five traps and four tables that enable querying CSG resource 
+	statistics.
+
+CISCO-CVP-MIB.traps 
+	The Cisco Unified Customer Voice Portal (CVP) Management Information 
+	Base (MIB) module defines management instrumentation for CVP services. 
+	 Each distinct CVP service exposes instrumentation related to its 
+	specific function. The bulk of this instrumentation is run-time 
+	statistics that provide insight into the health, performance and 
+	capacity utilization of the CVP solution.  Notifications are also a 
+	key component of this instrumentation. This MIB also defines a 
+	notification format that offers descriptive objects as well as objects t
+	hat ease the task of correlating events at the management station.
+
+CISCO-DATA-COLLECTION-MIB.traps 
+	
+	Data Collection mib
+
+CISCO-DDP-IAPP-MIB.traps 
+	This MIB module describes the management support forthe Inter-Access 
+	Point Protocol (IAPP).  IAPP is aCisco propriety Data Delivery 
+	Protocol (DDP), and theprotocol defines the function and frame formats f
+	orcommunication between IEEE 802.11 Standard wirelessLAN stations, i.e. 
+	access point (AP), work-groupbridge, and repeater.  The IAPP supports 
+	wirelessstation LAN attachment, client roaming, associationmanagement, a
+	nd diagnostic services.
+
+CISCO-DIAMETER-BASE-PROTOCOL-MIB.traps 
+	This MIB describes the SNMP MIB objects that are supported pertaining 
+	to theDiameter Base Protocol Configs/Stats.
+
+CISCO-DIGITAL-MEDIA-SYSTEMS-MIB.traps 
+	This MIB models the physical/logical structures of a typical Digital 
+	Media Management system and its operational state.
+
+CISCO-DIST-DIRECTOR-MIB.traps 
+	This MIB specification contains definitions of management information 
+	of the Distributed Director that can be remotely monitored and 
+	controlled
+
+CISCO-DM-MIB.traps 
+	The MIB module for the domain management functionality defined by the 
+	Fibre Channel standards (FC-SW2).
+
+CISCO-DOT11-CONTEXT-SERVICES-MIB.traps 
+	This MIB supports managing the devices offeringWireless Domain Services 
+	and Wireless Network Services as  applicable to Structured Wireless 
+	Aware Network.
+
+CISCO-DOT11-IF-MIB.traps 
+	
+	Dot11 interface mib
+
+CISCO-DOT11-QOS-MIB.traps 
+	This MIB module provides network managementsupport for QoS on wireless 
+	LAN devices.
+
+CISCO-DOT11-RADAR-MIB.traps 
+	This MIB module is for IEEE 802.11a/h Root device, i.e. Access Point 
+	(AP) or Root Bridge. This MIB allows dynamic frequency selection 
+	features related to DOT11 device.
+
+CISCO-DOT3-OAM-MIB.traps 
+	
+	CISCO-DOT3-OAM-MIB.myMIB to manage objects of the IEEE 802.3ah protocol
+
+CISCO-DS1-EXT-MIB.traps 
+	"The MIB module to describe DS1/E1 interface objects. This is         
+	an extension to the standard DS1/E1 MIB (RFC 2495).
+
+CISCO-EIGRP-MIB.traps 
+	
+	First EIGRP routing protocol MIB
+
+CISCO-EMBEDDED-EVENT-MGR-MIB.traps 
+	The MIB module to describe and store events generarated by the  Cisco 
+	Embeded Event Manager.
+
+CISCO-ENERGYWISE-MIB.traps 
+	
+	The MIB is used to manage and optimize power usagein networks.
+
+CISCO-ENHANCED-IPSEC-FLOW-MIB.traps 
+	This is a MIB Module for monitoring the structures and status of 
+	IPSec-based networks.
+
+CISCO-ENHANCED-MEMPOOL-MIB.traps 
+	MIB module for monitoring the memory pools of all physical entities on 
+	a managed system.
+
+CISCO-ENHANCED-SLB-MIB.traps 
+	The MIB for managing Server Load BalancingManager(s), and products 
+	supporting ServerLoad Balancing(SLB) features.This MIB extends the table
+	s(as appropriate)that  are defined in CISCO-SLB-MIB  and 
+	CISCO-SLB-EXT-MIB.
+
+CISCO-ENTITY-DIAG-MIB.traps 
+	This MIB module defines the managed objects that describe the online 
+	diagnostics capabilities supported by the physical entities.
+
+CISCO-ENTITY-PFE-MIB.traps 
+	This MIB is used for maintaining the performance history for Packet 
+	Forwarding Engine(PFE) processors.
+
+CISCO-ENTITY-REDUNDANCY-MIB.traps 
+	
+	A MIB module to support redundancy related objects for cisco devices
+
+CISCO-ENTITY-SENSOR-MIB.traps 
+	The CISCO-ENTITY-SENSOR-MIB is used to monitor the values of sensors in 
+	the Entity-MIB (RFC 2037) entPhysicalTable.
+
+CISCO-EPM-NOTIFICATION-MIB.traps 
+	
+	CISCO-EPM-NOTIFICATION-MIB.my for Trap Notification in ITM 2.0
+
+CISCO-ERM-MIB.traps 
+	The Embedded Resource Manager (ERM) is a framework which helps in 
+	effectively managing resources such as cpu, memory, buffers, etc. There 
+	are two important scenarios where the ERMframework would be useful: 1) 
+	Resource Depletion 2) Resource Separation
+
+CISCO-ERR-DISABLE-MIB.traps 
+	This MIB module provides the ability for a Network Management Station 
+	(NMS) to configure and monitor the error-disable feature via SNMP.
+
+CISCO-ETHER-CFM-MIB.traps 
+	"This MIB module defines the managed objects         and notifications 
+	for Ethernet Connectivity         Fault Management (CFM).
+
+CISCO-EVC-MIB.traps 
+	This MIB module defines the managed objects and notifications 
+	describing Ethernet Virtual Connections.
+
+CISCO-EXT-SCSI-MIB.traps 
+	
+	Extension MIB to CISCO-SCSI-MIB
+
+CISCO-FABRIC-C12K-MIB.traps 
+	
+	Cisco Fabric MIB module for c12000 series of routers
+
+CISCO-FABRIC-HFR-MIB.traps 
+	This MIB module is used for managing/tracking theEhanced Benes Fabric 
+	entities and/or fabricrelated configuration,state and statistics 
+	information.
+
+CISCO-FC-FE-MIB.traps 
+	
+	CISCO-FC-FE-MIB contains the configuration of fiber channel ports.
+
+CISCO-FCC-MIB.traps 
+	The MIB module for the management of Fibre Channel Congestion 
+	Control(FCC)
+
+CISCO-FCPING-MIB.traps 
+	The MIB module for the management of the Fibre Channel Ping 
+	functionality.
+
+CISCO-FCS-MIB.traps 
+	
+	MIB module for management of Cisco Fabric Config Server.
+
+CISCO-FCSP-MIB.traps 
+	MIB module for managing Fibre Channel Security for the fibre channel 
+	devices.This MIB is used to configure and monitor theFibre-Channel 
+	Security Protocol (FC-SP)Rev 1.1 of FC-SP, Dated 04/18/03,T11/Project 
+	1570-D.  Please refer tohttp://www.t11.org.
+
+CISCO-FCTRACEROUTE-MIB.traps 
+	The MIB module for the management of the Fibre Channel Trace Route 
+	functionality.
+
+CISCO-FDMI-MIB.traps 
+	Fabric Device Management Interface (FDMI) MIB. This MIB module defines 
+	objects for managing the devices such as HBA (Host Bus Adapter). It 
+	provides device information which have registered with an FC fabric usin
+	g FDMI.  For more information on FDMI, refer to Fibre Channel Generic 
+	Services-4 Section 6.7 : Fabric Device Management Interface.
+
+CISCO-FEATURE-CONTROL-MIB.traps 
+	This MIB module is to facilitate the global levelcontrol 
+	(enabling/disabling) over the optional                  features in 
+	the system.
+
+CISCO-FICON-MIB.traps 
+	This MIB is for the FICON (FIber CONnection). FICON is an IBM standard 
+	of transport mechanism for communication between the mainframes and 
+	devices and is a major consideration for enterprise data centers. The 
+	Cisco MDS Storage Area Network (SAN) switches provide the 
+	functionality of a FICON Director to the customers.
+
+CISCO-FLEX-LINKS-MIB.traps 
+	This MIB module is for configuration and status query of Flex Links 
+	feature on the Cisco device.
+
+CISCO-FSPF-MIB.traps 
+	
+	Fabric Shortest Path First (FSPF) MIB.
+
+CISCO-GGSN-SERVICE-AWARE-MIB.traps 
+	This MIB module manages the service-aware feature of Gateway GPRS 
+	Support Node (GGSN).
+
+CISCO-GSLB-DNS-MIB.traps 
+	
+	Global Server Load Balancing - DNS Status and Statistics
+
+CISCO-GSLB-HEALTH-MON-MIB.traps 
+	
+	Global Server Load Balancing - Keepalive Status and Statistics
+
+CISCO-GSLB-SYSTEM-MIB.traps 
+	
+	Global Server Load Balancing - Platform and System Status
+
+CISCO-GTP-MIB.traps 
+	This MIB module manages the GPRS Tunnelling Protocol (GTP) on GGSN and 
+	SGSN.
+
+CISCO-HC-ALARM-MIB.traps 
+	This module defines Remote Monitoring MIB extensions for High Capacity 
+	Alarms.
+
+CISCO-HEALTH-MONITOR-MIB.traps 
+	This MIB module is for the Cisco IOS Health Monitor. It presents the 
+	associated health metric for the system and its component subsystems.
+
+CISCO-HSRP-MIB.traps 
+	
+	Imported Unsigned32 from SNMPv2-SMI and other clean ups.
+
+CISCO-IEEE-CFM-MIB.traps 
+	CISCO-IEEE-CFM-MIB.myThis MIB is for the Management of Carrier ethernet 
+	CFM protocol.
+
+CISCO-IETF-BFD-MIB.traps 
+	This document contains the Management information base for 
+	Bidirectional Forwarding Detection(BFD) Protocol as defined in 
+	draft-ietf-bfd-base-06.txt.BFD is a protocol intended to detect faults 
+	in the bidirectional path between two forwarding engines, including 
+	interfaces, data link(s), and to the extent possible the forwarding engi
+	nes themselves, with potentially very low latency.  It operates 
+	independently of media, data protocols, and routing protocols.This MIB 
+	module is based on the Internet Draft draft-ietf-bfd-mib-03.txt and 
+	draft-ietf-bfd-mib-04.txt
+
+CISCO-IETF-DHCP-SERVER-EXT-MIB.traps 
+	The MIB module is an extension of the Cisco IETF Dynamic Host 
+	Configuration protocol (DHCP) MIB.
+
+CISCO-IETF-DHCP-SERVER-MIB.traps 
+	The MIB module for entities implementing the server side of the 
+	Bootstrap Protocol (BOOTP) and the Dynamic Host Configuration protocol 
+	(DHCP) for Internet Protocol version 4(IPv4).  This MIB does not 
+	include support for Dynamic DNS(DDNS) updating nor for the DHCP 
+	Failover Protocol.
+
+CISCO-IETF-DOT11-QOS-EXT-MIB.traps 
+	This MIB is a Cisco extension to the QoS MIB inIEEE 802.11e/D1.42.0, 
+	October November 2001,"Draft Supplement to STANDARD FOR 
+	Telecommunications and Information Exchange Between Systems - LAN/MAN 
+	Specific Requirements - Part 11: Wireless Medium Access Control (MAC) an
+	d physical layer (PHY) specifications: Medium Access Control (MAC) 
+	Enhancements forQuality of Service (QoS)".-- Both the standard and the M
+	IB are still under development.
+
+CISCO-IETF-FRR-MIB.traps 
+	+       DESCRIPTION+         "Added support for cmplsFrrUnProtected 
+	notification.  It is+         defined in version 2 of the ietf draft.  
+	The notification's+         variable bindings have been modified from t
+	he draft form to+         match the previous approved Cisco-ized draft 
+	form as defined+         for the cmplsFrrProtected notification."+      
+	 REVISION
+
+CISCO-IETF-ISIS-MIB.traps 
+	This MIB introduces network management support for the Intermediate 
+	System-Intermediate System (IS-IS) Routing Protocol. The MIB module is b
+	ased on the Internet Draft draft-ietf-isis-wg-mib-16.txt.
+
+CISCO-IETF-ISNS-MGMT-MIB.traps 
+	This MIB module is based on the Internet 
+	Draft<draft-ietf-ips-isns-mib-06.txt>.
+
+CISCO-IETF-MSDP-MIB.traps 
+	
+	An experimental MIB module for MSDP Managementand Monitoring
+
+CISCO-IETF-PIM-EXT-MIB.traps 
+	Address family independent MIB module for management            IP 
+	Multicast routing, but independent of the specific             
+	multicast routing protocol in use.            This MIB module is based 
+	on RFC 2932 with additional             MIB objects to make it a 
+	address family independent MIB.             This Cisco MIB was created 
+	due to non availability             of RFC or an Internet Draft which 
+	can provide address             family independent MIB for IP 
+	Multicast Routing. This             MIB may later be deprecated with a 
+	stable RFC or an             Internet Draft 
+
+CISCO-IETF-PIM-MIB.traps 
+	
+	Release for CISCO-IETF-PIM-MIB
+
+CISCO-IETF-PW-MIB.traps 
+	
+	This MIB contains managed object definitions for Pseudowire services.
+
+CISCO-IETF-VDSL-LINE-MIB.traps 
+	This is a cisco version of the Internet draftdraft-ietf-adslmib-vdsl-02.
+	txt
+
+CISCO-IETF-VPLS-GENERIC-MIB.traps 
+	This MIB module contains managed object definitions for LDP signalled 
+	Virtual Private LAN Services.
+
+CISCO-IETF-VRRP-MIB.traps 
+	
+	This MIB is defined to manage VRRP over IPv4 and IPv6 protocols.
+
+CISCO-IF-EXTENSION-MIB.traps 
+	A MIB module for extending the IF-MIB (RFC2863)        to add objects 
+	which provide additional informationabout interfaces not available in ot
+	her MIBS.
+
+CISCO-IKE-FLOW-MIB.traps 
+	This is a MIB module for monitoring the structures and status of IPsec 
+	control flows based on Internet Key Exchange protocol
+
+CISCO-IMAGE-UPGRADE-MIB.traps 
+	This mib provides, objects to upgrade images on modules in the system, 
+	objects showing the status of the upgrade operation,and objects 
+	showing the type of images that could be run in the system. For example 
+	the modules could be Controller card, Line card .. etc.
+
+CISCO-IP-LOCAL-POOL-MIB.traps 
+	This MIB defines the configuration and monitoring capabilities relating 
+	to local IP pools.
+
+CISCO-IP-RAN-BACKHAUL-MIB.traps 
+	This MIB provides information on the IP-RAN traffic from cell site to 
+	aggregation site. 
+
+CISCO-IP-URPF-MIB.traps 
+	Unicast Reverse Path Forwarding (URPF) is a function that checks the 
+	validity of the source address of IP packets received on an interface. 
+	This in an attempt to prevent Denial of Service attacks based on IP 
+	address spoofing.     URPF checks validity of a source address by 
+	determining whether the packet would be successfully routed as a 
+	destination address.        Based on configuration, the check made can 
+	be for existence of any route for the address, or more strictly for a 
+	route out the interface on which the packet was received by the device.
+	 When a violating packet is detected, it can be dropped.        This 
+	MIB allows detection of spoofing events.
+
+CISCO-IPMROUTE-MIB.traps 
+	
+	The Cisco MIB containing extensions to the IETF IPMROUTE-MIB.
+
+CISCO-IPSEC-PROVISIONING-MIB.traps 
+	This MIB defines the IPsec configurations. It may be used to view and 
+	provision IPsec-based VPNs.
+
+CISCO-IPSEC-SIGNALING-MIB.traps 
+	This MIB Module models status, performance and failures of a protocol 
+	with the generic characteristics of signalling protocols used with 
+	IPsec and FC-SP protocols.
+
+CISCO-ISCSI-MIB.traps 
+	
+	The iSCSI Protocol MIB module.
+
+CISCO-ITP-GRT-MIB.traps 
+	This MIB is for managing information required to route messages 
+	transported over Signalling System No.7 (SS7) Network via Cisco IP Trans
+	fer Point.
+
+CISCO-ITP-GSCCP-MIB.traps 
+	The MIB for signalling Connection Control Part(SCCP) messages 
+	transported over Signalling System No. 7 (SS7) Network via Cisco IP 
+	TransferPoint.
+
+CISCO-ITP-GSP-MIB.traps 
+	The MIB for managing Signalling Points and its associated messages 
+	transported over Signalling System  No. 7 (SS7)Network via Cisco IP 
+	TransferPoint.  This MIB replaces the CISCO-ITP-SP-MIB and provide 
+	support multiple instances of a signallingpoint within same 
+	configuration.
+
+CISCO-ITP-MLR-MIB.traps 
+	The MIB for providing information about Multi-layer Routing(MLR). This 
+	MIB will provide information used to control and measure SS7 messages 
+	signalling units in a SS7 Network. Message Signalling Units are routed 
+	based on information found in the SCCP, TCAP, MAP, and MAP-user layers. 
+	                                     
+
+CISCO-ITP-MONITOR-MIB.traps 
+	The MIB for providing information related to              monitoring 
+	SS7 links. This information can be used to manage the state of 
+	software used to collect all packets transported and received over a 
+	SS7 link.
+
+CISCO-ITP-MSU-RATES-MIB.traps 
+	This MIB provides information used to manage the number of MTP3 MSUs 
+	transmitted and received per processor.  Many of the higher level 
+	protocols require several MSUs per transaction.  Traffic capacity planni
+	ng is based on MSUs not transactions.  This MIB will provide 
+	information to determine current traffic.
+
+CISCO-ITP-RT-MIB.traps 
+	This MIB is for managing information required to route messages 
+	transported over Signalling System No. 7 (SS7) Network via Cisco IP 
+	Transfer            Point.  
+
+CISCO-ITP-SCCP-MIB.traps 
+	The MIB for Signaling Connection Control art(SCCP)                 
+	messages transported over Signalling System                 No. 7 
+	messages transported over Signalling System                 No. 7 
+	(SS7) Network via Cisco IP Transfer                 Point.  Deprecated
+
+CISCO-ITP-SP-MIB.traps 
+	The MIB for managing Signalling Points and its                 
+	associated messages transported over Signalling                 System  
+	No. 7 (SS7) Network via Cisco IP Transfer                 Point.  
+	Deprecated
+
+CISCO-IVR-MIB.traps 
+	The MIB module for the management of Inter-VSAN  routing within the 
+	framework of Cisco's  Inter-VSAN Routing (IVR) Architecture.
+
+CISCO-L2-CONTROL-MIB.traps 
+	The CISCO-L2-CONTROL-MIB is used to control some layer 2 functions, 
+	including MAC limit function and unicast flooding.  This device could 
+	be a router or a switch.
+
+CISCO-L2-DEV-MONITORING-MIB.traps 
+	
+	IEEE 802.11 wireless LAN lay 2 device monitoringand configuration
+
+CISCO-L2-TUNNEL-CONFIG-MIB.traps 
+	This MIB module is for layer 2 tunneling related configurations on a 
+	device.
+
+CISCO-L4L7MODULE-REDUNDANCY-MIB.traps 
+	This MIB provides the tables/objects thatsupport redundancy 
+	This MIB provides the tables/objects thatsupport redundancy 
+	configuration andredundancy statistics for the L4-7 SLB devices
+
+CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB.traps 
+	The MIB module for managing resource classesand configuring 
+	limits(max/min) to differentresources.  The resource referenced in 
+	this MIB are in addition to resource information availale in other MIBs.
+	  This MIB is applicable toL4-L7 modules which supports 
+	managingresource limits using a centralized approach.
+
+CISCO-LICENSE-MGMT-MIB.traps 
+	The MIB module defines MIB objects for managing licenses on the system. 
+	The licensing mechanism provides flexibility to enforce licensing for 
+	various features in the system.
+
+CISCO-LICENSE-MGR-MIB.traps 
+	
+	The MIB module for a method of managing license files on the system
+
+CISCO-LINK-ERROR-MONITOR-MIB.traps 
+	
+	The MIB module for managing Link Error Monitoring Feature on devices.
+
+CISCO-LWAPP-AAA-MIB.traps 
+	
+	
+
+CISCO-LWAPP-DOT11-CLIENT-MIB.traps 
+	
+	
+
+CISCO-LWAPP-IDS-MIB.traps 
+	
+	This MIB is to be implemented on all LWAPP Controllers to configure IDS.
+
+CISCO-LWAPP-MESH-BATTERY-MIB.traps 
+	
+	
+
+CISCO-LWAPP-MESH-MIB.traps 
+	
+	
+
+CISCO-LWAPP-MESH-STATS-MIB.traps 
+	
+	
+
+CISCO-LWAPP-MFP-MIB.traps 
+	This MIB is intended to be implemented onall LWAPP Controllers to 
+	configure MFP.
+
+CISCO-LWAPP-MOBILITY-MIB.traps 
+	
+	
+
+CISCO-LWAPP-ROGUE-MIB.traps 
+	
+	
+
+CISCO-LWAPP-WEBAUTH-MIB.traps 
+	This MIB is used to configure the WEBAuthentication parameters on all 
+	LWAPPControllers.
+
+CISCO-MAC-NOTIFICATION-MIB.traps 
+	This MIB module is for configuration of the MAC notification        
+	feature. MAC notification is a mechanism to inform monitoring        dev
+	ices when there are MAC addresses learnt or removed from        the 
+	forwarding database of the monitored devices.
+
+CISCO-MMODAL-CONTACT-APPS-MIB.traps 
+	The Cisco Unified Multi-Modal Contact Applications (MMCA) platform is   
+	     a highly scalable, modular, extensible, open and secure platform 
+	for         providing contact center applications. The Cisco Unified 
+	Expert Advisor        (CUEA) is implemented on this platform.           
+	   The Cisco Unified Expert Advisor application is deployed on         
+	multiple devices that form a cluster, where each device could be        
+	 classified as 'Runtime' or 'Reporting'. Each device hosts a set of 
+	         services and each service performs a specific task. Not all 
+	services         will be running on every device.               The 
+	CISCO-MMODAL-CONTACT-APPS-MIB  defines the instrumentation of         th
+	e services present in the Cisco Unified Expert Advisor. The MIB         
+	mainly consists of the run-time statistics of each service and also     
+	    defines a Notification format. It also defines various groups of    
+	     objects that are not specific to a service
+
+CISCO-MOBILE-IP-MIB.traps 
+	CISCO-MOBILE-IP-MIB is Mobile Ip feature specific MIB for Home Agent 
+	and Foreign Agent.
+
+CISCO-MOBILE-POLICY-CHARGING-CONTROL-MIB.traps 
+	Mobile PCC Infrastructure built on top of Policy Shim Layer, is a 
+	common interface to send and receive PCC related messages for all gatewa
+	y applications that implement Gx or Ty functionality. Gx is a reference 
+	point located between the Policy and Charging Rules Function (PCRF) and 
+	the Policy and Charging Enforcement Function (PCEF). Three types of 
+	networks namely, 3G UMTS, 4G LTE and 4G WiMax use the 3GPP Gx 
+	interface as the standard policy control interface, and CDMA networks 
+	use the 3GPP2 Ty interface for the same.This MIB contains the PCC 
+	configurations/ statistics which are implemented on the Mobile PCC 
+	infrastructure.
+
+CISCO-MODEM-MGMT-MIB.traps 
+	This MIB module provides modem call related data fortracking the 
+	progress and status of a call
+
+CISCO-MODULE-AUTO-SHUTDOWN-MIB.traps 
+	The CISCO-MODULE-AUTO-SHUTDOWN-MIB is used to configure the module 
+	automatic shutdown feature. Modules will be reset by the system when 
+	they become faulty. The module auto shutdown feature will shutdown 
+	such faulty modules when the resets occur too often. Once the modules 
+	areshutdown by this feature, they will stay shutdown until the 
+	administrator manually brings them back up. This will prevent the 
+	system from constantly resetting the faulty modules.This MIB module 
+	also covers the system initiated action occuring on a module.
+
+CISCO-MODULE-VIRTUALIZATION-MIB.traps 
+	Virtualization MIB which contains MIB objects to give details about 
+	virtual context, allocated resources, interfaces, etc.
+
+CISCO-MVPN-MIB.traps 
+	This MIB introduces network management support for Cisco's Multicast 
+	Virtual Private Network (MVPN) solution. The MVPN service supports IP Mu
+	lticast traffic in a VPN.
+
+CISCO-NBAR-PROTOCOL-DISCOVERY-MIB.traps 
+	This is the MIB to configure and access NBAR Protocol Discovery, 
+	including statistics suchas bitrate, number of bytes and number of 
+	packets on a per application basis, input and output per interface. The 
+	MIB will also provide the functionality to enable/disable NBAR Protocol 
+	Discovery, create and monitor Top-n applications and configure 
+	Thresholds on applications with Notifications if thresholds are 
+	breached.
+
+CISCO-NHRP-EXT-MIB.traps 
+	This MIB module is an extension of the NHRP MIB module as defined in 
+	RFC 2677.
+
+CISCO-NS-MIB.traps 
+	
+	MIB module for management of Cisco Name Server.
+
+CISCO-NTP-MIB.traps 
+	NTP trap in case of lost sync, re-sync or free runPlus retrieve of the 
+	status 
+
+CISCO-OSPF-TRAP-MIB.traps 
+	
+	draftietf-ospf-mib-update-05.txt
+
+CISCO-OUTAGE-MONITOR-MIB.traps 
+	This MIB module describes, stores, and reports outage related 
+	information generated by individual hardware and software components 
+	comprising a router.
+
+CISCO-PAE-MIB.traps 
+	Cisco Port Access Entity (PAE) module for managingIEEE Std 802.1x.This 
+	MIB provides Port Access Entity informationthat are either excluded by I
+	EEE8021-PAE-MIB orspecific to Cisco products.
+
+CISCO-POP-MGMT-MIB.traps 
+	Cisco Point Of Presence Management MIB to provide DSX1 and DSX0 
+	facilities management and call summaries
+
+CISCO-PORT-SECURITY-MIB.traps 
+	
+	The MIB module for managing Cisco Port Security.
+
+CISCO-PORT-STORM-CONTROL-MIB.traps 
+	This MIB module is to support the Storm Control feature on switching 
+	devices.cpscEvent notification is deprecated and replaced by new 
+	notification cpscEventRev1.
+
+CISCO-POWER-ETHERNET-EXT-MIB.traps 
+	A MIB module for extending the POWER-ETHERNET-MIB (RFC3621) to add 
+	objects which provide additional management information about Power 
+	Sourcing Equipment (PSE) not available in POWER-ETHERNET-MIB.
+
+CISCO-PROCESS-MIB.traps 
+	The MIB module to describe active system processes.Virtual Machine 
+	refers to those OS which can run the code or process of a different 
+	executional model OS.Virtual Process assume the executional model     of
+	 a OS which is different from Native OS. Virtual Processes are also 
+	referred as Tasks.     Thread is a sequence of instructions to be 
+	executed within a program. Thread which adhere to POSIX standard is 
+	referred as a POSIX thread.
+
+CISCO-PSA-MICROCODE-MIB.traps 
+	
+	A collection of objects providing PSA microcodemonitoring
+
+CISCO-PSD-CLIENT-MIB.traps 
+	This MIB module manages the client sidefunctionality of the Persistent 
+	Storage Device(PSD).
+
+CISCO-PSM-MIB.traps 
+	
+	MIB module for Port-Security module.
+
+CISCO-RADIUS-MIB.traps 
+	MIB module for monitoring and configuring authentication and logging 
+	services using RADIUS (Remote Authentication Dial In User Service) 
+	related objects.
+
+CISCO-REMOTE-ACCESS-MONITOR-MIB.traps 
+	This mib provides session statistics for monitoring Virtual Private 
+	Networks based remoteaccess networks.
+
+CISCO-RESILIENT-ETHERNET-PROTOCOL-MIB.traps 
+	
+	This MIB helps manage Resilient Ethernet protocol ring.
+
+CISCO-RF-SUPPLEMENTAL-MIB.traps 
+	This MIB was designed to complement the CISCO-RF-MIB by providing 
+	additional optional status and configuration control for redundant CPU 
+	platforms.
+
+CISCO-RSCN-MIB.traps 
+	The MIB module for the management of the Fibre Channel's Registered 
+	State Change Notification (RSCN) functionality, which is specified by 
+	FC-FLA and FC-FS
+
+CISCO-SAN-BASE-SVC-MIB.traps 
+	
+	Common MIB module to manage services in Storage Area Network (SAN).
+
+CISCO-SCSI-FLOW-MIB.traps 
+	The MIB module for the management of CISCO SCSI flows created for Fiber 
+	Channel Write Acceleration
+
+CISCO-SCSI-MIB.traps 
+	The Cisco version of the SCSI MIBdraft draft-ietf-ips-scsi-mib-03.txt 
+	from the IETF.
+
+CISCO-SERVICE-CONTROL-ATTACK-MIB.traps 
+	This MIB provides data related to different types of attacks detected 
+	by a service control entity.
+
+CISCO-SERVICE-CONTROL-LINK-MIB.traps 
+	This MIB module provides information about the status andconfiguration 
+	of links used by service control entities. The link on a service 
+	control entity is a contained entity thatjoins subscriber side port(s) 
+	to network side port(s)
+
+CISCO-SERVICE-CONTROL-RDR-MIB.traps 
+	This MIB module defines objects describing statistics andconfiguration 
+	relating to the Raw Data Record Formatter runningon a service control 
+	entity. The Raw Data Record (RDR) formatter is a component 
+	implementedby the service control entity that gathers raw data 
+	recordsproduced by the entity and delivers them to external entitiesas 
+	reports.  The external entities are called RDR destinationsor RDR 
+	collectors.  The RDR formatter can be configured to sendreports to 
+	only one, or to multiple destinations. 
+
+CISCO-SERVICE-CONTROL-SUBSCRIBERS-MIB.traps 
+	This MIB provides global and specific information onsubscribers managed 
+	by a service control entity, which is anetwork element that monitors 
+	network traffic between networksubscribers based on user configured 
+	policies. The network subscribers are the end users of the network 
+	with aunique network address for each subscriber. A specific 
+	subscriber is identified by this MIB by its subscriber name which is 
+	assured to be unique, this idis used to retrieve this specific 
+	subscriber's information.
+
+CISCO-SESS-BORDER-CTRLR-EVENT-MIB.traps 
+	The main purpose of this MIB is to define the SNMP notifications and 
+	alarms generated by Session Border Controller application and used to 
+	send these notifications to SNMP manager application.
+
+CISCO-SEU-MITIGATION-MIB.traps 
+	This MIB reports the status of non-automatic and automatic,
+	rate-adaptive Single Event Upset (SEU) mitigation algorithms 
+	andadjusts their parameters, as well as reports the effects of those 
+	mitigations on memories, caches, and registers.
+
+CISCO-SLB-DFP-MIB.traps 
+	
+	This MIB module reports the congestion status of the real server.
+
+CISCO-SLB-EXT-MIB.traps 
+	The extended MIB for managing Server Load BalancingManager(s). This MIB 
+	extends the SLB managementfunctionality in the CISCO-SLB-MIB. 
+
+CISCO-SLB-HEALTH-MON-MIB.traps 
+	
+	An extension to the CISCO-SLB-EXT-MIB for SLBhealth monitoring probes. 
+
+CISCO-SME-MIB.traps 
+	The MIB module to manage Storage Media Encryption (SME) service on 
+	Cisco MDS plaform.
+
+CISCO-SONET-MIB.traps 
+	The MIB module to describe SONET/SDH interfaces                 objects.
+	 This is an extension to the standard SONET                 MIB(RFC 
+	2558).
+
+CISCO-SRST-MIB.traps 
+	This MIB allows management of Cisco Survivable RemoteSite Telephony 
+	(SRST) feature in Cisco IOS.
+
+CISCO-SSG-MIB.traps 
+	
+	The MIB Module manages Service Selection Gateway(SSG)devices.
+
+CISCO-SSL-PROXY-MIB.traps 
+	This MIB module is for managing a Secure Socket Layer(SSL) Proxy device 
+	which terminates and accelaratesSSL and Transport Layer Security (TLS) 
+	transactions.
+
+CISCO-STACKWISE-MIB.traps 
+	This MIB module contain a collection of managed objects that apply to 
+	network devices supporting the Cisco StackWise(TM) technology.
+
+CISCO-SVC-INTERFACE-MIB.traps 
+	MIB module for displaying and configuring SVC (SAN Volume Controller) 
+	related features in the Storage Area Network (SAN) switches
+
+CISCO-SYS-INFO-LOG-MIB.traps 
+	This MIB provides the configuration of System Information Logging 
+	feature, which allows a certain number of commands to be executed period
+	ically via command line interface, and stores the result into a file on 
+	a configured server.
+
+CISCO-SYSTEM-EXT-MIB.traps 
+	
+	System Extension MIB
+
+CISCO-SYSTEM-MIB.traps 
+	
+	This MIB module contains Cisco-defined extensions to the systemGroup.
+
+CISCO-TAP-MIB.traps 
+	Manages initial phase of Cisco's lawful intercept feature (also know 
+	as Service Independent Intercept)
+
+CISCO-TAP2-MIB.traps 
+	CISCO-TAP2-MIB.my       The MIB module for the Cisco's Lawful 
+	Intercept feature.
+
+CISCO-TELEPRESENCE-CALL-MIB.traps 
+	
+	The MIB module defines the managed objects for Telepresence calls.
+
+CISCO-TELNET-SERVER-MIB.traps 
+	MIB module for displaying and configuring        Telnet related 
+	features in a device.        Telnet is a program to log into another 
+	computer overa network, to execute commands in a remote machine."
+
+CISCO-UNIFIED-FIREWALL-MIB.traps 
+	
+	Models the status and performance of salient firewall functions.
+
+CISCO-UNITY-EXPRESS-MIB.traps 
+	The MIB Module for the management of the Cisco Unity Express (CUE) 
+	service.  CUE is a voicemail service that runs in a Cisco router.  CUE a
+	ccepts connections from Cisco Call Manager Express (CCME), or from 
+	Cisco Call Manager (CCM).
+
+CISCO-UNITY-MIB.traps 
+	The mib module contains the version, port, license information of the 
+	Unity and/or Unity Connection server.
+
+CISCO-VIRTUAL-NW-IF-MIB.traps 
+	The MIB module for management of virtual network interfaces to VSAN and 
+	VLAN.
+
+CISCO-VIRTUAL-SWITCH-MIB.traps 
+	
+	CISCO-VIRTUAL-SWITCH-MIBis the MIB to support Cisco VSS function.
+
+CISCO-VOICE-CONNECTIVITY-MIB.traps 
+	This MIB shows voice call agents, ports, and the connection status of 
+	each.
+
+CISCO-VOICE-DNIS-MIB.traps 
+	The MIB module provides management support for Dialer Number 
+	Information Service (DNIS) mapping.
+
+CISCO-VPDN-MGMT-MIB.traps 
+	This MIB is to support the VPDN (Virtual PrivateDialup Network) feature 
+	of Cisco IOS. VPDN handlesthe forwarding of PPP links from an Internet 
+	Provider (ISP) to a Home Gateway.
+
+CISCO-VSAN-MIB.traps 
+	Added new object group vsanGroupRev3 to contain vsanFcFeElementName 
+	object-type.Added new compliance vsanMIBCompliance7 to include new 
+	compliance group vsanGroupRev3. Updated comments section for 
+	vsanFcFeElementName.Added new notification vsanPortMembershipChange 
+	for port-vsan changes for interfaces.
+
+CISCO-WAN-3G-MIB.traps 
+	This MIB module provides network management support for Cisco cellular 
+	3G WAN products.
+
+CISCO-WAN-TOPOLOGY-MIB.traps 
+	"A management station can use this MIB module for the            
+	maintenance of persistent topology information of the            PNNI ne
+	twork. Previously, a management station had to            query the 
+	network to retrieve the network topology via            an Integrated 
+	Local Management Interface (ILMI) link.            The nodes that are do
+	wn or the nodes whose ILMI-enabled            links are down will not 
+	be included in the topology.
+
+CISCO-WDS-INFO-MIB.traps 
+	The MIB for displaying the information managed by Wireless LAN Service 
+	Module.
+
+CISCO-WIRELESS-DOCS-EXT-MIB.traps 
+	This MIB module defines Cisco-specific objects thatadd to the 
+	functionality defined CISCO-WIRELESS-DOCS-IF-MIB.
+
+CISCO-WLAN-VLAN-MIB.traps 
+	
+	Cisco Wireless Lan and Virtual Lan interface MIB
+
+CISCO-WWNMGR-MIB.traps 
+	MIB to  mib provide the mechanism to configure and report WWNs for the 
+	fibre channel devices connected to a fibre channel switch.
+
+CISCO-ZS-MIB.traps 
+	
+	MIB module for Zoning.
+
+CISCOWORKS-MIB.traps 
+	The CISCOWORKS-MIB is used for sending notifications from management 
+	applications.
+
+MPLS-LDP-MIB.traps 
+	This MIB contains managed object definitions for the 'Multiprotocol 
+	Label Switching, Label Distribution             Protocol, LDP' 
+
+RSVP-MIB.traps 
+	
+	The MIB module to describe the RSVP Protocol
+
+TN3270E-RT-MIB.traps 
+	This module defines a portion of the management information base (MIB) 
+	that enables monitoring of TN3270 and TN3270E clients' response times b
+	y a TN3270E server.
+
+ATM2-MIB.traps 
+	This MIB Module is a supplement to the ATM-MIB defined in RFC 2515.
+	Initial version of this MIB, published as RFC 3606.
+
+CISCO-PREFERRED-PATH-MIB.traps 
+	The MIB module for the management of       preferred path. This MIB 
+	enables managersto configure and monitor Preferred Pathparameters. 
+	Preferred path provides a method of routingtraffic over the selected 
+	paths, not necessarilythe preferred shortest path as chosen by routing 
+	protocols such as FSPF. This kind of control allows users to choose 
+	shortest paths based oncharacteristics, such as frames received on 
+	aselected interface or frames with selected sourceFC-ID. This feature 
+	allows users to ensure pathsseperation between switches for different tr
+	afficbetween a host and a target.
+
+DOCS-CABLE-DEVICE-TRAP-MIB.traps 
+	The CABLE DEVICE TRAP MIB is an extension of the CABLE DEVICE MIB 
+	defined in RFC2669. It defines various trap objects for both cable 
+	modem and cable modem termination systems.
+
+DOCS-DIAG-MIB.traps 
+	This is the MIB Module for the Diagnostic Log for DOCSIS-compliant 
+	Cable Modem Termination Systems (CMTS).
+
+DOCS-IETF-CABLE-DEVICE-NOTIFICATION-MIB.traps 
+	The Event Notification MIB is an extension of theCABLE DEVICE MIB.  It 
+	defines various notification objects for both cable modem and cable 
+	modem termination systems.  
+
+DOCS-IF3-MIB.traps 
+	This MIB module contains the management objects for the management of 
+	DOCSIS 3.0 features, primarly channel bonding, interface topology and en
+	hanced signal quality montoring.
+
+DOT3-MAU-MIB.traps 
+	
+	supports objects to set interface speed, duplex and auto negotiation.
+
+DS1-MIB.traps 
+	
+	The MIB module to describe DS1, E1, DS2, andE2 interfaces objects.
+
+ENTITY-STATE-MIB.traps 
+	A table of information about state/status of entities.           This 
+	is a sparse augment of the entPhysicalTable.  Entries           appear 
+	in this table for values of           entPhysicalClass [RFC4133] that 
+	in this implementation           are able to report any of the state 
+	or status stored inthis table.
+
+EVENT-MIB.traps 
+	The MIB module for defining event triggers and actions for network 
+	management purpose.
+
+FRAME-RELAY-DTE-MIB.traps 
+	
+	
+
+HC-ALARM-MIB.traps 
+	This module defines Remote Monitoring MIB extensions for High Capacity 
+	Alarms. (RFC 3434)
+
+IMA-MIB.traps 
+	The MIB module for managing ATM Forum Inverse Multiplexingfor ATM (IMA) 
+	interfaces.
+
+IPV6-MIB.traps 
+	
+	The MIB module for entities implementing the IPv6 protocol
+
+ISIS-MIB.traps 
+	This MIB module is for the IS-IS Routing protocol, as described in ISO 
+	10589, when it is used to construct routing tables for IP networks, as d
+	escribed in RFC 1195.
+
+MAU-MIB.traps 
+	
+	Management information for 802.3 MAUs. (RFC 3636)
+
+MPLS-L3VPN-STD-MIB.traps 
+	This MIB describes managed objects to configure and/or monitor 
+	Multiprotocol Label Switching Layer-3 Virtual Private Networks on a Mult
+	iprotocol Label Switching (MPLS) Label Switching Router (LSR) 
+	supporting this feature.
+
+MPLS-LDP-STD-MIB.traps 
+	This MIB contains managed object definitions for the Label Distribution 
+	Protocol.
+
+MPLS-LSR-STD-MIB.traps 
+	This MIB module contains managed object definitions for the 
+	Multiprotocol Label Switching (MPLS) Router as defined in: Rosen, E., 
+	Viswanathan, A., and R. Callon, Multiprotocol Label Switching 
+	Architecture, RFC 3031, January 2001.
+
+MPLS-TE-STD-MIB.traps 
+	This MIB module contains managed object definitions for MPLS Traffic 
+	Engineering (TE) as defined in:1. Extensions to RSVP for LSP Tunnels, Aw
+	duche et al, RFC 3209, December 20012. Constraint-Based LSP Setup using 
+	LDP, Jamoussi Editor), RFC 3212, January 20023. Requirements for 
+	Traffic Engineering Over MPLS,Awduche, D., Malcolm, J., Agogbua, J., O'
+	Dell,  M.,and J. McManus, [RFC2702], September 1999
+
+OSPF-TRAP-MIB.traps 
+	The MIB module to describe traps for the OSPF             Version 2 
+	Protocol. The OSPF Version 2 Protocol is defined RFC 2328.
+
+POWER-ETHERNET-MIB.traps 
+	The MIB module for managing Power Source Equipment (PSE) working 
+	according to the IEEE 802.af Powered Ethernet (DTE Power via MDI) 
+	standard.
+
+VRRP-MIB.traps 
+	The MIB module for management of the Virtual Router Redundancy Protocol 
+	(VRRP), described in RFC-2787
+
+rfc2115-FRAME-RELAY-DTE-MIB.traps 
+	
+	The MIB module to describe the use of a Frame Relay interface by a DTE
+
+rfc2493.traps 
+	
+	DS1-MIB
+
+rfc2495.traps 
+	The MIB module to describe DS1, E1, DS2, and               E2 
+	interfaces objects
+
+ONS15501-MIB.traps 
+	
+	The MIB definitions for ONS15501 Optical Amplifier.
+
+ACCOUNTING-CONTROL-MIB.traps 
+        SNM trap file for traps defined in the ATM Accounting Control MIB, 
+        from draft-ietf-atommib-acct-04.txt
+
+ADSL-LINE-MIB.traps 
+        Definitions of managed objects for ADSL lines.
+
+APPN-MIB.traps 
+        SNM trap file for traps defined in the APPN MIB, extracted from 
+	Internet-Draft draft-ietf-snanau-appnmib-03.txt.
+
+APPN-TRAP-MIB.traps 
+	This is the MIB module for objects used to manage network
+	devices with APPN capabilities.
+
+ATM-SOFT-PVC-MIB.traps 
+	ATM Forum definitions of managed objects for ATM Soft Permanent
+	Virtual Circuits.
+
+BGP4-MIB.traps 
+	SNM trap file for traps defined in the BGP-4 MIB from RFC1657.
+
+BRIDGE-MIB.traps 
+	
+	Definitions of Managed Objects for Bridges
+
+CAT2600-MIB.traps 
+	SNM trap file for traps defined in the Catalyst 2600 Token Ring
+	switch MIB.
+
+CISCO-5800-HEALTH-MON-MIB.traps 
+	SNM trap file for traps defined in the Cisco 5800 Health Mon MIB.
+
+CISCO-6400-CHASSIS-MIB.traps  not documented in README file.
+	SNM trap file for traps defined in the Cisco 6400 Chassis MIB.    
+
+CISCO-90-MIB.traps 
+	SNM trap file for traps defined in the Cisco 90i Series MIB.
+
+CISCO-AAA-SERVER-MIB.traps 
+	The MIB for monitoring communications and status of AAA Server 
+	operation.
+
+CISCO-ACCESS-ENVMON-MIB.traps 
+	The SNM trap file for traps deined in the Cisco Access routers
+	Environment Monitor MIB.
+
+CISCO-ALPS-MIB.traps 
+	The ALPS MIB provides configuration and perational information for 
+	Cisco's Airline protocol support for IBM-P1024B(ALC)and 
+	Unisys-P1024C(UTS)protocols encapsulation over TCP/IP.
+
+CISCO-APS-MIB.traps 
+	This management information module supports theconfiguration and 
+	management of SONET linear APS groups.
+
+CISCO-ATM-DUAL-PHY-MIB.traps 
+	SNM trap file for traps defined in the Cisco ATM Dual Phy MIB.
+
+CISCO-ATM-IF-MIB.traps 
+
+
+	
+	The MIB module for an extension to rfc1695 ATM interface table.
+
+CISCO-BSTUN-MIB.traps 
+	The Cisco MIB for the Blocked Serial Tunneling protocol used to tunnel 
+	blocked serial protocols (e.g. BSC) between a Cisco router and another C
+	isco router or host.
+
+CISCO-C2900-MIB.traps 
+        Added the c2900PortAddrSecureAgingTime, c2900PortAddrSecureAgingType 
+ 	and c2900PortAddrSecureAgingStatic MIB objects to port entry and port 
+	group; Also added c2900NotificationsGroup and c2900PortStatsGroupRev1 
+	objects for mib compliance.
+
+CISCO-C8500-REDUNDANCY-MIB.traps 
+	This MIB allows management of redundancy of CPU and switch cards for 
+	the Catalyst 8540 switch, and other products with similar 
+	implementations.
+
+CISCO-CABLE-SPECTRUM-MIB.traps 
+	
+	Cisco Data Over Cable Spectrum Management MIB file
+
+CISCO-CALL-TRACKER-MIB.traps 
+	
+	Enhancement to Call Signaling Type.
+
+CISCO-CCM-MIB.traps 
+	This MIB Module is for the management of a Cisco Unified Communications 
+	Manager(CUCM) application running with a Cisco Communication Network 
+	(CCN) System.
+
+CISCO-CHANNEL-MIB.traps 
+	SNM trap file for traps defined in the Cisco Channel Interface 
+	Processor MIB, which allows management of the Channel Interface 
+	Processor or CIP.
+
+CISCO-CIPCSNA-MIB.traps 
+	SNM trap file for traps defined in the CISCO-CIPCSNA-MIB,
+	which allows management of the Cisco Systems Network
+	Architecture (SNA) support on the Channel Interface Processor
+	(CIP).
+
+CISCO-CLUSTER-MIB.traps 
+	The Cisco MIB for the management of a group of devices called a 
+	'cluster'.
+
+CISCO-CONFIG-COPY-MIB.traps 
+	This MIB facilitates writing of configuration files of an SNMP Agent 
+	running Cisco's IOS in the         following ways: to and from the 
+	net, copying running configurations to startup configurations and 
+	vice-versa, and copying a configuration         (running or startup) 
+	to and from the local         IOS file system
+
+CISCO-CONFIG-MAN-MIB.traps 
+	
+	Configuration management MIB.
+
+CISCO-CONTENT-ENGINE-MIB.traps 
+	The MIB module for the Cisco Content Engine and Cisco File Engine from 
+	Cisco Systems, Inc. This MIB contains objects representing statistics 
+	related  HTTP requests HTTP responses, Streaming Proxy stats and 
+	device alarms.
+
+CISCO-CONTENT-NETWORK-MIB.traps 
+        This MIB module defines objects for Content Network devices.
+
+CISCO-DLSW-EXT-MIB.traps 
+	SNM trap file for traps defined in the CISCO-DLSW-EXT-MIB.
+	This MIB contains extensions to the DLSW-MIB (RFC 2024), including
+	Traps.
+
+CISCO-DLSW-MIB.traps 
+	SNM trap file for traps defined in the CISCO-DLSW-MIB. This
+	MIB is used for managing the Data Link Switching protocol.
+
+CISCO-DOCS-EXT-MIB.traps 
+	The MIB module for the Cisco specific extension objects of Data Over 
+	Cable Service Interface Specifications (DOCSIS), Radio Frequency 
+	interface. Also contains extension objects for managing Cable Modem 
+	Termination Systems (CMTS).
+
+CISCO-DOCS-EXT-MIB.traps 
+	The MIB module for the Cisco specific extension objects of Data Over 
+	Cable Service Interface Specifications (DOCSIS), Radio Frequency 
+	interface. Also contains extension objects for managing Cable Modem 
+	Termination Systems (CMTS).
+
+CISCO-DOCS-REMOTE-QUERY-MIB.traps 
+	This MIB module provides the management of the Cisco Cable Modem 
+	Termination Systems (CMTS) Remote Query feature.
+
+CISCO-DSP-MGMT-MIB.traps 
+	Digital Signal Processing (DSP) Management MIB module.The MIB module 
+	monitors the DSP resource and status.
+
+CISCO-DSPU-MIB.traps 
+	SNM trap file for traps defined in the MIB for Cisco DownStream 
+	Physical Unit (DSPU).
+
+CISCO-ENTITY-ALARM-MIB.traps 
+        Definitions of managed objects for alarm monitoring and signaling.
+
+CISCO-ENTITY-FRU-CONTROL-MIB.traps 
+	
+	MIB module for Authentication Framework in the system
+
+CISCO-ENVMON-MIB.traps 
+	The MIB module to describe the status of the Environmental Monitor on 
+	those devices which support one.
+
+CISCO-FASTHUB-MIB.traps 
+	SNM trap file for the traps defined in the CISCO-FASTHUB-MIB, a 
+	management MIB for the FastHub product family consisting of the 
+	FastHub 116T+ and 116C+, as well as the FastHub 316T and 316C.
+
+CISCO-FIREWALL-MIB.traps 
+	
+	MIB module for monitoring Cisco Firewalls.
+
+CISCO-FLASH-MIB.traps 
+	
+	This MIB provides for the management of CiscoFlash Devices.
+
+CISCO-GATEKEEPER-MIB.traps 
+	
+	MIB for access data control by a Cisco H323 Gatekeeper.
+
+CISCO-GENERAL-TRAPS.traps 
+	SNM trap file for the traps defined in CISCO-GENERAL-TRAPS.my.
+
+CISCO-GGSN-MIB.traps 
+	
+	This MIB module manages the Gateway GPRS Support Node (GGSN) devices. 
+
+CISCO-GPRS-ACC-PT-MIB.traps 
+	This MIB module supports access point configuration for GGSN in a GPRS 
+	system. GPRS [1] is a GSM network providing mobile wireless data 
+	communication services.
+
+CISCO-GPRS-CHARGING-MIB.traps 
+	This MIB module manages the charging related function on the GGSN node 
+	of a GPRS system.
+
+CISCO-GPRS-GTP-MIB.traps 
+        The MIB module defining managed objects for General Packet
+        Radio Service (GPRS) configuration, statistics & status.
+
+CISCO-GTP-DIRECTOR-MIB.traps 
+        The MIB module defining managed objects for GTP (GPRS Tunneling
+        Protocol) Director Module's configuration, statistics & status.
+
+CISCO-ICSUDSU-MIB.traps 
+	The SNM trap file for the traps defined in the Cisco Integrated 
+	CSU/DSU MIB.
+
+CISCO-IETF-ATM2-PVCTRAP-MIB.traps 
+        The SNM trap file extracted from the traps defined in 
+	CISCO-IETF-ATM2-PVCTRAP-MIB.my
+
+CISCO-IETF-SCTP-EXT-MIB.traps 
+        The MIB module for managing a SCTP implementation providing
+        information not specified in the standard SCTP MIB
+
+CISCO-IETF-SCTP-MIB.traps 
+        The MIB module for managing a SCTP implementation providing
+        information specified draft-ietf-sigtran-sctp-mib-04.txt.
+
+CISCO-IF-THRESHOLD-MIB.traps 
+	This MIB module defines the managed objects that support monitoring of 
+	thresholds on interfaces, by creating threshold templates.
+
+CISCO-IP-ENCRYPTION-MIB.traps 
+	The SNM trap file for the traps defined in the Cisco IP
+	Encryption MIB.
+
+CISCO-IPSEC-FLOW-MONITOR-MIB.traps 
+	This is a MIB Module for monitoring the        structures in 
+	IPSec-based Virtual Private Networks. The MIB has been designed to be 
+	adopted as an IETF standard. Hence Cisco-specific features of IPSec 
+	protocol are excluded from this MIB. 
+
+CISCO-IPSEC-MIB.traps 
+        An IOS-specific MIB for monitoring the configuration of IPSec VPNs.
+
+CISCO-ISDN-MIB.traps 
+	SNM trap file for the traps defined in the Cisco ISDNU IF MIB.Used to 
+	describe the status of the ISDN Interfaces on the Cisco devices.
+
+CISCO-ISDNU-IF-MIB.traps 
+	SNM trap file for the traps defined in the Cisco ISDN MIB. Used
+	for the management of Cisco Low end routers (1600) Integrated
+	ISDN U interface.
+
+CISCO-ITP-XUA-MIB.traps 
+	This MIB provides information about M3UA/SUA (XUA) protocol stacks on 
+	IP Transfer Point (ITP) running on Cisco 7600, 7500, 7200, 7300 and 
+	2600 platforms.
+
+CISCO-LOCAL-DIRECTOR-MIB.traps 
+	SNM trap file for the traps defined in the Cisco Local Director MIB.
+
+CISCO-METRO-PHY-MIB.traps 
+        This MIB defines the managed objects for physical layer related
+        interface configurations and objects for the protocol specific
+        error counters for DWDM.
+
+CISCO-NETWORK-REGISTRAR-MIB.traps 
+	This MIB allows administrators to receive notifications (via traps)on 
+	the status of Cisco Network Registrar (CNR.)  
+
+CISCO-OAM-MIB.traps 
+	
+	A MIB module for invoking OAM loopback Ping on ATMconnections.
+
+CISCO-OPTICAL-MONITOR-MIB.traps 
+	This MIB module defines objects to monitor opticalcharacteristics and 
+	set corresponding thresholds on the optical interfaces in a network 
+	element.
+
+CISCO-OPTICAL-PATCH-MIB.traps 
+
+	This MIB module is used to configure and monitor the network element 
+	view of                                                         
+	optical patches between two ports or fibers on the same network element.
+	 This                                                         revision 
+	adds support for patching one interface to two different interfaces in t
+	he                                                         receive and 
+	transmit directions.
+
+CISCO-OSCP-MIB.traps 
+        The MIB for managing the Cisco Optical Supervisory Channel
+        Protocol (OSCP).
+
+CISCO-PIM-MIB.traps 
+        This MIB module defines the cisco specific variables
+        for Protocol Independent Multicast (PIM) management. 
+        These definitions are an extension of those defined in
+        the IETF PIM MIB (RFC 2934).
+
+CISCO-PING-MIB.traps 
+	SNM trap file for the traps defined in the Cisco Ping MIB, which 
+	allows multi-protocol pings to be performed via SNMP.  
+        Make ping mib VRF aware, add an additional VRF name attribute so
+        that user can specify that he wants to ping the prefix in that VRF.
+
+CISCO-PPPOE-MIB.traps 
+	
+	Cisco PPPoE sessions management MIB Module
+
+CISCO-REPEATER-MIB.traps 
+	SNM trap file for the traps defined in the Cisco Repeater MIB,
+	which provides an extension to the rptrPortTable group defined 
+	in RFC1516.
+
+CISCO-RF-MIB.traps 
+	Definitions of managed objects for the Redundancy Framework 
+	(RF)subsystem. RF provides a mechanism for logical redundancy of 
+	software functionality and is designed to support 1:1 redundancy on proc
+	essor cards.
+
+CISCO-RHINO-MIB.traps 
+
+
+	Chassis MIB for LS1010, Cat8510MSR, Cat8540MSR, 6400NSP.Frame Relay 
+	Chassis MIB for LS1010, Cat8510MSR, Cat8540MSR, 6400NSP.Frame Relay 
+	switched connections via an ATM switching fabric, on a Cisco ATM switch.
+
+CISCO-RPMS-MIB.traps 
+        This MIB module defines managed objects to monitor the current state 
+        of the Cisco Resource Policy Management System server.
+
+CISCO-RSRB-MIB.traps 
+	SNM trap file for the traps defined in the Cisco Remote Source Route 
+	Bridging MIB, used to describe the RSRB configuration, status, and 
+	statistics of the Cisco device.
+
+CISCO-RTTMON-MIB.traps 
+	
+	MIB to support IP SLAs software in IOS.
+
+CISCO-SDLLC-MIB.traps 
+	SNM trap file for the traps defined in the Cisco SDLC to LLC2 Media 
+	Translation MIB, used to describe the SDLLC configuration and status 
+	of the Cisco device.
+
+CISCO-SLB-MIB.traps 
+	The MIB for managing Server Load Balancing Manager(s),such as the Cisco 
+	IOS SLB product. 
+
+CISCO-SNA-LLC-MIB.traps 
+	SNM trap file for the traps defined in the Cisco Systems
+	Network Architecture (SNA) LLC MIB, used to manage LLC devices.
+
+CISCO-SP-MIB.traps 
+	
+	Mib for SS7 SP support entities
+
+CISCO-SRP-MIB.traps 
+	The MIB module to describe objects for Spatial Reuse Protocol (SRP) 
+	interface layer
+
+CISCO-STACK-MIB.traps 
+	This MIB provides configuration and runtime status for chassis, modules,
+	 ports, etc. on the Catalyst systems.
+
+CISCO-STP-EXTENSIONS-MIB.traps 
+	The MIB module for managing Cisco extensions to the 802.1D Spanning 
+	Tree Protocol (STP).
+
+CISCO-STUN-MIB.traps 
+	SNM trap file for the traps defined in the Cisco Serial Tunneling 
+	MIB, used to describe the STUN configuration, status, and 
+	statistics of the Cisco device.
+
+CISCO-SYSLOG-MIB.traps 
+	
+	This MIB provides the ability to monitor and store logging messages.
+
+CISCO-VLAN-MEMBERSHIP-MIB.traps 
+	The MIB module for the management of the VLANMembership within the 
+	frame  work of CiscoVLAN Architecture, v 2.0 by Keith McCloghrie. The 
+	MIB provides information on VLAN Membership Policy Servers used by a 
+	device and VLAN membership assignments of non-trunk bridge ports of 
+	the device.
+
+CISCO-VOICE-APPS-MIB.traps 
+	The MIB Module for the management of Cisco Voice Applications.  This 
+	MIB is designed to work in   conjunction with the SYSAPPL-MIB to 
+	provide status monitoring, provisioning and notification.
+
+CISCO-VOICE-DIAL-CONTROL-MIB.traps 
+	This MIB module enhances the IETF Dial Control MIB(RFC2128)by providing 
+	management of voice telephonypeers on both a circuit-switched telephony 
+	network,and an IP data network
+
+CISCO-VTP-MIB.traps 
+	The MIB module for entities implementing the VTP        protocol and 
+	Vlan management.
+
+CISCO-WIRELESS-IF-MIB.traps 
+	This MIB is already there on CCO. This MIB had compilation issue, hence 
+	the compilation issue is being fixed and the MIB is being resubmitted.
+
+CISCO-WIRELESS-P2MP-LINK-METRICS-MIB.traps 
+	This MIB is already there on CCO. This MIB had compilation issue, hence 
+	the compilation issue is being fixed and the MIB is being resubmitted.
+
+CISCO-WIRELESS-P2MP-PHY-MIB.traps 
+        This is the MIB Module for the Cisco Wireless Radio Point to
+        MultiPoint interface.
+
+CISCO-WIRELESS-P2MP-RF-METRICS-MIB.traps 
+        This is the MIB Module for the Cisco Wireless Radio Point to
+        MultiPoint interface. It contains information about the radio
+        signal(s) that were received or attributes of the radio signals
+        computed from received signals. This group models the real-time
+        data that is collected.
+
+DIAL-CONTROL-MIB.traps 
+	SNM trap file for the traps defined in the DIAL-CONTROL-MIB.
+
+DLSW-MIB.traps 
+	SNM trap file for the traps defined in the DLSW MIB. This Data
+	Link Switching MIB extracted from RFC-2024.
+
+DS3-MIB.traps 
+	
+	The is the MIB module that describesDS3 and E3 interfaces objects.
+
+ENTITY-MIB.traps 
+	
+	MIB providing device UDI information.
+
+ESSWITCH-MIB.traps 
+	SNM trap file for the traps defined in the EtherSwitch MIB.
+
+IF-MIB.traps 
+	
+	Based on RFC 2863
+
+MADGERSW-MIB.traps 
+	SNM trap file for the traps defined in the MADGERSW-MIB, which
+	allows management of the Madge Smart Ringswitch products (including
+	the Cisco Catalyst 1600 product)
+
+METRO1500-MIB.traps 
+        The MIB module for Cisco Metro 1500
+
+MPSL-VPN-MIB.traps 
+        Defines objects for managing MPLS/BGP VPNs.
+        Base off IETF standard draft-ppvpn-mpls-vpn-mib-03.txt
+
+MSDP-MIB.traps 
+        An experimental MIB module for MSDP Management.
+
+NOVELL-IPX-MIB.traps 
+	SNM trap file for the traps defined in the IPX MIB distributed as
+        a part of the Novell NetWare Link Services Protocol (NLSP)
+        Specification 1.0, Novell Part Number 100-001708-002, 2nd
+        Edition Feb '94.
+
+PIM-MIB.traps 
+	The MIB module for management of PIM routers.
+
+RFC1315-MIB.traps 
+	SNM trap file for the traps defined in the Frame Relay MIB from RFC 
+	1315.
+
+RFC1382-MIB.traps 
+	SNM trap file for the traps defined in the X.25 Packet Layer MIB 
+	from RFC 1382.
+
+RFC2006-MIB.traps 
+        This MIB is for managing MobileIP entities
+
+RMON-MIB.traps 
+	Remote network monitoring devices, often called monitors or probes, are 
+	instruments that exist for the purpose of managing a network. This MIB 
+	defines objects for managing remote network monitoring devices.
+
+SNA-NAU-MIB.traps 
+	SNM trap file for the traps defined in the SNA NAU MIB from RFC 1666.
+
+SNA-SDLC-MIB.traps 
+	SNM trap file for the traps defined in the SDLC MIB.
+
+SNMP-REPEATER-MIB.traps 
+	SNM trap file for the traps defined in the Hub MIB from RFC 1516.
+
+SNMPv2-MIB.traps 
+	
+	The MIB module for SNMP entities.
+
+VIPER-MIB.traps 
+	SNM trap file for the traps defined in  Cisco Catalyst 3000 series 
+        enterprise MIB.
+
+XGCP-MIB.traps 
+        The MIB module for managing XGCP implementations.
+

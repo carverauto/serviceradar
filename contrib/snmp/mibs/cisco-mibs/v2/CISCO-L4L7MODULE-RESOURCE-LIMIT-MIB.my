@@ -1,0 +1,2217 @@
+-- *****************************************************************
+-- CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB: MIB for limiting resources
+--   
+-- August 2005, Subrahmanya Hegde
+--   
+-- Copyright (c) 2005-2013 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Gauge32,
+    Counter32,
+    Counter64,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    TEXTUAL-CONVENTION,
+    RowStatus,
+    StorageType,
+    TimeStamp
+        FROM SNMPv2-TC
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoL4L7moduleResourceLimitMIB MODULE-IDENTITY
+    LAST-UPDATED    "201302200000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-l4l7security@cisco.com"
+    DESCRIPTION
+        "The MIB module for managing resource classes
+        and configuring limits(max/min) to different
+        resources.  The resource referenced in this MIB 
+        are in addition to resource information availale 
+        in other MIBs.  This MIB is applicable to
+        L4-L7 modules which supports managing
+        resource limits using a centralized approach.
+        The resources (but not limited to) configured are 
+        of following categories:
+        - TCP/IP Connections
+        - MAC Addresses
+        - syslog buffer, ACL Memmory
+        - NAT Translations etc
+
+        ciscoL4L7ResourceClassTable is used for adding/deleting
+        resource classes.  Resource class is identified
+        by a name to which limits of multiple resources can
+        be configured.
+
+        ciscoL4L7ResourceLimitTable is used for adding/deleting
+        limits to resources in a resource class.  This limit
+        is either maximum value and/or minimal value.
+
+        ciscoL4L7ResourceRateLimitTable is used for adding/deleting
+        rate limits to resources in a resource class.
+
+        Terminologies used:
+          ARP - Address Resolution Protocol.
+          ACL - Access Control List.
+          NAT - Network Address Translation.
+          NBAR - Network Based Application Recognition.
+          BPDU - Bridge Protocol Data Unit."
+    REVISION        "201302200000Z"
+    DESCRIPTION
+        "Added the following two enum names to CiscoResourceLimitType
+        TC: 
+          - cpu    
+          - memory  
+        Added the following groups: 
+          - ciscoL4L7ResourceNotifGroupRev2 
+          - ciscoL4L7ResourceNotifOnlyObjectsGroupExt 
+        Deprecated ciscoL4L7ResourceNotifGroupRev1; 
+        Updated the DESCRIOTION of the following objects: 
+          - clrResourceRateLimitReachedNotifEnabled 
+          - clrResourceLimitReachedNotifEnabled"
+    REVISION        "201209200000Z"
+    DESCRIPTION
+        "Added the following groups
+        - ciscoL4L7ResourceNotifGroupRev1
+        - ciscoL4L7ResourceNotifOnlyObjectsGroup
+
+        Deprecated the following groups
+        - ciscoL4L7ResourceNotifGroup
+
+        Added the following compliance
+        - ciscoL4L7ResourceLimitComplianceRev6"
+    REVISION        "201106100000Z"
+    DESCRIPTION
+        "-Added following OBJECT-TYPEs in table
+        ciscoL4L7BufferUtilizationTable.
+          crlExternalBufferUsageValue
+          crlExternalPercentageBufferUsage
+          crlExternalPercentageBufferUsageDisplay
+
+        -Deprecated OBJECT-GROUP 
+        ciscoL4L7BufferUtilizationGroup.
+
+        -Added OBJECT-GROUP  
+         ciscoL4L7BufferUtilizationGroupRev1.
+
+        -Deprecated MODULE-COMPLIANCE
+        ciscoL4L7ResourceLimitComplianceRev4.
+
+        -Added MODULE-COMPLIANCE
+        ciscoL4L7ResourceLimitComplianceRev5."
+    REVISION        "201104150000Z"
+    DESCRIPTION
+        "- Added new table ciscoL4L7NpCpuUtilTable.
+
+        - Added OBJECT-GROUP ciscoL4L7NpCpuUtilizationGroup.
+
+        - Deprecated MODULE-COMPLIANCE
+        ciscoL4L7ResourceLimitComplianceRev3.
+
+        - Added MODULE-COMPLIANCE
+        ciscoL4L7ResourceLimitComplianceRev4."
+    REVISION        "201012060000Z"
+    DESCRIPTION
+        "- Added TEXTUAL-CONVENTION CiscoBufferUtilPercentage.
+
+        - Added table ciscoL4L7BufferUtilizationTable.
+
+        - Added an OBJECT-GROUP ciscoL4L7BufferUtilizationGroup.
+
+        - Deprecated MODULE-COMPLIANCE
+        ciscoL4L7ResourceLimitComplianceRev2.
+
+        - Added MODULE-COMPLIANCE
+        ciscoL4L7ResourceLimitComplianceRev3."
+    REVISION        "200803070000Z"
+    DESCRIPTION
+        "- Added TEXTUAL-CONVENTION CiscoResourceType.
+
+        - Added table ciscoL4L7ResourceUsageSummaryTable.
+
+        - Added an OBJECT-GROUP 
+        ciscoL4L7ResourceUsageSummaryGroup.
+
+        - Deprecated MODULE-COMPLIANCE
+        ciscoL4L7ResourceLimitComplianceRev1.
+
+        - Added MODULE-COMPLIANCE
+        ciscoL4L7ResourceLimitComplianceRev2."
+    REVISION        "200802070000Z"
+    DESCRIPTION
+        "- Added following enumerations in CiscoRateLimitResourceType
+        sslConnections     (9)
+        mgmtBandwidth      (10)
+        throughput         (11)
+        missedMac          (12)
+        httpCompression    (13)
+
+        - Updated the description of bandwidth(4) enumeration in
+        CiscoRateLimitResourceType."
+    REVISION        "200606190000Z"
+    DESCRIPTION
+        "- Added following enumerations in CiscoResourceLimitType
+        hosts           (15)
+        ipsecSessions   (16)
+        asdmSessions    (17)
+        sshSessions     (18)
+        telnetSessions  (19)
+
+        - Added following objects in ciscoL4L7ResourceLimitTable
+        crlResourceLimitCurrentUsage
+        crlResourceLimitPeakUsage
+        crlResourceLimitReqsDeniedCount
+
+        - Added following objects in ciscoL4L7RateLimitTable
+        crlRateLimitResourceCurrentUsage
+        crlRateLimitResourcePeakUsage
+        crlRateLimitResourceReqsDeniedCount
+
+        - Added following objects:
+        clrResourceLimitReachedNotifEnabled
+        clrResourceRateLimitReachedNotifEnabled
+
+        - Added following Notification objects     
+        clrResourceLimitReached
+        clrResourceRateLimitReached
+
+        - Added following in Compliance/Conformance
+        ciscoL4L7ResourceLimitComplianceRev1."
+    REVISION        "200508050000Z"
+    DESCRIPTION
+        "Initial version of the MIB module."
+    ::= { ciscoMgmt 480 }
+
+
+ciscoL4L7ResourceLimitNotifs  OBJECT IDENTIFIER
+    ::= { ciscoL4L7moduleResourceLimitMIB 0 }
+
+ciscoL4L7ResourceLimitMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoL4L7moduleResourceLimitMIB 1 }
+
+ciscoResourceLimitMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoL4L7moduleResourceLimitMIB 2 }
+
+crlResource  OBJECT IDENTIFIER
+    ::= { ciscoL4L7ResourceLimitMIBObjects 1 }
+
+crlNotificationObjects  OBJECT IDENTIFIER
+    ::= { ciscoL4L7ResourceLimitMIBObjects 2 }
+
+crlNotificationOnlyObjects  OBJECT IDENTIFIER
+    ::= { ciscoL4L7ResourceLimitMIBObjects 3 }
+
+
+CiscoResourceClass ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is used for representing
+        resource classes.  A resource class is identified by
+        a name preferably in human readable form.  This resource 
+        class is used for identifying different type of resources.
+        The resource class can represent single resource type or 
+        multiple resource type.
+        Resource category examples:
+            memory, connections 
+            NAT(network address translation) translations,
+            number of syslog messages etc."
+    SYNTAX          OCTET STRING (SIZE (0..64))
+
+CiscoResourceLimitType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This object represents the resource type.
+        The possible values are :
+        all         (1)    : This is not a resource. However
+                             this value acts as the wild card
+                             value to set all the resources
+                             at the same time.  If an entry
+                             exists with this value, then
+                             for all the resources that are 
+                             not configured in this table will
+                             have the value specified in this
+                             entry.
+        macAddresses(2)     : The number of MAC addresses allowed in
+                              the MAC address table.
+        concurrentConns (3) : Concurrent TCP/UDP connections that are
+                              supported.  Connections exist between 
+                              any two hosts.  This is applicable
+                              for through the box connections only.
+        mgmtConnections (4) : This is applicable for to-the-box
+                              traffic only.
+        proxyConns      (5) : Sticky connections limit traffic to 
+                              the individual real servers by allowing 
+                              multiple connections from the same client
+
+                              to stick (or attach) to the same real 
+                              server using source IP addresses, 
+                              source IP subnets, cookies, and the 
+                              secure socket layer (SSL) or
+                              by redirecting these connections using 
+                              Hypertext Transfer Protocol (HTTP) 
+                              redirect messages.
+        probes          (6)  : the number of health probes.
+        stickyEntries   (7)  : the number of sticky entries.
+                               This refers to statically configured
+                               entries and dynamically created ones.
+                               It represents the pool of entries
+                               available for use/re-use.
+        natTranslations (8)  : the number of NAT Translations.
+        regexState      (9)  : Regular expression state.
+                               Regex states are nodes in the
+                               regular expression state graph, 
+                               used for matching and sticking on HTTP 
+                               fields such as URL, header, cookies.
+        aclMemory       (10) : Memory that is allocated for managing 
+                               ACLs.
+        ipReassemBuffer (11) : buffer that is allocated for IP 
+                               Reassembly.
+        syslogBuffer    (12) : buffer that is allocated for syslog 
+                               messages that can be logged in the
+                               system.
+        tcpOOOBuffer   (13) : buffer that is allocated for TCP Out Of 
+                               Order packets.
+        sslConnections  (14) : The number of SSL Connections.
+        hosts           (15) : Number of hosts allowed through the
+        system.
+        ipsecSessions   (16) : Number of IPSec management sessions.
+        asdmSessions    (17) : Number of ASDM management sessions.
+        sshSessions     (18) : Number of SSH management sessions.
+        telnetSessions  (19) : Number of Telnet management sessions.
+        cpu             (20) : CPU utilization by the system.
+        memory          (21) : Memory utilization by the system."
+    SYNTAX          INTEGER  {
+                        all(1),
+                        macAddresses(2),
+                        concurrentConns(3),
+                        mgmtConnections(4),
+                        proxyConns(5),
+                        probes(6),
+                        stickyEntries(7),
+                        natTranslations(8),
+                        regexState(9),
+                        aclMemory(10),
+                        syslogBuffer(11),
+                        ipReassemBuffer(12),
+                        tcpOOOBuffer(13),
+                        sslConnections(14),
+                        hosts(15),
+                        ipsecSessions(16),
+                        asdmSessions(17),
+                        sshSessions(18),
+                        telnetSessions(19),
+                        cpu(20),
+                        memory(21)
+                    }
+
+CiscoRateLimitResourceType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This object represents the resource type
+        for which rate limiting needs to be done.
+        The value for rate limiting is specified
+        in crlRateLimitResourceMin and
+        crlRateLimitResourceMax.
+
+        The possible value(s) are :
+        all             (1) : This value represents a wildcard
+                              value to mean all the resources.
+        arpRequestsXmt  (2) : ARP requests generated per second
+        arpResponses    (3) : ARP responses to received ARP requests
+                              per second.
+        bandwidth       (4) : Bandwidth of the card in bytes
+                              per second.
+        connections     (5) : connections per second.
+        appInspections  (6) : application inspections per second.
+        syslog          (7) : syslog messages per second.
+        sslBandwidth    (8) : SSL bandwidth in bytes per second.
+        sslConnections  (9) : SSL connections per second.
+        mgmtBandwidth   (10): Management (to-the-ACE) traffic
+                              in bytes per second.
+        throughput      (11): User (through-the-ACE) traffic
+                              in bytes per second.
+        missedMac       (12): Number of ARP resolution requests
+                              in packets per second.
+        httpCompression (13): Compression rate for HTTP traffic
+                              in bytes per second."
+    SYNTAX          INTEGER  {
+                        all(1),
+                        arpRequestsXmt(2),
+                        arpResponses(3),
+                        bandwidth(4),
+                        connections(5),
+                        appInspections(6),
+                        syslog(7),
+                        sslBandwidth(8),
+                        sslConnections(9),
+                        mgmtBandwidth(10),
+                        throughput(11),
+                        missedMac(12),
+                        httpCompression(13)
+                    }
+
+CiscoResourceType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This object represents a resource type.
+
+        The possible values for this object are:
+
+        lMacAddresses     (1)  : Refer to 'macAddresses' in 
+                                 CiscoResourceLimitType.
+        lConcurrentConns  (2)  : Refer to 'concurrentConns' in 
+                                 CiscoResourceLimitType.
+        lMgmtConnections  (3)  : Refer to 'mgmtConnections' in 
+                                 CiscoResourceLimitType.
+        lProxyConns       (4)  : Refer to 'proxyConns' in 
+                                 CiscoResourceLimitType.
+        lProbes           (5)  : Refer to 'probes' in 
+                                 CiscoResourceLimitType.
+        lStickyEntries    (6)  : Refer to 'stickyEntries' in 
+                                 CiscoResourceLimitType.
+        lNatTranslations  (7)  : Refer to 'natTranslations' in 
+                                 CiscoResourceLimitType.
+        lRegexState       (8)  : Refer to 'regexState' in 
+                                 CiscoResourceLimitType.
+        lAclMemory        (9)  : Refer to 'aclMemory' in 
+                                 CiscoResourceLimitType.
+        lIpReassemBuffer  (10) : Refer to 'ipReassemBuffer' in 
+                                 CiscoResourceLimitType.
+        lSyslogBuffer     (11) : Refer to 'syslogBuffer' in 
+                                 CiscoResourceLimitType.
+        lTcpOOOBuffer     (12) : Refer to 'tcpOOOBuffer' in 
+                                 CiscoResourceLimitType.
+        lSslConnections   (13) : Refer to 'sslConnections' in 
+                                 CiscoResourceLimitType.
+        lHosts            (14) : Refer to 'hosts' in 
+                                 CiscoResourceLimitType.
+        lIpsecSessions    (15) : Refer to 'ipsecSessions' in 
+                                 CiscoResourceLimitType.
+        lAsdmSessions     (16) : Refer to 'asdmSessions' in 
+                                 CiscoResourceLimitType.
+        lSshSessions      (17) : Refer to 'sshSessions' in 
+                                 CiscoResourceLimitType.
+        lTelnetSessions   (18) : Refer to 'telnetSessions' in 
+                                 CiscoResourceLimitType.
+        rlArpRequestsXmt  (19) : Refer to 'arpRequestsXmt' in 
+                                 CiscoRateLimitResourceType.
+        rlArpResponses    (20) : Refer to 'arpResponses' in 
+                                 CiscoRateLimitResourceType.
+        rlBandwidth       (21) : Refer to 'bandwidth' in 
+                                 CiscoRateLimitResourceType.
+        rlConnections     (22) : Refer to 'connections' in 
+                                 CiscoRateLimitResourceType.
+        rlAppInspections  (23) : Refer to 'appInspections' in 
+                                 CiscoRateLimitResourceType.
+        rlSyslog          (24) : Refer to 'syslog' in 
+                                 CiscoRateLimitResourceType.
+        rlSslBandwidth    (25) : Refer to 'sslBandwidth' in 
+                                 CiscoRateLimitResourceType.
+        rlSslConnections  (26) : Refer to 'sslConnections' in 
+                                 CiscoRateLimitResourceType.
+        rlMgmtBandwidth   (27) : Refer to 'mgmtBandwidth' in 
+                                 CiscoRateLimitResourceType.
+        rlThroughput      (28) : Refer to 'throughput' in 
+                                 CiscoRateLimitResourceType.
+        rlMissedMac       (29) : Refer to 'missedMac' in 
+                                 CiscoRateLimitResourceType.
+        rlHttpCompression (30) : Refer to 'httpCompression' in 
+                                 CiscoRateLimitResourceType."
+    SYNTAX          INTEGER  {
+                        lMacAddresses(1),
+                        lConcurrentConns(2),
+                        lMgmtConnections(3),
+                        lProxyConns(4),
+                        lProbes(5),
+                        lStickyEntries(6),
+                        lNatTranslations(7),
+                        lRegexState(8),
+                        lAclMemory(9),
+                        lIpReassemBuffer(10),
+                        lSyslogBuffer(11),
+                        lTcpOOOBuffer(12),
+                        lSslConnections(13),
+                        lHosts(14),
+                        lIpsecSessions(15),
+                        lAsdmSessions(16),
+                        lSshSessions(17),
+                        lTelnetSessions(18),
+                        rlArpRequestsXmt(19),
+                        rlArpResponses(20),
+                        rlBandwidth(21),
+                        rlConnections(22),
+                        rlAppInspections(23),
+                        rlSyslog(24),
+                        rlSslBandwidth(25),
+                        rlSslConnections(26),
+                        rlMgmtBandwidth(27),
+                        rlThroughput(28),
+                        rlMissedMac(29),
+                        rlHttpCompression(30)
+                    }
+
+CiscoBufferUtilPercentage ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d-2"
+    STATUS          current
+    DESCRIPTION
+        "Buffer utilization as a percentage and should
+        be presented in using xx.yy format."
+    SYNTAX          INTEGER (0..10000)
+
+ciscoL4L7ResourceClassTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoL4L7ResourceClassEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains one row per resource class.
+        This table is used for adding/deleting the resource 
+        class in the system.  A resource class can contain
+        limits for different category of resources and
+        these resources can be configured using other tables."
+    ::= { crlResource 1 }
+
+ciscoL4L7ResourceClassEntry OBJECT-TYPE
+    SYNTAX          CiscoL4L7ResourceClassEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about a particular resource class.
+        Each entry provides the name of class.
+        The entPhysicalIndex refers to resource manageable
+        component in entPhysicalTable with 
+        entPhysicalClass -> 'module'."
+    INDEX           {
+                        entPhysicalIndex,
+                        crlResourceClassName
+                    } 
+    ::= { ciscoL4L7ResourceClassTable 1 }
+
+CiscoL4L7ResourceClassEntry ::= SEQUENCE {
+        crlResourceClassName        CiscoResourceClass,
+        crlResourceClassStorageType StorageType,
+        crlResourceClassRowStatus   RowStatus
+}
+
+crlResourceClassName OBJECT-TYPE
+    SYNTAX          CiscoResourceClass
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies a unique resource class
+        in a resource manageable component identified
+        by entPhysicalIndex." 
+    ::= { ciscoL4L7ResourceClassEntry 1 }
+
+crlResourceClassStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        Conceptual rows having the value 'permanent' need not
+        allow write-access to any columnar objects in the row.
+        This object can not be modified when the value of
+        crlResourceClassRowStatus is 'active'."
+    DEFVAL          { nonVolatile } 
+    ::= { ciscoL4L7ResourceClassEntry 2 }
+
+crlResourceClassRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used for adding/deleting
+        resource classes in a system." 
+    ::= { ciscoL4L7ResourceClassEntry 3 }
+ 
+
+
+ciscoL4L7ResourceLimitTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoL4L7ResourceLimitEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used for adding resource limits
+        to resources in a resource class."
+    ::= { crlResource 2 }
+
+ciscoL4L7ResourceLimitEntry OBJECT-TYPE
+    SYNTAX          CiscoL4L7ResourceLimitEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about a particular resource in a resource
+        class.  Each entry provides the type of resource,
+        the limit that is supported for that resource
+        and type of the limit value."
+    INDEX           {
+                        crlResourceClassName,
+                        crlResourceLimitType
+                    } 
+    ::= { ciscoL4L7ResourceLimitTable 1 }
+
+CiscoL4L7ResourceLimitEntry ::= SEQUENCE {
+        crlResourceLimitType            CiscoResourceLimitType,
+        crlResourceLimitValueType       INTEGER,
+        crlResourceLimitMin             Unsigned32,
+        crlResourceLimitMax             Unsigned32,
+        crlResourceLimitStorageType     StorageType,
+        crlResourceLimitRowStatus       RowStatus,
+        crlResourceLimitCurrentUsage    Gauge32,
+        crlResourceLimitPeakUsage       Gauge32,
+        crlResourceLimitReqsDeniedCount Counter32
+}
+
+crlResourceLimitType OBJECT-TYPE
+    SYNTAX          CiscoResourceLimitType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of
+        resource in a resource class identified
+        by crlResourceClassName." 
+    ::= { ciscoL4L7ResourceLimitEntry 2 }
+
+crlResourceLimitValueType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        absolute(1),
+                        percentage(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of value specified
+        in crlResourceLimitMax and crlResourceLimitMin objects.
+         The possible values are :
+         absolute    (1) : the value represents an absolute number.
+         percentage  (2) : the value represents the % of the total
+                           available for the system.  In this case
+                           only crlResourceLimitMax object is
+                           applicable."
+    DEFVAL          { percentage } 
+    ::= { ciscoL4L7ResourceLimitEntry 3 }
+
+crlResourceLimitMin OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the rate limit allowed for
+        the resource identified by 'ciscoResourceLimitType'.
+        This value cannot be greater than the value
+        specified in ciscoResourceLimitMax.
+        The value zero signifies that this object is 
+        not applicable to the resource."
+    DEFVAL          { 0 } 
+    ::= { ciscoL4L7ResourceLimitEntry 4 }
+
+crlResourceLimitMax OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the limit allowed for
+        the resource identified by 'ciscoResourceLimitType'.
+        The value zero specifies that this resource
+        can be used until the system limit reached."
+    DEFVAL          { 0 } 
+    ::= { ciscoL4L7ResourceLimitEntry 5 }
+
+crlResourceLimitStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        Conceptual rows having the value 'permanent' need not
+        allow write-access to any columnar objects in the row.
+        This object cannot be modified when the value of
+        crlResourceLimitRowStatus is 'active'."
+    DEFVAL          { nonVolatile } 
+    ::= { ciscoL4L7ResourceLimitEntry 6 }
+
+crlResourceLimitRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries in this table." 
+    ::= { ciscoL4L7ResourceLimitEntry 7 }
+
+crlResourceLimitCurrentUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of resources identified by
+        'ciscoResourceLimitType', that are currently being used in 
+        the system." 
+    ::= { ciscoL4L7ResourceLimitEntry 8 }
+
+crlResourceLimitPeakUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the peak usage of the resource
+        identified by 'ciscoResourceLimitType' since the statistics
+        were last cleared either through the command line interface or
+        bacause of the system reboot." 
+    ::= { ciscoL4L7ResourceLimitEntry 9 }
+
+crlResourceLimitReqsDeniedCount OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of resource requests that
+        were denied when the configured resource limit is exceeded
+        for the resource identified by 'ciscoResourceLimitType'.
+
+        The value for resource limiting is specified
+        in 'crlResourceLimitMax'." 
+    ::= { ciscoL4L7ResourceLimitEntry 10 }
+ 
+
+
+ciscoL4L7ResourceRateLimitTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoL4L7ResourceRateLimitEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used for adding/deleting
+        the rate limiting of the resources in a
+        resource class."
+    ::= { crlResource 4 }
+
+ciscoL4L7ResourceRateLimitEntry OBJECT-TYPE
+    SYNTAX          CiscoL4L7ResourceRateLimitEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about an entry in the table
+        Each entry provides the name of group, the rate
+        configured for a resource."
+    INDEX           {
+                        crlResourceClassName,
+                        crlRateLimitResourceType
+                    } 
+    ::= { ciscoL4L7ResourceRateLimitTable 1 }
+
+CiscoL4L7ResourceRateLimitEntry ::= SEQUENCE {
+        crlRateLimitResourceType            CiscoRateLimitResourceType,
+        crlRateLimitResourceMin             Unsigned32,
+        crlRateLimitResourceMax             Unsigned32,
+        crlRateLimitResourceStorageType     StorageType,
+        crlRateLimitResourceRowStatus       RowStatus,
+        crlRateLimitResourceCurrentUsage    Gauge32,
+        crlRateLimitResourcePeakUsage       Gauge32,
+        crlRateLimitResourceReqsDeniedCount Counter32
+}
+
+crlRateLimitResourceType OBJECT-TYPE
+    SYNTAX          CiscoRateLimitResourceType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the resource type
+        for which rate limiting needs to be done.
+        The value for rate limiting is specified
+        in crlRateLimitResourceMin and 
+        crlRateLimitResourceMax." 
+    ::= { ciscoL4L7ResourceRateLimitEntry 1 }
+
+crlRateLimitResourceMin OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the rate limit allowed for
+        the resource identified by 'crlRateLimitResourceType'.
+        This value cannot be greater than the value
+        specified in crlRateLimitResourceMax.
+        The value zero signifies that this object is 
+        not applicable to the resource."
+    DEFVAL          { 0 } 
+    ::= { ciscoL4L7ResourceRateLimitEntry 2 }
+
+crlRateLimitResourceMax OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object represents the limit allowed for
+        the resource identified by 'crlRateLimitResourceType'.
+        The value zero specifies that this resource
+        can be used until the system limit reached."
+    DEFVAL          { 0 } 
+    ::= { ciscoL4L7ResourceRateLimitEntry 3 }
+
+crlRateLimitResourceStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        Conceptual rows having the value 'permanent' need not
+        allow write-access to any columnar objects in the row.
+        This object cannot be modified when the value of
+        crlRateLimitResourceRowStatus is 'active'."
+    DEFVAL          { nonVolatile } 
+    ::= { ciscoL4L7ResourceRateLimitEntry 4 }
+
+crlRateLimitResourceRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries in this table.  This object cannot
+        be set to 'active' until all the mandatory
+        objects have valid value." 
+    ::= { ciscoL4L7ResourceRateLimitEntry 5 }
+
+crlRateLimitResourceCurrentUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of resources identified by
+        'crlRateLimitResourceType', that are currently being used in 
+        the system." 
+    ::= { ciscoL4L7ResourceRateLimitEntry 6 }
+
+crlRateLimitResourcePeakUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the peak usage of the resource
+        identified by 'crlRateLimitResourceType' since the statistics
+        were last cleared either through the command line interface or
+        bacause of the system reboot." 
+    ::= { ciscoL4L7ResourceRateLimitEntry 7 }
+
+crlRateLimitResourceReqsDeniedCount OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of resource requests that
+        were denied when the configured rate limit is exceeded
+        for the resource identified by 'crlRateLimitResourceType'.
+
+        The value for rate limiting is specified in
+        'crlRateLimitResourceMax'." 
+    ::= { ciscoL4L7ResourceRateLimitEntry 8 }
+ 
+
+
+ciscoL4L7ResourceUsageSummaryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoL4L7ResourceUsageSummaryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics for each resource type
+        in a system.
+        The resource usage statistics can be: 
+        - current usage for the resource. 
+        - peak usage for the resource. 
+        - Number of times the resource request were denied when the
+        configured limit or rate-limit is exceeded for the resource."
+    ::= { crlResource 5 }
+
+ciscoL4L7ResourceUsageSummaryEntry OBJECT-TYPE
+    SYNTAX          CiscoL4L7ResourceUsageSummaryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in ciscoL4L7ResourceUsageSummaryTable. Each entry
+        provides the resource usage parameters in a system.
+
+        An entry is created when an entry is created in
+        either 'ciscoL4L7ResourceLimitTable' or
+        'ciscoL4L7ResourceRateLimitTable'.
+
+        An entry is deleted when an entry is deleted
+        from either 'ciscoL4L7ResourceLimitTable' or
+        'ciscoL4L7ResourceRateLimitTable'."
+    INDEX           { crlResourceSummaryType } 
+    ::= { ciscoL4L7ResourceUsageSummaryTable 1 }
+
+CiscoL4L7ResourceUsageSummaryEntry ::= SEQUENCE {
+        crlResourceSummaryType            CiscoResourceType,
+        crlResourceSummaryCurrentUsage    Gauge32,
+        crlResourceSummaryPeakUsage       Gauge32,
+        crlResourceSummaryReqsDeniedCount Counter64,
+        crlResourceSummaryLastClearedTime TimeStamp,
+        crlResourceSummaryStorageType     StorageType,
+        crlResourceSummaryRowStatus       RowStatus
+}
+
+crlResourceSummaryType OBJECT-TYPE
+    SYNTAX          CiscoResourceType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a type of resource in the system." 
+    ::= { ciscoL4L7ResourceUsageSummaryEntry 1 }
+
+crlResourceSummaryCurrentUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current usage of the resource
+        in the system." 
+    ::= { ciscoL4L7ResourceUsageSummaryEntry 2 }
+
+crlResourceSummaryPeakUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the peak usage of the resource
+        in the system." 
+    ::= { ciscoL4L7ResourceUsageSummaryEntry 3 }
+
+crlResourceSummaryReqsDeniedCount OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the number of resource requests
+        that were denied in the system when the configured
+        limit is exceeded for the resource.
+
+        The value for limiting is specified in 'crlResourceLimitMax'
+        and the value for rate limiting is specified in
+        'crlRateLimitResourceMax'." 
+    ::= { ciscoL4L7ResourceUsageSummaryEntry 4 }
+
+crlResourceSummaryLastClearedTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the time when the value of the
+        object identified by 'crlResourceSummaryPeakUsage' is
+        last cleared or reset. A value of 0 (zero) signifies
+        that the value has not been cleared since the last
+        system reboot." 
+    ::= { ciscoL4L7ResourceUsageSummaryEntry 5 }
+
+crlResourceSummaryStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        Conceptual rows having the value 'permanent' need not
+        allow write-access to any columnar objects in the row.
+        This object cannot be modified when the value of
+        'crlResourceSummaryRowStatus' is 'active'."
+    DEFVAL          { nonVolatile } 
+    ::= { ciscoL4L7ResourceUsageSummaryEntry 6 }
+
+crlResourceSummaryRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries in this table.  This object cannot
+        be set to 'active' until all the mandatory
+        objects have valid value." 
+    ::= { ciscoL4L7ResourceUsageSummaryEntry 7 }
+ 
+
+-- Add table description here
+
+ciscoL4L7BufferUtilizationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoL4L7BufferUtilizationEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics for buffer utilization in
+        a system.
+        The buffer utilization statistics can be: 
+        - absolute  buffer usage value per network processor(NP). 
+        - percentage buffer usage per network processor(NP)."
+    ::= { crlResource 6 }
+
+ciscoL4L7BufferUtilizationEntry OBJECT-TYPE
+    SYNTAX          CiscoL4L7BufferUtilizationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in ciscoL4L7BufferUtilizationTable. Each entry
+        provides the buffer usage in a system."
+    INDEX           { clrNetworkProcessor } 
+    ::= { ciscoL4L7BufferUtilizationTable 1 }
+
+CiscoL4L7BufferUtilizationEntry ::= SEQUENCE {
+        clrNetworkProcessor                     Unsigned32,
+        crlBufferUsageValue                     Gauge32,
+        crlPercentageBufferUsage                CiscoBufferUtilPercentage,
+        crlPercentageBufferUsageDisplay         SnmpAdminString,
+        crlExternalBufferUsageValue             Gauge32,
+        crlExternalPercentageBufferUsage        CiscoBufferUtilPercentage,
+        crlExternalPercentageBufferUsageDisplay SnmpAdminString
+}
+
+clrNetworkProcessor OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents network processor number(NP) in the
+        system." 
+    ::= { ciscoL4L7BufferUtilizationEntry 1 }
+
+crlBufferUsageValue OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "buffers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the absolute buffer usage in the
+        system." 
+    ::= { ciscoL4L7BufferUtilizationEntry 2 }
+
+crlPercentageBufferUsage OBJECT-TYPE
+    SYNTAX          CiscoBufferUtilPercentage
+    UNITS           "percentage"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the percentage buffer usage in the
+        the decimal format to allow historical information to be 
+         collected." 
+    ::= { ciscoL4L7BufferUtilizationEntry 3 }
+
+crlPercentageBufferUsageDisplay OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    UNITS           "percentage"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the percentage buffer usage in the
+        string format to all interactive access to simple display 
+        format." 
+    ::= { ciscoL4L7BufferUtilizationEntry 4 }
+
+crlExternalBufferUsageValue OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "buffers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the absolute external buffer usage in
+        the system." 
+    ::= { ciscoL4L7BufferUtilizationEntry 5 }
+
+crlExternalPercentageBufferUsage OBJECT-TYPE
+    SYNTAX          CiscoBufferUtilPercentage
+    UNITS           "percentage"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the percentage external buffer usage
+        in the the decimal format to allow historical information to
+        be collected." 
+    ::= { ciscoL4L7BufferUtilizationEntry 6 }
+
+crlExternalPercentageBufferUsageDisplay OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    UNITS           "percentage"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the percentage external buffer usage
+        in the string format to all interactive access to simple 
+        display format." 
+    ::= { ciscoL4L7BufferUtilizationEntry 7 }
+ 
+
+-- CPU UtilizationTable per NP
+
+ciscoL4L7NpCpuUtilTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CiscoL4L7NpCpuUtilEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the CPU utilization statistics for each NP
+        (network processor) in the device."
+    ::= { crlResource 7 }
+
+ciscoL4L7NpCpuUtilEntry OBJECT-TYPE
+    SYNTAX          CiscoL4L7NpCpuUtilEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row contains the average CPU utilization of all
+        sub-processors for a network processor identified by its
+        clrNetworkProcessor value."
+    INDEX           { clrNetworkProcessor } 
+    ::= { ciscoL4L7NpCpuUtilTable 1 }
+
+CiscoL4L7NpCpuUtilEntry ::= SEQUENCE {
+        clrNpCpuUtilizationAverage Gauge32
+}
+
+clrNpCpuUtilizationAverage OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average CPU utilization of all
+        sub-processors belonged to a particular network processor at
+        that instance." 
+    ::= { ciscoL4L7NpCpuUtilEntry 1 }
+ 
+
+
+-- notification control objects
+
+clrResourceLimitReachedNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls the generation of
+        'clrResourceLimitReachedNotifRev1' notification.
+
+        'true'  Indicates that clrResourceLimitReachedNotifRev1
+                notification is to be generated when the 
+                configured resource limit is reached. 
+
+        'false' Indicates that clrResourceLimitReachedNotifRev1
+                notification generation is disabled."
+    DEFVAL          { false } 
+    ::= { crlNotificationObjects 1 }
+
+clrResourceRateLimitReachedNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls the generation of
+        'clrResourceRateLimitReachedNotifRev1' notification.
+
+        'true'  Indicates that clrResourceRateLimitReachedNotifRev1
+                notification is to be generated when the 
+                configured resource rate limit is reached.
+
+        'false' Indicates that clrResourceRateLimitReachedNotifRev1
+                notification generation is disabled."
+    DEFVAL          { false } 
+    ::= { crlNotificationObjects 2 }
+
+crlNotifType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        risingHighThresh(1), -- Notification to indicate
+                                             -- that the current usage
+                                             -- exceeds the high threshold
+                        fallingMinThresh(2), -- Notification to indicate
+                                             -- that the current usage
+                                             -- falls below the minimal threshold
+                        fallingWatermarkThresh(3), -- Notification to
+                                                   -- indicate that the
+                                                   -- current usage falls
+                                                   -- below the high
+                                                   -- watermark threshold
+                        risingWatermarkThresh(4) -- Notification to
+                                                 -- indicate that the
+                                                 -- current usage exceeds
+                                                 -- the low watermark
+                                                 -- threshold                        
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates type of notification." 
+    ::= { crlNotificationOnlyObjects 1 }
+
+crlNotifContextOrSystem OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        system(1),
+                        context(2)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the notification sent is at the
+        system level or at the context level." 
+    ::= { crlNotificationOnlyObjects 2 }
+
+crlNotifContextName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the context name associated
+        with notifications." 
+    ::= { crlNotificationOnlyObjects 3 }
+
+crlNotifCurrentUsagePcnt OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "percent"
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current usage percent of the
+        resource associated with notifications." 
+    ::= { crlNotificationOnlyObjects 4 }
+
+crlNotifMaxThresholdPcnt OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum threshold percent
+        of the resource/rate associated with notifications. This object
+        is used to raise the risingHighThresh notification when the
+        current usage identified by crlNotifCurrentUsagePcnt exceeds
+        maximum threshold identified by crlNotifMaxThresholdPcnt." 
+    ::= { crlNotificationOnlyObjects 5 }
+
+crlNotifWatermarkPcnt OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the watermark threshold percent
+        of the resource/rate associated with notifications. This object
+        is used to raise the
+        risingWatermarkThresh/fallingWatermarkThresh notifications when
+        the current usage identified by crlNotifCurrentUsagePcnt exceeds
+        high or falls below watermark threshold identified by
+        crlNotifWatermarkPcnt." 
+    ::= { crlNotificationOnlyObjects 6 }
+
+crlNotifMinThresholdPcnt OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the minimum threshold percent
+        of the resource/rate associated with notifications. This object
+        is used to raise the fallingWatermarkThresh notification
+        when the current usage identified by crlNotifCurrentUsagePcnt
+        falls below minimum threshold identified by
+        crlNotifMinThresholdPcnt." 
+    ::= { crlNotificationOnlyObjects 7 }
+
+crlNotifSourceType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        virtualIP(1), -- Object to indicate that the
+                                      --   
+                                      -- notification is being raised for
+                                      -- virtual ip
+                        realServer(2) -- Object to indicate that the
+                                      --   
+                                      -- notification is being raised for
+                                      -- real server                        
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the notification sent is at the
+        real server level or at virtual ip level. 
+        Rserver is a real server e.g. a linux machine which services
+        the
+        client requests.
+        Virtual IP is a IP address which is advertised to the outside
+        world from the Data Center for communication with the server." 
+    ::= { crlNotificationOnlyObjects 8 }
+
+crlNotifRealServerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the real server name associated
+        with notifications." 
+    ::= { crlNotificationOnlyObjects 9 }
+
+crlNotifVirtualIPAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates type of the Virtual IP address i.e. IPv4
+        or IPv6." 
+    ::= { crlNotificationOnlyObjects 10 }
+
+crlNotifVirtualIPAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Virtual IP (VIP) Adress associated
+        with notifications." 
+    ::= { crlNotificationOnlyObjects 11 }
+
+-- notifications
+
+clrResourceLimitReached NOTIFICATION-TYPE
+    OBJECTS         {
+                        crlResourceLimitValueType,
+                        crlResourceLimitMax
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "This notification is generated when the configured resource
+        limit value specified in 'crlResourceLimitMax' is reached
+        for a particular resource. This resource is identified by
+        'crlResourceLimitType' in ciscoL4L7ResourceLimitTable.
+        clrResourceLimitReached object is superseded by
+        clrResourceLimitReachedNotif."
+   ::= { ciscoL4L7ResourceLimitNotifs 1 }
+
+clrResourceRateLimitReached NOTIFICATION-TYPE
+    OBJECTS         { crlRateLimitResourceMax }
+    STATUS          deprecated
+    DESCRIPTION
+        "This notification is generated when the configured rate
+        limit value specified in 'crlRateLimitResourceMax' is reached
+        for a particular resource. This resource is identified by
+        'crlRateLimitResourceType' in ciscoL4L7ResourceRateLimitTable.
+        clrResourceRateLimitReached object is superseded by
+        clrResourceRateLimitReachedNotif."
+   ::= { ciscoL4L7ResourceLimitNotifs 2 }
+
+clrResourceLimitReachedNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        crlNotifType,
+                        crlResourceLimitCurrentUsage,
+                        crlResourceLimitMax,
+                        crlResourceLimitMin,
+                        crlNotifCurrentUsagePcnt,
+                        crlNotifMaxThresholdPcnt,
+                        crlNotifWatermarkPcnt,
+                        crlNotifMinThresholdPcnt,
+                        crlNotifContextOrSystem,
+                        crlNotifContextName
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "The notification will be generated when the current resource
+        usage identified by crlResourceLimitCurrentUsage exceeds/falls 
+        below the user configured thresholds identified by 
+        crlNotifMaxThresholdPcnt, crlNotifMinThresholdPcnt and 
+        crlNotifWatermarkPcnt.
+        Notifications will be generated on the following conditions
+        1. crlResourceLimitCurrentUsage exceeds crlNotifMaxThresholdPcnt
+        2. crlResourceLimitCurrentUsage falls below high
+           crlNotifWatermarkPcnt
+        3. crlResourceLimitCurrentUsage falls below
+        crlNotifMinThresholdPcnt
+        4. crlResourceLimitCurrentUsage exceeds low
+        crlNotifWatermarkPcnt.
+        clrResourceLimitReachedNotif object is superseded by clrResourceLimitReachedNotifRev1."
+   ::= { ciscoL4L7ResourceLimitNotifs 3 }
+
+clrResourceRateLimitReachedNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        crlNotifType,
+                        crlRateLimitResourceCurrentUsage,
+                        crlRateLimitResourceMax,
+                        crlRateLimitResourceMin,
+                        crlNotifCurrentUsagePcnt,
+                        crlNotifMaxThresholdPcnt,
+                        crlNotifWatermarkPcnt,
+                        crlNotifMinThresholdPcnt,
+                        crlNotifContextOrSystem,
+                        crlNotifContextName
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "The notification will be generated when the current resource
+        rate usage identified by crlResourceRateLimitCurrentUsage 
+        exceeds/falls below the user configured thresholds identified 
+        by crlNotifMaxThresholdPcnt, crlNotifMinThresholdPcnt and 
+        crlNotifWatermarkPcnt.
+        Notifications will be generated on the following conditions
+        1. crlResourceRateLimitCurrentUsage exceeds
+           crlNotifMaxThresholdPcnt
+        2. crlResourceRateLimitCurrentUsage falls below high
+           crlNotifWatermarkPcnt
+        3. crlResourceRateLimitCurrentUsage falls below
+           crlNotifMinThresholdPcnt
+        4. crlResourceRateLimitCurrentUsage exceeds low
+           crlNotifWatermarkPcnt
+        clrResourceRateLimitReachedNotif object is superseded by clrResourceRateLimitReachedNotifRev1."
+   ::= { ciscoL4L7ResourceLimitNotifs 4 }
+
+clrResourceRateLimitReachedNotifRev1 NOTIFICATION-TYPE
+    OBJECTS         {
+                        crlNotifType,
+                        crlRateLimitResourceCurrentUsage,
+                        crlRateLimitResourceMax,
+                        crlRateLimitResourceMin,
+                        crlNotifCurrentUsagePcnt,
+                        crlNotifMaxThresholdPcnt,
+                        crlNotifWatermarkPcnt,
+                        crlNotifMinThresholdPcnt,
+                        crlNotifContextOrSystem,
+                        crlNotifContextName,
+                        crlNotifSourceType,
+                        crlNotifRealServerName,
+                        crlNotifVirtualIPAddrType,
+                        crlNotifVirtualIPAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The notification will be generated when the current resource
+        usage rate identified by crlResourceRateLimitCurrentUsage 
+        exceeds/falls below the user configured thresholds identified 
+        by crlNotifMaxThresholdPcnt, crlNotifMinThresholdPcnt and 
+        crlNotifWatermarkPcnt.
+        Notifications will be generated on the following conditions
+        1. crlResourceRateLimitCurrentUsage exceeds
+           crlNotifMaxThresholdPcnt
+        2. crlResourceRateLimitCurrentUsage falls below high
+           crlNotifWatermarkPcnt
+        3. crlResourceRateLimitCurrentUsage falls below
+           crlNotifMinThresholdPcnt
+        4. crlResourceRateLimitCurrentUsage exceeds low
+           crlNotifWatermarkPcnt"
+   ::= { ciscoL4L7ResourceLimitNotifs 5 }
+
+clrResourceLimitReachedNotifRev1 NOTIFICATION-TYPE
+    OBJECTS         {
+                        crlNotifType,
+                        crlResourceLimitCurrentUsage,
+                        crlResourceLimitMax,
+                        crlResourceLimitMin,
+                        crlNotifCurrentUsagePcnt,
+                        crlNotifMaxThresholdPcnt,
+                        crlNotifWatermarkPcnt,
+                        crlNotifMinThresholdPcnt,
+                        crlNotifContextOrSystem,
+                        crlNotifContextName,
+                        crlNotifSourceType,
+                        crlNotifRealServerName,
+                        crlNotifVirtualIPAddrType,
+                        crlNotifVirtualIPAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The notification will be generated when the current resource
+        usage identified by crlResourceLimitCurrentUsage exceeds/falls 
+        below the user configured thresholds identified by 
+        crlNotifMaxThresholdPcnt, crlNotifMinThresholdPcnt and 
+        crlNotifWatermarkPcnt.
+        Notifications will be generated on the following conditions
+        1. crlResourceLimitCurrentUsage exceeds crlNotifMaxThresholdPcnt
+        2. crlResourceLimitCurrentUsage falls below high
+           crlNotifWatermarkPcnt
+        3. crlResourceLimitCurrentUsage falls below
+        crlNotifMinThresholdPcnt
+        4. crlResourceLimitCurrentUsage exceeds low
+        crlNotifWatermarkPcnt."
+   ::= { ciscoL4L7ResourceLimitNotifs 6 }
+-- conformance information
+
+ciscoL4L7ResourceLimitConformance  OBJECT IDENTIFIER
+    ::= { ciscoL4L7moduleResourceLimitMIB 3 }
+
+ciscoL4L7ResourceLimitCompliances  OBJECT IDENTIFIER
+    ::= { ciscoL4L7ResourceLimitConformance 1 }
+
+ciscoL4L7ResourceLimitGroups  OBJECT IDENTIFIER
+    ::= { ciscoL4L7ResourceLimitConformance 2 }
+
+
+-- compliance statements
+
+ciscoL4L7ResourceLimitCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for SNMP entities which implement
+        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup
+                    }
+
+    GROUP           ciscoL4L7ResourceRateLimitGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+    ::= { ciscoL4L7ResourceLimitCompliances 1 }
+
+ciscoL4L7ResourceLimitComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for SNMP entities which implement
+        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup,
+                        ciscoL4L7ResourceLimitUsageGroup
+                    }
+
+    GROUP           ciscoL4L7ResourceRateLimitGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceRateLimitUsageGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceNotifEnabledGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceNotifGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+    ::= { ciscoL4L7ResourceLimitCompliances 2 }
+
+ciscoL4L7ResourceLimitComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for SNMP entities which implement
+        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup,
+                        ciscoL4L7ResourceLimitUsageGroup
+                    }
+
+    GROUP           ciscoL4L7ResourceRateLimitGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceRateLimitUsageGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceNotifEnabledGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceNotifGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceUsageSummaryGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limiting and/or rate limiting
+        of resource."
+    ::= { ciscoL4L7ResourceLimitCompliances 3 }
+
+ciscoL4L7ResourceLimitComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for SNMP entities which implement
+        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup,
+                        ciscoL4L7ResourceLimitUsageGroup,
+                        ciscoL4L7BufferUtilizationGroup
+                    }
+
+    GROUP           ciscoL4L7ResourceRateLimitGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceRateLimitUsageGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceNotifEnabledGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceNotifGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceUsageSummaryGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limiting and/or rate limiting
+        of resource."
+    ::= { ciscoL4L7ResourceLimitCompliances 4 }
+
+ciscoL4L7ResourceLimitComplianceRev4 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for SNMP entities which implement
+        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup,
+                        ciscoL4L7ResourceLimitUsageGroup,
+                        ciscoL4L7BufferUtilizationGroup
+                    }
+
+    GROUP           ciscoL4L7NpCpuUtilizationGroup
+    DESCRIPTION
+        "The ciscoL4L7NpCpuUtilizationGroup is optional and gives the
+        CPU utilization of network processors."
+
+    GROUP           ciscoL4L7ResourceRateLimitGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceRateLimitUsageGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceNotifEnabledGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceNotifGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceUsageSummaryGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limiting and/or rate limiting
+        of resource."
+    ::= { ciscoL4L7ResourceLimitCompliances 5 }
+
+ciscoL4L7ResourceLimitComplianceRev5 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for SNMP entities which implement
+        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup,
+                        ciscoL4L7ResourceLimitUsageGroup,
+                        ciscoL4L7BufferUtilizationGroupRev1
+                    }
+
+    GROUP           ciscoL4L7NpCpuUtilizationGroup
+    DESCRIPTION
+        "The ciscoL4L7NpCpuUtilizationGroup is optional and gives the
+        CPU utilization of network processors."
+
+    GROUP           ciscoL4L7ResourceRateLimitGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceRateLimitUsageGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceNotifEnabledGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceNotifGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceUsageSummaryGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limiting and/or rate limiting
+        of resource."
+    ::= { ciscoL4L7ResourceLimitCompliances 6 }
+
+ciscoL4L7ResourceLimitComplianceRev6 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for SNMP entities which implement
+        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup,
+                        ciscoL4L7ResourceLimitUsageGroup,
+                        ciscoL4L7BufferUtilizationGroupRev1
+                    }
+
+    GROUP           ciscoL4L7NpCpuUtilizationGroup
+    DESCRIPTION
+        "The ciscoL4L7NpCpuUtilizationGroup is optional and gives the
+        CPU utilization of network processors."
+
+    GROUP           ciscoL4L7ResourceRateLimitGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceRateLimitUsageGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceNotifEnabledGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceUsageSummaryGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limiting and/or rate limiting
+        of resource."
+
+    GROUP           ciscoL4L7ResourceNotifOnlyObjectsGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement ciscoL4L7ResourceNotifGroupRev1."
+    ::= { ciscoL4L7ResourceLimitCompliances 7 }
+
+ciscoL4L7ResourceLimitComplianceRev7 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for SNMP entities which implement
+        CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoL4L7ResourceClassGroup,
+                        ciscoL4L7ResourceLimitGroup,
+                        ciscoL4L7ResourceLimitUsageGroup,
+                        ciscoL4L7BufferUtilizationGroupRev1
+                    }
+
+    GROUP           ciscoL4L7NpCpuUtilizationGroup
+    DESCRIPTION
+        "The ciscoL4L7NpCpuUtilizationGroup is optional and gives the
+        CPU utilization of network processors."
+
+    GROUP           ciscoL4L7ResourceRateLimitGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceRateLimitUsageGroup
+    DESCRIPTION
+        "This group is mandatory for those systems where
+        rate limiting is supported."
+
+    GROUP           ciscoL4L7ResourceNotifEnabledGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limit notifications."
+
+    GROUP           ciscoL4L7ResourceUsageSummaryGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement resource limiting and/or rate limiting
+        of resource."
+
+    GROUP           ciscoL4L7ResourceNotifOnlyObjectsGroup
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implement ciscoL4L7ResourceNotifGroupRev1."
+
+    GROUP           ciscoL4L7ResourceNotifOnlyObjectsGroupExt
+    DESCRIPTION
+        "This group is mandatory for those systems which
+        implements ciscoL4L7ResourceNotifGroupRev2."
+
+    GROUP           ciscoL4L7ResourceNotifGroupRev2
+    DESCRIPTION
+        "This group is optional and these traps indicates that configured
+        threshold is reached."
+    ::= { ciscoL4L7ResourceLimitCompliances 8 }
+
+-- MIB groupings
+
+ciscoL4L7ResourceClassGroup OBJECT-GROUP
+    OBJECTS         {
+                        crlResourceClassStorageType,
+                        crlResourceClassRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        resource class in a system."
+    ::= { ciscoL4L7ResourceLimitGroups 1 }
+
+ciscoL4L7ResourceLimitGroup OBJECT-GROUP
+    OBJECTS         {
+                        crlResourceLimitValueType,
+                        crlResourceLimitMin,
+                        crlResourceLimitMax,
+                        crlResourceLimitStorageType,
+                        crlResourceLimitRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        limits of resources in a resource class."
+    ::= { ciscoL4L7ResourceLimitGroups 2 }
+
+ciscoL4L7ResourceRateLimitGroup OBJECT-GROUP
+    OBJECTS         {
+                        crlRateLimitResourceMin,
+                        crlRateLimitResourceMax,
+                        crlRateLimitResourceStorageType,
+                        crlRateLimitResourceRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        rate limits for resources."
+    ::= { ciscoL4L7ResourceLimitGroups 3 }
+
+ciscoL4L7ResourceLimitUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        crlResourceLimitCurrentUsage,
+                        crlResourceLimitPeakUsage,
+                        crlResourceLimitReqsDeniedCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        limit usage for resources."
+    ::= { ciscoL4L7ResourceLimitGroups 4 }
+
+ciscoL4L7ResourceRateLimitUsageGroup OBJECT-GROUP
+    OBJECTS         {
+                        crlRateLimitResourceCurrentUsage,
+                        crlRateLimitResourcePeakUsage,
+                        crlRateLimitResourceReqsDeniedCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        rate limit usage for resources."
+    ::= { ciscoL4L7ResourceLimitGroups 5 }
+
+ciscoL4L7ResourceNotifEnabledGroup OBJECT-GROUP
+    OBJECTS         {
+                        clrResourceLimitReachedNotifEnabled,
+                        clrResourceRateLimitReachedNotifEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        limit usage for resources."
+    ::= { ciscoL4L7ResourceLimitGroups 6 }
+
+ciscoL4L7ResourceNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        clrResourceLimitReached,
+                        clrResourceRateLimitReached
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        rate limit usage for resources.
+        ciscoL4L7ResourceNotifGroup object is superseded by
+        ciscoL4L7ResourceNotifGroupRev1."
+    ::= { ciscoL4L7ResourceLimitGroups 7 }
+
+ciscoL4L7ResourceUsageSummaryGroup OBJECT-GROUP
+    OBJECTS         {
+                        crlResourceSummaryCurrentUsage,
+                        crlResourceSummaryPeakUsage,
+                        crlResourceSummaryReqsDeniedCount,
+                        crlResourceSummaryLastClearedTime,
+                        crlResourceSummaryStorageType,
+                        crlResourceSummaryRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        usage summary for resources across the system."
+    ::= { ciscoL4L7ResourceLimitGroups 8 }
+
+ciscoL4L7BufferUtilizationGroup OBJECT-GROUP
+    OBJECTS         {
+                        crlBufferUsageValue,
+                        crlPercentageBufferUsage,
+                        crlPercentageBufferUsageDisplay
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        buffer utilization across the system.
+        ciscoL4L7BufferUtilizationGroup object is superseded by
+        ciscoL4L7BufferUtilizationGroupRev1."
+    ::= { ciscoL4L7ResourceLimitGroups 9 }
+
+ciscoL4L7NpCpuUtilizationGroup OBJECT-GROUP
+    OBJECTS         { clrNpCpuUtilizationAverage }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing CPU utilization of
+        network processors."
+    ::= { ciscoL4L7ResourceLimitGroups 10 }
+
+ciscoL4L7BufferUtilizationGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        crlBufferUsageValue,
+                        crlPercentageBufferUsage,
+                        crlPercentageBufferUsageDisplay,
+                        crlExternalBufferUsageValue,
+                        crlExternalPercentageBufferUsage,
+                        crlExternalPercentageBufferUsageDisplay
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        buffer utilization across the system."
+    ::= { ciscoL4L7ResourceLimitGroups 11 }
+
+ciscoL4L7ResourceNotifGroupRev1 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        clrResourceLimitReachedNotif,
+                        clrResourceRateLimitReachedNotif
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "The collection of notifications which are used to report
+        resources usages to raising/falling below the configured 
+        thresholds.
+        ciscoL4L7ResourceNotifGroupRev1 object is superseded by ciscoL4L7ResourceNotifGroupRev2."
+    ::= { ciscoL4L7ResourceLimitGroups 12 }
+
+ciscoL4L7ResourceNotifOnlyObjectsGroup OBJECT-GROUP
+    OBJECTS         {
+                        crlNotifType,
+                        crlNotifCurrentUsagePcnt,
+                        crlNotifMaxThresholdPcnt,
+                        crlNotifWatermarkPcnt,
+                        crlNotifMinThresholdPcnt,
+                        crlNotifContextOrSystem,
+                        crlNotifContextName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) providing variable binding
+        information for resource notifications."
+    ::= { ciscoL4L7ResourceLimitGroups 13 }
+
+ciscoL4L7ResourceNotifGroupRev2 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        clrResourceLimitReachedNotifRev1,
+                        clrResourceRateLimitReachedNotifRev1
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The collection of notifications which are used to report
+        resources usages to raising/falling below the configured 
+        thresholds."
+    ::= { ciscoL4L7ResourceLimitGroups 14 }
+
+ciscoL4L7ResourceNotifOnlyObjectsGroupExt OBJECT-GROUP
+    OBJECTS         {
+                        crlNotifSourceType,
+                        crlNotifRealServerName,
+                        crlNotifVirtualIPAddrType,
+                        crlNotifVirtualIPAddress
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object(s) providing variable binding
+        information for resource notifications."
+    ::= { ciscoL4L7ResourceLimitGroups 15 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,1881 @@
+-- MIB file created 06-Dec-2005 16:31:51, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CALL-RESOURCE-POOL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CALL-RESOURCE-POOL-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TruthValue
+            FROM SNMPv2-TC-v1
+    CiscoRowOperStatus
+            FROM CISCO-TC
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoCallResourcePoolMIB OBJECT IDENTIFIER ::= { ciscoMgmt 124 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200511180000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-resource@cisco.com
+--  Descr
+--    The MIB module for call resource pool management.
+--    
+--     This MIB supports the resource pool manager feature of
+--     CISCO IOS. This feature provides the ability to accept
+--     or reject calls based on DNIS numbers, resources required,
+--     user DNS domains, and counts of currently active sessions. 
+--  RevDate
+--    200511180000Z
+--  RevDescr
+--    Updated the imports such that Unsigned32 is imported from 
+--    SNMPv2-SMI instead of CISCO-TC. Changed the syntax of 
+--    ccrpCDCallType and ccrpCPResourceCallType from OCTET 
+--    STRING(SIZE(1)) to BITS.
+--  RevDate
+--    9811130000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+cCallResourcePoolMIBObjects OBJECT IDENTIFIER ::= { ciscoCallResourcePoolMIB 1 }
+ccrpConfiguration OBJECT IDENTIFIER ::= { cCallResourcePoolMIBObjects 1 }
+ccrpGeneralConfig OBJECT IDENTIFIER ::= { ccrpConfiguration 1 }
+ccrpDnisConfig  OBJECT IDENTIFIER ::= { ccrpConfiguration 2 }
+ccrpCallDiscriminatorConfig OBJECT IDENTIFIER ::= { ccrpConfiguration 3 }
+ccrpResourceConfig OBJECT IDENTIFIER ::= { ccrpConfiguration 4 }
+ccrpCustomerProfileConfig OBJECT IDENTIFIER ::= { ccrpConfiguration 5 }
+ccrpStatistics  OBJECT IDENTIFIER ::= { cCallResourcePoolMIBObjects 2 }
+ccrpCPStatistics OBJECT IDENTIFIER ::= { ccrpStatistics 1 }
+ccrpDnisStatistics OBJECT IDENTIFIER ::= { ccrpStatistics 2 }
+ccrpCDStatistics OBJECT IDENTIFIER ::= { ccrpStatistics 3 }
+ccrpMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoCallResourcePoolMIB 2 }
+ccrpMIBConformance OBJECT IDENTIFIER ::= { ciscoCallResourcePoolMIB 3 }
+ccrpMIBCompliances OBJECT IDENTIFIER ::= { ccrpMIBConformance 1 }
+ccrpMIBGroups   OBJECT IDENTIFIER ::= { ccrpMIBConformance 2 }
+
+CcrpPhoneNumber ::= OCTET STRING(SIZE(1..64))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Text string representing a telephone number.
+--     Limited to numeric characters 0-9.
+
+CcrpPhoneNumberPattern ::= OCTET STRING(SIZE(1..64))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Text string representing a telephone number and wild card
+--     characters. Limited to numeric characters 0-9 and the
+--     wild cards '.' and 'x'. Both wild card characters match
+--     single digits only.
+
+PhysicalPosition ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A physical port  specification.
+--     An unsigned integer representing the
+--     slot and port within that slot.
+--     The value is generated as:
+--    
+--     slot*10^6 + port
+--    
+--     Examples:
+--       port 16 located in slot 7 would be
+--          7*10^6 + 16 = 7,000,000 + 16 = 7,000,016
+--    
+--       port 0 located in slot 0 would be
+--          0*10^6 + 0 = 0
+
+ccrpNoCPCallTreatment OBJECT-TYPE
+    SYNTAX INTEGER {
+        noAnswer(1),
+        busy(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Value returned to the telco switch if call is to be
+         rejected because it doesn't match any defined customer
+         profile.
+        
+             noAnswer(1) - ignore the call
+             busy(2)     - return busy
+        
+            "
+    DEFVAL { noAnswer }
+    ::= { ccrpGeneralConfig 1 }
+
+ccrpNoResourceCallTreatment OBJECT-TYPE
+    SYNTAX INTEGER {
+        channelNotAvailable(1),
+        busy(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Value returned to the telco switch if call is to be
+         rejected because there is no available resource to
+         answer the call.
+        
+             channelNotAvailable(1) - return channel not available,
+                       allowing switch to continue searching for
+                       an available channel
+        
+             busy(2) - return busy
+        
+            "
+    DEFVAL { channelNotAvailable }
+    ::= { ccrpGeneralConfig 2 }
+
+ccrpDnisGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpDnisGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+         Table of DNIS groups.  Each group is a list of
+         individual DNIS numbers."
+    ::= { ccrpDnisConfig 1 }
+
+ccrpDnisGroupEntry OBJECT-TYPE
+    SYNTAX CcrpDnisGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing a single DNIS number
+         for the DNIS group identified by the first index.
+         A single DNIS number may not exist in more than one
+         DNIS group.
+        
+         Entries in this table may be created and deleted via
+         the ccrpDnisGroupRowStatus object or the management
+         console on the system.
+        
+         Using SNMP, rows are created by a SET request setting
+         the value of ccrpDnisGroupRowStatus to 'createAndGo'
+         or 'createAndWait'. Rows are deleted by a SET request
+         setting the value of ccrpDnisGroupRowStatus to
+         'destroy'.
+        
+         Deleting the last entry for a specific value of
+         ccrpDnisGroupName from this table will cause
+         associated entries in the dependent tables to
+         transition to a 'missingDependency' CiscoRowOperStatus."
+    INDEX { ccrpDnisGroupName, --?? IMPLIED may cause problems
+            IMPLIED ccrpDnisGroupMember }
+    ::= { ccrpDnisGroupTable 1 }
+
+CcrpDnisGroupEntry ::= SEQUENCE {
+    ccrpDnisGroupName SnmpAdminString,
+    ccrpDnisGroupMember CcrpPhoneNumberPattern,
+    ccrpDnisGroupRowStatus RowStatus
+    }
+
+ccrpDnisGroupName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..23))
+--    Rsyntax OCTET STRING(SIZE(1..23))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Name for this DNIS group"
+    ::= { ccrpDnisGroupEntry 1 }
+
+ccrpDnisGroupMember OBJECT-TYPE
+    SYNTAX CcrpPhoneNumberPattern(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "DNIS for member of this DNIS group.
+        
+         A single DNIS number may not be a member of
+         more than one DNIS group.
+        
+         Creating a new entry using a DNIS number that
+         already exists will fail.  The existing entry must
+         be removed first, before creating a new entry under
+         a different DNIS group name."
+    ::= { ccrpDnisGroupEntry 2 }
+
+ccrpDnisGroupRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         An entry may not exist in the active(1) state unless
+         all objects in the entry have an appropriate value.
+        
+         All values of RowStatus are allowed."
+    ::= { ccrpDnisGroupEntry 3 }
+
+ccrpDnisGroupCallTypeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpDnisGroupCallTypeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+         This table is used specify a call type to calls
+         arriving with a signaling protocol which does not
+         provide bearer capability. An example is Channel
+         Associated Signaling (CAS).
+        
+         A call arriving with a DNIS configured in a DNIS group
+         in this table will be assigned the call type given
+         here."
+    ::= { ccrpDnisConfig 2 }
+
+ccrpDnisGroupCallTypeEntry OBJECT-TYPE
+    SYNTAX CcrpDnisGroupCallTypeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, identifying a call type to
+         assign to calls within the DNIS group.
+        
+         Entries in this table may be created and deleted via
+         the ccrpDnisGroupCallTypeRowStatus object or the
+         management console on the system.
+        
+         Using SNMP, rows are created by a SET request setting
+         the value of ccrpDnisGroupCallTypeRowStatus to
+         'createAndGo' or 'createAndWait'. Rows are deleted by
+         a SET request setting the value of ccrpDnisGroupRowStatus
+         to 'destroy'.
+        
+         Creating a new row with a value of ccrpDnisGroupName
+         which does not yet exist in  ccrpDnisGroupTable will
+         cause the new row's ccrpDnisGroupCallTypeOperStatus
+         to have the value 'missingDependency'.
+        
+         Existing rows may be modified when the row is active."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED ccrpDnisGroupName }
+    ::= { ccrpDnisGroupCallTypeTable 1 }
+
+CcrpDnisGroupCallTypeEntry ::= SEQUENCE {
+    ccrpDnisGroupCallType INTEGER,
+    ccrpDnisGroupCallTypeOperStatus CiscoRowOperStatus,
+    ccrpDnisGroupCallTypeRowStatus RowStatus
+    }
+
+ccrpDnisGroupCallType OBJECT-TYPE
+    SYNTAX INTEGER {
+        digital(1),
+        speech(2),
+        undefined(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Call type to assign to calls arriving with
+         DNIS number in this entry's DNIS group."
+    DEFVAL { undefined }
+    ::= { ccrpDnisGroupCallTypeEntry 1 }
+
+ccrpDnisGroupCallTypeOperStatus OBJECT-TYPE
+    SYNTAX CiscoRowOperStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        activeDependencies(2),
+--        inactiveDependency(3),
+--        missingDependency(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A control object to indicate the operational status
+         of this entry. This object is used to determine that
+         the dependencies for this entry are valid and active.
+        
+         This entry is dependent on entries in
+         ccrpDnisGroupTable.
+            "
+    ::= { ccrpDnisGroupCallTypeEntry 2 }
+
+ccrpDnisGroupCallTypeRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         An entry may not exist in the active(1) state unless
+         all objects in the entry have an appropriate value.
+        
+         All values of RowStatus are allowed."
+    ::= { ccrpDnisGroupCallTypeEntry 3 }
+
+ccrpCallDiscriminatorTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpCallDiscriminatorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of call discriminator definitions.
+        
+         A call discriminator enables call filtering based on
+         call DNIS and call type.  Calls to a specific
+         DNIS which have call types identified in the
+         associated call discriminator definition will be
+         rejected."
+    ::= { ccrpCallDiscriminatorConfig 1 }
+
+ccrpCallDiscriminatorEntry OBJECT-TYPE
+    SYNTAX CcrpCallDiscriminatorEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing information about a
+         single call discriminator definition.
+        
+         Entries in this table may be created and deleted via
+         the ccrpCDRowStatus object or the management
+         console on the system.
+        
+         Using SNMP, rows are created by a SET request setting
+         the value of ccrpCDRowStatus to 'createAndGo'
+         or 'createAndWait'. Rows are deleted by a SET request
+         setting the value of ccrpCDRowStatus to 'destroy'.
+        
+        
+         Deleting an entry from this table will cause
+         associated entries in dependent tables to transition
+         to a 'missingDependency' CiscoRowOperStatus.
+        
+         Existing rows may be modified when the row is active."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED ccrpCDName }
+    ::= { ccrpCallDiscriminatorTable 1 }
+
+CcrpCallDiscriminatorEntry ::= SEQUENCE {
+    ccrpCDName SnmpAdminString,
+    ccrpCDCallType OCTET STRING,
+    ccrpCDRowStatus RowStatus
+    }
+
+ccrpCDName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..23))
+--    Rsyntax OCTET STRING(SIZE(1..23))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Name for this call discriminator definition"
+    ::= { ccrpCallDiscriminatorEntry 1 }
+
+ccrpCDCallType OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   digital(0)
+        --   speech(1)
+        --   v110(2)
+        --   v120(3)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates types of calls to be filtered by this
+         call discriminator definition.
+        
+         This object is a bit map, with each bit representing
+         a different call type as identified below.
+         A 1-bit indicates that call type is filtered.
+         A 0-bit indicates that call type is not filtered.
+        
+             Bit 0   - Digital
+             Bit 1   - Speech
+             Bit 2   - V.110
+             Bit 3   - V.120
+        
+         Setting all defined bits to 1 would result in all calls
+         being rejected by this call discriminator.
+         Setting all defined bits to zero would result in all
+         calls being accepted by this discriminator."
+    DEFVAL { '00'h }
+    ::= { ccrpCallDiscriminatorEntry 2 }
+
+ccrpCDRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         An entry may not exist in the active(1) state unless
+         all objects in the entry have an appropriate value.
+        
+         All values of RowStatus are allowed."
+    ::= { ccrpCallDiscriminatorEntry 3 }
+
+ccrpCDDiscriminatedGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpCDDiscriminatedGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+         Table identifying the groups to which each
+         call discriminator definition is applied."
+    ::= { ccrpCallDiscriminatorConfig 2 }
+
+ccrpCDDiscriminatedGrpEntry OBJECT-TYPE
+    SYNTAX CcrpCDDiscriminatedGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry identifies a group to be discriminated
+         by the call discriminator.  There may be multiple
+         entries for the same call discriminator name.
+        
+         The same [group name, group type] pair may appear
+         under multiple call discriminators.
+        
+         Entries in this table may be created and deleted via
+         the ccrpCDDiscriminatedGroupRowStatus object or the
+         management console on the system.
+        
+         Using SNMP, rows are created by a SET request setting
+         the value of ccrpCDDnisGroupRowStatus to 'createAndGo'
+         or 'createAndWait'. Rows are deleted by a SET request
+         setting the value of ccrpCDDnisGroupRowStatus to
+         'destroy'.
+        
+         Creating a new row with a value of ccrpCDName which
+         does not yet exist in ccrpCallDiscriminatorTable will
+         cause the new row's ccrpCDDiscriminatedGroupOperStatus
+         to have the value 'missingDependency'."
+    INDEX { ccrpCDName, ccrpCDDiscriminatedGroupName, ccrpCDDiscriminatedGroupType }
+    ::= { ccrpCDDiscriminatedGrpTable 1 }
+
+CcrpCDDiscriminatedGrpEntry ::= SEQUENCE {
+    ccrpCDDiscriminatedGroupName SnmpAdminString,
+    ccrpCDDiscriminatedGroupType INTEGER,
+    ccrpCDDiscriminatedGroupOperStatus CiscoRowOperStatus,
+    ccrpCDDiscriminatedGroupRowStatus RowStatus
+    }
+
+ccrpCDDiscriminatedGroupName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..23))
+--    Rsyntax OCTET STRING(SIZE(1..23))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Name for the group being discriminated
+         If this is a DNIS group, the value of this object
+         is the same as some value of ccrmDnisGroupName."
+    ::= { ccrpCDDiscriminatedGrpEntry 1 }
+
+ccrpCDDiscriminatedGroupType OBJECT-TYPE
+    SYNTAX INTEGER {
+        dnis(1)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates type of group being discriminated and
+         the table where the value of ccrpCDDiscriminatedGroupName
+         is defined.
+        
+             dnis(1) - DNIS Group. Value in
+                       ccrpCDDiscriminatedGroupName is same as
+                       value of ccrpDnisGroupName in the
+                       ccrpDnisGroupTable."
+    ::= { ccrpCDDiscriminatedGrpEntry 2 }
+
+ccrpCDDiscriminatedGroupOperStatus OBJECT-TYPE
+    SYNTAX CiscoRowOperStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        activeDependencies(2),
+--        inactiveDependency(3),
+--        missingDependency(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A control object to indicate the operational status
+         of this entry. This object is used to determine that
+         the dependencies for this entry are valid and active.
+        
+         This entry is currently only dependent on entries in
+         ccrpDnisGroupTable."
+    ::= { ccrpCDDiscriminatedGrpEntry 3 }
+
+ccrpCDDiscriminatedGroupRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         An entry may not exist in the active(1) state unless
+         associated entries in other tables are also active.
+        
+         All values of RowStatus are allowed."
+    ::= { ccrpCDDiscriminatedGrpEntry 4 }
+
+ccrpResourceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpResourceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+         Table of resource group definitions.  Resources
+         within a group have identical capabilities.
+        
+         Group membership or size is defined differently
+         depending on the nature of the resource.
+        
+         Resources identified by physical locality (port-based)
+         are specified with multiple ranges in the
+         ccrpResourceRangeTable. 
+             
+         Alternatively, groups consisting of non-port
+         resources simply use a single limit to specify the
+         size.
+        
+         The object ccrpResourcePortBased is used to indicate
+         the resource type.
+        "
+    ::= { ccrpResourceConfig 1 }
+
+ccrpResourceEntry OBJECT-TYPE
+    SYNTAX CcrpResourceEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+         An entry in the table, containing definition for
+         a single resource group.
+        
+         Entries in this table may be created and deleted via
+         the ccrpResourceGroupRowStatus object or the management
+         console on the system.
+        
+         Using SNMP, rows are created by a SET request setting
+         the value of ccrpResourceGroupRowStatus to
+         'createAndGo' or 'createAndWait'. Rows are deleted by a
+         SET request setting the value of
+         ccrpResourceGroupRowStatus to 'destroy'.
+        
+         Deleting an entry from this table will cause
+         associated entries in dependent tables to transition
+         to a 'missingDependency' CiscoRowOperStatus.
+        
+         Existing rows may be modified when the row is active."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED ccrpResourceName }
+    ::= { ccrpResourceTable 1 }
+
+CcrpResourceEntry ::= SEQUENCE {
+    ccrpResourceName SnmpAdminString,
+    ccrpResourcePortBased TruthValue,
+    ccrpResourceLimit Gauge,
+    ccrpResourceGroupOperStatus CiscoRowOperStatus,
+    ccrpResourceGroupRowStatus RowStatus
+    }
+
+ccrpResourceName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..23))
+--    Rsyntax OCTET STRING(SIZE(1..23))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Name for this physical resource"
+    ::= { ccrpResourceEntry 1 }
+
+ccrpResourcePortBased OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if the resources within this group are
+         are port-based or not.
+        
+         Instantiating this with a value of false will also
+         instantiate ccrpResourceLimit."
+    DEFVAL { true }
+    ::= { ccrpResourceEntry 2 }
+
+ccrpResourceLimit OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the size of this resource group for
+         non-port based resources.
+        
+         This object is not instantiated for port-based
+         resources."
+    DEFVAL { 0 }
+    ::= { ccrpResourceEntry 3 }
+
+ccrpResourceGroupOperStatus OBJECT-TYPE
+    SYNTAX CiscoRowOperStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        activeDependencies(2),
+--        inactiveDependency(3),
+--        missingDependency(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A control object to indicate the operational status
+         of this entry. This object is used to determine that
+         the dependencies for this entry are valid and active.
+        
+         This entry is dependent on entries in ccrpResourceRangeTable
+         if the value of ccrpResourcePortBased is true."
+    ::= { ccrpResourceEntry 4 }
+
+ccrpResourceGroupRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         An entry may not exist in the active(1) state unless
+         all objects in the entry have an appropriate value.
+        
+         All values of RowStatus are allowed."
+    ::= { ccrpResourceEntry 5 }
+
+ccrpResourceRangeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpResourceRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+         Table of physical resource range definitions.  Resources
+         within a group have identical capabilities. The hardware
+         implementing the resources within a range must be of the
+         same type.
+        
+         Multiple ranges may be associated with the same resource
+         group. Each range within a single resource group must
+         be of identical hardware type.
+        
+         A resource range may not be associated with multiple
+         resource groups.
+        "
+    ::= { ccrpResourceConfig 2 }
+
+ccrpResourceRangeEntry OBJECT-TYPE
+    SYNTAX CcrpResourceRangeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+         An entry in the table, containing definition for
+         a single physical resource range.
+        
+         Each entry specifies a contiguous range of individual
+         resources using start and end identification.
+         The individual resources within a range must be of the
+         same type and capabilities.
+        
+         Entries in this table may be created and deleted via
+         the ccrpResourceRangeRangeRowStatus object or the
+         management console on the system.
+        
+         Using SNMP, rows are created by a SET request setting
+         the value of ccrpResourceRangeRowStatus to
+         'createAndGo' or 'createAndWait'. Rows are deleted by a
+         SET request setting the value of
+         ccrpResourceRangeRowStatus to 'destroy'.
+        
+         Deleting the last entry for a specific value of
+         ccrpResourceName from this table will cause
+         the associated entry in the dependent ccrpResourceTable
+         to transition to a 'missingDependency' CiscoRowOperStatus.
+        
+         Existing rows may be modified when the row is active."
+    INDEX { ccrpResourceName, ccrpResourceRangeIndex }
+    ::= { ccrpResourceRangeTable 1 }
+
+CcrpResourceRangeEntry ::= SEQUENCE {
+    ccrpResourceRangeIndex Gauge,
+    ccrpResourceRangeStartPort PhysicalPosition,
+    ccrpResourceRangeEndPort PhysicalPosition,
+    ccrpResourceRangeOperStatus CiscoRowOperStatus,
+    ccrpResourceRangeRowStatus RowStatus
+    }
+
+ccrpResourceRangeIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index for this physical resource range within the
+         resource group."
+    ::= { ccrpResourceRangeEntry 1 }
+
+ccrpResourceRangeStartPort OBJECT-TYPE
+    SYNTAX PhysicalPosition
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+         Range start for specifying resources within
+         this range.
+        
+         The allowable values for each field within this
+         object is system specific.
+        
+         The default value is
+               slot 0, port 0"
+    DEFVAL { 0 }
+    ::= { ccrpResourceRangeEntry 2 }
+
+ccrpResourceRangeEndPort OBJECT-TYPE
+    SYNTAX PhysicalPosition
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "
+         Range end for specifying resources within
+         this range.
+        
+         The allowable values for each field within this
+         object is system specific.
+        
+         The default value is
+               slot 0, port 0"
+    DEFVAL { 0 }
+    ::= { ccrpResourceRangeEntry 3 }
+
+ccrpResourceRangeOperStatus OBJECT-TYPE
+    SYNTAX CiscoRowOperStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        activeDependencies(2),
+--        inactiveDependency(3),
+--        missingDependency(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A control object to indicate the operational status
+         of this entry. This object is used to determine that
+         the dependencies for this entry are valid and active.
+        
+         This entry is dependent on entries in
+         ccrpResourceGroupTable."
+    ::= { ccrpResourceRangeEntry 4 }
+
+ccrpResourceRangeRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         An entry may not exist in the active(1) state unless
+         all objects in the entry have an appropriate value.
+        
+         All values of RowStatus are allowed."
+    ::= { ccrpResourceRangeEntry 5 }
+
+ccrpCustomerProfileTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpCustomerProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of customer profiles definitions."
+    ::= { ccrpCustomerProfileConfig 1 }
+
+ccrpCustomerProfileEntry OBJECT-TYPE
+    SYNTAX CcrpCustomerProfileEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing information about a
+         single customer profile.
+        
+         Entries in this table may be created and deleted via
+         the ccrpCPRowStatus object or the management
+         console on the system.
+        
+         Using SNMP, rows are created by a SET request setting
+         the value of ccrpCPRowStatus to 'createAndGo'
+         or 'createAndWait'. Rows are deleted by a SET request
+         setting the value of ccrpCPRowStatus to 'destroy'.
+        
+        
+         Deleting an entry from this table will cause
+         associated entries in dependent tables to transition
+         to a 'missingDependency' CiscoRowOperStatus.
+        
+         Existing rows may be modified when the row is active."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED ccrpCPName }
+    ::= { ccrpCustomerProfileTable 1 }
+
+CcrpCustomerProfileEntry ::= SEQUENCE {
+    ccrpCPName SnmpAdminString,
+    ccrpCPSessionLimit Gauge,
+    ccrpCPOverflow INTEGER,
+    ccrpCPRowStatus RowStatus
+    }
+
+ccrpCPName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..23))
+--    Rsyntax OCTET STRING(SIZE(1..23))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Name for this Customer Profile"
+    ::= { ccrpCustomerProfileEntry 1 }
+
+ccrpCPSessionLimit OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Simultaneous sessions limit for this customer profile.
+         This is a soft limit if overflow is allowed as
+         indicated in the object ccrpCPOverflow.
+        
+         The allowable value range is platform specific."
+    DEFVAL { 0 }
+    ::= { ccrpCustomerProfileEntry 2 }
+
+ccrpCPOverflow OBJECT-TYPE
+    SYNTAX INTEGER(-1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Number of simultaneous sessions allowed over the
+         value specified in ccrpCPSessionLimit.
+        
+         If this value is zero, no overflow is allowed and
+         ccrpCPSessionLimit is a hard limit.
+        
+         If this value is -1, the is no overflow limit. All
+         calls will be accepted, up to the exhaustion of
+         system resources. 
+        
+         The allowable value range is platform specific."
+    DEFVAL { 0 }
+    ::= { ccrpCustomerProfileEntry 3 }
+
+ccrpCPRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         An entry may not exist in the active(1) state unless
+         all objects in the entry have an appropriate value.
+        
+         All values of RowStatus are allowed."
+    ::= { ccrpCustomerProfileEntry 4 }
+
+ccrpCPDnisGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpCPDnisGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table identifying DNIS groups for each customer
+         profile"
+    ::= { ccrpCustomerProfileConfig 2 }
+
+ccrpCPDnisGrpEntry OBJECT-TYPE
+    SYNTAX CcrpCPDnisGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry identifying a DNIS group for customer
+         profile.  There may be multiple entries for the
+         same customer profile name.  A single DNIS group may
+         not be associated with more than one customer profile.
+        
+         Entries in this table may be created and deleted via
+         the ccrpCPDnisGroupRowStatus object or the management
+         console on the system.
+        
+         Using SNMP, rows are created by a SET request setting
+         the value of ccrpCPDnisGroupRowStatus to 'createAndGo'
+         or 'createAndWait'. Rows are deleted by a SET request
+         setting the value of ccrpCPDnisGroupRowStatus to
+         'destroy'.
+        
+         Creating a new row with values of ccrpCPName or
+         ccrpDnisGroupName which do not yet exist in
+         ccrpCustomerProfileTable or ccrpDnisGroupTable
+         respectively will cause the new row's
+         ccrpCPDnisGroupOperStatus to have the value
+         'missingDependency'.
+        
+         Existing rows may be modified when the row is active."
+    INDEX { ccrpCPName, --?? IMPLIED may cause problems
+            IMPLIED ccrpDnisGroupName }
+    ::= { ccrpCPDnisGrpTable 1 }
+
+CcrpCPDnisGrpEntry ::= SEQUENCE {
+    ccrpCPDnisGroupOperStatus CiscoRowOperStatus,
+    ccrpCPDnisGroupRowStatus RowStatus
+    }
+
+ccrpCPDnisGroupOperStatus OBJECT-TYPE
+    SYNTAX CiscoRowOperStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        activeDependencies(2),
+--        inactiveDependency(3),
+--        missingDependency(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A control object to indicate the operational status
+         of this entry. This object is used to determine that
+         the dependencies for this entry are valid and active.
+        
+         This entry is dependent on entries in
+         ccrpDnisGroupTable and ccrpCustomerProfileTable."
+    ::= { ccrpCPDnisGrpEntry 1 }
+
+ccrpCPDnisGroupRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         An entry may not exist in the active(1) state unless
+         all objects in the entry have an appropriate value.
+        
+         All values of RowStatus are allowed."
+    ::= { ccrpCPDnisGrpEntry 2 }
+
+ccrpCPResourceGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpCPResourceGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "
+         Table identifying resources groups for each customer
+         profile."
+    ::= { ccrpCustomerProfileConfig 3 }
+
+ccrpCPResourceGrpEntry OBJECT-TYPE
+    SYNTAX CcrpCPResourceGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "          
+         Each entry identifying a resource group for a customer
+         profile.  There may be multiple resource group entries
+         for the same customer profile name.  A single resource
+         group may be associated with more than one customer
+         profile.
+        
+         Entries in this table may be created and deleted via
+         the ccrpCPResourceRowStatus object or the management
+         console on the system.
+        
+         Using SNMP, rows are created by a SET request setting
+         the value of ccrpCPResourceRowStatus to 'createAndGo'
+         or 'createAndWait'. Rows are deleted by a SET request
+         setting the value of ccrpCPResourceRowStatus to
+         'destroy'.
+        
+         Creating a new row with values of ccrpCPName or
+         ccrpResourceName which do not yet exist in
+         ccrpCustomerProfileTable or ccrpResourceTable
+         respectively will cause the new row's
+         ccrpCPDnisGroupOperStatus to have the value
+         'missingDependency'.
+        
+         Existing rows may be modified when the row is active."
+    INDEX { ccrpCPName, ccrpResourceName, ccrpCPResourceCallType }
+    ::= { ccrpCPResourceGrpTable 1 }
+
+CcrpCPResourceGrpEntry ::= SEQUENCE {
+    ccrpCPResourceCallType OCTET STRING,
+    ccrpCPResourceServiceProfileName SnmpAdminString,
+    ccrpCPResourceOperStatus CiscoRowOperStatus,
+    ccrpCPResourceRowStatus RowStatus
+    }
+
+ccrpCPResourceCallType OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   digital(0)
+        --   speech(1)
+        --   v110(2)
+        --   v120(3)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates types of calls to assign to this resource
+         for this customer profile.
+        
+         This object is a bit map, with each bit representing
+         a different call type as identified below.
+         A 1-bit indicates that call type is supported.
+         A 0-bit indicates that call type is not supported.
+        
+         Bit 0   - Digital
+         Bit 1   - Speech
+         Bit 2   - V.110
+         Bit 3   - V.120
+        
+         Setting all defined bits to 1 would result in this
+         resource being available for all calls.
+         Setting all defined bits to zero would result no
+         calls being assigned to this resource.
+        
+         Q.931 specifies Bearer Capability associated with calls.
+         RFC 2127, ISDN MIB defines the object isdnBearInfoType,
+         combining Q.931 bearer capability information
+         transfer capability and user rate.
+        
+         The correlation between Q.931 information transfer capability
+         and call types is:
+           Call Type        Q.931
+           ---------        -----
+           digital = {unrestricted digital, restricted digital}
+           speech  = {speech, 3.1kHz audio, 7kHz audio}
+           v110    = {Anything with V.110 User Info Layer}
+           v120    = {Anything with V.120 User Info Layer}
+        
+         The Q.931 user info layer values of V.110 or V.120 override
+         all other fields in determining resource manager call types.
+        
+         The remaining Q.931 transfer capabilities are not currently
+         supported by resource manager.
+        
+         The mapping for RFC2127 is:
+           Call Type        RFC2127
+           ---------        -------
+           digital = {unrestrictedDigital,unrestrictedDigital56,
+                      restrictedDigital}
+           speech  = {speech, audio31, audio7}
+           v110    = {Not represented in RFC2127}
+           v120    = {Not represented in RFC2127}
+        
+         The remaining RFC2127 values are not currently
+         supported by resource manager.
+        "
+    ::= { ccrpCPResourceGrpEntry 1 }
+
+ccrpCPResourceServiceProfileName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..23))
+--    Rsyntax OCTET STRING(SIZE(0..23))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Name of service profile to apply to this resource
+         whenever a new call matching the CP is assigned to
+         the resource.
+        
+         Service profiles are defined via the management
+         console on the system.
+        
+         Assigning a service profile is optional."
+    DEFVAL { "" }
+    ::= { ccrpCPResourceGrpEntry 2 }
+
+ccrpCPResourceOperStatus OBJECT-TYPE
+    SYNTAX CiscoRowOperStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        activeDependencies(2),
+--        inactiveDependency(3),
+--        missingDependency(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A control object to indicate the operational status
+         of this entry. This object is used to determine that
+         the dependencies for this entry are valid and active.
+        
+         This entry is dependent on entries in ccrpResourceTable
+         and ccrpCustomerProfileTable."
+    ::= { ccrpCPResourceGrpEntry 3 }
+
+ccrpCPResourceRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         An entry may not exist in the active(1) state unless
+         all objects in the entry have an appropriate value.
+        
+         All values of RowStatus are allowed."
+    ::= { ccrpCPResourceGrpEntry 4 }
+
+ccrpCPVGTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpCPVGEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table identifying VPDN groups for customer
+         profiles."
+    ::= { ccrpCustomerProfileConfig 4 }
+
+ccrpCPVGEntry OBJECT-TYPE
+    SYNTAX CcrpCPVGEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "          
+         Each entry identifies a VPDN group for a customer
+         profile.
+        
+         Each customer profile may have multiple VPDN groups
+         associated with it.
+        
+         A VPDN group may be associated with more than one
+         customer profile.
+        
+         Entries in this table may be created and deleted via
+         the ccrpCPVGRowStatus object or the management
+         console on the system.
+        
+         Using SNMP, rows are created by a SET request setting
+         the value of ccrpCPVGRowStatus to 'createAndGo'
+         or 'createAndWait'. Rows are deleted by a SET request
+         setting the value of ccrpCPVGRowStatus to 'destroy'.
+        
+         Creating a new row with a value of ccrpCPName
+         which does not yet exist in ccrpCustomerProfileTable
+         or a value of ccrpCPVGName which has not been
+         configured will cause the new row's
+         ccrpCPDnisGroupOperStatus to have the value
+         'missingDependency'.
+        
+         Existing rows may be modified when the row is active."
+    INDEX { ccrpCPName, --?? IMPLIED may cause problems
+            IMPLIED ccrpCPVGName }
+    ::= { ccrpCPVGTable 1 }
+
+CcrpCPVGEntry ::= SEQUENCE {
+    ccrpCPVGName SnmpAdminString,
+    ccrpCPVGOperStatus CiscoRowOperStatus,
+    ccrpCPVGRowStatus RowStatus
+    }
+
+ccrpCPVGName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..23))
+--    Rsyntax OCTET STRING(SIZE(1..23))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Name for VPDN group for this customer profile."
+    ::= { ccrpCPVGEntry 1 }
+
+ccrpCPVGOperStatus OBJECT-TYPE
+    SYNTAX CiscoRowOperStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        activeDependencies(2),
+--        inactiveDependency(3),
+--        missingDependency(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A control object to indicate the operational status
+         of this entry. This object is used to determine that
+         the dependencies for this entry are valid and active.
+        
+         This entry is dependent on entries in the
+         ccrpCustomerProfileTable and VPDN group in system
+         configuration."
+    ::= { ccrpCPVGEntry 2 }
+
+ccrpCPVGRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+         An entry may not exist in the active(1) state unless
+         all objects in the entry have an appropriate value.
+        
+         All values of RowStatus are allowed."
+    ::= { ccrpCPVGEntry 3 }
+
+ccrpCPStatisticsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpCPStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of customer profile statistics.
+        
+         The information provided in this table may be used
+         to better understand usage of network resources
+         and improve capacity planning."
+    ::= { ccrpCPStatistics 1 }
+
+ccrpCPStatisticsEntry OBJECT-TYPE
+    SYNTAX CcrpCPStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing statistics about a
+         single customer profile.
+        
+         An entry is created for each customer profile within
+         the ccrpCustomerProfileTable."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED ccrpCPName }
+-- Augments ccrpCustomerProfileEntry
+    ::= { ccrpCPStatisticsTable 1 }
+
+CcrpCPStatisticsEntry ::= SEQUENCE {
+    ccrpCPActiveSessions Gauge,
+    ccrpCPActiveOverflowSessions Gauge,
+    ccrpCPTotalSessions Counter,
+    ccrpCPTotalOverflowSessions Counter,
+    ccrpCPNumberOverflowState Counter,
+    ccrpCPNumberMaxState Counter,
+    ccrpCPOverflowTime TimeTicks,
+    ccrpCPMaxStateTime TimeTicks,
+    ccrpCPPeakActiveSessions Gauge,
+    ccrpCPOverflowRejected Counter,
+    ccrpCPResourceRejected Counter
+    }
+
+ccrpCPActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of active sessions for this customer profile."
+    ::= { ccrpCPStatisticsEntry 1 }
+
+ccrpCPActiveOverflowSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "
+         Number of active sessions which are overflow sessions
+         for this customer profile.
+         Overflow sessions are those calls which arrived and
+         were accepted when the customer profile's
+         ccrpCPActiveSessions >= ccrpCPSessionLimit."
+    ::= { ccrpCPStatisticsEntry 2 }
+
+ccrpCPTotalSessions OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of sessions for this customer profile
+         since last system re-initialization.
+        
+         Includes non-overflow and overflow sessions.
+        
+         Includes all calls which were answered, including those
+         which may have been terminated due to post-answer
+         resource restrictions or authorization failures."
+    ::= { ccrpCPStatisticsEntry 3 }
+
+ccrpCPTotalOverflowSessions OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of overflow sessions for this customer
+         profile since last system re-initialization.
+        
+         Includes all calls which were answered and identified
+         as overflow sessions, including those which may have
+         been terminated due to post-answer resource limits
+         or authorization failures."
+    ::= { ccrpCPStatisticsEntry 4 }
+
+ccrpCPNumberOverflowState OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times this customer profile has been in
+         an overflow state since last system re-initialization.
+         The customer profile is in overflow state when
+         ccrpCPActiveSessions > ccrpCPSessionLimit.
+        
+         If overflow is not allowed for this profile, this value
+         is always zero."
+    ::= { ccrpCPStatisticsEntry 5 }
+
+ccrpCPNumberMaxState OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    occurrences
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of times this customer profile has reached
+         its maximum allowed active sessions, including
+         overflow sessions since last system re-initialization.
+        
+         The customer profile is in maximum state under the
+         following conditions:
+           Overflow allowed and limited
+             ccrpCPActiveSessions = ccrpCPSessionLimit + ccrpCPOverflowSize.
+           Overflow not allowed
+             ccrpCPActiveSessions = ccrpCPSessionLimit.
+        
+         If overflow is allowed, but not limited by
+         ccrpCPOverflow, this value will always be
+         zero."
+    ::= { ccrpCPStatisticsEntry 6 }
+
+ccrpCPOverflowTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time that this customer profile has been
+         in overflow state since last system re-initialization.
+         The customer profile is in overflow state when
+         ccrpCPActiveSessions > ccrpCPSessionLimit."
+    ::= { ccrpCPStatisticsEntry 7 }
+
+ccrpCPMaxStateTime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The amount of time that this customer profile has reached
+         its maximum allowed active sessions since last system re-
+         initialization.
+        
+         The customer profile is in maximum state under the
+         following conditions:
+           Overflow allowed and limited
+             ccrpCPActiveSessions = ccrpCPSessionLimit + ccrpCPOverflowSize.
+           Overflow not allowed
+             ccrpCPActiveSessions = ccrpCPSessionLimit.
+        
+         If overflow is allowed, but not limited by
+         ccrpCPOverflow, this value will always be
+         zero."
+    ::= { ccrpCPStatisticsEntry 8 }
+
+ccrpCPPeakActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of active sessions which has
+         occurred for this customer profile since last system
+         re-initialization. This is the maximum value of
+         ccrpCPActiveSessions since last system
+         re-initialization.
+        
+         This includes non-overflow and overflow sessions.
+        
+         The peak value for the overflow sessions may be
+         computed by subtracting the value of ccrpCPSessionLimit
+         from this value."
+    ::= { ccrpCPStatisticsEntry 9 }
+
+ccrpCPOverflowRejected OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    call attempts
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of calls rejected due to exceeding allowed
+         simultaneous sessions for this customer
+         profile since last system re-initialization.
+        
+         If overflow is not allowed for this profile, this
+         counts the number of times calls arrived when
+         ccrpCPActiveSessions = ccrpCPSessionLimit.
+        
+         If overflow is allowed, this counts the number of
+         time calls arrived when
+         ccrpCPActiveSessions = ccrpCPSessionLimit + ccrpCPOverflow.
+        
+         If overflow is allowed, but not limited by
+         ccrpCPOverflow, this value is always zero.
+        
+         Includes calls which were answered, then terminated
+         due to post-answer session counting restrictions for
+         the customer profile.  Does not include calls
+         terminated due to post-answer resource limits or
+         post-answer authorization failures beyond customer
+         profile authorizations."
+    ::= { ccrpCPStatisticsEntry 10 }
+
+ccrpCPResourceRejected OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    call attempts
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of calls rejected due to unavailable resources
+         for this customer profile since last system
+         re-initialization.
+        
+         Includes calls which were answered then terminated due
+         to post-answer resource restrictions."
+    ::= { ccrpCPStatisticsEntry 11 }
+
+ccrpDnisStatisticsTableMaxEntries OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The limit on the number of entries that the
+         ccrpDnisStatisticsTable may contain.
+        
+         When this table is full, any new DNIS values will be
+         ignored.
+        
+         A value of 0 will prevent any DNIS statistics from being
+         retained. If this value is set to 0 after entries already
+         exist in the table, those entries will be deleted.
+        
+         Reducing the value will truncate the table based on the
+         sort order of the index.
+        
+         The range for this value is from 0 to a system specific
+         number specified by ccrpDnisStatisticsTableSystemMax."
+    DEFVAL { 0 }
+    ::= { ccrpDnisStatistics 1 }
+
+ccrpDnisStatisticsTableSystemMax OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The system specific limit on the number of entries
+         that the ccrpDnisStatisticsTable may contain.
+         This is the maximum value that will be accepted for
+         ccrpDnisStatisticsTableMaxEntries."
+    ::= { ccrpDnisStatistics 2 }
+
+ccrpDnisStatisticsTableLengthExceeded OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times a new DNIS has been ignored due to
+         the ccrpDnisStatisticsTableMaxLength having been reached
+         since last system re-initialization.
+        
+         When the table is full, this counter is incremented
+         both for each new DNIS arriving, as well as every time
+         the same DNIS arrives. "
+    ::= { ccrpDnisStatistics 3 }
+
+ccrpDnisStatisticsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpDnisStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of session counts for individual DNIS numbers.
+        
+         The information provided in this table may be used
+         to better understand usage of network resources
+         and improve capacity planning."
+    ::= { ccrpDnisStatistics 4 }
+
+ccrpDnisStatisticsEntry OBJECT-TYPE
+    SYNTAX CcrpDnisStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing session counts
+         for a single DNIS number.
+        
+         The DNIS does not need to be a member of a DNIS
+         group or be associated with a customer profile to
+         appear in this table.
+        
+         Entries are created as a result of a call being
+         received by the system with the DNIS number."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED ccrpDnisStatisticsDnisNumber }
+    ::= { ccrpDnisStatisticsTable 1 }
+
+CcrpDnisStatisticsEntry ::= SEQUENCE {
+    ccrpDnisStatisticsDnisNumber CcrpPhoneNumber,
+    ccrpDnisStatisticsGroupName SnmpAdminString,
+    ccrpDnisActiveSessions Gauge,
+    ccrpDnisTotalSessions Counter,
+    ccrpDnisPeakActiveSessions Gauge,
+    ccrpDnisCallTypeRejected Counter
+    }
+
+ccrpDnisStatisticsDnisNumber OBJECT-TYPE
+    SYNTAX CcrpPhoneNumber
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "DNIS associated with call"
+    ::= { ccrpDnisStatisticsEntry 1 }
+
+ccrpDnisStatisticsGroupName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..23))
+--    Rsyntax OCTET STRING(SIZE(0..23))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Name of DNIS group containing this DNIS. Value
+         corresponds to ccrpDnisGroupName.
+        
+         If DNIS is not a member of a DNIS group, this value
+         is a zero-length string."
+    ::= { ccrpDnisStatisticsEntry 2 }
+
+ccrpDnisActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of active sessions for this DNIS in the
+         customer profile.
+         Includes non-overflow and overflow sessions."
+    ::= { ccrpDnisStatisticsEntry 3 }
+
+ccrpDnisTotalSessions OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of sessions for this DNIS in the
+         customer profile since last system re-initialization.
+        
+         Includes non-overflow and overflow sessions.
+         Includes all calls which were answered then terminated
+         by post-answer restrictions for authorization
+         failures."
+    ::= { ccrpDnisStatisticsEntry 4 }
+
+ccrpDnisPeakActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of active sessions which has
+         occurred for this DNIS since last system
+         re-initialization.
+        
+         Includes non-overflow and overflow sessions."
+    ::= { ccrpDnisStatisticsEntry 5 }
+
+ccrpDnisCallTypeRejected OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of calls with this DNIS which were rejected
+         due to call type mismatch, as defined in the
+         ccrpCallDiscriminatorTable, since last system
+         re-initialization."
+    ::= { ccrpDnisStatisticsEntry 6 }
+
+ccrpCDStatisticsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcrpCDStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of call discriminator statistics.
+        
+         The information provided in this table may be used
+         to better understand usage of network resources
+         and improve capacity planning."
+    ::= { ccrpCDStatistics 1 }
+
+ccrpCDStatisticsEntry OBJECT-TYPE
+    SYNTAX CcrpCDStatisticsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table, containing statistics about a
+         single call discriminator definition.
+        
+         An entry is created for each call discriminator within
+         the ccrpCallDiscriminatorTable."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED ccrpCDName }
+-- Augments ccrpCallDiscriminatorEntry
+    ::= { ccrpCDStatisticsTable 1 }
+
+CcrpCDStatisticsEntry ::= SEQUENCE {
+    ccrpCDRejected Counter
+    }
+
+ccrpCDRejected OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    sessions
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of calls rejected due to matching this call
+         discriminator definition, as defined in the
+         ccrpCallDiscriminatorTable, since last system
+         re-initialization."
+    ::= { ccrpCDStatisticsEntry 1 }
+
+ccrpGeneralConfigGroup OBJECT IDENTIFIER ::= { ccrpMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing general Call Resource
+--     Pool configuration.
+--  objects
+--    ccrpNoCPCallTreatment, ccrpNoResourceCallTreatment
+
+ccrpDnisConfigGroup OBJECT IDENTIFIER ::= { ccrpMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects for configuring a named collection of DNIS numbers.
+--  objects
+--    ccrpDnisGroupRowStatus, ccrpDnisGroupCallType, 
+--    ccrpDnisGroupCallTypeOperStatus, 
+--    ccrpDnisGroupCallTypeRowStatus
+
+ccrpCDConfigGroup OBJECT IDENTIFIER ::= { ccrpMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects for configuring a call discriminators.
+--  objects
+--    ccrpCDCallType, ccrpCDRowStatus, 
+--    ccrpCDDiscriminatedGroupOperStatus, 
+--    ccrpCDDiscriminatedGroupRowStatus
+
+ccrpResourceConfigGroup OBJECT IDENTIFIER ::= { ccrpMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects for configuring resource groups.
+--  objects
+--    ccrpResourcePortBased, ccrpResourceLimit, 
+--    ccrpResourceGroupOperStatus, ccrpResourceGroupRowStatus, 
+--    ccrpResourceRangeStartPort, ccrpResourceRangeEndPort, 
+--    ccrpResourceRangeOperStatus, ccrpResourceRangeRowStatus
+
+ccrpCPConfigGroup OBJECT IDENTIFIER ::= { ccrpMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects for configuring customer profiles.
+--  objects
+--    ccrpCPSessionLimit, ccrpCPOverflow, ccrpCPRowStatus, 
+--    ccrpCPDnisGroupOperStatus, ccrpCPDnisGroupRowStatus, 
+--    ccrpCPResourceServiceProfileName, ccrpCPResourceOperStatus, 
+--    ccrpCPResourceRowStatus, ccrpCPVGOperStatus, 
+--    ccrpCPVGRowStatus
+
+ccrpCPStatisticsGroup OBJECT IDENTIFIER ::= { ccrpMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects for providing customer profile statistics.
+--  objects
+--    ccrpCPActiveSessions, ccrpCPActiveOverflowSessions, 
+--    ccrpCPTotalSessions, ccrpCPTotalOverflowSessions, 
+--    ccrpCPNumberOverflowState, ccrpCPNumberMaxState, 
+--    ccrpCPOverflowTime, ccrpCPMaxStateTime, 
+--    ccrpCPPeakActiveSessions, ccrpCPOverflowRejected, 
+--    ccrpCPResourceRejected
+
+ccrpDnisStatisticsGroup OBJECT IDENTIFIER ::= { ccrpMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects for providing DNIS statistics.
+--  objects
+--    ccrpDnisStatisticsTableMaxEntries, 
+--    ccrpDnisStatisticsTableSystemMax, 
+--    ccrpDnisStatisticsTableLengthExceeded, 
+--    ccrpDnisStatisticsGroupName, ccrpDnisActiveSessions, 
+--    ccrpDnisTotalSessions, ccrpDnisPeakActiveSessions, 
+--    ccrpDnisCallTypeRejected
+
+ccrpCDStatisticsGroup OBJECT IDENTIFIER ::= { ccrpMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Objects for providing call discriminator statistics.
+--  objects
+--    ccrpCDRejected
+
+ccrpMIBCompliance OBJECT IDENTIFIER ::= { ccrpMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO CALL RESOURCE POOL MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ccrpGeneralConfigGroup
+--   MandGroup
+--    ccrpDnisConfigGroup
+--   MandGroup
+--    ccrpCDConfigGroup
+--   MandGroup
+--    ccrpResourceConfigGroup
+--   MandGroup
+--    ccrpCPConfigGroup
+--   MandGroup
+--    ccrpCPStatisticsGroup
+--   MandGroup
+--    ccrpDnisStatisticsGroup
+--   MandGroup
+--    ccrpCDStatisticsGroup
+
+
+END
+

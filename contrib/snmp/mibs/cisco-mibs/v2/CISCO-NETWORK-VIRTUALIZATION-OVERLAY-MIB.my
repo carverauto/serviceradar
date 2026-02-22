@@ -1,0 +1,914 @@
+-- *****************************************************************
+-- CISCO-NETWORK-VIRTUALIZATION-OVERLAY-MIB.my
+--   
+-- Jan 2015
+--   
+-- Copyright (c) 2014-2015, 2019 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-NETWORK-VIRTUALIZATION-OVERLAY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Counter64,
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32,
+    Counter32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DateAndTime,
+    RowStatus,
+    StorageType,
+    DisplayString
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    VlanIndexOrZero
+        FROM CISCO-PRIVATE-VLAN-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoNetworkVirtualizationOverlayMIB MODULE-IDENTITY
+    LAST-UPDATED    "201907080000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module is for managing Network Virtualization Overlay
+        functionality on Cisco devices. 
+
+
+        The following terms are used throughout this MIB:
+
+        NVE     Network Virtualization Endpoint
+
+        NVGRE   Network Virtualization using Generic Routing
+                Encapsulation
+
+        NVO     Network Virtualization Overlay
+
+        VLAN    Virtual Local Area Network
+
+        VNet    Virtual Network
+
+        VNI     Virtual Network Identifier 
+
+        VXLAN   Virtual Extensible LAN"
+    REVISION        "201501260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 820 }
+
+
+cnvoMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoNetworkVirtualizationOverlayMIB 0 }
+
+cnvoMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoNetworkVirtualizationOverlayMIB 1 }
+
+cnvoMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoNetworkVirtualizationOverlayMIB 2 }
+
+cnvoNvoObjects  OBJECT IDENTIFIER
+    ::= { cnvoMIBObjects 1 }
+
+
+cnvoNvoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnvoNvoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides network virtualization overlays
+        configured on the system."
+    ::= { cnvoNvoObjects 1 }
+
+cnvoNvoEntry OBJECT-TYPE
+    SYNTAX          CnvoNvoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for network
+        virtualization overlay."
+    INDEX           { cnvoNvoInstanceId } 
+    ::= { cnvoNvoTable 1 }
+
+CnvoNvoEntry ::= SEQUENCE {
+        cnvoNvoInstanceId      Unsigned32,
+        cnvoNvoEncapType       INTEGER,
+        cnvoNvoSourceInterface InterfaceIndexOrZero,
+        cnvoNvoConfiguredVni   SnmpAdminString,
+        cnvoNvoStorageType     StorageType,
+        cnvoNvoRowStatus       RowStatus
+}
+
+cnvoNvoInstanceId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique number to identify a NVO instance." 
+    ::= { cnvoNvoEntry 1 }
+
+cnvoNvoEncapType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        vxlan(2),
+                        nvgre(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the encapsulation type for the
+        NVO instance.  
+
+        'unknown' - The read-only value 'unknown' indicates that
+                     encapsulation type is none of the following
+
+        'vxlan'    - encapsulation type is VXLAN
+
+        'nvgre'    - encapsulation type is NVGRE
+
+        This object may be modified when the row is active."
+    DEFVAL          { vxlan } 
+    ::= { cnvoNvoEntry 2 }
+
+cnvoNvoSourceInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Source Interface for
+        the NVO instance.
+        This object may be modified when the row is active."
+    DEFVAL          { 0 } 
+    ::= { cnvoNvoEntry 3 }
+
+cnvoNvoConfiguredVni OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the list of VNIs associated with
+        this NVO instance." 
+    ::= { cnvoNvoEntry 4 }
+
+cnvoNvoStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { volatile } 
+    ::= { cnvoNvoEntry 5 }
+
+cnvoNvoRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of this conceptual row." 
+    ::= { cnvoNvoEntry 6 }
+ 
+
+
+cnvoVNetTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnvoVNetEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides information for virtual
+        networks on the system."
+    ::= { cnvoNvoObjects 2 }
+
+cnvoVNetEntry OBJECT-TYPE
+    SYNTAX          CnvoVNetEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing status information for a
+        virtual network."
+    INDEX           {
+                        cnvoNvoInstanceId,
+                        cnvoVNetLocalVNetId
+                    } 
+    ::= { cnvoVNetTable 1 }
+
+CnvoVNetEntry ::= SEQUENCE {
+        cnvoVNetLocalVNetId             Unsigned32,
+        cnvoVNetIpMcastAddrType         InetAddressType,
+        cnvoVNetIpMcastAddr             InetAddress,
+        cnvoVNetVlan                    VlanIndexOrZero,
+        cnvoVNetArpSuppression          INTEGER,
+        cnvoVNetReplication             INTEGER,
+        cnvoVNetHostReachability        INTEGER,
+        cnvoVNetVniType                 INTEGER,
+        cnvoVNetIpVrfOrBridgeDomainName SnmpAdminString,
+        cnvoVNetRouterMacAddr           InetAddress
+}
+
+cnvoVNetLocalVNetId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique number to identify a local virtual network." 
+    ::= { cnvoVNetEntry 1 }
+
+cnvoVNetIpMcastAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of Internet address to be
+        used as Multicast Group Address." 
+    ::= { cnvoVNetEntry 2 }
+
+cnvoVNetIpMcastAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Internet address to be used as
+        Multicast Group Address.
+
+        The type of this address is determined by
+        cnvoVNetIpMcastAddrType." 
+    ::= { cnvoVNetEntry 3 }
+
+cnvoVNetVlan OBJECT-TYPE
+    SYNTAX          VlanIndexOrZero
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the mapping vlan for the
+        virtual network." 
+    ::= { cnvoVNetEntry 4 }
+
+cnvoVNetArpSuppression OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        arpSupON(1),
+                        arpSupOFF(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if ARP seppression is turned ON/OFF
+        for the virtual network." 
+    ::= { cnvoVNetEntry 5 }
+
+cnvoVNetReplication OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        mcast(1),
+                        unconf(2),
+                        ucastBgp(3),
+                        ucastStatic(4)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the replication mode of the virtual
+        network identifier." 
+    ::= { cnvoVNetEntry 6 }
+
+cnvoVNetHostReachability OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        hostReachabilityUnconf(2),
+                        dataPlaneL2(3),
+                        controlPlaneL3(4)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if the virtual network
+        identifier is configured via data plane, control 
+        plane or is unconfigured." 
+    ::= { cnvoVNetEntry 7 }
+
+cnvoVNetVniType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        l2(2),
+                        l3(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the virtual
+        network identifier - unknown, L2 or L3." 
+    ::= { cnvoVNetEntry 8 }
+
+cnvoVNetIpVrfOrBridgeDomainName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the ip vrf (for L3 vni)
+        or bridge-domain name (for L2 vni)
+        virtual network identifier" 
+    ::= { cnvoVNetEntry 9 }
+
+cnvoVNetRouterMacAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the hardware MAC of the
+        physical router." 
+    ::= { cnvoVNetEntry 10 }
+ 
+
+
+cnvoPeerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnvoPeerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides information of remote peers
+        for virtual network overlay on this system."
+    ::= { cnvoNvoObjects 3 }
+
+cnvoPeerEntry OBJECT-TYPE
+    SYNTAX          CnvoPeerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing remote peer information
+        for virtual network overlay."
+    INDEX           {
+                        cnvoNvoInstanceId,
+                        cnvoPeerIpAddrType,
+                        cnvoPeerIpAddr
+                    } 
+    ::= { cnvoPeerTable 1 }
+
+CnvoPeerEntry ::= SEQUENCE {
+        cnvoPeerIpAddrType         InetAddressType,
+        cnvoPeerIpAddr             InetAddress,
+        cnvoPeerUpTime             DateAndTime,
+        cnvoPeerLearningSourceType INTEGER
+}
+
+cnvoPeerIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of Internet address of
+        NVO peer." 
+    ::= { cnvoPeerEntry 1 }
+
+cnvoPeerIpAddr OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Internet address of NVO peer.
+
+        The type of this address is determined by
+        cnvoPeerIpAddrType." 
+    ::= { cnvoPeerEntry 2 }
+
+cnvoPeerUpTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time at which the peer became up.
+        This object contains value 0x0000010100000000 when the
+        NVO peer is down." 
+    ::= { cnvoPeerEntry 3 }
+
+cnvoPeerLearningSourceType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        dataPlane(2),
+                        controlPlane(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the way in which in peer was
+        learnt - either via data plane or control plane." 
+    ::= { cnvoPeerEntry 4 }
+ 
+
+
+cnvoVNetStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnvoVNetStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides statistics information of virtual
+        networks on the system."
+    ::= { cnvoNvoObjects 4 }
+
+cnvoVNetStatsEntry OBJECT-TYPE
+    SYNTAX          CnvoVNetStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing statistics information for a
+        virtual network."
+    INDEX           {
+                        cnvoNvoInstanceId,
+                        cnvoVNetLocalVNetId
+                    } 
+    ::= { cnvoVNetStatsTable 1 }
+
+CnvoVNetStatsEntry ::= SEQUENCE {
+        cnvoVNetOutUnicastPackets   Counter64,
+        cnvoVNetOutUnicastBytes     Counter64,
+        cnvoVNetOutMulticastPackets Counter64,
+        cnvoVNetOutMulticastBytes   Counter64,
+        cnvoVNetInUnicastPackets    Counter64,
+        cnvoVNetInUnicastBytes      Counter64,
+        cnvoVNetInMulticastPackets  Counter64,
+        cnvoVNetInMulticastBytes    Counter64
+}
+
+cnvoVNetOutUnicastPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of unicast
+        packets transmitted out of this virtual network." 
+    ::= { cnvoVNetStatsEntry 1 }
+
+cnvoVNetOutUnicastBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes for unicast
+        packet transmitted out of this virtual network." 
+    ::= { cnvoVNetStatsEntry 2 }
+
+cnvoVNetOutMulticastPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of multicast packets
+        transmitted out of this virtual network." 
+    ::= { cnvoVNetStatsEntry 3 }
+
+cnvoVNetOutMulticastBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes for multicast
+        packet transmitted of this virtual network." 
+    ::= { cnvoVNetStatsEntry 4 }
+
+cnvoVNetInUnicastPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of unicast packets
+        received by this virtual network." 
+    ::= { cnvoVNetStatsEntry 5 }
+
+cnvoVNetInUnicastBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes for unicast
+        packet received by this virtual network." 
+    ::= { cnvoVNetStatsEntry 6 }
+
+cnvoVNetInMulticastPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of multicast packets
+        received by this virtual network." 
+    ::= { cnvoVNetStatsEntry 7 }
+
+cnvoVNetInMulticastBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes for multicast
+        packet received by this virtual network." 
+    ::= { cnvoVNetStatsEntry 8 }
+ 
+
+
+cnvoNvoPeerStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnvoNvoPeerStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides remote peers statistics information
+        for virtual network overlay."
+    ::= { cnvoNvoObjects 5 }
+
+cnvoNvoPeerStatsEntry OBJECT-TYPE
+    SYNTAX          CnvoNvoPeerStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing statistics information for a
+        particular peer of a virtual network overlay."
+    INDEX           {
+                        cnvoNvoInstanceId,
+                        cnvoPeerIpAddrType,
+                        cnvoPeerIpAddr
+                    } 
+    ::= { cnvoNvoPeerStatsTable 1 }
+
+CnvoNvoPeerStatsEntry ::= SEQUENCE {
+        cnvoNvoPeerOutUnicastPackets   Counter64,
+        cnvoNvoPeerOutUnicastBytes     Counter64,
+        cnvoNvoPeerOutMulticastPackets Counter64,
+        cnvoNvoPeerOutMulticastBytes   Counter64,
+        cnvoNvoPeerInUnicastPackets    Counter64,
+        cnvoNvoPeerInUnicastBytes      Counter64,
+        cnvoNvoPeerInMulticastPackets  Counter64,
+        cnvoNvoPeerInMulticastBytes    Counter64
+}
+
+cnvoNvoPeerOutUnicastPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of unicast packets
+        transmitted to the peer." 
+    ::= { cnvoNvoPeerStatsEntry 1 }
+
+cnvoNvoPeerOutUnicastBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes for unicast
+        packet transmitted to the peer." 
+    ::= { cnvoNvoPeerStatsEntry 2 }
+
+cnvoNvoPeerOutMulticastPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of multicast packets
+        transmitted to the peer." 
+    ::= { cnvoNvoPeerStatsEntry 3 }
+
+cnvoNvoPeerOutMulticastBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes for multicast
+        packet transmitted to the peer." 
+    ::= { cnvoNvoPeerStatsEntry 4 }
+
+cnvoNvoPeerInUnicastPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of unicast packets
+        received from the peer." 
+    ::= { cnvoNvoPeerStatsEntry 5 }
+
+cnvoNvoPeerInUnicastBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes for unicast
+        packet received from the peer." 
+    ::= { cnvoNvoPeerStatsEntry 6 }
+
+cnvoNvoPeerInMulticastPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of multicast packets
+        received from the peer." 
+    ::= { cnvoNvoPeerStatsEntry 7 }
+
+cnvoNvoPeerInMulticastBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of bytes for multicast
+        packet received from the peer." 
+    ::= { cnvoNvoPeerStatsEntry 8 }
+ 
+
+
+cnvoVNetVrfStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CnvoVNetVrfStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides statistics information of vxlan Static
+        route per vni per vrf on the system."
+    ::= { cnvoNvoObjects 6 }
+
+cnvoVNetVrfStatsEntry OBJECT-TYPE
+    SYNTAX          CnvoVNetVrfStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing statistics information for vxlan Static
+        route per vni per vrf."
+    INDEX           {
+                        cnvoVNetVrfStatsVrfName,
+                        cnvoVNetVrfStatsVni
+                    } 
+    ::= { cnvoVNetVrfStatsTable 1 }
+
+CnvoVNetVrfStatsEntry ::= SEQUENCE {
+        cnvoVNetVrfStatsVrfName   SnmpAdminString,
+        cnvoVNetVrfStatsVni       Unsigned32,
+        cnvoVNetVrfIngressPackets Counter64,
+        cnvoVNetVrfIngressBytes   Counter64,
+        cnvoVNetVrfEgressPackets  Counter64,
+        cnvoVNetVrfEgressBytes    Counter64
+}
+
+cnvoVNetVrfStatsVrfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the VRF where traffic stats belongs to.
+        The zero length value indicates the default" 
+    ::= { cnvoVNetVrfStatsEntry 1 }
+
+cnvoVNetVrfStatsVni OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The vni number where the stats entry belongs to." 
+    ::= { cnvoVNetVrfStatsEntry 2 }
+
+cnvoVNetVrfIngressPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of ingress packets
+        transmitted out of this virtual network." 
+    ::= { cnvoVNetVrfStatsEntry 3 }
+
+cnvoVNetVrfIngressBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of ingress bytes
+        transmitted out of this virtual network." 
+    ::= { cnvoVNetVrfStatsEntry 4 }
+
+cnvoVNetVrfEgressPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of egress packets
+        transmitted out of this virtual network." 
+    ::= { cnvoVNetVrfStatsEntry 5 }
+
+cnvoVNetVrfEgressBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of egress bytes
+        transmitted out of this virtual network." 
+    ::= { cnvoVNetVrfStatsEntry 6 }
+ 
+
+-- Conformance
+
+cnvoMIBCompliances  OBJECT IDENTIFIER
+    ::= { cnvoMIBConform 1 }
+
+cnvoMIBGroups  OBJECT IDENTIFIER
+    ::= { cnvoMIBConform 2 }
+
+
+cnvoMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for CISCO-NETWORK-VIRTUALIZATION-
+        OVERLAY-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cnvoNvoGroup,
+                        cnvoVirtualNetworkGroup,
+                        cnvoPeerGroup
+                    }
+
+    GROUP           cnvoVirtualNetworkStatsGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms
+        which support virtual network statistics information."
+
+    GROUP           cnvoNvoPerPeerOutUnicastStatsGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which
+        support per peer trasmitted unicast statistics information."
+
+    GROUP           cnvoNvoPerPeerOutMulticastStatsGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which
+        support per peer trasmitted unicast statistics information."
+
+    GROUP           cnvoNvoPerPeerInUnicastStatsGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which
+        support per peer received unicast statistics information."
+
+    GROUP           cnvoNvoPerPeerInMulticastStatsGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which
+        support per peer received multicast statistics information."
+
+    GROUP           cnvoVNetVrfStatsGroup
+    DESCRIPTION
+        "This group is mandatory only for platforms which
+        support vxlan static route statistics information."
+
+    OBJECT          cnvoNvoEncapType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cnvoNvoSourceInterface
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cnvoNvoStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cnvoNvoRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { cnvoMIBCompliances 1 }
+
+-- Units of Conformance
+
+cnvoNvoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnvoNvoEncapType,
+                        cnvoNvoSourceInterface,
+                        cnvoNvoConfiguredVni,
+                        cnvoNvoStorageType,
+                        cnvoNvoRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing NVO information."
+    ::= { cnvoMIBGroups 1 }
+
+cnvoVirtualNetworkGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnvoVNetIpMcastAddrType,
+                        cnvoVNetIpMcastAddr,
+                        cnvoVNetVlan,
+                        cnvoVNetArpSuppression,
+                        cnvoVNetReplication,
+                        cnvoVNetHostReachability,
+                        cnvoVNetVniType,
+                        cnvoVNetIpVrfOrBridgeDomainName,
+                        cnvoVNetRouterMacAddr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing VNI status information."
+    ::= { cnvoMIBGroups 2 }
+
+cnvoPeerGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnvoPeerUpTime,
+                        cnvoPeerLearningSourceType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing NVO peer information."
+    ::= { cnvoMIBGroups 3 }
+
+cnvoVirtualNetworkStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnvoVNetOutUnicastPackets,
+                        cnvoVNetOutUnicastBytes,
+                        cnvoVNetOutMulticastPackets,
+                        cnvoVNetOutMulticastBytes,
+                        cnvoVNetInUnicastPackets,
+                        cnvoVNetInUnicastBytes,
+                        cnvoVNetInMulticastPackets,
+                        cnvoVNetInMulticastBytes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing virtual network
+        statistics information."
+    ::= { cnvoMIBGroups 4 }
+
+cnvoNvoPerPeerOutUnicastStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnvoNvoPeerOutUnicastPackets,
+                        cnvoNvoPeerOutUnicastBytes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing transmitted peer unicast
+        statistics information."
+    ::= { cnvoMIBGroups 5 }
+
+cnvoNvoPerPeerInUnicastStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnvoNvoPeerInUnicastPackets,
+                        cnvoNvoPeerInUnicastBytes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing received peer unicast
+        statistics information."
+    ::= { cnvoMIBGroups 6 }
+
+cnvoNvoPerPeerInMulticastStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnvoNvoPeerInMulticastPackets,
+                        cnvoNvoPeerInMulticastBytes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing received peer multicast
+        statistics information."
+    ::= { cnvoMIBGroups 7 }
+
+cnvoNvoPerPeerOutMulticastStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnvoNvoPeerOutMulticastPackets,
+                        cnvoNvoPeerOutMulticastBytes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing transmitted peer unicast
+        statistics information."
+    ::= { cnvoMIBGroups 8 }
+
+cnvoVNetVrfStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cnvoVNetVrfIngressPackets,
+                        cnvoVNetVrfIngressBytes,
+                        cnvoVNetVrfEgressPackets,
+                        cnvoVNetVrfEgressBytes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing vxlan Static Route traffic
+        stats."
+    ::= { cnvoMIBGroups 9 }
+
+END
+
+

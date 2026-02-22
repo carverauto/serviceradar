@@ -1,0 +1,824 @@
+<html>
+
+<head>
+<meta http-equiv=Content-Type content="text/html; charset=windows-1252">
+<meta name=Generator content="Microsoft Word 12 (filtered)">
+<title>Cisco UCS C-Series MIB Support List</title>
+<style>
+<!--
+ /* Font Definitions */
+ @font-face
+	{font-family:"Cambria Math";
+	panose-1:2 4 5 3 5 4 6 3 2 4;}
+@font-face
+	{font-family:Cambria;
+	panose-1:2 4 5 3 5 4 6 3 2 4;}
+@font-face
+	{font-family:Tahoma;
+	panose-1:2 11 6 4 3 5 4 4 2 4;}
+@font-face
+	{font-family:Consolas;
+	panose-1:2 11 6 9 2 2 4 3 2 4;}
+ /* Style Definitions */
+ p.MsoNormal, li.MsoNormal, div.MsoNormal
+	{margin:0in;
+	margin-bottom:.0001pt;
+	font-size:9.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+h1
+	{mso-style-link:"Heading 1 Char";
+	margin-right:0in;
+	margin-left:0in;
+	font-size:24.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;
+	font-weight:bold;}
+h2
+	{mso-style-link:"Heading 2 Char";
+	margin-right:0in;
+	margin-left:0in;
+	font-size:18.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;
+	font-weight:bold;}
+h3
+	{mso-style-link:"Heading 3 Char";
+	margin-right:0in;
+	margin-left:0in;
+	font-size:13.5pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;
+	font-weight:bold;}
+p.MsoToc1, li.MsoToc1, div.MsoToc1
+	{margin-top:0in;
+	margin-right:0in;
+	margin-bottom:5.0pt;
+	margin-left:0in;
+	font-size:9.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+p.MsoToc2, li.MsoToc2, div.MsoToc2
+	{margin-top:0in;
+	margin-right:0in;
+	margin-bottom:5.0pt;
+	margin-left:12.0pt;
+	font-size:9.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+p.MsoToc3, li.MsoToc3, div.MsoToc3
+	{margin-top:0in;
+	margin-right:0in;
+	margin-bottom:5.0pt;
+	margin-left:24.0pt;
+	font-size:9.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+a:link, span.MsoHyperlink
+	{font-family:"Arial","sans-serif";
+	color:blue;
+	text-decoration:underline;}
+a:visited, span.MsoHyperlinkFollowed
+	{color:purple;
+	text-decoration:underline;}
+p.MsoDocumentMap, li.MsoDocumentMap, div.MsoDocumentMap
+	{mso-style-link:"Document Map Char";
+	margin:0in;
+	margin-bottom:.0001pt;
+	font-size:8.0pt;
+	font-family:"Tahoma","sans-serif";
+	color:#666666;}
+p
+	{mso-style-link:"Normal \(Web\) Char";
+	margin-right:0in;
+	margin-left:0in;
+	font-size:9.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+pre
+	{mso-style-link:"HTML Preformatted Char";
+	margin:0in;
+	margin-bottom:.0001pt;
+	font-size:9.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+p.MsoAcetate, li.MsoAcetate, div.MsoAcetate
+	{mso-style-link:"Balloon Text Char";
+	margin:0in;
+	margin-bottom:.0001pt;
+	font-size:8.0pt;
+	font-family:"Tahoma","sans-serif";
+	color:#666666;}
+p.MsoListParagraph, li.MsoListParagraph, div.MsoListParagraph
+	{margin-top:0in;
+	margin-right:0in;
+	margin-bottom:0in;
+	margin-left:.5in;
+	margin-bottom:.0001pt;
+	font-size:9.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+p.MsoTocHeading, li.MsoTocHeading, div.MsoTocHeading
+	{margin-top:24.0pt;
+	margin-right:0in;
+	margin-bottom:0in;
+	margin-left:0in;
+	margin-bottom:.0001pt;
+	line-height:115%;
+	page-break-after:avoid;
+	font-size:12.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;
+	font-weight:bold;}
+span.Heading1Char
+	{mso-style-name:"Heading 1 Char";
+	mso-style-link:"Heading 1";
+	font-family:"Cambria","serif";
+	color:#365F91;
+	font-weight:bold;}
+span.Heading2Char
+	{mso-style-name:"Heading 2 Char";
+	mso-style-link:"Heading 2";
+	font-family:"Cambria","serif";
+	color:#4F81BD;
+	font-weight:bold;}
+span.Heading3Char
+	{mso-style-name:"Heading 3 Char";
+	mso-style-link:"Heading 3";
+	font-family:"Cambria","serif";
+	color:#4F81BD;
+	font-weight:bold;}
+span.HTMLPreformattedChar
+	{mso-style-name:"HTML Preformatted Char";
+	mso-style-link:"HTML Preformatted";
+	font-family:Consolas;}
+span.NormalWebChar
+	{mso-style-name:"Normal \(Web\) Char";
+	mso-style-link:"Normal \(Web\)";}
+span.DocumentMapChar
+	{mso-style-name:"Document Map Char";
+	mso-style-link:"Document Map";
+	font-family:"Tahoma","sans-serif";}
+span.BalloonTextChar
+	{mso-style-name:"Balloon Text Char";
+	mso-style-link:"Balloon Text";
+	font-family:"Tahoma","sans-serif";}
+p.msolistparagraphcxspfirst, li.msolistparagraphcxspfirst, div.msolistparagraphcxspfirst
+	{mso-style-name:msolistparagraphcxspfirst;
+	margin-top:0in;
+	margin-right:0in;
+	margin-bottom:0in;
+	margin-left:.5in;
+	margin-bottom:.0001pt;
+	font-size:9.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+p.msolistparagraphcxspmiddle, li.msolistparagraphcxspmiddle, div.msolistparagraphcxspmiddle
+	{mso-style-name:msolistparagraphcxspmiddle;
+	margin-top:0in;
+	margin-right:0in;
+	margin-bottom:0in;
+	margin-left:.5in;
+	margin-bottom:.0001pt;
+	font-size:9.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+p.msolistparagraphcxsplast, li.msolistparagraphcxsplast, div.msolistparagraphcxsplast
+	{mso-style-name:msolistparagraphcxsplast;
+	margin-top:0in;
+	margin-right:0in;
+	margin-bottom:0in;
+	margin-left:.5in;
+	margin-bottom:.0001pt;
+	font-size:9.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+p.msochpdefault, li.msochpdefault, div.msochpdefault
+	{mso-style-name:msochpdefault;
+	margin-right:0in;
+	margin-left:0in;
+	font-size:10.0pt;
+	font-family:"Arial","sans-serif";
+	color:#666666;}
+span.apple-style-span
+	{mso-style-name:apple-style-span;}
+span.spelle
+	{mso-style-name:spelle;}
+.MsoChpDefault
+	{font-size:10.0pt;}
+@page Section1
+	{size:8.5in 11.0in;
+	margin:1.0in 1.25in 1.0in 1.25in;}
+div.Section1
+	{page:Section1;}
+-->
+</style>
+
+</head>
+
+<body lang=EN-US link=blue vlink=purple>
+
+<div class=Section1>
+
+<div>
+
+<h1><span style='font-size:18.0pt;color:#46A040'><img width=562 height=75
+src="http://www.cisco.com/web/europe/images/email/0000195765/h_green.jpg"
+alt=Cisco></span></h1>
+
+<p class=MsoNormal><b><span style='font-size:18.0pt;color:#46A040'>Cisco UCS
+C-Series MIB Support List</span></b></p>
+
+<h1 style='margin-top:0in'><span style='font-size:9.0pt;color:#46A040'><img
+width=416 height=1 
+src="http://www.cisco.com/web/europe/images/email/0000195765/light_bar.jpg"
+alt="http://www.cisco.com/web/europe/images/email/0000195765/light_bar.jpg"
+></span></h1>
+
+</div>
+
+<p class=MsoTocHeading>Contents</p>
+
+<p class=MsoTocHeading style='margin-top:0in;text-indent:12.0pt'><span
+class=MsoHyperlink><span style='font-size:9.0pt;line-height:115%;font-weight:
+normal'><a href="#MIBs_Supported_for_Cisco_UCS_Cseries">MIBs Supported for
+Cisco UCS C-series software release 1.3(1).</a></span></span></p>
+
+<p class=MsoTocHeading style='margin-top:0in;text-indent:12.0pt'><span
+class=MsoHyperlink><span style='font-size:9.0pt;line-height:115%;font-weight:
+normal'><a href="#MIBs_Supported_for_Cisco_UCS_Cseries_14">MIBs Supported for
+Cisco UCS C-series software release 1.4(3).</a></span></span></p>
+
+<p class=MsoTocHeading style='margin-top:0in;text-indent:12.0pt'><span
+class=MsoHyperlink><span style='font-size:9.0pt;line-height:115%;font-weight:
+normal'><a href="#MIBs_Supported_for_Cisco_UCS_Cseries_15">MIBs Supported for
+Cisco UCS C-series software release 1.5.</a></span></span></p>
+
+<p class=MsoTocHeading style='margin-top:0in;text-indent:12.0pt'><span
+class=MsoHyperlink><span style='font-size:9.0pt;line-height:115%;font-weight:
+normal'><a href="#MIBs_Supported_for_Cisco_UCS_Cseries_20">MIBs Supported for
+Cisco UCS C-series software release 2.0.</a></span></span></p>
+
+<p class=MsoTocHeading style='margin-top:0in;text-indent:12.0pt'><span
+class=MsoHyperlink><span style='font-size:9.0pt;line-height:115%;font-weight:
+normal'><a href="#MIBs_Supported_for_Cisco_UCS_Cseries_30">MIBs Supported for 
+Cisco UCS C-series software release 3.0, 3.1, 4.0, and 4.1.</a></span></span></p>
+
+<p>The following lists indicate the MIBs supported by Cisco Unified Computing
+System (UCS) C-Series CIMC SNMP Agent software releases 1.3 and later. </p>
+
+<p>The UCS C-Series platforms supported by the SNMP software release:</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>1.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-22</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>2.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-24</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>3.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-200-M2</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>3.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-210-M2</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>3.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-260-M2</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>3.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-220-M3</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>4.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-240-M3</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>5.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-260</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>6.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-420</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>7.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-460</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>8.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-220-M4</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>9.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-240-M4</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>10.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+S3260</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>11.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-220-M5</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>12.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-240-M5</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>13.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-480-M5</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>14.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-125</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>15.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-220-M6</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>16.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-240-M6</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>17.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-225-M6</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>18.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-245-M6</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>19.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-220-M7</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>20.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-240-M7</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>21.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-225-M8</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'>22.<span style='font-size:7.0pt;
+font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp; </span>UCS
+C-245-M8</p>
+	
+<p>A brief description of the SNMP agent releases are provided below, in the
+reverse-chronological order:</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'><span style='font-family:Symbol'>·</span><span
+style='font-size:7.0pt;font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span><b><u>Release 2.0</u></b> Contains bug fixes for release 1.5.</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'><span style='font-family:Symbol'>·</span><span
+style='font-size:7.0pt;font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span><b><u>Release 1.5</u></b> provides additional configuration options for snmp traps, com2sec settings, 
+implementation for new snmp tables like Adaptor Unit Table, Rack Unit Table and contains bug fixes for 
+release 1.4.</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'><span style='font-family:Symbol'>·</span><span
+style='font-size:7.0pt;font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span><b><u>Release 1.4(3)</u></b> provides SNMP V1/V2c/V3 support for
+inventory and fault monitoring of fans, power supplies, CPU, Memory and Storage
+Controllers, Physical Drives, Logical Drives and Battery Backup Units. The SNMP
+agent supports SNMP V1/V2c/V3 traps and V2c informs. This release also carries
+further the MIB-II Implementation, from the previous release, for System,
+Interfaces and SNMP.</p>
+
+<p style='margin-left:.5in;text-indent:-.25in'><span style='font-family:Symbol'>·</span><span
+style='font-size:7.0pt;font-family:"Times New Roman","serif"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span><b><u>Release 1.3(1)</u></b> provides SNMP V1/V2c support for fault
+monitoring of fans and power supply along with V1/V2c trap support. This
+release also implements the MIB-II support for System, Interfaces and
+SNMP.</p>
+
+<p><b>Note</b>: Configuration Guides for SNMP parameters and traps using CLI
+and GUI may be found at the following location:</p>
+
+<p style='text-indent:.5in'><a
+href="http://www.cisco.com/en/US/products/ps10739/products_installation_and_configuration_guides_list.html">http://www.cisco.com/en/US/products/ps10739/products_installation_and_configuration_guides_list.html</a></p>
+
+<p>For more details and up-to-date information, please see the MIB Quick
+Reference Guide for Cisco UCS: </p>
+
+<p style='text-indent:.5in'><a
+href="http://www.cisco.com/en/US/docs/unified_computing/ucs/sw/mib/reference/UCS_MIBRef.html">http://www.cisco.com/en/US/docs/unified_computing/ucs/sw/mib/reference/UCS_MIBRef.html</a></p>
+
+<p>All Cisco UCS MIBs are SNMP (SMIv2) MIBs. Only SNMP GET requests are
+supported, SNMP SET requests are not supported.</p>
+
+<p class=MsoNormal><b>Note:</b>&nbsp;to obtain a list of MIBs supported by UCS
+Manager managed servers, see&nbsp;<u><span style='color:blue'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/supportlists/ucs/ucs-manager-supportlist.html">ftp://ftp.cisco.com/pub/mibs/supportlists/ucs/ucs-manager-supportlist.html</a></span></u></p>
+
+<p class=MsoNormal style='text-autospace:none'>&nbsp;</p>
+
+<p class=MsoNormal style='text-autospace:none'>&nbsp;</p>
+
+<p class=MsoNormal style='text-autospace:none'>Last updated 04/01/2013.</p>
+
+<p class=MsoNormal style='margin-top:6.0pt'><a name="_Toc303691430"></a><img
+border=0 width=416 height=1
+src="http://www.cisco.com/web/europe/images/email/0000195765/light_bar.jpg"
+alt="../../ucs-manager-supportlist_files/light_bar.jpg"></p>
+
+<h2><a name="MIBs_Supported_for_Cisco_UCS_Cseries"></a><a name="_Toc303691432"></a><span
+class=spelle>MIBs</span> Supported for Cisco <span class=spelle>UCS</span>
+C-series software release 1.3(<span class=spelle>1</span>).</h2>
+
+<p class=MsoNormal>&nbsp;</p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-FAULT-MIB.my">CISCO-UNIFIED-COMPUTING-FAULT-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-MIB.my">CISCO-UNIFIED-COMPUTING-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-NOTIFS-MIB.my">CISCO-UNIFIED-COMPUTING-NOTIFS-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-TC-MIB.my">CISCO-UNIFIED-COMPUTING-TC-MIB</a></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ITU-ALARM-TC-MIB.my"><span class=spelle>ITU</span>-ALARM-<span
+class=spelle>TC</span>-<span class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-MIB.my"><span class=spelle>SNMPv2-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-CONF.my"><span class=spelle>SNMPv2</span>-CONF-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-SMI.my"><span class=spelle>SNMPv2-SMI-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-TC.my"><span class=spelle>SNMPv2-TC-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/INET-ADDRESS-MIB.my"><span class=spelle>INET</span>-ADDRESS-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-SMI.my">CISCO-<span class=spelle>SMI</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-TC.my">CISCO-<span class=spelle>TC</span></a>
+</p>
+
+<p class=MsoNormal>&nbsp;</p>
+
+<p class=MsoNormal style='margin-top:6.0pt'><img border=0 width=416 height=1
+src="http://www.cisco.com/web/europe/images/email/0000195765/light_bar.jpg"
+alt="../../ucs-manager-supportlist_files/light_bar.jpg"></p>
+
+<h2><a name="MIBs_Supported_for_Cisco_UCS_Cseries_14"></a><span class=spelle>MIBs</span>
+Supported for Cisco <span class=spelle>UCS</span> C-series software release
+1.4(<span class=spelle>3</span>) and later releases.</h2>
+
+<p class=MsoNormal>&nbsp;</p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-EQUIPMENT-MIB.my">CISCO-UNIFIED-COMPUTING-EQUIPMENT-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-FAULT-MIB.my">CISCO-UNIFIED-COMPUTING-FAULT-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-MIB.my">CISCO-UNIFIED-COMPUTING-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-MEMORY-MIB.my">CISCO-UNIFIED-COMPUTING-MEMORY-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-NOTIFS-MIB.my">CISCO-UNIFIED-COMPUTING-NOTIFS-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-PROCESSOR-MIB.my">CISCO-UNIFIED-COMPUTING-PROCESSOR-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-STORAGE-MIB.my">CISCO-UNIFIED-COMPUTING-STORAGE-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-TC-MIB.my">CISCO-UNIFIED-COMPUTING-TC-MIB</a></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ITU-ALARM-TC-MIB.my"><span class=spelle>ITU</span>-ALARM-<span
+class=spelle>TC</span>-<span class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-MIB.my"><span class=spelle>SNMPv2-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-CONF.my"><span class=spelle>SNMPv2</span>-CONF-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-SMI.my"><span class=spelle>SNMPv2-SMI-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-TC.my"><span class=spelle>SNMPv2-TC-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/INET-ADDRESS-MIB.my"><span class=spelle>INET</span>-ADDRESS-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-SMI.my">CISCO-<span class=spelle>SMI</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-TC.my">CISCO-<span class=spelle>TC</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'>&nbsp;</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'>&nbsp;</p>
+
+<p class=MsoNormal>&nbsp;</p>
+
+<p class=MsoNormal style='margin-top:6.0pt'><img border=0 width=416 height=1
+src="http://www.cisco.com/web/europe/images/email/0000195765/light_bar.jpg"
+alt="../../ucs-manager-supportlist_files/light_bar.jpg"></p>
+
+<h2><a name="MIBs_Supported_for_Cisco_UCS_Cseries_15"></a><span class=spelle>MIBs</span>
+Supported for Cisco <span class=spelle>UCS</span> C-series software release
+1.5 and later releases.</h2>
+
+<p class=MsoNormal>&nbsp;</p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-ADAPTOR-MIB.my">CISCO-UNIFIED-COMPUTING-ADAPTOR-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-EQUIPMENT-MIB.my">CISCO-UNIFIED-COMPUTING-EQUIPMENT-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-FAULT-MIB.my">CISCO-UNIFIED-COMPUTING-FAULT-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-MIB.my">CISCO-UNIFIED-COMPUTING-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-MEMORY-MIB.my">CISCO-UNIFIED-COMPUTING-MEMORY-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-NOTIFS-MIB.my">CISCO-UNIFIED-COMPUTING-NOTIFS-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-PROCESSOR-MIB.my">CISCO-UNIFIED-COMPUTING-PROCESSOR-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-STORAGE-MIB.my">CISCO-UNIFIED-COMPUTING-STORAGE-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-TC-MIB.my">CISCO-UNIFIED-COMPUTING-TC-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-COMPUTE-MIB.my">CISCO-UNIFIED-COMPUTING-COMPUTE-MIB</a></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ITU-ALARM-TC-MIB.my"><span class=spelle>ITU</span>-ALARM-<span
+class=spelle>TC</span>-<span class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-MIB.my"><span class=spelle>SNMPv2-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-CONF.my"><span class=spelle>SNMPv2</span>-CONF-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-SMI.my"><span class=spelle>SNMPv2-SMI-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-TC.my"><span class=spelle>SNMPv2-TC-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/INET-ADDRESS-MIB.my"><span class=spelle>INET</span>-ADDRESS-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-SMI.my">CISCO-<span class=spelle>SMI</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-TC.my">CISCO-<span class=spelle>TC</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'>&nbsp;</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'>&nbsp;</p>
+
+<p class=MsoNormal><img border=0 width=416 height=1
+src="http://www.cisco.com/web/europe/images/email/0000195765/light_bar.jpg"
+alt="../../ucs-manager-supportlist_files/light_bar.jpg"></p>
+
+<p class=MsoNormal>&nbsp;</p>
+
+<h2><a name="MIBs_Supported_for_Cisco_UCS_Cseries_20"></a><span class=spelle>MIBs</span>
+Supported for Cisco <span class=spelle>UCS</span> C-series software release
+2.0 and later releases.</h2>
+
+<p class=MsoNormal>&nbsp;</p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-ADAPTOR-MIB.my">CISCO-UNIFIED-COMPUTING-ADAPTOR-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-EQUIPMENT-MIB.my">CISCO-UNIFIED-COMPUTING-EQUIPMENT-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-FAULT-MIB.my">CISCO-UNIFIED-COMPUTING-FAULT-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-MIB.my">CISCO-UNIFIED-COMPUTING-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-MEMORY-MIB.my">CISCO-UNIFIED-COMPUTING-MEMORY-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-NOTIFS-MIB.my">CISCO-UNIFIED-COMPUTING-NOTIFS-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-PROCESSOR-MIB.my">CISCO-UNIFIED-COMPUTING-PROCESSOR-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-STORAGE-MIB.my">CISCO-UNIFIED-COMPUTING-STORAGE-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-TC-MIB.my">CISCO-UNIFIED-COMPUTING-TC-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-COMPUTE-MIB.my">CISCO-UNIFIED-COMPUTING-COMPUTE-MIB</a></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ITU-ALARM-TC-MIB.my"><span class=spelle>ITU</span>-ALARM-<span
+class=spelle>TC</span>-<span class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-MIB.my"><span class=spelle>SNMPv2-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-CONF.my"><span class=spelle>SNMPv2</span>-CONF-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-SMI.my"><span class=spelle>SNMPv2-SMI-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-TC.my"><span class=spelle>SNMPv2-TC-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/INET-ADDRESS-MIB.my"><span class=spelle>INET</span>-ADDRESS-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-SMI.my">CISCO-<span class=spelle>SMI</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-TC.my">CISCO-<span class=spelle>TC</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'>&nbsp;</p>
+
+<p class=MsoNormal><img border=0 width=416 height=1
+
+<p style='margin:0in;margin-bottom:.0001pt'>&nbsp;</p>
+
+<p class=MsoNormal><img border=0 width=416 height=1
+src="http://www.cisco.com/web/europe/images/email/0000195765/light_bar.jpg"
+alt="../../ucs-manager-supportlist_files/light_bar.jpg"></p>
+
+<p class=MsoNormal>&nbsp;</p>
+
+<h2><a name="MIBs_Supported_for_Cisco_UCS_Cseries_30"></a><span class=spelle>MIBs</span>
+Supported for Cisco <span class=spelle>UCS</span> C-series software release
+3.0, 3.1, 4.0, and 4.1.</h2>
+
+<p class=MsoNormal>&nbsp;</p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-ADAPTOR-MIB.my">CISCO-UNIFIED-COMPUTING-ADAPTOR-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-EQUIPMENT-MIB.my">CISCO-UNIFIED-COMPUTING-EQUIPMENT-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-MGMT-MIB.my">CISCO-UNIFIED-COMPUTING-MGMT-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-FAULT-MIB.my">CISCO-UNIFIED-COMPUTING-FAULT-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-MIB.my">CISCO-UNIFIED-COMPUTING-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-MEMORY-MIB.my">CISCO-UNIFIED-COMPUTING-MEMORY-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-NOTIFS-MIB.my">CISCO-UNIFIED-COMPUTING-NOTIFS-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-PROCESSOR-MIB.my">CISCO-UNIFIED-COMPUTING-PROCESSOR-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-STORAGE-MIB.my">CISCO-UNIFIED-COMPUTING-STORAGE-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-TC-MIB.my">CISCO-UNIFIED-COMPUTING-TC-MIB</a></span></p>
+
+<p class=MsoNormal><span class=MsoHyperlink><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/ucs-mibs/CISCO-UNIFIED-COMPUTING-COMPUTE-MIB.my">CISCO-UNIFIED-COMPUTING-COMPUTE-MIB</a></span></p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/ITU-ALARM-TC-MIB.my"><span class=spelle>ITU</span>-ALARM-<span
+class=spelle>TC</span>-<span class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-MIB.my"><span class=spelle>SNMPv2-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-CONF.my"><span class=spelle>SNMPv2</span>-CONF-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-SMI.my"><span class=spelle>SNMPv2-SMI-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMPv2-TC.my"><span class=spelle>SNMPv2-TC-MIB</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/SNMP-FRAMEWORK-MIB.my">SNMP-FRAMEWORK-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/INET-ADDRESS-MIB.my"><span class=spelle>INET</span>-ADDRESS-<span
+class=spelle>MIB</span></a> </p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-SMI.my">CISCO-<span class=spelle>SMI</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'><a
+href="https://raw.githubusercontent.com/cisco/cisco-mibs/main/v2/CISCO-TC.my">CISCO-<span class=spelle>TC</span></a>
+</p>
+
+<p style='margin:0in;margin-bottom:.0001pt'>&nbsp;</p>
+
+<p class=MsoNormal><img border=0 width=416 height=1
+
+<p style='margin:0in;margin-bottom:.0001pt'>&nbsp;</p>
+
+<p class=MsoNormal><img border=0 width=416 height=1
+src="http://www.cisco.com/web/europe/images/email/0000195765/light_bar.jpg"
+alt="../../ucs-manager-supportlist_files/light_bar.jpg"></p>
+
+<p class=MsoNormal>&nbsp;</p>
+
+</div>
+
+</body>
+
+</html>

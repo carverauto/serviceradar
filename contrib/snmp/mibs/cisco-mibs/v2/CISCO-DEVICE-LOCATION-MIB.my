@@ -1,0 +1,1236 @@
+-- *****************************************************************
+-- CISCO-DEVICE-LOCATION-MIB.my
+-- This MIB is for providing location information to end point
+-- devices connected to routers and switches.
+--   
+-- March 2010, B L Balaji, Richard Johnson, Radha Yerramilli
+--   
+-- Copyright (c) 2010 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-DEVICE-LOCATION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    RowStatus,
+    StorageType
+        FROM SNMPv2-TC
+    CountryCode
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoDeviceLocationMIB MODULE-IDENTITY
+    LAST-UPDATED    "201010280000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-location@cisco.com"
+    DESCRIPTION
+        "This MIB is used for managing location information
+        of end point devices(Telepresence, IP Camera, Digital media 
+        player etc) connected to switches/routers.
+
+        This location information is then carried from the switch/router
+        to the end point via Cisco Discovery protocol (CDP) or 
+        Link Layer Discovery protocol (LLDP).
+
+        The location information can be used by applications such as 
+        Cisco Video Surveillance Manager, digital media manager.
+
+        Civic location information as described in RFC 4676, identifies
+        the exact location information like state, city, building, 
+        floor that helps identify the exact location of the devices.
+
+        Definitions:
+        ============
+        LocationTarget: This is identified by a target type 
+        (interface, IP session) and target identifier 
+        (ifIndex, IP address). 
+
+        MIB Table Overview:
+        ===================
+        This MIB consists of five tables:
+
+           1) cdlLocationTable
+           2) cdlCivicAddrLocationTable
+           3) cdlCustomLocationTable
+           4) cdlGeoLocationTable
+           5) cdlLocationPreferWeightTable
+
+        The cdlLocationTable provides information about 
+        location information of LocationTarget.
+
+        cdlCivicAddrLocationTable provides the 
+        details about the civic address types like state, 
+        county, city for a given LocationTarget.
+
+        cdlCustomLocationTable provides the ability to
+        associate arbitrary name/value pairs with a
+        LocationTarget.  This allows for specification of
+        information which is not currently included into the
+        standard definition of Civic address types.
+
+        cdlGeoLocationTable provides Geolocation (GPS)
+        coordinate information for a LocationType.
+
+        cdlLocationPreferWeightTable provides information about,
+        and a method for configuring, the order in which
+        the system makes use of location information which is
+        provided by different sources.
+
+        The following provides a sample view of 
+        the contents of the table and the relationship 
+        between them.
+
+        cdlLocationTable
+        ------------------------------------------------
+        Location   Sub     Country   Target    Target 
+         Index    TypeCap   Code      Type    Identifier
+        -------------------------------------------------
+        - 1      Civic Addr    01   Interface     1
+        | 2      Civic Addr    01   Interface     2
+        |
+        |
+        |       cdlCivicAddrLocationTable  
+        |       ----------------------------------------
+        |       Location   Location      Location
+        |        Index    Type Index      Value 
+        |       -----------------------------------------
+        |_ _ _ _  1          1 - State     Karnataka 
+        |_ _ _ _  1          2 - County    Bangalore District
+        |_ _ _ _  1          3 - city      Bangalore
+                  2          1 - State     Kerala
+                  2          2 - County    Waynad District
+                  2          3 - city      Waynad"
+    REVISION        "201010280000Z"
+    DESCRIPTION
+        "-Added following tables:
+        cdlCustomLocationTable
+        cdlGeoLocationTable
+        cdlLocationPreferWeightTable
+
+        -Added 'custom' bit to cdlLocationSubTypeCapability
+
+        -Deprecated cdlMIBCompliance MODULE-COMPLIANCE statement
+
+        -Added the following OBJECT-GROUP's
+        cdlCustomLocationGroup
+        cdlGeoLocationGroup
+        cdlLocationPreferWeightGroup
+
+        -Added cdlMIBComplianceRev1"
+    REVISION        "201004260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 732 }
+
+
+cdlMIBNotifications  OBJECT IDENTIFIER
+    ::= { ciscoDeviceLocationMIB 0 }
+
+cdlMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoDeviceLocationMIB 1 }
+
+cdlMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoDeviceLocationMIB 2 }
+
+cdlMIBScalars  OBJECT IDENTIFIER
+    ::= { cdlMIBObjects 1 }
+
+
+cdlKey OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A proprietary key to validate the application requiring access
+        to the rest of the objects in this MIB. A read operation on
+        this object would return NULL string." 
+    ::= { cdlMIBScalars 1 }
+
+cdlLocationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdlLocationEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists different LocationTargets and associated
+        location attributes (such as country code).
+
+        The information in this table MUST be stored in
+        non-volatile-memory and persist over restart and reboot
+        sequences."
+    ::= { cdlMIBObjects 2 }
+
+cdlLocationEntry OBJECT-TYPE
+    SYNTAX          CdlLocationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes the location attributes required to
+        be configured for every LocationTarget in a device.
+
+        An entry is created in this table when an interface is
+        detected in this devices or an IP session 
+        is established.
+
+        An entry is removed in this table when an interface is 
+        removed or an IP session is terminated."
+    INDEX           { cdlLocationIndex } 
+    ::= { cdlLocationTable 1 }
+
+CdlLocationEntry ::= SEQUENCE {
+        cdlLocationIndex             Unsigned32,
+        cdlLocationSubTypeCapability BITS,
+        cdlLocationCountryCode       CountryCode,
+        cdlLocationTargetType        INTEGER,
+        cdlLocationTargetIdentifier  OCTET STRING
+}
+
+cdlLocationIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Identifies the unique index assigned to a given
+        LocationTarget.
+
+        A LocationTarget is defined by cdlLocationTargetType 
+        and cdlLocationTargetIdentifier." 
+    ::= { cdlLocationEntry 1 }
+
+cdlLocationSubTypeCapability OBJECT-TYPE
+    SYNTAX          BITS {
+                        noSubtypesConfigured(0),
+                        geoLocation(1),
+                        civic(2),
+                        elin(3),
+                        custom(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the location subtypes that can be
+        supported by a given LocationTarget.
+
+        Following is the list of subtypes:
+
+        noSubtypesConfigured(0) 0x0 - No location types configured
+
+        geoLocation(1)          0x1 - GeoSpatial location information
+
+        civic(2)                0x2 - Civic address location 
+                                      information.
+                                      When this sub type is set then
+                                      cdlCivicAddrLocationTable could
+                                      have zero or more rows created.
+
+        elin(3)                 0x4 - ELIN location information
+
+        custom(4)               0x8 - Custom location information
+
+        For Example: If both 'civic' and 'elin' are 
+        supported on a given LocationTarget then the value 
+        of this object would be 0x110."
+    REFERENCE       "ANSI/TIA-1057, Section 10.2.4.2" 
+    ::= { cdlLocationEntry 2 }
+
+cdlLocationCountryCode OBJECT-TYPE
+    SYNTAX          CountryCode
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Country code information applicable to a given LocationTarget" 
+    ::= { cdlLocationEntry 3 }
+
+cdlLocationTargetType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        interface(1),
+                        ipv4Addr(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the target type.
+
+        The following are the possible values.
+
+        interface(1) - The interface could be a physical 
+                       interface or a virtual/logical 
+                       interface.
+
+        ipv4Addr(2)  - An ipv4 address of a given session." 
+    ::= { cdlLocationEntry 4 }
+
+cdlLocationTargetIdentifier OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (1..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a unique identifier for a
+        given cdlLocationTargetType in a given device.
+
+        If the cdlLocationTargetType is set to 'interface',
+        then the identifier would be the ifIndex.
+
+        If the cdlLocationTargetType is set to 'ipv4Addr',
+        then the identifier would the IP address." 
+    ::= { cdlLocationEntry 5 }
+ 
+
+
+cdlCivicAddrLocationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdlCivicAddrLocationEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists civic address information of
+        end point devices.
+
+        This table has a sparse dependant relationship with 
+        cdlLocationTable. 
+
+        The information in this table MUST be stored in
+        non-volatile-memory and persist across
+        restart, reboot and switch-over sequences."
+    ::= { cdlMIBObjects 3 }
+
+cdlCivicAddrLocationEntry OBJECT-TYPE
+    SYNTAX          CdlCivicAddrLocationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table specifies civic address
+        location information.
+
+        One or more entries could be created for
+        every entry in cdlLocationEntry with 
+        cdlLocationSubTypeCapability set to 'civic' type.
+
+        If an entry in cdlLocationEntry is deleted then all
+        all corresponding entries would be deleted 
+        in this table."
+    REFERENCE       "Section 3.4 of RFC4676."
+    INDEX           {
+                        cdlLocationIndex,
+                        cdlCivicAddrLocationType
+                    } 
+    ::= { cdlCivicAddrLocationTable 1 }
+
+CdlCivicAddrLocationEntry ::= SEQUENCE {
+        cdlCivicAddrLocationType        INTEGER,
+        cdlCivicAddrLocationValue       SnmpAdminString,
+        cdlCivicAddrLocationStorageType StorageType,
+        cdlCivicAddrLocationStatus      RowStatus
+}
+
+cdlCivicAddrLocationType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        state(1),
+                        county(2),
+                        city(3),
+                        cityDivision(4),
+                        neighborhood(5),
+                        streetGroup(6),
+                        leadingStreetDirection(16),
+                        trailingStreetDirection(17),
+                        streetSuffix(18),
+                        house(19),
+                        streetNumber(20),
+                        landmark(21),
+                        additionalLoc(22),
+                        name(23),
+                        zipcode(24),
+                        building(25),
+                        unit(26),
+                        floor(27),
+                        room(28),
+                        place(29),
+                        postalCommunityName(30),
+                        postOffiiceBox(31),
+                        additionalCode(32),
+                        seat(33),
+                        primaryRoad(34),
+                        roadSection(35),
+                        roadBranch(36),
+                        roadSubBranch(37),
+                        streetNamePreMod(38),
+                        streetNamePostMod(39)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the location types
+        that can be configured/unconfigured on a LocationTarget.
+
+        The following are all the possible types and a 
+        brief explanation for the same.
+
+            state(1)                    - National subdivision (state)
+            county(2)                   - County
+            city(3)                     - City
+            cityDivision(4)             - City division
+            neighborhood(5)             - Neighborhood
+            streetGroup(6)              - Group of streets
+            leadingStreetDirection(16)  - Leading street direction
+            trailingStreetDirection(17) - Trailing street direction
+            streetSuffix(18)            - Street suffix
+            house(19)                   - House number
+            streetNumber(20)            - House number suffix
+            landmark(21)                - Landmark
+            additionalLoc(22)           - Additional location 
+                                        - information
+            name(23)                    - Name of the resident
+            zipcode(24)                 - Postal/Zip Code
+            building(25)                - Building name
+            unit(26)                    - Unit
+            floor(27)                   - Floor number
+            room(28)                    - Room number
+            place(29)                   - Place type
+            postalCommunityName(30)     - Postal community name
+            postOffiiceBox(31)          - PO Box
+            additionalCode(32)          - Additional code information
+            seat(33)                    - Seat number
+            primaryRoad(34)             - primary road or street name
+            roadSection(35)             - Road section name
+            roadBranch(36)              - Road branch name
+            roadSubBranch(37)           - Road sub-branch name
+            streetNamePreMod(38)        - Street pre modifier name
+            streetNamePostMod(39)       - Street post modifier name"
+    REFERENCE       "RFC 4676, Section 3.4" 
+    ::= { cdlCivicAddrLocationEntry 1 }
+
+cdlCivicAddrLocationValue OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the civic address value for a given
+        cdlCivicAddrLocationType. 
+
+        For Example: If cdlCivicAddrLocationType is of type 
+        'building' then the string value representing 
+        this type would be the name of the building, 
+        like 'Building 23'." 
+    ::= { cdlCivicAddrLocationEntry 2 }
+
+cdlCivicAddrLocationStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for
+        this conceptual row." 
+    ::= { cdlCivicAddrLocationEntry 3 }
+
+cdlCivicAddrLocationStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object will follow RowStatus Textual convention
+        to create/destroy entries.
+
+        The following columnar object is
+        mandatory to make the entry 'active':
+            cdlCivicAddrLocationValue" 
+    ::= { cdlCivicAddrLocationEntry 4 }
+ 
+
+
+cdlCustomLocationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdlCustomLocationEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists 'Custom' address information of
+        end point devices, giving 'name' and 'value' pairs.
+
+        This table has a sparse dependent relationship with 
+        cdlLocationTable. 
+
+        The information in this table MUST be stored in
+        non-volatile-memory and persist across
+        restart, reboot and switch-over sequences."
+    ::= { cdlMIBObjects 4 }
+
+cdlCustomLocationEntry OBJECT-TYPE
+    SYNTAX          CdlCustomLocationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table specifies 'Custom' address
+        location information consisting of 'Name' and associated
+        'Value' pairs.
+
+        One or more entries could be created for
+        every entry in cdlLocationEntry with 
+        cdlLocationSubTypeCapability set to 'custom' type.
+
+        If an entry in cdlLocationEntry is deleted then
+        all corresponding entries would be deleted 
+        in this table."
+    INDEX           {
+                        cdlLocationIndex,
+                        IMPLIED cdlCustomLocationName
+                    } 
+    ::= { cdlCustomLocationTable 1 }
+
+CdlCustomLocationEntry ::= SEQUENCE {
+        cdlCustomLocationName        SnmpAdminString,
+        cdlCustomLocationValue       SnmpAdminString,
+        cdlCustomLocationStorageType StorageType,
+        cdlCustomLocationStatus      RowStatus
+}
+
+cdlCustomLocationName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..64))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the 'Custom' address 'Name' for a given
+        cdlCustomLocationEntry. 
+
+        The character string may contain space characters.
+
+        Examples would be 'Department', 'Class room', etc." 
+    ::= { cdlCustomLocationEntry 1 }
+
+cdlCustomLocationValue OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the 'Custom' address 'Value' for a given
+        cdlCustomLocationEntry. 
+
+        For Example: If the cdlCustomLocationName were
+        'Department' then the 'Value' string may be 'Photography'." 
+    ::= { cdlCustomLocationEntry 2 }
+
+cdlCustomLocationStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for
+        this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cdlCustomLocationEntry 3 }
+
+cdlCustomLocationStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object will follow RowStatus Textual convention
+        to create/destroy entries.
+
+        The following columnar objects are
+        mandatory to make the entry 'active':
+                cdlCustomLocationValue
+
+        cdlCustomLocationValue may be modified at any time
+        (even while the row is active)." 
+    ::= { cdlCustomLocationEntry 4 }
+ 
+
+
+cdlGeoLocationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdlGeoLocationEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists Geographic address information of
+        end point devices.
+
+        This table has a sparse dependent relationship with 
+        cdlLocationTable. 
+
+        The information in this table MUST be stored in
+        non-volatile-memory and persist across
+        restart, reboot and switch-over sequences."
+    ::= { cdlMIBObjects 5 }
+
+cdlGeoLocationEntry OBJECT-TYPE
+    SYNTAX          CdlGeoLocationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table specifies Geographic location
+        information.
+
+        An entry in this table is appropriate for any LocationEntry
+        which has the cdlLocationSubTypeCapability bit presenting the
+        'geo' type set.
+
+        If an entry in cdlLocationEntry is deleted then the
+        corresponding entry would be deleted in this table."
+    REFERENCE       "Section 2.1 of RFC3825."
+    INDEX           { cdlLocationIndex } 
+    ::= { cdlGeoLocationTable 1 }
+
+CdlGeoLocationEntry ::= SEQUENCE {
+        cdlGeoLatitude            SnmpAdminString,
+        cdlGeoLatitudeResolution  SnmpAdminString,
+        cdlGeoLongitude           SnmpAdminString,
+        cdlGeoLongitudeResolution SnmpAdminString,
+        cdlGeoAltitude            SnmpAdminString,
+        cdlGeoAltitudeType        INTEGER,
+        cdlGeoAltitudeResolution  SnmpAdminString,
+        cdlGeoResolution          SnmpAdminString,
+        cdlGeoStorageType         StorageType,
+        cdlGeoStatus              RowStatus
+}
+
+cdlGeoLatitude OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies latitude of the end point device in
+        degrees.  An empty string means that latitude is not configured
+        for this row." 
+    ::= { cdlGeoLocationEntry 1 }
+
+cdlGeoLatitudeResolution OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies latitude resolution of the
+        end point device in meters.  This allows for specification of
+        latitude resolution separately from other dimensions.
+
+        If this resolution is non-empty, then it has precedence
+        over cdlGeoResolution as the resolution attributed
+        to cdlGeoLatitude."
+    REFERENCE       "Section 2.1 of RFC3825."
+    DEFVAL          { "" } 
+    ::= { cdlGeoLocationEntry 2 }
+
+cdlGeoLongitude OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies longitude of the end point device in
+        degrees.  An empty string means that longitude is not
+        configured for this row."
+    REFERENCE       "Section 2.1 of RFC3825." 
+    ::= { cdlGeoLocationEntry 3 }
+
+cdlGeoLongitudeResolution OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies longitude resolution of the
+        end point device in meters.  This allows for specification of
+        longitude resolution separately from other dimensions.
+
+        If this resolution is non-empty, then it has precedence
+        over cdlGeoResolution as the resolution attributed
+        to cdlGeoLongitude."
+    REFERENCE       "Section 2.1 of RFC3825."
+    DEFVAL          { "" } 
+    ::= { cdlGeoLocationEntry 4 }
+
+cdlGeoAltitude OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies altitude of the end point device in
+        units, as specified in cdlGeoAltitudeType.  An empty string
+        means that altitude is not configured for this row."
+    REFERENCE       "Section 2.1 of RFC3825." 
+    ::= { cdlGeoLocationEntry 5 }
+
+cdlGeoAltitudeType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        meters(1),
+                        floors(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Geographic Location Altitude types
+        which may be configured on a LocationTarget.
+
+        The following are all the possible types as specified in
+        the referenced RFC.
+
+            meters(1)
+            floors(2)
+
+        Note that if the type is specified in 'feet' by other means of
+        configuration for information denoted by this object,
+        it will be reported in units of 'meters' here, in order
+        to agree with the referenced RFC."
+    REFERENCE       "RFC 3825, Section 2.1"
+    DEFVAL          { meters } 
+    ::= { cdlGeoLocationEntry 6 }
+
+cdlGeoAltitudeResolution OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies altitude resolution of
+        the end point device in the same units as that which
+        cdlGeoAltitudeType specifies.  This allows for specification of
+        altitude resolution separately from other dimensions.
+
+        If this resolution is non-empty, then it has precedence
+        over cdlGeoResolution as the resolution attributed
+        to cdlGeoAltitude."
+    REFERENCE       "Section 2.1 of RFC3825."
+    DEFVAL          { "10" } 
+    ::= { cdlGeoLocationEntry 7 }
+
+cdlGeoResolution OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies resolution of the end point device in
+        meters.  A resolution specified here will apply to latitude and
+        longitude."
+    REFERENCE       "Section 2.1 of RFC3825."
+    DEFVAL          { "10" } 
+    ::= { cdlGeoLocationEntry 8 }
+
+cdlGeoStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for
+        this conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cdlGeoLocationEntry 9 }
+
+cdlGeoStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object will follow RowStatus Textual convention
+        to create/destroy entries.
+
+        The following columnar objects are
+        mandatory to make the entry 'active':
+                cdlGeoLatitude
+                cdlGeoLongitude
+
+        All columnar objects may be modified at any time
+        (even while the row is active)." 
+    ::= { cdlGeoLocationEntry 10 }
+ 
+
+
+cdlLocationPreferWeightTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdlLocationPreferWeightEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the preference weights which are to be given
+        to location information according the source of the
+        information.
+
+        Each possible source for location information has an assigned
+        cdlLocationPreferWeightEntry with a unique
+        cdlLocationPreferWeightType number.  Each source has
+        an entry in the table with an associated weight
+        (cdlLocationPreferWeightValue).
+
+        When information is retrieved for internal use, via SNMP, via
+        CLI, etc., the information source associated with the lowest
+        weight, and which contains the type of information requested,
+        will be utilized."
+    ::= { cdlMIBObjects 6 }
+
+cdlLocationPreferWeightEntry OBJECT-TYPE
+    SYNTAX          CdlLocationPreferWeightEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table specifies the Weight which is
+        assigned to a particular source of Location information.
+
+        All weight 'Value' fields need not add to 100.
+
+        Location source priorities are simply sorted according
+        to the values entered, with a lower number indicating a
+        'better' priority."
+    INDEX           { cdlLocationPreferWeightType } 
+    ::= { cdlLocationPreferWeightTable 1 }
+
+CdlLocationPreferWeightEntry ::= SEQUENCE {
+        cdlLocationPreferWeightType  INTEGER,
+        cdlLocationPreferWeightValue Unsigned32
+}
+
+cdlLocationPreferWeightType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        static(1),
+                        locp(2),
+                        dhcp(3),
+                        lldp(4),
+                        cdp(5)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Location source weight type.
+
+        The following source types are represented:
+
+        static(1)    - Statically configured via CLI or SNMP
+        locp(2)      - Location Control Protocol
+        dhcp(3)      - Dynamic Host Configuration Protocol
+        lldp(4)      - Link Layer Discovery Protocol
+        cdp(5)       - Cisco Discovery Protocol" 
+    ::= { cdlLocationPreferWeightEntry 1 }
+
+cdlLocationPreferWeightValue OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Weight to assign
+        to a particular source of Location information.
+
+        All weight 'Value' fields need not add to 100.
+
+        Location information from sources are used according to the
+        priority weight values entered, with a lower number indicating a
+        'better' priority." 
+    ::= { cdlLocationPreferWeightEntry 2 }
+ 
+
+cdlMIBCompliances  OBJECT IDENTIFIER
+    ::= { cdlMIBConform 1 }
+
+cdlMIBGroups  OBJECT IDENTIFIER
+    ::= { cdlMIBConform 2 }
+
+
+cdlMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO-DEVICE-LOCATION-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cdlLocationGroup,
+                        cdlCivicAddrLocationGroup
+                    }
+
+    OBJECT          cdlCivicAddrLocationValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlLocationCountryCode
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlCivicAddrLocationStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation that is required to support
+        write access would need to support only
+        three of the six enumerated values of the RowStatus
+        textual convention, specifically: 'active',
+        'createAndGo' and 'destroy'.
+
+        An implementation that is required to support
+        read only access would need to support
+        only 'active'."
+
+    OBJECT          cdlCivicAddrLocationStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required and 'non-volatile'
+        is the only value supported."
+    ::= { cdlMIBCompliances 1 }
+
+cdlMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO-DEVICE-LOCATION-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cdlLocationGroup }
+
+    GROUP           cdlCivicAddrLocationGroup
+    DESCRIPTION
+        "This group is optional and, if present,
+        contains standardized Civic Address information."
+
+    GROUP           cdlCustomLocationGroup
+    DESCRIPTION
+        "This group is optional and, if present,
+        contains Cisco Custom Location information."
+
+    GROUP           cdlGeoLocationGroup
+    DESCRIPTION
+        "This group is optional and, if present,
+        contains Geographic (GPS) Address information."
+
+    GROUP           cdlLocationPreferWeightGroup
+    DESCRIPTION
+        "This group is optional and, if present,
+        contains Preference Weight configuration
+        information."
+
+    OBJECT          cdlCivicAddrLocationValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlLocationCountryCode
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlCivicAddrLocationStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation that is required to support
+        write access would need to support only
+        three of the six enumerated values of the RowStatus
+        textual convention, specifically: 'active',
+        'createAndGo' and 'destroy'.
+
+        An implementation that is required to support
+        read only access would need to support
+        only 'active'."
+
+    OBJECT          cdlCivicAddrLocationStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required and 'non-volatile'
+        is the only value supported."
+
+    OBJECT          cdlCustomLocationValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlCustomLocationStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation that is required to support
+        write access would need to support only
+        three of the six enumerated values of the RowStatus
+        textual convention, specifically: 'active',
+        'createAndGo' and 'destroy'.
+
+        An implementation that is required to support
+        read only access would need to support
+        only 'active'."
+
+    OBJECT          cdlCustomLocationStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required and 'non-volatile'
+        is the only value supported."
+
+    OBJECT          cdlGeoLatitude
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlGeoLatitudeResolution
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlGeoLongitude
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlGeoLongitudeResolution
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlGeoAltitude
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlGeoAltitudeType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlGeoAltitudeResolution
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlGeoResolution
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+
+    OBJECT          cdlGeoStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation that is required to support
+        write access would need to support only
+        three of the six enumerated values of the RowStatus
+        textual convention, specifically: 'active',
+        'createAndGo' and 'destroy'.
+
+        An implementation that is required to support
+        read only access would need to support
+        only 'active'."
+
+    OBJECT          cdlGeoStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required and 'non-volatile'
+        is the only value supported."
+
+    OBJECT          cdlLocationPreferWeightValue
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "An implementation is required to support
+        only read access."
+    ::= { cdlMIBCompliances 2 }
+
+-- Units of Conformance
+
+cdlLocationGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdlLocationSubTypeCapability,
+                        cdlLocationCountryCode,
+                        cdlLocationTargetType,
+                        cdlLocationTargetIdentifier,
+                        cdlKey
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of location objects."
+    ::= { cdlMIBGroups 1 }
+
+cdlCivicAddrLocationGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdlCivicAddrLocationValue,
+                        cdlCivicAddrLocationStatus,
+                        cdlCivicAddrLocationStorageType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of civic address location objects."
+    ::= { cdlMIBGroups 2 }
+
+cdlCustomLocationGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdlCustomLocationValue,
+                        cdlCustomLocationStatus,
+                        cdlCustomLocationStorageType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of Custom location information objects."
+    ::= { cdlMIBGroups 3 }
+
+cdlGeoLocationGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdlGeoLatitude,
+                        cdlGeoLatitudeResolution,
+                        cdlGeoLongitude,
+                        cdlGeoLongitudeResolution,
+                        cdlGeoAltitude,
+                        cdlGeoAltitudeType,
+                        cdlGeoAltitudeResolution,
+                        cdlGeoResolution,
+                        cdlGeoStatus,
+                        cdlGeoStorageType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of Geographic location information objects."
+    ::= { cdlMIBGroups 4 }
+
+cdlLocationPreferWeightGroup OBJECT-GROUP
+    OBJECTS         { cdlLocationPreferWeightValue }
+    STATUS          current
+    DESCRIPTION
+        "A collection of location source preference objects."
+    ::= { cdlMIBGroups 5 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,100 @@
+-- *****************************************************************
+-- SSH-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-SSH-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200SshMib MODULE-IDENTITY
+    LAST-UPDATED "201401290000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the SSH MIB"
+    REVISION    "201711280000Z"
+    DESCRIPTION
+        "Added support for RSA key length."
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310150000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 49 }
+
+
+me1200SshMIBObjects OBJECT IDENTIFIER
+    ::= { me1200SshMib 1 }
+
+me1200SshConfig OBJECT IDENTIFIER
+    ::= { me1200SshMIBObjects 2 }
+
+me1200SshGlobals OBJECT IDENTIFIER
+    ::= { me1200SshConfig 1 }
+
+me1200SshGlobalsAdminState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable the SSH functionality."
+    ::= { me1200SshGlobals 1 }
+
+me1200SshGlobalsRSAkeylength OBJECT-TYPE
+    SYNTAX      ME1200SshConfigurableKeyLen (1..7)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "RSA key length Configuration 1(512) 2(768) 3(1024) 4(1280) 5(1536)
+         6(1792) 7(2048)"
+    ::= { me1200SshGlobals 2 }
+
+me1200SshMIBConformance OBJECT IDENTIFIER
+    ::= { me1200SshMib 2 }
+
+me1200SshMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200SshMIBConformance 1 }
+
+me1200SshMIBGroups OBJECT IDENTIFIER
+    ::= { me1200SshMIBConformance 2 }
+
+me1200SshGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SshGlobalsAdminState, me1200SshGlobalsRSAkeylength }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SshMIBGroups 1 }
+
+me1200SshMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200SshGlobalsInfoGroup }
+
+    ::= { me1200SshMIBCompliances 1 }
+
+END

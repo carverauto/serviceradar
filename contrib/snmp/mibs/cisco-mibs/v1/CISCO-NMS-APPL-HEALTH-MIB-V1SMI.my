@@ -1,0 +1,248 @@
+-- MIB file created 19-Mar-2002 14:47:52, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-NMS-APPL-HEALTH-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-NMS-APPL-HEALTH-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DateAndTime
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    CiscoAlarmSeverity
+            FROM CISCO-TC
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoNmsApplHealthMIB OBJECT IDENTIFIER ::= { ciscoMgmt 237 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200110240000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--     Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--    
+--     E-mail: cs-nmsapplhealth@cisco.com
+--  Descr
+--    This MIB defines Cisco NMS Application (cna) Health
+--     Status Notifications and the related objects. These
+--     notifications will be sent to the OSS/NMS to inform
+--     them about the NMS application status (started,
+--     stopped, failed, busy etc.) or any abnormal exit of
+--     applications.
+--  RevDate
+--    200110240000Z
+--  RevDescr
+--    Added cnaHealthStatusChangeTime (DateAndTime) object.
+--  RevDate
+--    200110150000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoNmsApplHealthNotifs OBJECT IDENTIFIER ::= { ciscoNmsApplHealthMIB 0 }
+ciscoNmsApplHealthMIBObjects OBJECT IDENTIFIER ::= { ciscoNmsApplHealthMIB 1 }
+ciscoNmsApplHealthMIBConforms OBJECT IDENTIFIER ::= { ciscoNmsApplHealthMIB 2 }
+cnaHealthObj    OBJECT IDENTIFIER ::= { ciscoNmsApplHealthMIBObjects 1 }
+cnaHealthMIBCompliances OBJECT IDENTIFIER ::= { ciscoNmsApplHealthMIBConforms 1 }
+cnaHealthMIBGroups OBJECT IDENTIFIER ::= { ciscoNmsApplHealthMIBConforms 2 }
+
+cnaHealthNotifSeqNum OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object indicates the sequence number of
+         notifications in order for the NMS/OSS to detect missing
+         notification(s)."
+    ::= { cnaHealthObj 1 }
+
+cnaHealthTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CnaHealthTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of information about the health of one or more
+         Cisco NMS application(s)."
+    ::= { cnaHealthObj 2 }
+
+cnaHealthTableEntry OBJECT-TYPE
+    SYNTAX CnaHealthTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entries appear in this table for each possible alarm state."
+    INDEX { cnaHealthTableIndex }
+    ::= { cnaHealthTable 1 }
+
+CnaHealthTableEntry ::= SEQUENCE {
+    cnaHealthTableIndex Gauge,
+    cnaHealthStatusChangeTime DateAndTime,
+    cnaHealthName SnmpAdminString,
+    cnaHealthStatus INTEGER,
+    cnaHealthSevLevel CiscoAlarmSeverity,
+    cnaHealthComLineArgs SnmpAdminString,
+    cnaHealthStatusDesc SnmpAdminString
+    }
+
+cnaHealthTableIndex OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This acts as the index to the cnaHealthTable."
+    ::= { cnaHealthTableEntry 1 }
+
+cnaHealthStatusChangeTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time when a change in the health status of Cisco NMS
+         Application occurs."
+    ::= { cnaHealthTableEntry 2 }
+
+cnaHealthName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object indicates the name of the NMS application,
+         the notification is about."
+    ::= { cnaHealthTableEntry 3 }
+
+cnaHealthStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        started(1),
+        stopped(2),
+        busy(3),
+        failed(4),
+        exited(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object indicates the health/status of the NMS
+         application, the notification is reporting about. The possible
+         values are:
+        
+         started(1)  : started & initialized successfully
+         stopped(2)  : stopped successfully
+         busy(3)     : not able to respond to any request from health
+                monitor until the status changed to started
+         failed(4)   : upon detecting error condition, logged and exited
+         exited(5)   : abnormally exited without logging"
+    ::= { cnaHealthTableEntry 4 }
+
+cnaHealthSevLevel OBJECT-TYPE
+    SYNTAX CiscoAlarmSeverity
+--    Rsyntax INTEGER {
+--        cleared(1),
+--        indeterminate(2),
+--        critical(3),
+--        major(4),
+--        minor(5),
+--        warning(6),
+--        info(7)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the severity level of the cna health status Notifications."
+    DEFVAL { info }
+    ::= { cnaHealthTableEntry 5 }
+
+cnaHealthComLineArgs OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object indicates the command-line arguments of
+         the NMS application being reported about in the notifications."
+    ::= { cnaHealthTableEntry 6 }
+
+cnaHealthStatusDesc OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object gives a detailed description of the health/
+         status of the application being reported in a notification. In case
+         of failed(4) status, this field must indicate the error description.
+         For any other cnaStatus, this field may contain a description to
+         qualify the cnaStatus, like 'Started & initialized succesfully' or
+         an empty string."
+    ::= { cnaHealthTableEntry 7 }
+
+cnaHealthNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoNmsApplHealthMIB
+    VARIABLES {
+        cnaHealthNotifSeqNum, cnaHealthStatusChangeTime, 
+        cnaHealthName, cnaHealthStatus, cnaHealthSevLevel, 
+        cnaHealthComLineArgs, cnaHealthStatusDesc }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent out to notify normal startup, shutdown,
+         intermediate health/status (ex: busy etc.), failed or exit status."
+    ::= 1
+
+cnaHealthMIBGroup OBJECT IDENTIFIER ::= { cnaHealthMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Cisco NMS Application
+--     normal health info
+--  objects
+--    cnaHealthNotifSeqNum, cnaHealthTableIndex, 
+--    cnaHealthStatusChangeTime, cnaHealthName, cnaHealthStatus, 
+--    cnaHealthSevLevel, cnaHealthComLineArgs, cnaHealthStatusDesc
+
+cnaHealthNotifGroup OBJECT IDENTIFIER ::= { cnaHealthMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The set of notification events a Cisco NMS application
+--     supports.
+--  notifications
+--    cnaHealthNotif
+
+cnaHealthMIBCompliance OBJECT IDENTIFIER ::= { cnaHealthMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--     the Cisco NMS Application Health Monitor MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cnaHealthMIBGroup
+--   MandGroup
+--    cnaHealthNotifGroup
+
+
+END
+

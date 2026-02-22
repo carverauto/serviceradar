@@ -1,0 +1,312 @@
+-- MIB file created 30-Nov-2011 21:41:25, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-AAL5-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-AAL5-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+--?? may need import of ifIndex from IF-MIB
+    aal5VccVpi, aal5VccVci
+            FROM ATM-MIB
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoAal5MIB OBJECT IDENTIFIER ::= { ciscoMgmt 66 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200309220000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems 
+--            Customer Service 
+--    
+--    Postal: 170 W Tasman Drive 
+--            San Jose, CA  95134 
+--            USA 
+--    
+--       Tel: +1 800 553-NETS 
+--    
+--    E-mail: cs-atm@cisco.com
+--  Descr
+--    Cisco Enterprise AAL5 MIB file that provide AAL5 
+--    specific information that are either excluded by  
+--    RFC 1695 or specific to Cisco product.
+--  RevDate
+--    200309220000Z
+--  RevDescr
+--    Added following objects in cAal5VccTable:  
+--     cAal5VccHCInPkts, 
+--     cAal5VccHCOutPkts, 
+--     cAal5VccHCInOctets,  
+--     cAal5VccHCOutOctets
+--  RevDate
+--    200210170000Z
+--  RevDescr
+--    Latest version of this MIB module with extended support 
+--    for vc drop stats.
+--  RevDate
+--    199611150000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoAal5MIBObjects OBJECT IDENTIFIER ::= { ciscoAal5MIB 1 }
+cAal5Connections OBJECT IDENTIFIER ::= { ciscoAal5MIBObjects 1 }
+ciscoAal5MIBConformance OBJECT IDENTIFIER ::= { ciscoAal5MIB 3 }
+ciscoAal5MIBCompliances OBJECT IDENTIFIER ::= { ciscoAal5MIBConformance 1 }
+ciscoAal5MIBGroups OBJECT IDENTIFIER ::= { ciscoAal5MIBConformance 2 }
+
+cAal5VccTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CAal5VccEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains AAL5 VCC performance  
+         parameters beyond that provided by aal5VccEntry 
+         defined in RFC1695."
+    ::= { cAal5Connections 1 }
+
+cAal5VccEntry OBJECT-TYPE
+    SYNTAX CAal5VccEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This list contains the additional AAL5 VCC performance  
+         parameters beyond that provided by aal5VccEntry defined 
+         in RFC1695."
+    INDEX { ifIndex, aal5VccVpi, aal5VccVci }
+-- Augments aal5VccEntry FROM ATM-MIB
+    ::= { cAal5VccTable 1 }
+
+CAal5VccEntry ::= SEQUENCE {
+    cAal5VccInPkts Counter,
+    cAal5VccOutPkts Counter,
+    cAal5VccInOctets Counter,
+    cAal5VccOutOctets Counter,
+    cAal5VccInDroppedPkts Counter,
+    cAal5VccOutDroppedPkts Counter,
+    cAal5VccInDroppedOctets Counter,
+    cAal5VccOutDroppedOctets Counter,
+    cAal5VccHCInPkts Counter,
+    cAal5VccHCOutPkts Counter,
+    cAal5VccHCInOctets Counter,
+    cAal5VccHCOutOctets Counter
+    }
+
+cAal5VccInPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDUs received on this AAL5 VCC at the 
+         interface associated with an AAL5 entity."
+    ::= { cAal5VccEntry 1 }
+
+cAal5VccOutPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDUs transmitted on this AAL5 VCC at 
+         the interface associated with an AAL5 entity."
+    ::= { cAal5VccEntry 2 }
+
+cAal5VccInOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDU octets received on this AAL5 VCC 
+         at the interface associated with an AAL5 entity."
+    ::= { cAal5VccEntry 3 }
+
+cAal5VccOutOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDU octets transmitted on this AAL5  
+        VCC at the interface associated with an AAL5 entity."
+    ::= { cAal5VccEntry 4 }
+
+cAal5VccInDroppedPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDUs dropped at the  
+        receive side of this AAL5 VCC at the interface  
+        associated with an AAL5 entity."
+    ::= { cAal5VccEntry 5 }
+
+cAal5VccOutDroppedPkts OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDUs dropped at the transmit side  
+        of this AAL5 VCC at the interface associated with an  
+        AAL5 entity."
+    ::= { cAal5VccEntry 6 }
+
+cAal5VccInDroppedOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDU Octets dropped at the  
+        receive side of this AAL5 VCC at the interface  
+        associated with an AAL5 entity."
+    ::= { cAal5VccEntry 7 }
+
+cAal5VccOutDroppedOctets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of AAL5 CPCS PDU Octets dropped at the  
+        transmit side of this AAL5 VCC at the interface  
+        associated with an AAL5 entity."
+    ::= { cAal5VccEntry 8 }
+
+cAal5VccHCInPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is 64bit (High Capacity) version of cAal5VccInPkts  
+         counters."
+    ::= { cAal5VccEntry 9 }
+
+cAal5VccHCOutPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is 64bit (High Capacity) version of cAal5VccOutPkts  
+         counters."
+    ::= { cAal5VccEntry 10 }
+
+cAal5VccHCInOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is 64bit (High Capacity) version of cAal5VccInOctets  
+         counters."
+    ::= { cAal5VccEntry 11 }
+
+cAal5VccHCOutOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is 64bit (High Capacity) version of cAal5VccOutOctets  
+         counters."
+    ::= { cAal5VccEntry 12 }
+
+ciscoAal5MIBGroup OBJECT IDENTIFIER ::= { ciscoAal5MIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing AAL5 related  
+--    parameters.
+--  objects
+--    cAal5VccInPkts, cAal5VccOutPkts, cAal5VccInOctets, 
+--    cAal5VccOutOctets
+
+ciscoAal5VcStatsExtMIBGroup OBJECT IDENTIFIER ::= { ciscoAal5MIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing extension to AAL5 
+--     related vc drop statistics
+--  objects
+--    cAal5VccInDroppedPkts, cAal5VccOutDroppedPkts, 
+--    cAal5VccInDroppedOctets, cAal5VccOutDroppedOctets
+
+ciscoAal5MIBHCGroup OBJECT IDENTIFIER ::= { ciscoAal5MIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing 64bit AAL5 related 
+--     parameters.
+--  objects
+--    cAal5VccHCInPkts, cAal5VccHCOutPkts, cAal5VccHCInOctets, 
+--    cAal5VccHCOutOctets
+
+ciscoAal5MIBCompliance OBJECT IDENTIFIER ::= { ciscoAal5MIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement 
+--    this Cisco AAL5 MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoAal5MIBGroup
+
+ciscoAal5MIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoAal5MIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement 
+--    this Cisco AAL5 MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoAal5MIBGroup
+--   OptGroup
+--    ciscoAal5VcStatsExtMIBGroup
+
+ciscoAal5MIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoAal5MIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement 
+--     64bit counters for Vcc received/transmit PDU and octets 
+--     objects for Cisco AAL5 MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoAal5MIBGroup
+--   OptGroup
+--    ciscoAal5VcStatsExtMIBGroup
+--   OptGroup
+--    ciscoAal5MIBHCGroup
+
+
+END
+

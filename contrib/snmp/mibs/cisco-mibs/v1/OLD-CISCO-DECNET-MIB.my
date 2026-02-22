@@ -1,0 +1,500 @@
+-- *****************************************************************
+-- OLD-CISCO-DECNET-MIB.my:  Old Cisco DECnet MIB file
+--
+-- Copyright (c) 1994 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+
+
+               OLD-CISCO-DECNET-MIB DEFINITIONS ::= BEGIN
+
+               IMPORTS
+			OBJECT-TYPE
+				FROM RFC-1212
+			ifIndex
+				FROM RFC1213-MIB
+			temporary
+				FROM CISCO-SMI;
+          
+               tmpdecnet OBJECT IDENTIFIER ::= { temporary 1 }
+
+
+          -- Temporary DECNET Section
+
+          -- This group is present in all router based products.
+
+               dnForward OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of DECNET packets forwarded."
+                   ::= { tmpdecnet 1 }
+
+               dnReceived OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Count of total DECNET packets received."
+                   ::= { tmpdecnet 2 }
+
+               dnFormaterr OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of DECNET packets received with
+                           header errors."
+                   ::= { tmpdecnet 3 }
+
+               dnNotgateway OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets received while not
+                           routing."
+                   ::= { tmpdecnet 4 }
+
+               dnNotimp OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of unknown control packets
+                           received."
+                   ::= { tmpdecnet 5 }
+
+               dnHellos OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Hellos received."
+                   ::= { tmpdecnet 6 }
+
+               dnBadhello OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of received bad Hellos."
+                   ::= { tmpdecnet 7 }
+
+               dnNotlong OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of received packets not in long
+                           format."
+                   ::= { tmpdecnet 8 }
+
+               dnDatas OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of received data packets."
+                   ::= { tmpdecnet 9 }
+
+               dnBigaddr OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of too large addresses."
+                   ::= { tmpdecnet 10 }
+
+               dnNoroute OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets dropped due to no
+                           route present."
+                   ::= { tmpdecnet 11 }
+
+               dnNoencap OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets dropped due to
+                           output encapsulation failure."
+                   ::= { tmpdecnet 12 }
+
+               dnLevel1s OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Level 1 routing packets
+                           received."
+                   ::= { tmpdecnet 13 }
+
+               dnBadlevel1 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of bad Level 1 routing packets
+                           received."
+                   ::= { tmpdecnet 14 }
+
+               dnToomanyhops OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets received which
+                           visited too many nodes."
+                   ::= { tmpdecnet 15 }
+
+               dnHellosent OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Hellos output."
+                   ::= { tmpdecnet 16 }
+
+               dnLevel1sent OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Level 1 routing packets
+                           sent."
+                   ::= { tmpdecnet 17 }
+
+               dnNomemory OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of memory requests denied."
+                   ::= { tmpdecnet 18 }
+
+               dnOtherhello OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Hellos received from another
+                           area."
+                   ::= { tmpdecnet 19 }
+
+               dnOtherlevel1 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Level 1 routing packets
+                           received from another area."
+                   ::= { tmpdecnet 20 }
+
+               dnLevel2s OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Level 2 routing packets
+                           received."
+                   ::= { tmpdecnet 21 }
+
+               dnLevel2sent OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of Level 2 routing packets
+                           sent."
+                   ::= { tmpdecnet 22 }
+
+               dnNovector OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of missing routing vectors."
+                   ::= { tmpdecnet 23 }
+
+               dnOtherlevel2 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of received Level 2 routing
+                           packets from another area."
+                   ::= { tmpdecnet 24 }
+
+               dnNoaccess OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of packets dropped due to
+                           access control failure."
+                   ::= { tmpdecnet 25 }
+
+               dnAreaTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF DnAreaTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET area routing table"
+                   ::= { tmpdecnet 26 }
+
+               dnAreaTableEntry OBJECT-TYPE
+                   SYNTAX DnAreaTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET area routing table"
+                   INDEX { dnArea }
+               ::= { dnAreaTable 1 }
+
+               DnAreaTableEntry ::=
+                   SEQUENCE {
+                       dnArea
+                           INTEGER,
+                       dnACost
+                           INTEGER,
+                       dnAHop
+                           INTEGER,
+                       dnAIfIndex
+                           INTEGER,
+                       dnANextHop
+                           OCTET STRING,
+                       dnAAge
+                           INTEGER,
+                       dnAPrio
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               dnArea OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "DECNet area from the area table."
+                   ::= { dnAreaTableEntry 1 }
+
+               dnACost OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Cost of area in the area table."
+                   ::= { dnAreaTableEntry 2 }
+
+               dnAHop OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of hops to area in the area table."
+                   ::= { dnAreaTableEntry 3 }
+
+               dnAIfIndex OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Index of interface to the next hop address
+                           to the area. 0 denotes self."
+                   ::= { dnAreaTableEntry 4 }
+
+               dnANextHop OBJECT-TYPE
+                   SYNTAX  OCTET STRING
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Next hop DECNet address."
+                   ::= { dnAreaTableEntry 5 }
+
+               dnAAge OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Age in seconds of area route."
+                   ::= { dnAreaTableEntry 6 }
+
+               dnAPrio OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Priority of next hop router for area route."
+                   ::= { dnAreaTableEntry 7 }
+
+
+               -- End of table
+
+
+               dnHostTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF DnHostTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET routing table"
+                   ::= { tmpdecnet 27 }
+
+               dnHostTableEntry OBJECT-TYPE
+                   SYNTAX DnHostTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET routing table"
+                   INDEX { dnHIdx1, dnHIdx2 }
+               ::= { dnHostTable 1 }
+
+               DnHostTableEntry ::=
+                   SEQUENCE {
+                       dnHost
+                           INTEGER,
+                       dnHCost
+                           INTEGER,
+                       dnHHop
+                           INTEGER,
+                       dnHIfIndex
+                           INTEGER,
+                       dnHNextHop
+                           OCTET STRING,
+                       dnHAge
+                           INTEGER,
+                       dnHPrio
+                           INTEGER,
+dnHIdx1 INTEGER,
+dnHIdx2 INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               dnHost OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "DECNet node address from the routing table."
+                   ::= { dnHostTableEntry 1 }
+
+               dnHCost OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Cost of path to node in the routing table."
+                   ::= { dnHostTableEntry 2 }
+
+               dnHHop OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of hops to node in the routing
+                           table."
+                   ::= { dnHostTableEntry 3 }
+
+               dnHIfIndex OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Index of interface to the next hop address
+                           to the node. 0 denotes self."
+                   ::= { dnHostTableEntry 4 }
+
+               dnHNextHop OBJECT-TYPE
+                   SYNTAX  OCTET STRING
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Next hop DECNet address."
+                   ::= { dnHostTableEntry 5 }
+
+               dnHAge OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Age in seconds of route to node."
+                   ::= { dnHostTableEntry 6 }
+
+               dnHPrio OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Priority of next hop router for node."
+                   ::= { dnHostTableEntry 7 }
+
+               dnHIdx1 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "table index 1."
+                   ::= { dnHostTableEntry 8 }
+
+               dnHIdx2 OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "table index 2."
+                   ::= { dnHostTableEntry 9 }
+
+               -- End of table
+
+
+               dnIfTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF DnIfTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET interface table"
+                   ::= { tmpdecnet 28 }
+
+               dnIfTableEntry OBJECT-TYPE
+                   SYNTAX DnIfTableEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "DECNET interface table"
+                   INDEX { ifIndex }
+               ::= { dnIfTable 1 }
+
+               DnIfTableEntry ::=
+                   SEQUENCE {
+                       dnIfCost
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               dnIfCost OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Cost of this interface."
+                   ::= { dnIfTableEntry 1 }
+
+               -- End of table
+
+END
+

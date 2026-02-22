@@ -1,0 +1,803 @@
+-- *******************************************************************
+-- CISCO-WBX-MEETING-MIB.my:
+-- The design of this mib is used for WebEx Meeting host monitoring
+--   
+-- March 2013, Shing Kuo
+--   
+-- Copyright (c) 2013 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-WBX-MEETING-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    MODULE-IDENTITY,
+    Unsigned32,
+    Counter32,
+    Gauge32,
+    OBJECT-IDENTITY
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    AutonomousType
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoWebExMeetingMIB MODULE-IDENTITY
+    LAST-UPDATED    "201305290000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service 
+            Postal: 170 West Tasman Drive 
+            San Jose, CA  95134 
+            USA 
+            Tel: +1 800 553-NETS 
+            Email: cisco-webex-support@cisco.com"
+    DESCRIPTION
+        "Cisco WebEx Collaboration Host is a
+        software-only system, with hardware independence 
+        a key goal. To that end, it will be designed 
+        to work only on a VMware virtual platform. 
+        Cisco WebEx Collaboration Host consists of 
+        various components that allow user to
+        collaborate using web, video, and audio in 
+        a meeting.
+        These host components are as follows:
+          i) Web service component - 
+             serves the web application
+             to allow user to schedule and start 
+             the meeting
+         ii) Web admin service component - 
+             serves the web application
+             to allow user to configure, 
+             manage, and monitor the whole 
+             collaboration platform.
+        iii) meeting service component - 
+             serves the WebEx meetingroom application
+             to allow user to share or view, and perform
+             in-session control for the meeting and 
+             participants.
+         iv) multi-media service component - 
+         serves the VOIP conference application
+             for video and audio.
+          v) telephony service component - 
+         serves the in-session control for the 
+             audio participants. 
+         vi) network-based recording service component -
+             serves to record meeting.
+        Each service component except i and ii as described 
+        above could be clustered to run on multiple systems. 
+        Each cluster is related to a zone in WebEx 
+        terminology. A group of service components that
+        are deployed to make up various zone with 
+        failover capability is known as a meeting domain.
+
+        This MIB provides the common objects that will be 
+        monitored by WebEx web monitoring system to indicate 
+        performance and capacity issues. 
+
+        This MIB covers following
+        1. System Resource Utilization
+        2. Notification resources usage changes"
+    REVISION        "201305290000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 809 }
+
+
+ciscoWebExMeetingMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoWebExMeetingMIB 0 }
+
+ciscoWebExMeetingMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoWebExMeetingMIB 1 }
+
+ciscoWebExMeetingMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoWebExMeetingMIB 2 }
+
+
+-- Define Textual object
+
+CiscoWebExCommSysResource ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This object is the enumerations for system resources monitored
+        by WebEx system manager.
+        cpu(0)                      : CPU usage.
+        memory(1)                   : memory usage.
+        swap(2)                     : memory swap usage.
+        fileDesciptor(3)         : file usage.
+        disk(4)                     : disk usage."
+    SYNTAX          INTEGER  {
+                        cpu(0),
+                        memory(1),
+                        swap(2),
+                        fileDescriptor(3),
+                        disk(4)
+                    }
+
+CiscoWebExCommSysResMonitoringStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This object defines the enumerations of resource status.
+        The object is used to monitoring system resources.
+        closed(0) : Resource not available
+        open(1)   : Resource available"
+    SYNTAX          INTEGER  {
+                        closed(0),
+                        open(1)
+                    }
+-- WebEx common information
+
+ciscoWebExCommInfo  OBJECT IDENTIFIER
+    ::= { ciscoWebExMeetingMIBObjects 1 }
+
+ciscoWebExCommSystemResource  OBJECT IDENTIFIER
+    ::= { ciscoWebExMeetingMIBObjects 2 }
+
+
+-- System Resource Object
+
+cwCommSystemVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the version of webEx system." 
+    ::= { ciscoWebExCommInfo 1 }
+
+-- System ObjectID
+
+cwCommSystemObjectID OBJECT-TYPE
+    SYNTAX          AutonomousType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the sysObjectID defined in
+        SNMPv2-MIB" 
+    ::= { ciscoWebExCommInfo 2 }
+
+-- System Resource Object
+
+cwCommCPUUsageObject OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object provides the system CPU usage."
+    ::= { ciscoWebExCommSystemResource 1 }
+
+
+cwCommCPUTotalUsage OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the total percentage of CPU usage of a
+        host component.
+             The total CPU usage contains CPU user usage, CPU system 
+             usage and CPU nice usage.
+             The CPU user time: CPU time spent in user space.
+             The CPU system time: CPU time spent in kernel space.
+             The CPU nice time: CPU time spent on low priority 
+             processes." 
+    ::= { cwCommCPUUsageObject 1 }
+
+cwCommCPUUsageWindow OBJECT-TYPE
+    SYNTAX          Gauge32 (1..60)
+    UNITS           "Minute"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls the duration to wait before
+        sending notification (trap) after a CPU usage 
+        threshold is crossed.
+        The notification is sent only if CPU usage crossed 
+        a threshold level (normal/minor/major) and remains 
+        in the new threshold level over the duration defined 
+        in this window." 
+    ::= { cwCommCPUUsageObject 2 }
+
+cwCommCPUTotalNumber OBJECT-TYPE
+    SYNTAX          Gauge32 (0..64)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the total number of CPUs on the system." 
+    ::= { cwCommCPUUsageObject 3 }
+
+cwCommCPUUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwCommCPUUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of CPU usage registering on the device."
+    ::= { cwCommCPUUsageObject 4 }
+
+cwCommCPUUsageEntry OBJECT-TYPE
+    SYNTAX          CwCommCPUUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information generic to
+        the CPU usage."
+    INDEX           { cwCommCPUIndex } 
+    ::= { cwCommCPUUsageTable 1 }
+
+CwCommCPUUsageEntry ::= SEQUENCE {
+        cwCommCPUIndex                 Unsigned32,
+        cwCommCPUName                  SnmpAdminString,
+        cwCommCPUUsage                 Gauge32,
+        cwCommCPUUsageUser             Gauge32,
+        cwCommCPUUsageNice             Gauge32,
+        cwCommCPUUsageSystem           Gauge32,
+        cwCommCPUUsageIdle             Gauge32,
+        cwCommCPUUsageIOWait           Gauge32,
+        cwCommCPUUsageIRQ              Gauge32,
+        cwCommCPUUsageSoftIRQ          Gauge32,
+        cwCommCPUUsageSteal            Gauge32,
+        cwCommCPUUsageCapacitySubTotal Gauge32
+}
+
+cwCommCPUIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..128)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies a CPU in the table. Each CPU
+        has its own usage and breakdown values." 
+    ::= { cwCommCPUUsageEntry 1 }
+
+cwCommCPUName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the CPU name.
+        For example, 'Intel(R) Xeon(TM) CPU 3.00GHz'." 
+    ::= { cwCommCPUUsageEntry 2 }
+
+cwCommCPUUsage OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides how many percentage of total CPU
+        resource is used.
+          Usually GHz is used for measuring CPU power. Since GHz 
+          is too large for measuring some CPU usage categories, 
+          KHz is used as the measuring unit. The system speed 
+          (in KHz) multiply by the fraction of each CPU sections
+          (e.g. idle, nice, user, etc.) to get the CPU KHz of 
+          each category; Khz is used as the unit for all the CPU
+          categories below." 
+    ::= { cwCommCPUUsageEntry 3 }
+
+cwCommCPUUsageUser OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the CPU power executed in user mode." 
+    ::= { cwCommCPUUsageEntry 4 }
+
+cwCommCPUUsageNice OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the CPU power executed on
+        low priority processes.
+        Nice is a program found on Unix and Linux. It directly
+        maps to a kernel call of the same name. nice is used to
+        invoke a utility or shell script with a particular
+        priority, thus giving the process more or less CPU time
+        than other processes." 
+    ::= { cwCommCPUUsageEntry 5 }
+
+cwCommCPUUsageSystem OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the CPU power now is executed
+        in kernel mode." 
+    ::= { cwCommCPUUsageEntry 6 }
+
+cwCommCPUUsageIdle OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the CPU power now is in idle status." 
+    ::= { cwCommCPUUsageEntry 7 }
+
+cwCommCPUUsageIOWait OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the CPU power that is spending in
+        wait disk I/O to complete." 
+    ::= { cwCommCPUUsageEntry 8 }
+
+cwCommCPUUsageIRQ OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the CPU usage that is spending
+        on handling interrupt request." 
+    ::= { cwCommCPUUsageEntry 9 }
+
+cwCommCPUUsageSoftIRQ OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the CPU usage that is spending
+        on handling software interrupt request." 
+    ::= { cwCommCPUUsageEntry 10 }
+
+cwCommCPUUsageSteal OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the CPU usage spent on other tasks
+        when running in a virtualized environment." 
+    ::= { cwCommCPUUsageEntry 11 }
+
+cwCommCPUUsageCapacitySubTotal OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the current total CPU capacity." 
+    ::= { cwCommCPUUsageEntry 12 }
+ 
+
+
+cwCommCPUMonitoringStatus OBJECT-TYPE
+    SYNTAX          CiscoWebExCommSysResMonitoringStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the monitoring status of CPU resource.
+        closed (0) - Resource not available
+        open (1)   - Resource available" 
+    ::= { cwCommCPUUsageObject 5 }
+
+cwCommCPUCapacityTotal OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KHz"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the overall CPU capacity." 
+    ::= { cwCommCPUUsageObject 6 }
+
+cwCommMEMUsageObject OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object provides the system memory usage status."
+    ::= { ciscoWebExCommSystemResource 2 }
+
+
+cwCommMEMUsage OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the physical memory usage
+        of the virtual machine." 
+    ::= { cwCommMEMUsageObject 1 }
+
+cwCommMEMMonitoringStatus OBJECT-TYPE
+    SYNTAX          CiscoWebExCommSysResMonitoringStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the monitoring status of memory resource.
+        closed (0) - Resource not available
+        open(1)    - Resource available" 
+    ::= { cwCommMEMUsageObject 2 }
+
+cwCommMEMTotal OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "MBytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the total physical memory size of
+        the host" 
+    ::= { cwCommMEMUsageObject 3 }
+
+-- Memory Usage Object
+
+cwCommMEMSwapUsageObject OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object provides the system memory and swap memory usage."
+    ::= { ciscoWebExCommSystemResource 3 }
+
+
+cwCommMEMSwapUsage OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the host's physical memory usage
+        and swap memory usage." 
+    ::= { cwCommMEMSwapUsageObject 1 }
+
+cwCommMEMSwapMonitoringStatus OBJECT-TYPE
+    SYNTAX          CiscoWebExCommSysResMonitoringStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the monitoring status of memory and
+        swap memory.
+        closed (0) - The memory and swap memory status 
+                               is available
+        open (1)   - The memory and swap memory status 
+                               is not available" 
+    ::= { cwCommMEMSwapUsageObject 2 }
+
+-- System Resource Notifications
+
+cwCommSysResourceNotificationObject OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object provides all the notification information."
+    ::= { ciscoWebExCommSystemResource 4 }
+
+
+cwCommNotificationHostAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of the network address made
+        available through cwCommNotificationHostAddress." 
+    ::= { cwCommSysResourceNotificationObject 1 }
+
+cwCommNotificationHostAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object provides the host IP address sent with the
+        notification. For example, '10.224.3.49'." 
+    ::= { cwCommSysResourceNotificationObject 2 }
+
+cwCommNotificationResName OBJECT-TYPE
+    SYNTAX          CiscoWebExCommSysResource
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object provides the system resource name which
+        is sent with notification. It indicates the named
+        system resource has over pre-defined warning levels.
+        0. cwCommTtoalCPUUsage, 
+        1. cwCommMemUsage,
+        2. cwCommMemSwapUsage,
+        3. open file descriptor (no MIB data) 
+        4. one of the cwCommDiskTotal" 
+    ::= { cwCommSysResourceNotificationObject 3 }
+
+cwCommNotificationResValue OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object provides the system resource usage value
+        with notification." 
+    ::= { cwCommSysResourceNotificationObject 4 }
+
+cwCommNotificationSeqNum OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object provides sequence number.
+        It's for tracking the order of the Notifications." 
+    ::= { cwCommSysResourceNotificationObject 5 }
+
+-- Disk Usage Object
+
+cwCommDiskUsageObject OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object provides the system's disk usage status."
+    ::= { ciscoWebExCommSystemResource 5 }
+
+
+cwCommDiskUsageCount OBJECT-TYPE
+    SYNTAX          Gauge32 (0..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the count of how many
+        disks (e.g. local disk, remote disk,
+        meeting recording disk) available in the system." 
+    ::= { cwCommDiskUsageObject 1 }
+
+cwCommDiskUsageTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CwCommDiskUsageEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of the detailed disk usage status at the partition level
+        for the host, registering on the device."
+    ::= { cwCommDiskUsageObject 2 }
+
+cwCommDiskUsageEntry OBJECT-TYPE
+    SYNTAX          CwCommDiskUsageEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information generic
+        to the disk usage."
+    INDEX           { cwCommDiskUsageIndex } 
+    ::= { cwCommDiskUsageTable 1 }
+
+CwCommDiskUsageEntry ::= SEQUENCE {
+        cwCommDiskUsageIndex    Unsigned32,
+        cwCommDiskPartitionName SnmpAdminString,
+        cwCommDiskUsage         Gauge32,
+        cwCommDiskTotal         Gauge32
+}
+
+cwCommDiskUsageIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..128)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object is an index of entries in the table that contain
+        management information generic to the disk usage." 
+    ::= { cwCommDiskUsageEntry 1 }
+
+cwCommDiskPartitionName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..128))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "this object provides the disk partition name.
+        For example, the partition '/opt', or '/dev' etc." 
+    ::= { cwCommDiskUsageEntry 2 }
+
+cwCommDiskUsage OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the current disk usage on the host." 
+    ::= { cwCommDiskUsageEntry 3 }
+
+cwCommDiskTotal OBJECT-TYPE
+    SYNTAX          Gauge32 (0..4294967295)
+    UNITS           "KB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the total disk space size of
+        this host." 
+    ::= { cwCommDiskUsageEntry 4 }
+ 
+
+
+cwCommDiskMonitoringStatus OBJECT-TYPE
+    SYNTAX          CiscoWebExCommSysResMonitoringStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the monitoring status of disk resource.
+        close (0) - the disk usage status is not available
+        open  (1) - the disk usage status is available" 
+    ::= { cwCommDiskUsageObject 3 }
+
+-- -
+-- Notification Objects
+-- -
+
+cwCommSystemResourceUsageNormalEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        cwCommNotificationHostAddressType,
+                        cwCommNotificationHostAddress,
+                        cwCommNotificationResName,
+                        cwCommNotificationResValue,
+                        cwCommNotificationSeqNum
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates that some system resource usage
+        changes to the normal status. System could send out this
+        notification once one of the following cases happens:
+        1. The cwCommCPUUsage value of one CPU changes to be less than
+        the value of pre-defined CPU Minor Threshold.
+        2. The value of cwCommMEMUsage changes to be less than
+        the value of pre-defined MEM Minor Threshold.
+        3. The value of cwCommMEMSwapUsage changes to be less than
+        in the value of pre-defined MEM SwapMinor Threshold.
+        4. The value of cwCommFileUsage changes to be less than
+        the value of pre-defined File Minor Threshold.
+        5. The value of cwCommDiskUsage on one disk changes to be
+        less than the value of pre-defined Disk Minor Threshold."
+   ::= { ciscoWebExMeetingMIBNotifs 1 }
+
+cwCommSystemResourceUsageMinorEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        cwCommNotificationHostAddressType,
+                        cwCommNotificationHostAddress,
+                        cwCommNotificationResName,
+                        cwCommNotificationResValue,
+                        cwCommNotificationSeqNum
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates that some system resource usage
+        changes to the minor status. System could send out this
+        notification once one of the following cases happens:
+        1. The cwCommCPUUsage value of one CPU changes to be larger
+        than or equal to the value of pre-defined CPU Minor Threshold 
+          and be less than the value of cwCommCPUMajorThreshold.
+        2. The cwCommMEMUsage value changes to be larger than or equal
+        to the value of the pre-defined MEM Minor Threshold and be 
+          less than the value of pre-defined MEM Major Threshold.
+        3. The cwCommMEMSwapUsage value changes to be larger than or
+        equal to the value of pre-defined MEM Swap Minor Threshold and 
+          be less than the value of pre-defined MEM Swap Major 
+          Threshold.
+        4. The cwCommFileUsage value changes to be larger than or
+        equal to the value of pre-defined File Minor Threshold and be 
+          less than the value of pre-defined File Major Threshold.
+        5. The cwCommDiskUsage value of one disk changes to be larger
+        than or equal to the value of pre-defined Disk Minor Threshold 
+          and be less than the value of pre-defined Disk Major 
+          Threshold.
+
+        The minor notification means the system has some issues, the
+        system administrator needs to pay attention."
+   ::= { ciscoWebExMeetingMIBNotifs 2 }
+
+cwCommSystemResourceUsageMajorEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        cwCommNotificationHostAddressType,
+                        cwCommNotificationHostAddress,
+                        cwCommNotificationResName,
+                        cwCommNotificationResValue,
+                        cwCommNotificationSeqNum
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates that some system resource usage
+        changes to the major status. System could send out this
+        notification once one of the following cases happens:
+        1. The cwCommCPUUsage value of one CPU changes to be larger
+        than or equal to the value of pre-defined CPU Major Threshold.
+        2. The cwCommMEMUsage value changes to be larger than or equal
+        to the value of pre-defined MEM Major Threshold.
+        3. The cwCommMEMSwapUsage value changes to be larger than or
+        equal to the value of pre-defined MEM Swap Major Threshold.
+        4. The cwCommFileUsage value changes to be larger than or
+        equal to the value of pre-defined File Major Threshold.
+        5. The cwCommDiskUsage value of one disk changes to be larger
+        than or equal to the value of pre-defined Disk Major Threshold.
+
+        The major notification means the system is in critical status,
+        it needs the system administrator to take action immediately."
+   ::= { ciscoWebExMeetingMIBNotifs 3 }
+-- Compliance Defination
+
+cwCommMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoWebExMeetingMIBConform 1 }
+
+
+cwCommMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement the
+        Cisco WebEx Common MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoWebExCommInfoGroup,
+                        ciscoWebExCommSystemResourceGroup,
+                        ciscoWebExMeetingMIBNotifsGroup
+                    }
+    ::= { cwCommMIBCompliances 1 }
+cwCommMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoWebExMeetingMIBConform 2 }
+
+
+ciscoWebExCommInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cwCommSystemVersion,
+                        cwCommSystemObjectID
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group is a collection of objects representing common
+        host information within Cisco WebEx."
+    ::= { cwCommMIBGroups 1 }
+
+ciscoWebExCommSystemResourceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cwCommCPUTotalUsage,
+                        cwCommCPUUsageWindow,
+                        cwCommCPUTotalNumber,
+                        cwCommCPUName,
+                        cwCommCPUUsage,
+                        cwCommCPUMonitoringStatus,
+                        cwCommCPUUsageUser,
+                        cwCommCPUUsageNice,
+                        cwCommCPUUsageSystem,
+                        cwCommCPUUsageIdle,
+                        cwCommCPUUsageIOWait,
+                        cwCommCPUUsageIRQ,
+                        cwCommCPUUsageSoftIRQ,
+                        cwCommCPUUsageSteal,
+                        cwCommCPUUsageCapacitySubTotal,
+                        cwCommCPUCapacityTotal,
+                        cwCommMEMUsage,
+                        cwCommMEMMonitoringStatus,
+                        cwCommMEMSwapUsage,
+                        cwCommMEMSwapMonitoringStatus,
+                        cwCommMEMTotal,
+                        cwCommNotificationHostAddressType,
+                        cwCommNotificationHostAddress,
+                        cwCommNotificationResName,
+                        cwCommNotificationResValue,
+                        cwCommNotificationSeqNum,
+                        cwCommDiskUsageCount,
+                        cwCommDiskPartitionName,
+                        cwCommDiskUsage,
+                        cwCommDiskTotal,
+                        cwCommDiskMonitoringStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "this group is a collection of objects representing
+        system resource information of the host."
+    ::= { cwCommMIBGroups 2 }
+
+ciscoWebExMeetingMIBNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cwCommSystemResourceUsageNormalEvent,
+                        cwCommSystemResourceUsageMinorEvent,
+                        cwCommSystemResourceUsageMajorEvent
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group defines the notifications generated by
+        this MIB module."
+    ::= { cwCommMIBGroups 3 }
+
+END
+
+
+

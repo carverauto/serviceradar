@@ -1,0 +1,653 @@
+-- *****************************************************************
+-- CISCO-VIRTUAL-NIC-MIB.my
+--   
+-- October 2009, Pranali Hande
+--   
+-- Copyright (c) 2009 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VIRTUAL-NIC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32
+        FROM SNMPv2-SMI
+    OBJECT-GROUP,
+    MODULE-COMPLIANCE
+        FROM SNMPv2-CONF
+    MacAddress
+        FROM SNMPv2-TC
+    InterfaceIndex
+        FROM IF-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoVirtualNicMIB MODULE-IDENTITY
+    LAST-UPDATED    "200910260000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines MIB objects which provide
+        mechanisms to manage the parameters used by or
+        related to Virtual NIC.
+
+        Virtual switch extends across one or more
+        virtualization servers which host the VM instances.
+        Each virtualization server is represented as a line
+        card module and is assigned to a unique slot in
+        the virtual chassis.
+
+        All the ports on the virtual switch which can be
+        hooked up to VM VNICs or to special hypervisor ports
+        (e.g. vmk or vswif ports) are represented as virtual
+        ethernet interfaces.
+
+        Virtual ethernet interfaces(veths) represent
+        the switching ports on the virtual switch which
+        provide networking connectivity to virtual packet
+        based interfaces such as the Virtual NIC (VNIC)
+        interfaces defined on a Virtual Machine (VM).
+
+        These interfaces are configurable and provide
+        operational information to the network administrator.
+
+        The assignment of virtual ethernet interface ports
+        to a VM does not change when the VM is migrated.
+
+        Glossary:
+
+        APC - Asymmetric Port Channel
+
+        DVS - Distributed Virtual switch
+
+        NIC - Network Interface Card
+
+        NIV - Network interface virtualization
+
+        PCI - Peripheral Component Interconnect
+
+        VEM - Virtual Ethernet Module
+
+        VNIC - Virtual Network Interface Card
+
+        VSM -  Virtual Supervisor Module
+
+        VM - Virtual Machine
+
+        VMK - Virtual Machine Kernel
+
+        VMKNIC - Virtual Machine Kernel Network Interface Card
+
+        VSWIF - a virtual management port on hosts running 
+                        VMware ESX.
+
+        UUID - Universally Unique identifier
+
+        connectee - Entity connected to a system using veth.
+                    eg: Virtual machine
+
+        System Diagram :
+                                    **************
+                                    *    VSM     *
+                                    **************
+                                      '       '
+                                     '         '
+                                    '           '
+                                   '             '
+                                ********        ********
+                                * VEM  *        * VEM  *
+                                ********        ********
+                                  ' '               '
+                               '      '              '
+                            ******   ******       ******
+                            * VM *   * VM *       * VM *
+                            ******   ******       ******"
+    REVISION        "200910260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 710 }
+
+
+ciscoVirtualNicMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoVirtualNicMIB 0 }
+
+ciscoVirtualNicMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoVirtualNicMIB 1 }
+
+ciscoVirtualNicMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoVirtualNicMIB 2 }
+
+cvnInterfaceObjects  OBJECT IDENTIFIER
+    ::= { ciscoVirtualNicMIBObjects 1 }
+
+cvnConnecteeObjects  OBJECT IDENTIFIER
+    ::= { ciscoVirtualNicMIBObjects 2 }
+
+
+cvnVethIfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CvnVethIfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of virtual ethernet interfaces managed by VSM."
+    ::= { cvnInterfaceObjects 1 }
+
+cvnVethIfEntry OBJECT-TYPE
+    SYNTAX          CvnVethIfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information
+        for a particular virtual ethernet interface.
+
+        Entries are created by the system when virtual
+        Ethernet interfaces are registered to VSM.
+
+        Entries are removed when virtual Ethernet interfaces
+        are removed from VSM."
+    INDEX           { cvnVethInterface } 
+    ::= { cvnVethIfTable 1 }
+
+CvnVethIfEntry ::= SEQUENCE {
+        cvnVethInterface         InterfaceIndex,
+        cvnVethAdapter           SnmpAdminString,
+        cvnVethOwner             SnmpAdminString,
+        cvnVethHostID            Unsigned32,
+        cvnVethHostAddrType      InetAddressType,
+        cvnVethHostAddr          InetAddress,
+        cvnVethPortProfileUsed   SnmpAdminString,
+        cvnVethIfProfileAlias    SnmpAdminString,
+        cvnVethIfAdditionalState INTEGER,
+        cvnVethStateReason       SnmpAdminString
+}
+
+cvnVethInterface OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The value of ifIndex for the virtual ethernet
+        interface." 
+    ::= { cvnVethIfEntry 1 }
+
+cvnVethAdapter OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the network adapter used by
+        virtual ethernet interface port.
+
+        This object contains the Network Adapter ID if Virtual
+        Machine is attached to VNIC.
+
+        This object contains VMK ID if the Virtual Machine is
+        attached to VMKNIC.
+
+        This object contains value of 'vswif' if the Virtual
+        Machine is attached to VSWIF." 
+    ::= { cvnVethIfEntry 2 }
+
+cvnVethOwner OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The name of the Virtual Machine that owns this
+        virtual ethernet interface. 
+        When a Virtual Machine attaches to one of the port in physical 
+        server via this virtual ethernet interface, this VM will be 
+        considered as the owner of this virtual ethernet interface.
+
+        When Virtual Machine moves from one host to another,
+        its virtual ethernet interface remains unchanged." 
+    ::= { cvnVethIfEntry 3 }
+
+cvnVethHostID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A unique identifier, assigned by the system,
+        of the registered VEM.
+
+        A VEM is registered and host a virtual ethernet interface
+        when a Virtual Machine attaches to such VEM by using
+        virtual ethernet interface.
+
+        A unique identifier, logical module number, is assigned
+        for every VEM.
+
+        This object contains value of zero if VEM is directly
+        attached to the switch." 
+    ::= { cvnVethIfEntry 4 }
+
+cvnVethHostAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of Internet address of the VEM which
+        hosts the VM." 
+    ::= { cvnVethIfEntry 5 }
+
+cvnVethHostAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Internet address of the VEM which hosts the VM.
+
+        The type of this address is determined by the value
+        of the cvnVethHostAddrType object.
+
+        This object also indicates the management address of
+        the VEM.   Value of this object may be changed when
+        virtual ethernet interface moves from one VEM to
+        another VEM." 
+    ::= { cvnVethIfEntry 6 }
+
+cvnVethPortProfileUsed OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The name of port profile which has been applied to
+        the current virtual ethernet interface.
+
+        Port Profile contains a set of configuration parameters.
+        For example, switchport mode, channel group no.,
+        channel group mode, security policy.
+
+        Port profile is assigned during the registration of
+        virtual ethernet interface." 
+    ::= { cvnVethIfEntry 7 }
+
+cvnVethIfProfileAlias OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The profile alias as seen in external virtualization
+        server for the profile used by this virtual
+        ethernet interface." 
+    ::= { cvnVethIfEntry 8 }
+
+cvnVethIfAdditionalState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        participating(2),
+                        suspended(3),
+                        errDisabled(4),
+                        nonParticipating(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the additional state of the virtual
+        ethernet interface.
+
+        none             - no additional state.
+        participating    - interface is up and participating.
+                           Virtual machine is currently connected 
+                           to system using this interface.
+        suspended        - interface is down and has been suspended.
+        errDisabled      - interface is down due to error disabled.
+        nonParticipating - interface is up but not participating." 
+    ::= { cvnVethIfEntry 9 }
+
+cvnVethStateReason OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason for the additional
+        state specified in cvnVethIfAdditionalState." 
+    ::= { cvnVethIfEntry 10 }
+ 
+
+-- -------------------------------------
+-- Pinning information for a virtual ethernet interface
+-- -------------------------------------
+
+cvnPinningTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CvnPinningEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of virtual ethernet interfaces which supports
+        pinning functionality in VSM.
+
+        Pinning is a mechanism of directing traffic to or
+        from a interface through a particular interface
+        in a switch.
+
+        By default, system use load balancing algorithm to pick
+        the best possible physical interface automatically.
+        However, user may use pinning functionality to
+        instrument the finite control on the traffic flow
+        between virtual ethernet interfaces and actual physical
+        interfaces in VSM.
+
+        For example, user may want to configure that packets
+        from a particular virtual ethernet interface always go
+        out through first interface in the port channel
+        irrespective of load balancing policy on the switch.
+        In order to achieve this, user can pin the virtual
+        ethernet interface to first interface of the switch."
+    ::= { cvnInterfaceObjects 2 }
+
+cvnPinningEntry OBJECT-TYPE
+    SYNTAX          CvnPinningEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing pinning management information
+        for a particular virtual ethernet interface.
+
+        Entry is created by the system when a virtual
+        Ethernet interface with pinning functionality
+        is registered to VSM.
+
+        Entry is removed when a virtual Ethernet interface
+        with pinning functionality is removed from VSM."
+    INDEX           { cvnVethInterface } 
+    ::= { cvnPinningTable 1 }
+
+CvnPinningEntry ::= SEQUENCE {
+        cvnPinnedSubGrpId Integer32
+}
+
+cvnPinnedSubGrpId OBJECT-TYPE
+    SYNTAX          Integer32 (-1..2147483647)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sub-group ID to which
+        virtual ethernet interface is pinned.
+        This object returns negative vlaue (-1) if subgroup id
+        is not assigned." 
+    ::= { cvnPinningEntry 1 }
+ 
+
+-- --------------------------------------
+-- Connectee information of a virtual ethernet interface
+-- --------------------------------------
+
+cvnConnecteeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CvnConnecteeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of connectees which are currently attached to
+        virtual ethernet interfaces.
+
+        Virtual machine connects to a physical entity
+        using a virtual ethernet interface. In this scenario
+        the Virtual Machine is called connectee, physical entity
+        is called host.  Whenever a Virtual Machine is connected
+        using virtual ethernet interface we have mapping between
+        physical and virtual interfaces.  This object gives the
+        mapping of all virtual ehternet interfaces to their
+        corresponding physical entities."
+    ::= { cvnConnecteeObjects 1 }
+
+cvnConnecteeEntry OBJECT-TYPE
+    SYNTAX          CvnConnecteeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information
+        for a particular connectee.
+
+        Entry is created when a connectee connects to VSM.
+
+        Entry is deleted when a connectee has been disconnected."
+    INDEX           { cvnVethInterface } 
+    ::= { cvnConnecteeTable 1 }
+
+CvnConnecteeEntry ::= SEQUENCE {
+        cvnConnecteeAttachType INTEGER,
+        cvnDVSPort             Unsigned32,
+        cvnConnecteeName       SnmpAdminString,
+        cvnConnecteeUuid       SnmpAdminString,
+        cvnConnecteeType       INTEGER,
+        cvnConnecteeMac        MacAddress,
+        cvnConnecteeDeviceName SnmpAdminString,
+        cvnConnecteeDeviceType INTEGER
+}
+
+cvnConnecteeAttachType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        vem(2),
+                        niv(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates how virtual ethernet
+        interface is attached to this system.
+
+        none - virtual ethernet interface is not
+               participating.
+
+        vem  - Always a dynamic attachment. For this type of attachment
+               switching is done by host at software layer.
+
+        niv  - A fixed or dynamic attachment. 
+                   For this type of attachment switching is 
+                   done in asics" 
+    ::= { cvnConnecteeEntry 1 }
+
+cvnDVSPort OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the port of DVS
+        to which virtual ethernet interface is attached." 
+    ::= { cvnConnecteeEntry 2 }
+
+cvnConnecteeName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the connectee
+        attached to virtual ethernet interface. For example
+        it will return name of virtual machine or host connected 
+        to the system" 
+    ::= { cvnConnecteeEntry 3 }
+
+cvnConnecteeUuid OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the UUID of the connectee
+        attached to this virtual ethernet interface." 
+    ::= { cvnConnecteeEntry 4 }
+
+cvnConnecteeType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        vmwareVm(2),
+                        vmwareHost(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of connectee
+        attached to this virtual ethernet interface.
+
+        Connectee type can be host, Virtual Machine
+        from different vendors etc.
+
+        unknown - The type of connectee is unknown.
+
+        vmwareVm - Connectee is a Virtual Machine
+
+        vmwareHost - Connectee is a host" 
+    ::= { cvnConnecteeEntry 5 }
+
+cvnConnecteeMac OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the MAC address of
+        the connectee." 
+    ::= { cvnConnecteeEntry 6 }
+
+cvnConnecteeDeviceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the device ID or
+        port ID of the connectee to which virtual
+        ethernet interface is attached to." 
+    ::= { cvnConnecteeEntry 7 }
+
+cvnConnecteeDeviceType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        pnic(2),
+                        vnic(3),
+                        vswif(4),
+                        vmknic(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of connectee device
+        attached to this virtual ethernet interface.
+        Connectee Device type can be VMKNIC, VSWIF,VNIC etc.
+
+        unknown - The device type is none of followings.
+
+        pnic    - Physical NIC
+
+        vnic    - Virtual NIC
+
+        vswif   - Virtual Switch Interface
+
+        vmknic  - Virtual machine kernel NIC" 
+    ::= { cvnConnecteeEntry 8 }
+ 
+
+-- Conformance
+
+ciscoVirtualNicMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoVirtualNicMIBConformance 1 }
+
+ciscoVirtualNicMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoVirtualNicMIBConformance 2 }
+
+
+virtualNicMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement the CISCO-VIRTUAL-NIC-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cvnVethGroup }
+
+    GROUP           cvnPinningGroup
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        pinning functionality."
+
+    GROUP           cvnConnecteeGroup
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        connectee management information."
+
+    OBJECT          cvnPinnedSubGrpId
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoVirtualNicMIBCompliances 1 }
+
+-- Units of Conformance
+
+cvnVethGroup OBJECT-GROUP
+    OBJECTS         {
+                        cvnVethAdapter,
+                        cvnVethOwner,
+                        cvnVethHostID,
+                        cvnVethHostAddrType,
+                        cvnVethHostAddr,
+                        cvnVethPortProfileUsed,
+                        cvnVethIfProfileAlias,
+                        cvnVethIfAdditionalState,
+                        cvnVethStateReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the virtual
+        ethernet interface management information on the device."
+    ::= { ciscoVirtualNicMIBGroups 1 }
+
+cvnPinningGroup OBJECT-GROUP
+    OBJECTS         { cvnPinnedSubGrpId }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing management
+        information of pinning functionality."
+    ::= { ciscoVirtualNicMIBGroups 2 }
+
+cvnConnecteeGroup OBJECT-GROUP
+    OBJECTS         {
+                        cvnConnecteeAttachType,
+                        cvnDVSPort,
+                        cvnConnecteeName,
+                        cvnConnecteeUuid,
+                        cvnConnecteeType,
+                        cvnConnecteeMac,
+                        cvnConnecteeDeviceName,
+                        cvnConnecteeDeviceType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing management
+        information of connectee."
+    ::= { ciscoVirtualNicMIBGroups 3 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

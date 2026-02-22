@@ -1,0 +1,917 @@
+-- *****************************************************************
+-- CISCO-BRIDGE-CAPABILITY.my:
+-- Cisco BRIDGE-MIB AGENT-CAPABILITIES
+--   
+-- August 1994, Jeffrey T. Johnso
+--   
+-- Copyright (c) 1994-2014 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-BRIDGE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Integer32,
+    Counter32,
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoBridgeCapability MODULE-IDENTITY
+    LAST-UPDATED    "201409180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of BRIDGE-MIB."
+    REVISION        "201409180000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoBridgeCapNxOSV06R0201PMds."
+    REVISION        "201307160000Z"
+    DESCRIPTION
+        "Added VARIATION clauses of dot1dTpPortInFrames and
+        dot1dTpPortOutFrames to capability statement
+        ciscoBridgeCapNxOSV05R0201PN7k."
+    REVISION        "201107260000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoBridgeCapNxOSV05R0201PN7k."
+    REVISION        "201012010000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoBridgeCapV12R4SEPC1861."
+    REVISION        "201011180000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoBridgeCapNxOSV05R0101PN7k."
+    REVISION        "201009090000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoBridgeCapV12R2SEPCat3K."
+    REVISION        "201006100000Z"
+    DESCRIPTION
+        "Added the capability statements:
+
+        ciscoBridgeCapNxOSV04R0201N0101PN5k and
+        ciscoBridgeCapNxOSV05R0002PN7k."
+    REVISION        "201003020000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoBridgeCapV12R0233SXHPCat6K."
+    REVISION        "200703280000Z"
+    DESCRIPTION
+        "Added VARIATION clause of dot1dStaticStatus for
+        capability statement ciscoBridgeCapCatOSV08R0601."
+    REVISION        "200606120000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoBridgeCapCatOSV08R0601.
+        Commented out ciscoBridgeCapabilityV10R02."
+    REVISION        "9408180000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 106 }
+
+
+
+ciscoBridgeCapCatOSV08R0601 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1) on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "BRIDGE-MIB capabilities."
+
+    SUPPORTS        BRIDGE-MIB
+    INCLUDES        {
+                        dot1dBaseBridgeGroup,
+                        dot1dBasePortGroup,
+                        dot1dStpBridgeGroup,
+                        dot1dStpPortGroup2,
+                        dot1dStpPortGroup3,
+                        dot1dTpBridgeGroup,
+                        dot1dTpFdbGroup,
+                        dot1dStaticGroup,
+                        dot1dNotificationGroup
+                    }
+    VARIATION       newRoot
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        newRoot depends on the value of stpxSpanningTreeType.
+        'pvstPlus',
+        'rapidPvstPlus' - vtpVlanIndex
+        'mistp',
+        'mistpPvstPlus' - stpxMISTPInstanceIndex
+        'mst' - stpxMSTInstanceIndex"
+
+    VARIATION       topologyChange
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        topologyChange depends on the value of
+        stpxSpanningTreeType.
+        'pvstPlus',
+        'rapidPvstPlus' - vtpVlanIndex, ifName
+        'mistp',
+        'mistpPvstPlus' - stpxMISTPInstanceIndex, ifName
+        'mst' - stpxMSTInstanceIndex, ifName"
+
+    VARIATION       dot1dStaticStatus
+    DESCRIPTION
+        "The default value is deleteOnReset(4)."
+
+    ::= { ciscoBridgeCapability 2 }
+
+ciscoBridgeCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "BRIDGE-MIB capabilities."
+
+    SUPPORTS        BRIDGE-MIB
+    INCLUDES        {
+                        dot1dBaseBridgeGroup,
+                        dot1dBasePortGroup,
+                        dot1dStpBridgeGroup,
+                        dot1dStpPortGroup,
+                        dot1dTpBridgeGroup,
+                        dot1dTpFdbGroup,
+                        dot1dTpGroup,
+                        dot1dStaticGroup,
+                        dot1dNotificationGroup
+                    }
+    VARIATION       dot1dBasePortDelayExceededDiscards
+    DESCRIPTION
+        "This counter is implemented as a per port
+        counter instead of a per port per VLAN
+        (Virtual Local Area Network) counter."
+
+    VARIATION       dot1dBasePortMtuExceededDiscards
+    DESCRIPTION
+        "This counter is implemented as a per port
+        counter instead of a per port per VLAN
+        counter."
+
+    VARIATION       dot1dTpLearnedEntryDiscards
+    DESCRIPTION
+        "This counter counts every such discarded
+        forwarding database entries on all VLANs."
+
+    VARIATION       dot1dStpPortEnable
+    SYNTAX          INTEGER  {
+                        enabled(1)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        are supported."
+
+    VARIATION       dot1dTpAgingTime
+    DESCRIPTION
+        "Out of range values 5 to 9 are
+        supported as read-only."
+
+    VARIATION       dot1dTpPortInFrames
+    DESCRIPTION
+        "This counter is implemented as a per port
+        counter instead of a per port per VLAN
+        counter."
+
+    VARIATION       dot1dTpPortOutFrames
+    DESCRIPTION
+        "This counter is implemented as a per port
+        counter instead of a per port per VLAN
+        counter."
+
+    VARIATION       dot1dTpPortInDiscards
+    DESCRIPTION
+        "Hardcoded to value zero."
+
+    VARIATION       dot1dStaticReceivePort
+    SYNTAX          Integer32 (0)
+    DESCRIPTION
+        "Only supports value zero."
+
+    VARIATION       dot1dStaticAllowedToGoTo
+    SYNTAX          OCTET STRING (SIZE (0..256))
+    DESCRIPTION
+        "The maximum size of the octet string is limited
+        to 256."
+
+    VARIATION       dot1dStaticStatus
+    SYNTAX          INTEGER  {
+                        invalid(2),
+                        deleteOnReset(4)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        are supported."
+
+    VARIATION       newRoot
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        newRoot depends on the value of stpxSpanningTreeType.
+        'pvstPlus',
+        'rapidPvstPlus' - vtpVlanIndex
+        'mst' - stpxMSTInstanceIndex"
+
+    VARIATION       topologyChange
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        topologyChange depends on the value of
+        stpxSpanningTreeType.
+        'pvstPlus',
+        'rapidPvstPlus' - vtpVlanIndex, ifName
+        'mst' - stpxMSTInstanceIndex, ifName"
+
+    ::= { ciscoBridgeCapability 3 }
+
+ciscoBridgeCapNxOSV04R0201N0101PN5k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 4.2(1)N1(1) on Nexus 5000
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "BRIDGE-MIB capabilities."
+
+    SUPPORTS        BRIDGE-MIB
+    INCLUDES        {
+                        dot1dBaseBridgeGroup,
+                        dot1dBasePortGroup,
+                        dot1dStpBridgeGroup,
+                        dot1dStpPortGroup,
+                        dot1dStpPortGroup2,
+                        dot1dStpPortGroup3,
+                        dot1dTpBridgeGroup,
+                        dot1dTpFdbGroup
+                    }
+    VARIATION       dot1dBaseType
+    SYNTAX          INTEGER  {
+                        transparent-only(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       dot1dBasePortCircuit
+    SYNTAX          OBJECT IDENTIFIER
+    DESCRIPTION
+        "Always return 0.0"
+
+    VARIATION       dot1dBasePortDelayExceededDiscards
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dBasePortMtuExceededDiscards
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dStpPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpBridgeMaxAge
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpBridgeHelloTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpBridgeForwardDelay
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpPortPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpPortEnable
+    SYNTAX          INTEGER  {
+                        enabled(1)
+                    }
+    ACCESS          read-only
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported.
+        Write access is not supported."
+
+    VARIATION       dot1dStpPortPathCost
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpPortPathCost32
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dTpLearnedEntryDiscards
+    SYNTAX          Counter32
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dTpAgingTime
+    SYNTAX          Integer32 (0 | 120..918000)
+    DESCRIPTION
+        "Only limited set of values
+        are supported.
+        Setting dot1dTpAgingTime to zero disables
+        the aging timeout.
+        Only values which are multiple of 5 are supported."
+
+    ::= { ciscoBridgeCapability 4 }
+
+ciscoBridgeCapNxOSV05R0002PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 5.0(2) on Nexus 7000
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "BRIDGE-MIB capabilities."
+
+    SUPPORTS        BRIDGE-MIB
+    INCLUDES        {
+                        dot1dBaseBridgeGroup,
+                        dot1dBasePortGroup,
+                        dot1dStpBridgeGroup,
+                        dot1dStpPortGroup,
+                        dot1dStpPortGroup2,
+                        dot1dStpPortGroup3,
+                        dot1dTpBridgeGroup,
+                        dot1dTpFdbGroup,
+                        dot1dNotificationGroup
+                    }
+    VARIATION       dot1dBaseType
+    SYNTAX          INTEGER  {
+                        transparent-only(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       dot1dBasePortCircuit
+    DESCRIPTION
+        "Always return 0.0"
+
+    VARIATION       dot1dBasePortDelayExceededDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dBasePortMtuExceededDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dStpPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpBridgeMaxAge
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpBridgeHelloTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpBridgeForwardDelay
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpPortPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpPortEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpPortPathCost
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpPortPathCost32
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dTpLearnedEntryDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dTpAgingTime
+    SYNTAX          Integer32 (0 | 120..918000)
+    DESCRIPTION
+        "Only limited set of values
+        are supported.
+        Setting dot1dTpAgingTime to zero disables
+        the aging timeout.
+        Only values which are multiple of 5 are supported."
+
+    VARIATION       newRoot
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        newRoot depends on the value of stpxSpanningTreeType.
+        'rapidPvstPlus' - vtpVlanIndex"
+
+    VARIATION       topologyChange
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        topologyChange depends on the value of
+        stpxSpanningTreeType.
+        'rapidPvstPlus' - vtpVlanIndex, ifName"
+
+    ::= { ciscoBridgeCapability 5 }
+
+ciscoBridgeCapV12R2SEPCat3K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2SE on Catalyst 3K
+                        series devices."
+    STATUS          current
+    DESCRIPTION
+        "BRIDGE-MIB capabilities."
+
+    SUPPORTS        BRIDGE-MIB
+    INCLUDES        {
+                        dot1dBaseBridgeGroup,
+                        dot1dBasePortGroup,
+                        dot1dStpBridgeGroup,
+                        dot1dStpPortGroup,
+                        dot1dTpBridgeGroup,
+                        dot1dTpFdbGroup,
+                        dot1dTpGroup,
+                        dot1dStaticGroup,
+                        dot1dNotificationGroup
+                    }
+    VARIATION       dot1dBaseType
+    SYNTAX          INTEGER  {
+                        transparent-only(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       dot1dBasePortCircuit
+    DESCRIPTION
+        "Always return 0.0"
+
+    VARIATION       dot1dBasePortDelayExceededDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dStpPortEnable
+    SYNTAX          INTEGER  {
+                        enabled(1)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        are supported."
+
+    VARIATION       dot1dStaticStatus
+    SYNTAX          INTEGER  {
+                        invalid(2),
+                        permanent(3),
+                        deleteOnReset(4)
+                    }
+    DESCRIPTION
+        "Only a limited set of enumerated values
+        are supported."
+
+    VARIATION       newRoot
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        newRoot depends on the value of stpxSpanningTreeType
+        as shown in the table below.
+        stpxSpanningTreeType        Additional Varbinds
+        ------------------------------------------------
+        'pvstPlus'                  vtpVlanIndex
+        'rapidPvstPlus'             vtpVlanIndex
+        'mst'                       stpxMSTInstanceIndex"
+
+    VARIATION       topologyChange
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        topologyChange depends on the value of stpxSpanningTreeType
+        as shown in the table below.
+        stpxSpanningTreeType        Additional Varbinds
+        ------------------------------------------------
+        'pvstPlus'                  vtpVlanIndex, ifName
+        'rapidPvstPlus'             vtpVlanIndex, ifName
+        'mst'                       stpxMSTInstanceIndex, ifName"
+
+    ::= { ciscoBridgeCapability 6 }
+
+ciscoBridgeCapNxOSV05R0101PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 5.1(1) on Nexus 7000
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "BRIDGE-MIB capabilities."
+
+    SUPPORTS        BRIDGE-MIB
+    INCLUDES        {
+                        dot1dBaseBridgeGroup,
+                        dot1dBasePortGroup,
+                        dot1dStpBridgeGroup,
+                        dot1dStpPortGroup,
+                        dot1dStpPortGroup2,
+                        dot1dStpPortGroup3,
+                        dot1dTpBridgeGroup,
+                        dot1dTpFdbGroup,
+                        dot1dTpGroup,
+                        dot1dStaticGroup,
+                        dot1dNotificationGroup
+                    }
+    VARIATION       dot1dBaseType
+    SYNTAX          INTEGER  {
+                        transparent-only(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       dot1dBasePortCircuit
+    DESCRIPTION
+        "Always return 0.0."
+
+    VARIATION       dot1dBasePortDelayExceededDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dBasePortMtuExceededDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dStpPriority
+    SYNTAX          Integer32 (0 | 4096 | 8192 | 12288 | 16384 | 20480 | 24576 | 28672 | 32768 | 36864 | 40960 | 45056 | 49152 | 53248 | 57344 | 61440)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       dot1dStpPortPriority
+    SYNTAX          Integer32 (0 | 16 | 32 | 48 | 64 | 80 | 96 | 112 | 128 | 144 | 160 | 176 | 192 | 208 | 224)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       dot1dStpPortEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dStpPortPathCost32
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dTpLearnedEntryDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dTpAgingTime
+    SYNTAX          Integer32 (0 | 120..918000)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Setting dot1dTpAgingTime to zero disables
+        the aging timeout.
+        Only values which are multiple of 5 are supported."
+
+    VARIATION       dot1dTpPortInDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dStaticReceivePort
+    SYNTAX          Integer32 (0)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       dot1dStaticStatus
+    SYNTAX          INTEGER  {
+                        invalid(2),
+                        deleteOnReset(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       newRoot
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        newRoot depends on the value of stpxSpanningTreeType.
+        'rapidPvstPlus' - vtpVlanIndex
+        'mst'           - stpxMSTInstanceIndex"
+
+    VARIATION       topologyChange
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        topologyChange depends on the value of
+        stpxSpanningTreeType.
+        'rapidPvstPlus' - vtpVlanIndex, ifName
+        'mst'           - stpxMSTInstanceIndex, ifName"
+
+    ::= { ciscoBridgeCapability 7 }
+
+ciscoBridgeCapV12R4SEPC1861 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=IOS
+                     OSVERSION=Cisco IOS 12.4,15.1T
+                     PLATFORM=c1861"
+    STATUS          current
+    DESCRIPTION
+        "BRIDGE-MIB capabilities"
+
+    SUPPORTS        BRIDGE-MIB
+    INCLUDES        {
+                        dot1dBaseBridgeGroup,
+                        dot1dBasePortGroup,
+                        dot1dStpBridgeGroup,
+                        dot1dStpPortGroup,
+                        dot1dTpBridgeGroup,
+                        dot1dTpFdbGroup,
+                        dot1dTpGroup,
+                        dot1dStaticGroup
+                    }
+    VARIATION       dot1dStpPortEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported"
+
+    ::= { ciscoBridgeCapability 8 }
+
+ciscoBridgeCapNxOSV05R0201PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 5.2(1) on Nexus 7000
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "BRIDGE-MIB capabilities."
+
+    SUPPORTS        BRIDGE-MIB
+    INCLUDES        {
+                        dot1dBaseBridgeGroup,
+                        dot1dBasePortGroup,
+                        dot1dStpBridgeGroup,
+                        dot1dStpPortGroup,
+                        dot1dStpPortGroup2,
+                        dot1dStpPortGroup3,
+                        dot1dTpBridgeGroup,
+                        dot1dTpFdbGroup,
+                        dot1dTpGroup,
+                        dot1dStaticGroup,
+                        dot1dNotificationGroup
+                    }
+    VARIATION       dot1dBaseType
+    SYNTAX          INTEGER  {
+                        transparent-only(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       dot1dBasePortCircuit
+    DESCRIPTION
+        "Always return 0.0."
+
+    VARIATION       dot1dBasePortDelayExceededDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dBasePortMtuExceededDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dStpPriority
+    SYNTAX          Integer32 (0 | 4096 | 8192 | 12288 | 16384 | 20480 | 24576 | 28672 | 32768 | 36864 | 40960 | 45056 | 49152 | 53248 | 57344 | 61440)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       dot1dStpPortPriority
+    SYNTAX          Integer32 (0 | 16 | 32 | 48 | 64 | 80 | 96 | 112 | 128 | 144 | 160 | 176 | 192 | 208 | 224)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       dot1dStpPortEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       dot1dTpLearnedEntryDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dTpAgingTime
+    SYNTAX          Integer32 (0 | 120..918000)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Setting dot1dTpAgingTime to zero disables
+        the aging timeout.
+        Only values which are multiple of 5 are supported."
+
+    VARIATION       dot1dTpPortInDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dStaticReceivePort
+    SYNTAX          Integer32 (0)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       dot1dStaticStatus
+    SYNTAX          INTEGER  {
+                        invalid(2),
+                        deleteOnReset(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       newRoot
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        newRoot depends on the value of stpxSpanningTreeType.
+        'rapidPvstPlus' - vtpVlanIndex
+        'mst'           - stpxMSTInstanceIndex"
+
+    VARIATION       topologyChange
+    DESCRIPTION
+        "Additional VarBinds are appended to notification
+        topologyChange depends on the value of
+        stpxSpanningTreeType.
+        'rapidPvstPlus' - vtpVlanIndex, ifName
+        'mst'           - stpxMSTInstanceIndex, ifName"
+
+    VARIATION       dot1dTpPortInFrames
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dTpPortOutFrames
+    DESCRIPTION
+        "Always return 0."
+
+    ::= { ciscoBridgeCapability 9 }
+
+ciscoBridgeCapNxOSV06R0201PMds AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(1) on MDS 9700
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "BRIDGE-MIB capabilities."
+
+    SUPPORTS        BRIDGE-MIB
+    INCLUDES        {
+                        dot1dBaseBridgeGroup,
+                        dot1dBasePortGroup,
+                        dot1dStpBridgeGroup,
+                        dot1dTpBridgeGroup,
+                        dot1dTpFdbGroup,
+                        dot1dTpGroup,
+                        dot1dStaticGroup
+                    }
+    VARIATION       dot1dBaseBridgeAddress
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dBaseType
+    SYNTAX          INTEGER  {
+                        transparent-only(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       dot1dBasePortCircuit
+    DESCRIPTION
+        "Always return 0.0."
+
+    VARIATION       dot1dBasePortDelayExceededDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dBasePortMtuExceededDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dStpPriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpTimeSinceTopologyChange
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpTopChanges
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpDesignatedRoot
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpRootCost
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpRootPort
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpMaxAge
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpHelloTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpHoldTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpForwardDelay
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpBridgeMaxAge
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpBridgeHelloTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dStpBridgeForwardDelay
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported."
+
+    VARIATION       dot1dTpLearnedEntryDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dTpAgingTime
+    SYNTAX          Integer32 (0 | 120..918000)
+    DESCRIPTION
+        "Only limited set of values is supported.
+        Setting dot1dTpAgingTime to zero disables
+        the aging timeout.
+        Only values which are multiple of 5 are supported."
+
+    VARIATION       dot1dTpPortInDiscards
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dStaticReceivePort
+    SYNTAX          Integer32 (0)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       dot1dStaticStatus
+    SYNTAX          INTEGER  {
+                        invalid(2),
+                        deleteOnReset(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is supported."
+
+    VARIATION       dot1dTpPortInFrames
+    DESCRIPTION
+        "Always return 0."
+
+    VARIATION       dot1dTpPortOutFrames
+    DESCRIPTION
+        "Always return 0."
+
+    ::= { ciscoBridgeCapability 10 }
+
+END
+
+
+
+

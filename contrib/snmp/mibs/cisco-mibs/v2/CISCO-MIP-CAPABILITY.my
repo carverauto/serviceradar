@@ -1,0 +1,380 @@
+-- *******************************************************************
+-- CISCO-MIP-CAPABILITY.my: MIP-MIB AGENT-CAPABILITIES
+--
+-- Nov 2000, Ravindra Rathi
+--
+-- Copyright (c) 2000, 2001, 2002 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *******************************************************************
+
+
+CISCO-MIP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoMIPCapability MODULE-IDENTITY
+                LAST-UPDATED    "200312240000Z"
+                ORGANIZATION    "Cisco Systems, Inc."
+                CONTACT-INFO
+                        "       Cisco Systems
+                                Customer Service
+                        
+                        Postal: 170 West Tasman Drive
+                                San Jose, CA  95134
+                                USA
+                        
+                           Tel: +1 800 553-NETS
+                        
+                        E-mail: cs-mobileip@cisco.com"
+                DESCRIPTION
+                        "Agent capabilities for MIP-MIB 
+                        (MobileIP MIB)."
+                REVISION        "200312240000Z"
+                DESCRIPTION
+                        "Added ciscoMIPCapabilityV12R0304T :
+                        - faVJCompressionUnavailable not supported"
+                REVISION        "200210080000Z"
+                DESCRIPTION
+                        "Added ciscoMIPCapabilityV12R0204T :
+                        - mnSystem, mnDiscovery and mnRegistration
+                          added to groups supported.
+                        - mnRegRequestsWithDirectedBroadcast
+                          is not implemented."
+                REVISION        "200011170000Z"
+                DESCRIPTION
+                        "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 203 }
+
+ciscoMIPCapabilityV12R02 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.2"
+STATUS          current
+DESCRIPTION     "MobileIP mib capabilities"
+
+SUPPORTS        MIP-MIB
+INCLUDES        { mipSystemGroup, mipSecAssociationGroup, 
+                  mipSecViolationGroup, maAdvertisementGroup, 
+                  faSystemGroup, faRegistrationGroup, 
+                  haRegistrationGroup, haRegNodeCountersGroup, 
+                  mipSecNotificationsGroup }
+
+VARIATION       mipSecAlgorithmType
+SYNTAX          INTEGER { md5(2) }
+-- no            { other(1) }
+ACCESS          read-write 
+DESCRIPTION     "other(1) not available. Creation of new entries in
+                mipSecAssocTable is not supported."
+
+VARIATION       mipSecAlgorithmMode
+SYNTAX          INTEGER { prefixSuffix(2) }
+-- no            { other(1) }
+ACCESS          read-write
+DESCRIPTION     "other(1) not available. Creation of new entries in
+                mipSecAssocTable is not supported."
+
+VARIATION       mipSecKey
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in mipSecAssocTable is not 
+                supported."
+
+VARIATION       mipSecReplayMethod
+SYNTAX          INTEGER { timestamps(2) }
+-- no            { other(1), nonces(3) }
+ACCESS          read-write
+DESCRIPTION     "other(1) and nonces(3) not available. Creation of 
+                new entries in mipSecAssocTable is not supported."
+
+VARIATION       maAdvMaxRegLifetime
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvPrefixLengthInclusion
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvAddress
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvMaxInterval
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvMinInterval
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvMaxAdvLifetime
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvResponseSolicitationOnly
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvStatus
+SYNTAX          INTEGER { active(1), notInService(2), 
+                notReady(3) } -- subset of RowStatus
+-- no            { createAndGo(4), createAndWait(5), destroy(6) } 
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported. Deletion of entries using destroy(6) is
+                is not supported."
+
+VARIATION       faCOAStatus
+SYNTAX          INTEGER { active(1), notReady(3),
+                createAndGo(4), destroy(6) } -- subset of RowStatus
+-- no            { notInService(2), createAndWait(5) } 
+DESCRIPTION     "Creation of new entries using createAndWait(5) and
+                suspension of entries using notInService(2) is not
+                supported."
+
+VARIATION       faIsBusy
+ACCESS          not-implemented
+DESCRIPTION     "This object is not supported in the current
+                MIB implementation."
+
+VARIATION       faRegistrationRequired
+ACCESS          not-implemented
+DESCRIPTION     "This object is not supported in the current
+                MIB implementation."
+
+        ::= { ciscoMIPCapability 1 }
+
+ciscoMIPCapabilityV12R0204T AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.2(4)T"
+STATUS          current
+DESCRIPTION     "MobileIP mib capabilities"
+
+SUPPORTS        MIP-MIB
+INCLUDES        { mipSystemGroup, mipSecAssociationGroup, 
+                  mipSecViolationGroup, mnSystemGroup, mnDiscoveryGroup,
+                  mnRegistrationGroup, maAdvertisementGroup, 
+                  faSystemGroup, faRegistrationGroup, 
+                  haRegistrationGroup, haRegNodeCountersGroup, 
+                  mipSecNotificationsGroup }
+
+VARIATION       mipSecAlgorithmType
+SYNTAX          INTEGER { md5(2) }
+-- no            { other(1) }
+ACCESS          read-write 
+DESCRIPTION     "other(1) not available. Creation of new entries in
+                mipSecAssocTable is not supported."
+
+VARIATION       mipSecAlgorithmMode
+SYNTAX          INTEGER { prefixSuffix(2) }
+-- no            { other(1) }
+ACCESS          read-write
+DESCRIPTION     "other(1) not available. Creation of new entries in
+                mipSecAssocTable is not supported."
+
+VARIATION       mipSecKey
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in mipSecAssocTable is not 
+                supported."
+
+VARIATION       mipSecReplayMethod
+SYNTAX          INTEGER { timestamps(2) }
+-- no            { other(1), nonces(3) }
+ACCESS          read-write
+DESCRIPTION     "other(1) and nonces(3) not available. Creation of 
+                new entries in mipSecAssocTable is not supported."
+
+VARIATION       maAdvMaxRegLifetime
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvPrefixLengthInclusion
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvAddress
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvMaxInterval
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvMinInterval
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvMaxAdvLifetime
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvResponseSolicitationOnly
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvStatus
+SYNTAX          INTEGER { active(1), notInService(2), 
+                notReady(3) } -- subset of RowStatus
+-- no            { createAndGo(4), createAndWait(5), destroy(6) } 
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported. Deletion of entries using destroy(6) is
+                is not supported."
+
+VARIATION       faCOAStatus
+SYNTAX          INTEGER { active(1), notReady(3),
+                createAndGo(4), destroy(6) } -- subset of RowStatus
+-- no            { notInService(2), createAndWait(5) } 
+DESCRIPTION     "Creation of new entries using createAndWait(5) and
+                suspension of entries using notInService(2) is not
+                supported."
+
+VARIATION       faIsBusy
+ACCESS          not-implemented
+DESCRIPTION     "This object is not supported in the current
+                MIB implementation."
+
+VARIATION       faRegistrationRequired
+ACCESS          not-implemented
+DESCRIPTION     "This object is not supported in the current
+                MIB implementation."
+
+VARIATION       mnRegRequestsWithDirectedBroadcast 
+ACCESS          not-implemented
+DESCRIPTION     "This object is not supported in the current
+                MIB implementation."
+
+        ::= { ciscoMIPCapability 2 }
+
+ciscoMIPCapabilityV12R0304T AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.3(4)T"
+STATUS          current
+DESCRIPTION     "MobileIP mib capabilities"
+
+SUPPORTS        MIP-MIB
+INCLUDES        { mipSystemGroup, mipSecAssociationGroup, 
+                  mipSecViolationGroup, mnSystemGroup, mnDiscoveryGroup,
+                  mnRegistrationGroup, maAdvertisementGroup, 
+                  faSystemGroup, faRegistrationGroup, 
+                  haRegistrationGroup, haRegNodeCountersGroup, 
+                  mipSecNotificationsGroup }
+
+VARIATION       mipSecAlgorithmType
+SYNTAX          INTEGER { md5(2) }
+-- no            { other(1) }
+ACCESS          read-write 
+DESCRIPTION     "other(1) not available. Creation of new entries in
+                mipSecAssocTable is not supported."
+
+VARIATION       mipSecAlgorithmMode
+SYNTAX          INTEGER { prefixSuffix(2) }
+-- no            { other(1) }
+ACCESS          read-write
+DESCRIPTION     "other(1) not available. Creation of new entries in
+                mipSecAssocTable is not supported."
+
+VARIATION       mipSecKey
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in mipSecAssocTable is not 
+                supported."
+
+VARIATION       mipSecReplayMethod
+SYNTAX          INTEGER { timestamps(2) }
+-- no            { other(1), nonces(3) }
+ACCESS          read-write
+DESCRIPTION     "other(1) and nonces(3) not available. Creation of 
+                new entries in mipSecAssocTable is not supported."
+
+VARIATION       maAdvMaxRegLifetime
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvPrefixLengthInclusion
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvAddress
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvMaxInterval
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvMinInterval
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvMaxAdvLifetime
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvResponseSolicitationOnly
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported."
+
+VARIATION       maAdvStatus
+SYNTAX          INTEGER { active(1), notInService(2), 
+                notReady(3) } -- subset of RowStatus
+-- no            { createAndGo(4), createAndWait(5), destroy(6) } 
+ACCESS          read-write
+DESCRIPTION     "Creation of new entries in maAdvConfigTable is not 
+                supported. Deletion of entries using destroy(6) is
+                is not supported."
+
+VARIATION       faCOAStatus
+SYNTAX          INTEGER { active(1), notReady(3),
+                createAndGo(4), destroy(6) } -- subset of RowStatus
+-- no            { notInService(2), createAndWait(5) } 
+DESCRIPTION     "Creation of new entries using createAndWait(5) and
+                suspension of entries using notInService(2) is not
+                supported."
+
+VARIATION       faIsBusy
+ACCESS          not-implemented
+DESCRIPTION     "This object is not supported in the current
+                MIB implementation."
+
+VARIATION       faRegistrationRequired
+ACCESS          not-implemented
+DESCRIPTION     "This object is not supported in the current
+                MIB implementation."
+
+VARIATION       mnRegRequestsWithDirectedBroadcast 
+ACCESS          not-implemented
+DESCRIPTION     "This object is not supported in the current
+                MIB implementation."
+
+VARIATION       faVJCompressionUnavailable 
+ACCESS          not-implemented
+DESCRIPTION     "This object is not supported in the current
+                MIB implementation."
+        ::= { ciscoMIPCapability 3 }
+
+END

@@ -1,0 +1,1466 @@
+-- **********************************************************************
+-- CISCO-APS-MIB.my: Cisco Automatic Protection Switching (APS) MIB
+--
+-- Nov 2001, Ashok Chippa, Altaf Shaikh
+--
+-- Copyright (c) 2001, 2002 by Cisco Systems, Inc.
+-- All rights reserved.
+-- **********************************************************************
+
+-- Caution.  This MIB is temporary and experimental.  In the 
+-- future it will be removed from products, perhaps with short
+-- notice, in favor of more standard or generic MIBs.  
+-- Application developers should not depend on long-term access
+-- to this MIB.
+
+-- This MIB module is based on the Internet Draft 
+-- draft-ietf-atommib-sonetaps-mib-05.txt. In terms of object 
+-- syntax and semantics, the content of this Cisco MIB is the 
+-- same as the corresponding Internet Draft revision.   This Cisco 
+-- MIB was created due to the "subject to change" nature of 
+-- Internet Drafts. This Cisco MIB may later be deprecated, and 
+-- the stable RFC, which may replace the Internet Draft, may be 
+-- implemented in its place.
+
+
+   CISCO-APS-MIB DEFINITIONS ::= BEGIN
+
+   IMPORTS
+        MODULE-IDENTITY, NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        Gauge32, Counter32, Integer32,
+        transmission
+          FROM SNMPv2-SMI
+
+        TEXTUAL-CONVENTION, RowStatus,
+             TimeStamp
+          FROM SNMPv2-TC
+
+        SnmpAdminString
+          FROM SNMP-FRAMEWORK-MIB
+
+        InterfaceIndex
+          FROM IF-MIB
+
+        MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+          FROM SNMPv2-CONF
+
+        ciscoExperiment FROM CISCO-SMI;
+
+   cApsMIB MODULE-IDENTITY
+       LAST-UPDATED    "200112261200Z"
+       ORGANIZATION    "Cisco Systems, inc"
+       CONTACT-INFO
+                       "Cisco Systems, Inc.
+                        Customer Service
+                        Postal: 170 W. Tasman Drive
+                                San Jose, CA  95134-1706
+                                USA
+                        Tel: +1 800 553-NETS
+                        Email: gsr-netman@cisco.com"
+
+       DESCRIPTION
+           "This management information module supports the
+            configuration and management of SONET linear APS groups.
+            The definitions and descriptions used in this mib have 
+            been derived from Synchronous Optical Network (SONET)
+            Transport Systems: Common Generic Criteria, GR-253-CORE
+            Revision 2, January 1999,section 5.3. The MIB is also
+            consistent with the Multiplex Section Protection (MSP)
+            protocol as specified in ITU-T Recommendation G.783, 
+            Characteristics of synchronous digital hierarchy (SDH)
+            equipment function blocks, Annex A and B.
+
+            This MIB was extracted from internet draft
+            draft-ietf-atommib-sonetaps-mib-05.txt for SONET Linear APS
+            architectures, by J. Johnson, M. Thatcher, and J. Kuhfeld.
+            "
+       REVISION      "200112261200Z"
+       DESCRIPTION
+            "Latest version of the IETF draft."
+
+       REVISION      "200104290000Z"
+       DESCRIPTION
+            "A draft version of the APS MIB."
+       ::= { ciscoExperiment 71 } 
+
+   cApsMIBObjects OBJECT IDENTIFIER
+       ::= { cApsMIB 1 }
+
+   cApsMIBNotifications OBJECT IDENTIFIER
+       ::= { cApsMIB 2 }
+
+   cApsMIBConformance OBJECT IDENTIFIER
+       ::= { cApsMIB 3 }
+
+   CApsK1K2 ::= TEXTUAL-CONVENTION
+       STATUS current
+       DESCRIPTION
+           "This Textual Convention describes an object that stores
+            a SONET K1 and K2 byte Aps protocol field. 
+            K1 is located in the first octet, K2 is located in
+            the second octet. Bits are numbered from left to right,
+            with the most significant bit being the leftmost.
+
+            Bits 1-4 of the K1 byte indicate a request.
+
+            1111  Lockout of Protection
+            1110  Forced Switch
+            1101  SF - High Priority
+            1100  SF - Low Priority
+            1011  SD - High Priority
+            1010  SD - Low Priority
+            1001  not used
+            1000  Manual Switch
+            0111  not used
+            0110  Wait-to-Restore
+            0101  not used
+            0100  Exercise
+            0011  not used
+            0010  Reverse Request
+            0001  Do Not Revert
+            0000  No Request
+
+            Bits 5-8 of the K1 byte indicate the channel associated 
+            with the request defined in bits 1-4.
+
+            0000 is the Null channel.
+            1-14 are working channels.
+            15   is the extra traffic channel
+
+            Bits 1-4 of the K2 byte indicate a channel. The channel is
+            defined with the same syntax as K1 Bits 5-8. 
+
+            Bit 5 of the K2 byte indicates the
+            architecture.
+
+            0 if the architecture is 1+1
+            1 if the architecture is 1:n
+
+            Bits 6-8 of the K2 byte indicates the
+            mode.
+
+            000 - 011 are reserved for future use
+            100  indicates the mode is unidirectional
+            101  indicates the mode is bidirectional
+            110  RDI-L
+            111  AIS-L "
+       REFERENCE
+           "Bellcore (Telcordia Technologies) GR-253-CORE, 
+            Issue 2,Revision 2 (January 1999), 5.3.5."
+       SYNTAX      OCTET STRING (SIZE (2))
+
+   CApsSwitchCommand ::= TEXTUAL-CONVENTION
+       STATUS       current
+       DESCRIPTION
+           "An Aps switch command allows a user to perform protection
+            switch actions.
+
+            The Switch command values are:
+
+            noCmd
+
+            This value should be returned by a read request when no 
+            switch command has been written to the object in question
+            since initialization. This value may not be used in a 
+            write operation.
+
+            clear
+
+            Clears all of the switch commands listed below for the 
+            specified channel.
+
+            lockoutOfProtection
+
+            Prevents any of the working channels from switching to the
+            protection line. The specified channel should be the 
+            protection channel.
+
+            forcedSwitchWorkToProtect
+
+            Switches the specified working channel to the protection 
+            line.
+
+            forcedSwitchProtectToWork
+
+            Switches the working channel back from the protection
+            line to the working line. The specified channel should be
+            the protection channel.
+
+            manualSwitchWorkToProtect
+
+            Switches the specified working channel to the protection 
+            line.
+
+            manualSwitchProtectToWork
+
+            Switches the working channel back from the protection
+            line to the working line. The specified channel should be
+            the protection channel.
+
+            exercise
+
+            Exercises the protocol for a protection switch of the 
+            specified channel by issuing an Exercise request for that
+            channel and checking the response on the Aps channel."
+       SYNTAX       INTEGER {
+                             noCmd(1),
+                             clear(2),
+                             lockoutOfProtection(3),
+                             forcedSwitchWorkToProtect(4),
+                             forcedSwitchProtectToWork(5),
+                             manualSwitchWorkToProtect(6),
+                             manualSwitchProtectToWork(7),
+                             exercise(8)
+                             }
+
+   CApsControlCommand ::= TEXTUAL-CONVENTION
+       STATUS       current
+       DESCRIPTION
+           "An APS control command applies only to LTE that support
+            the 1:n architecture and performs the following actions.
+
+
+            The Control command values are:
+
+            noCmd
+
+            This value should be returned by a read request when no 
+            control command has been written to the object in question
+            since initialization. This value may not be used in a write
+            operation.
+
+            lockoutWorkingChannel
+
+            Prevents the specified working channel from switching to
+            the protection line.
+
+            clearLockoutWorkingChannel
+
+            Clears the lockout a working channel command for the 
+            channel specified."
+       SYNTAX       INTEGER {
+                             noCmd(1),
+                             lockoutWorkingChannel(2),
+                             clearLockoutWorkingChannel(3)
+                            }
+
+
+   --
+   -- APS Configuration Table
+   --
+   -- This table supports the addition, configuration and deletion 
+   -- of groups.
+   --
+   cApsConfig   OBJECT IDENTIFIER ::= { cApsMIBObjects 1 }
+
+   cApsConfigGroups OBJECT-TYPE
+       SYNTAX      Gauge32
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The count of APS groups. This count includes all rows
+            in cApsConfigTable."
+       ::= { cApsConfig 1 }
+
+    cApsConfigTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF  CApsConfigEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "This table lists the APS groups that have been 
+            configured on the system."
+       ::= { cApsConfig 2 }
+
+    cApsConfigEntry OBJECT-TYPE
+       SYNTAX       CApsConfigEntry
+       MAX-ACCESS   not-accessible
+       STATUS       current
+       DESCRIPTION
+           "A conceptual row in the  cApsConfigTable."
+       INDEX { IMPLIED  cApsConfigName }
+       ::= { cApsConfigTable  1 }
+
+    CApsConfigEntry ::= SEQUENCE {
+        cApsConfigName                  SnmpAdminString,
+        cApsConfigRowStatus             RowStatus,
+        cApsConfigMode                  INTEGER,
+        cApsConfigRevert                INTEGER,
+        cApsConfigDirection             INTEGER,
+        cApsConfigExtraTraffic          INTEGER,
+        cApsConfigSdBerThreshold        Integer32,
+        cApsConfigSfBerThreshold        Integer32,
+        cApsConfigWaitToRestore         Integer32,
+        cApsConfigCreationTime          TimeStamp
+    }
+
+    cApsConfigName OBJECT-TYPE
+       SYNTAX      SnmpAdminString (SIZE (1..32))
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A textual name for the APS group.
+           "
+       ::= { cApsConfigEntry 1 }
+
+    cApsConfigRowStatus OBJECT-TYPE
+       SYNTAX      RowStatus
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The status of this APS group entry.
+
+            An entry may not exist in the active state unless all
+            objects in the entry have an appropriate value. Also,
+            all associated  cApsChanConfigEntry rows must 
+            represent a set of consecutive channel numbers 
+            beginning with 0 or 1, depending on the selected
+            architecture.
+
+            When set to notInService changes may be made to
+            cApsConfigMode, cApsConfigRevert,  
+            cApsConfigDirection,  cApsConfigExtraTraffic,
+            cApsConfigSdBerThreshold, cApsConfigSfBerThreshold,
+            and  cApsConfigWaitToRestore. Also, associated
+            cApsChanConfigTable objects may be added, 
+            deleted and modified."
+
+       ::= { cApsConfigEntry 2 }
+
+    cApsConfigMode OBJECT-TYPE
+       SYNTAX      INTEGER {
+                           onePlusOne(1),
+                           oneToN(2),
+                           onePlusOneCompatible(3),
+                           onePlusOneOptimized(4)
+                           }
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The architecture of the APS group.
+
+            onePlusOne
+
+            The 1+1 architecture permanently bridges the working
+            line to the protection line.
+
+            oneToN
+
+            The 1:n architecture allows one protection channel to
+            protect up to n working channels. When a fault is detected
+            on one of the n working channels that channel is bridged
+            over the protection channel.
+
+            onePlusOneCompatible
+
+            This refers to 1 + 1 bidirectional switching compatible
+            with 1:n bidirectional switching as specified in ITU-T
+            Recommendation G.783 (04/97) section A.3.4.1. Since this
+            mode necessitates bidirectional switching,
+            cApsConfigDirection must be set to bidirectional 
+            whenever onePlusOneCompatible is set.
+
+            onePlusOneOptimized
+
+            This refers to 1 + 1 bidirectional switching optimized
+            for a network using predominantly 1 + 1 bidirectional
+            switching as specified in ITU-T Recommendation G.783 
+            (04/97) section B.1. Since this mode necessitates 
+            bidirectional switching,  cApsConfigDirection must
+            be set to bidirectional whenever onePlusOneOptimized 
+            is set.
+
+            This object may not be modified if the associated
+            cApsConfigRowStatus object is equal to active(1)."
+       DEFVAL {onePlusOne}
+       ::= { cApsConfigEntry 3 }
+
+    cApsConfigRevert OBJECT-TYPE
+       SYNTAX      INTEGER { nonrevertive(1), revertive(2) }
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The revertive mode of the APS group.
+
+            nonrevertive
+
+            Traffic remains on the protection line until another 
+            switch request is received.
+
+            revertive
+
+            When the condition that caused a switch to the 
+            protection line has been cleared the signal is switched
+            back to the working line. Since switching is revertive
+            with the 1:n architecture,  cApsConfigRevert must 
+            be set to revertive if cApsConfigMode is set 
+            to oneToN.
+
+            Switching may optionally be revertive with the 1+1 
+            architecture.
+
+
+            This object may not be modified if the associated
+            cApsConfigRowStatus object is equal to active(1).
+            "
+       DEFVAL { nonrevertive }
+       ::= { cApsConfigEntry 4 }
+
+    cApsConfigDirection OBJECT-TYPE
+       SYNTAX      INTEGER { unidirectional(1), bidirectional(2) }
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The directional mode of the APS group.
+
+            unidirectional
+  
+            The unidirectional mode provides protection in one 
+            direction.
+
+            bidirectional
+
+            The bidirectional mode provides protection in both
+            directions.
+
+            This object may not be modified if the associated
+            cApsConfigRowStatus object is equal to active(1)."
+       DEFVAL {unidirectional}
+       ::= { cApsConfigEntry 5 }
+
+    cApsConfigExtraTraffic OBJECT-TYPE
+       SYNTAX      INTEGER { enabled(1), disabled(2) }
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "This object enables or disables the transfer of extra 
+            traffic on the protection channel in a 1:n architecture.
+            This object must be set to disabled if the architecture
+            is 1+1. It may be necessary to disable this in order to
+            interwork with other SONET network elements that don't
+            support extra traffic.
+
+            This object may not be modified if the associated
+            cApsConfigRowStatus object is equal to active(1)."
+       DEFVAL { disabled }
+       ::= { cApsConfigEntry 6 }
+
+    cApsConfigSdBerThreshold OBJECT-TYPE
+       SYNTAX      Integer32 (5..9)
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The Signal Degrade Bit Error Rate.
+
+            The negated value of this number is used as the exponent
+            of 10 for computing the threshold value for the Bit Error
+            Rate (BER). For example, a value of 5 indicates a BER
+            threshold of 10^-5.
+
+            This object may be modified if the associated
+            cApsConfigRowStatus object is equal to active(1)."
+       DEFVAL { 5 }
+       ::= { cApsConfigEntry 7 }
+
+    cApsConfigSfBerThreshold OBJECT-TYPE
+       SYNTAX      Integer32 (3..5)
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The Signal Failure Bit Error Rate.
+
+            The negated value of this number is used as the exponent
+            of 10 for computing the threshold value for the Bit Error
+            Rate (BER). For example, a value of 5 indicates a BER
+            threshold of 10^-5.
+
+            This object may be modified if the associated
+            cApsConfigRowStatus object is equal to active(1)."
+       DEFVAL { 3 }
+       ::= { cApsConfigEntry 8 }
+
+    cApsConfigWaitToRestore OBJECT-TYPE
+       SYNTAX      Integer32 (0..720)
+       UNITS       "seconds"
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The Wait To Restore period in seconds.
+
+            After clearing of a condition that necessitated an
+            automatic switch, the wait to restore period must elapse
+            before reverting. This is intended to avoid rapid switch
+            oscillations.
+
+            GR-253-CORE specifies a Wait To Restore range of 5 to 12
+
+            minutes. G.783 defines a 5 to 12 minute Wait To Restore
+            range in section 5.4.1.1.3, but also allows for a shorter
+            WTR period in  Table 2-1,
+            WaitToRestore value (MI_WTRtime: 0..(5)..12 minutes).
+
+            This object may not be modified if the associated
+             cApsConfigRowStatus object is equal to active(1)."
+       DEFVAL { 300 }
+       ::= { cApsConfigEntry 9 }
+
+    cApsConfigCreationTime OBJECT-TYPE
+       SYNTAX      TimeStamp
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The value of sysUpTime at the time the row was
+            created"
+       ::= { cApsConfigEntry 10 }
+
+
+   --
+   -- APS Status Table
+   --
+   -- This table provides APS group statistics.
+   --
+
+
+    cApsStatusTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF  CApsStatusEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "This table provides status information about APS groups
+            that have been configured on the system."
+       ::= { cApsMIBObjects 2 }
+
+    cApsStatusEntry OBJECT-TYPE
+       SYNTAX       CApsStatusEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A conceptual row in the  cApsStatusTable. Entries
+            in this table are created as a side effect of row
+            addition in cApsConfigTable."
+       INDEX { IMPLIED  cApsConfigName}
+       ::= { cApsStatusTable  1 }
+
+    CApsStatusEntry ::= SEQUENCE {
+        cApsStatusK1K2Rcv               CApsK1K2,
+        cApsStatusK1K2Trans             CApsK1K2,
+        cApsStatusCurrent               BITS,
+        cApsStatusModeMismatches        Counter32,
+        cApsStatusChannelMismatches     Counter32,
+        cApsStatusPSBFs                 Counter32,
+        cApsStatusFEPLFs                Counter32,
+        cApsStatusSwitchedChannel       Integer32
+    }
+
+    cApsStatusK1K2Rcv OBJECT-TYPE
+       SYNTAX       CApsK1K2
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The current value of the K1 and K2 bytes received on
+            the protection channel."
+       ::= { cApsStatusEntry 1 }
+
+    cApsStatusK1K2Trans OBJECT-TYPE
+       SYNTAX         CApsK1K2
+       MAX-ACCESS    read-only
+       STATUS        current
+       DESCRIPTION
+           "The current value of the K1 and K2 bytes transmitted 
+            on the protection channel."
+       ::= { cApsStatusEntry 2 }
+
+    cApsStatusCurrent OBJECT-TYPE
+       SYNTAX      BITS {
+                         modeMismatch(0),
+                         channelMismatch(1),
+                         psbf(2),
+                         feplf(3),
+                         extraTraffic(4)
+                        }
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The current status of the APS group.
+  
+            modeMismatch
+   
+            Modes other than 1+1 unidirectional monitor protection
+            line K2 bit 5, which indicates the architecture and K2
+            bits 6-8, which indicate if the mode is unidirectional
+            or bidirectional. A conflict between the current local
+            mode and the received K2 mode information constitutes
+            a mode mismatch.
+
+            channelMismatch
+
+            This bit indicates a  mismatch between the transmitted
+            K1 channel and the received K2 channel has been detected.
+
+            psbf
+
+            This bit indicates a Protection Switch Byte Failure (PSBF)
+            is in effect. This condition occurs when either an 
+            inconsistent APS byte or an invalid code is detected. An 
+            inconsistent APS byte occurs when no three consecutive K1
+            bytes of the last 12 successive frames are identical,
+            starting with the last frame containing a previously 
+            consistent byte. An invalid code occurs when the incoming
+            K1 byte contains an unused code or a code irrelevant for
+            the specific switching operation (e.g., Reverse Request 
+            while no switching request is outstanding) in three 
+            consecutive frames. An invalid code also occurs when the
+            incoming K1 byte contains an invalid channel number in 
+            three consecutive frames.
+
+            feplf
+
+            Modes other than 1+1 unidirectional monitor the K1 byte
+            for Far-End Protection-Line failures. A Far-End
+            Protection-Line defect is declared based on receiving
+            SF on the protection line.
+
+            extraTraffic
+
+            This bit indicates whether extra traffic is currently being
+            accepted on the protection line."
+       ::= { cApsStatusEntry 3 }
+
+    cApsStatusModeMismatches OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "A count of Mode Mismatch conditions."
+       ::= { cApsStatusEntry 4 }
+
+    cApsStatusChannelMismatches OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "A count of Channel Mismatch conditions."
+       ::= { cApsStatusEntry 5 }
+
+    cApsStatusPSBFs OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "A count of Protection Switch Byte Failure conditions.
+            This condition occurs when either an inconsistent APS
+            byte or an invalid code is detected. An inconsistent
+            APS byte occurs when no three consecutive K1 bytes of
+            the last 12 successive frames are identical, starting
+            with the last frame containing a previously consistent
+            byte. An invalid code occurs when the incoming K1 byte
+            contains an unused code or a code irrelevant for the
+            specific switching operation (e.g., Reverse Request
+            while no switching request is outstanding) in three 
+            consecutive frames. An invalid code also occurs when 
+            the incoming K1 byte contains an invalid channel number
+            in three consecutive frames."
+       ::= { cApsStatusEntry 6 }
+
+    cApsStatusFEPLFs OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "A count of Far-End Protection-Line Failure conditions.
+            This condition is declared based on receiving SF on
+            the protection line in the K1 byte."
+       ::= { cApsStatusEntry 7 }
+
+    cApsStatusSwitchedChannel OBJECT-TYPE
+       SYNTAX     Integer32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "This field is set to the number of the channel that is
+            currently switched to protection. The value 0 indicates
+            no channel is switched to protection. The values 1-14
+            indicate that working channel is switched to protection."
+       ::= { cApsStatusEntry 8 }
+   --
+   -- APS Map Group
+   --
+   -- Lists the SONET LTE interfaces that may be used to create APS
+   -- groups.
+   --
+
+    cApsMap    OBJECT IDENTIFIER ::= { cApsMIBObjects 3 }
+
+    cApsChanLTEs OBJECT-TYPE
+       SYNTAX      Gauge32
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "The count of SONET LTE interfaces on the system. Each
+            interface that is included has an ifType value of 
+            sonet(39)."
+       ::= { cApsMap 1 }
+
+    cApsMapTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF  CApsMapEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "This table lists the SONET LTE interfaces on the system.
+            Each interface that is listed has an ifType value of
+            sonet(39)."
+       ::= { cApsMap 2 }
+
+    cApsMapEntry OBJECT-TYPE
+       SYNTAX       CApsMapEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A conceptual row in the  cApsMapTable."
+       INDEX { cApsMapIfIndex }
+       ::= { cApsMapTable  1 }
+
+    CApsMapEntry ::= SEQUENCE {
+        cApsMapIfIndex               InterfaceIndex,
+        cApsMapGroupName             SnmpAdminString,
+        cApsMapChanNumber            Integer32
+        }
+
+    cApsMapIfIndex OBJECT-TYPE
+       SYNTAX     InterfaceIndex
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+           "The Interface Index assigned to a SONET LTE. This is
+            an interface with ifType sonet(39)."
+       ::= { cApsMapEntry 1 }
+
+    cApsMapGroupName OBJECT-TYPE
+       SYNTAX      SnmpAdminString (SIZE (0..32))
+       MAX-ACCESS  read-only
+       STATUS      current
+       DESCRIPTION
+           "A textual name for the APS group which this channel is
+            included in. If the channel is not part of an APS group
+            this value is set to a string of size 0.
+
+            When an instance of  cApsChanConfigIfIndex is set
+            equal to an instance of  cApsMapIfIndex,
+            cApsMapGroupName is set equal to the corresponding
+            value of  cApsChanConfigGroupName.
+
+            If the  cApsMapIfIndex ceases to be equal to an
+            instance of cApsChanConfigIfIndex, either because
+            of a change in the value of cApsChanConfigIfIndex,
+            or because of row deletion in the CApsChanConfigTable,
+            cApsMapGroupName is set to a string of size 0.
+           "
+       ::= { cApsMapEntry 2 }
+
+    cApsMapChanNumber OBJECT-TYPE
+       SYNTAX     Integer32 (-1..14)
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+       "This field is set to a unique channel number within an APS
+        group. The value 0 indicates the null channel. The values 
+        1-14 define a working channel. If the SONET LTE is not part
+        of an APS group this value is set to -1.
+
+        When an instance of cApsChanConfigIfIndex is set equal
+        to an instance of cApsMapIfIndex, cApsMapChanNumber
+        is set equal to the corresponding value of
+        cApsChanConfigNumber.
+
+        If the  cApsMapIfIndex ceases to be equal to an instance
+        of cApsChanConfigIfIndex, either because of a change in
+        the value of cApsChanConfigIfIndex, or because of row
+        deletion in the CApsChanConfigTable, cApsMapChanNumber
+        is set to -1."
+       ::= { cApsMapEntry 3 }
+   --
+   -- APS Channel Configuration Table
+   --
+   -- This table supports the addition, configuration and deletion of
+   -- channels in APS groups.
+   --
+
+
+    cApsChanConfigTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF  CApsChanConfigEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "This table lists the APS channels that have been 
+            configured in APS groups."
+       ::= { cApsMIBObjects 4 }
+
+    cApsChanConfigEntry OBJECT-TYPE
+       SYNTAX       CApsChanConfigEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A conceptual row in the  cApsChanConfigTable."
+       INDEX { cApsChanConfigGroupName,
+               cApsChanConfigNumber }
+       ::= { cApsChanConfigTable  1 }
+
+    CApsChanConfigEntry ::= SEQUENCE {
+        cApsChanConfigGroupName             SnmpAdminString,
+        cApsChanConfigNumber                Integer32,
+        cApsChanConfigRowStatus             RowStatus,
+        cApsChanConfigIfIndex               InterfaceIndex,
+        cApsChanConfigPriority              INTEGER
+        }
+
+    cApsChanConfigGroupName OBJECT-TYPE
+       SYNTAX      SnmpAdminString (SIZE (1..32))
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A textual name for the APS group which this channel is
+            included in."
+       ::= { cApsChanConfigEntry 1 }
+
+    cApsChanConfigNumber OBJECT-TYPE
+       SYNTAX     Integer32 (0..14)
+       MAX-ACCESS not-accessible
+       STATUS     current
+       DESCRIPTION
+       "This field is set to a unique channel number within an APS
+        group. The value 0 indicates the null channel. The values
+        1-14 define a working channel.
+
+        This field must be assigned a unique number within the group."
+       ::= { cApsChanConfigEntry 2 }
+
+    cApsChanConfigRowStatus OBJECT-TYPE
+       SYNTAX      RowStatus
+       MAX-ACCESS  read-create
+       STATUS      current
+       DESCRIPTION
+           "The status of this APS channel entry.
+
+           An entry may not exist in the active state unless all
+           objects in the entry have an appropriate value.
+
+           A row in the  cApsChanConfigTable may not be created,
+           deleted, set to notInService or otherwise modified if the
+           cApsChanConfigGroupName value is equal to an
+           cApsConfigName value and the associated
+           cApsConfigRowStatus object is equal to active. However,
+           if the  cApsConfigRowStatus object is equal to 
+           notInService, a row may be created, deleted or modified.
+           In other words, a channel may not be added, deleted or 
+           modified if the group is active.
+
+           A row may be created with an  cApsChanConfigGroupName
+           value that is not equal to any existing instance of
+           cApsConfigName. This action is the initial step in
+           adding a SONET LTE to a new APS group.
+
+           If this object is set to destroy, the associated instance
+           of  cApsMapGroupName will be set to a string of size
+           0 and the  cApsMapChanNumber will be set to -1. The
+           channel status entry will also be deleted by this action.
+
+           cApsChanConfigNumber must be set to a unique channel
+           number within the APS group. The value 0 indicates the
+           null channel. The values 1-14 define a working channel.
+           When an attempt is made to set the  corresponding
+           cApsConfigRowStatus field to  active the
+           cApsChanConfigNumber values of all entries with
+           equal cApsChanConfigGroupName fields must represent a
+           set of consecutive integer values beginning with 0 or 1,
+           depending on the architecture of the group, and ending with
+           n, where n is  greater than or equal to 1 and less than or
+           equal to 14. Otherwise, the error inconsistentValue is
+           returned to the  cApsConfigRowStatus set attempt.
+           "
+       ::= { cApsChanConfigEntry 3 }
+
+    cApsChanConfigIfIndex OBJECT-TYPE
+       SYNTAX     InterfaceIndex
+       MAX-ACCESS read-create
+       STATUS     current
+       DESCRIPTION
+           "The Interface Index assigned to a SONET LTE. This is an
+            interface with ifType sonet(39). The value of this object
+            must be unique among all instances of
+            cApsChanConfigIfIndex. In other words, a particular
+            SONET LTE can only be configured n one APS group.
+
+            This object cannot be set if the  
+            cApsChanConfigGroupName instance associated with this
+            row is equal to an instance of cApsConfigName and the
+            corresponding cApsConfigRowStatus object is set to 
+            active. In other words this value cannot be changed if the
+            APS group is active. However, This value may be changed if
+            the cApsConfigRowStatus value is equal to notInService.
+            "
+
+       ::= { cApsChanConfigEntry 4 }
+
+    cApsChanConfigPriority OBJECT-TYPE
+       SYNTAX     INTEGER {low(1), high(2)}
+       MAX-ACCESS read-create
+       STATUS     current
+       DESCRIPTION
+           "The priority of the channel.
+
+            This field deterimines whether high or low priority
+            SD and SF codes are used in K1 requests.
+
+            This field is only applicable if the channel is to be
+            included in a group using the 1:n architecture. It is 
+            not applicable if the channel is to be included in a
+            group using the 1+1 architecture, and is ignored
+            in that case.
+
+            This object cannot be set if the
+            cApsChanConfigGroupName instance associated with
+            this row is equal to an instance of  cApsConfigName
+            and the corresponding  cApsConfigRowStatus object is
+            set to active. In other words this value cannot be
+            changed if the APS group is active. However, This value
+            may be changed if the cApsConfigRowStatus value is
+            equal to notInService.
+           "
+       DEFVAL { low }
+       ::= { cApsChanConfigEntry 5 }
+   --
+   -- APS Command Table
+   --
+   -- This table provides the ability to initiate APS commands.
+   --
+
+    cApsCommandTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF  CApsCommandEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "This table allows commands to be sent to configured
+            APS groups."
+       ::= { cApsMIBObjects 5 }
+
+    cApsCommandEntry OBJECT-TYPE
+       SYNTAX       CApsCommandEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A conceptual row in the  cApsCommandTable. This
+            row exists only if the associated  cApsConfigEntry
+            is active."
+       INDEX { cApsChanConfigGroupName,
+               cApsChanConfigNumber
+             }
+       ::= { cApsCommandTable  1 }
+
+    CApsCommandEntry ::= SEQUENCE {
+        cApsCommandSwitch          CApsSwitchCommand,
+        cApsCommandControl         CApsControlCommand
+    }
+
+    cApsCommandSwitch OBJECT-TYPE
+       SYNTAX       CApsSwitchCommand
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+           "Allows the initiation of an APS switch command on the
+            APS group and channel specified by the index values.
+
+            If the APS switch command cannot be executed because an
+            equal or higer priority request is in effect, an error
+            is returned.
+
+            When read this object returns the last command written
+            or noCmd if no command has been written to this
+            channel since initialization. The return of the last
+            command written does not imply that this command is
+            currently in effect. This request may have been
+            preempted by a higher priority local or remote
+            request. In order to determine the current state of the
+            APS group it is necessary to read the objects
+            cApsStatusK1K2Rcv and  cApsStatusK1K2Trans.
+
+            The value lockoutOfProtection should only be applied
+            to the protection line channel since that switch command
+            prevents any of the working channels from switching to
+            the protection line. Following the same logic,
+            forcedSwitchProtectToWork and manualSwitchProtectToWork
+            should only be applied to the protection line channel.
+
+            forcedSwitchWorkToProtect and manualSwitchWorkToProtect
+            should only be applied to a working channel.
+            "
+       ::= { cApsCommandEntry 1 }
+
+    cApsCommandControl OBJECT-TYPE
+       SYNTAX       CApsControlCommand
+       MAX-ACCESS  read-write
+       STATUS      current
+       DESCRIPTION
+           "Allows the initiation of an APS control command on the
+            APS group and channel specified by the index values.
+
+            When read this object returns the last command written
+            or noCmd if no command has been
+            written to this channel since initialization.
+
+            This object does not apply to the protection line.
+            "
+       ::= { cApsCommandEntry 2 }
+
+   --
+   -- APS Channel Status Table
+   --
+   -- This table provides APS channel statistics.
+   --
+
+    cApsChanStatusTable OBJECT-TYPE
+       SYNTAX      SEQUENCE OF  CApsChanStatusEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "This table contains status information for all SONET
+            LTE interfaces that are included in APS groups."
+       ::= { cApsMIBObjects 6 }
+
+    cApsChanStatusEntry OBJECT-TYPE
+       SYNTAX       CApsChanStatusEntry
+       MAX-ACCESS  not-accessible
+       STATUS      current
+       DESCRIPTION
+           "A conceptual row in the  cApsChanStatusTable. A row 
+            in this table is created as a side effect of row addition
+            in the cApsChanConfigTable. The cApsChanStatusTable
+            row exists as long as the  cApsChanConfigTable entry
+            exists, regardless of whether the associated
+            cApsChanConfigRowStatus is active.
+            "
+       INDEX { cApsChanConfigGroupName, cApsChanConfigNumber }
+       ::= { cApsChanStatusTable  1 }
+
+     CApsChanStatusEntry ::= SEQUENCE {
+        cApsChanStatusCurrent               BITS,
+        cApsChanStatusSignalDegrades        Counter32,
+        cApsChanStatusSignalFailures        Counter32,
+        cApsChanStatusSwitchovers           Counter32,
+        cApsChanStatusLastSwitchover        TimeStamp,
+        cApsChanStatusSwitchoverSeconds     Counter32
+    }
+
+    cApsChanStatusCurrent OBJECT-TYPE
+       SYNTAX     BITS {
+                         lockedOut(0),
+                         sd(1),
+                         sf(2),
+                         switched(3)
+                        }
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "Indicates the current state of the port.
+
+            lockedOut
+
+            This bit, when applied to a working channel, indicates
+            that the channel is prevented from switching to the 
+            protection line. When applied to the null channel, this
+            bit indicates that no working channel may switch to the
+            protection line.
+
+            sd
+
+            A signal degrade condition is in effect.
+
+            sf
+
+            A signal failure condition is in effect.
+
+            switched
+
+            The switched bit is applied to a working channel if that
+            channel is currently switched to the protection line.
+            "
+       ::= { cApsChanStatusEntry 1 }
+
+    cApsChanStatusSignalDegrades OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "A count of Signal Degrade conditions. This
+            condition occurs when the line Bit Error Rate
+            exceeds the currently configured threshold."
+       ::= { cApsChanStatusEntry 2 }
+
+    cApsChanStatusSignalFailures OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "A count of Signal Failure conditions that have been
+            detected on the incoming signal. This condition occurs
+            when a loss of signal, loss of frame, AIS-L or a Line
+            bit error rate exceeding 10^-3 is detected on an
+            incoming line."
+       ::= { cApsChanStatusEntry 3 }
+
+    cApsChanStatusSwitchovers OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The number of times this channel has switched to the
+            protection line. When queried with index value
+            cApsChanConfigNumber set to 0, which is the 
+            protection line, this object will return 0."
+       ::= { cApsChanStatusEntry 4 }
+
+    cApsChanStatusLastSwitchover OBJECT-TYPE
+       SYNTAX     TimeStamp
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The value of sysUpTime when this channel last completed
+            a switch to the protection line. If this channel has
+            never switched to the protection line, or this channel
+            is the protection line, the value 0  will be returned."
+       ::= { cApsChanStatusEntry 5 }
+
+    cApsChanStatusSwitchoverSeconds OBJECT-TYPE
+       SYNTAX     Counter32
+       MAX-ACCESS read-only
+       STATUS     current
+       DESCRIPTION
+           "The cumulative Protection Switching Duration (PSD) time
+            in seconds. For a working channel, this is the cumulative
+            number of seconds that service was carried on the protection
+            line.For the protection line, this is the cumulative number
+            of seconds that the protection line has been used to carry
+            any working channel traffic. This information is only valid
+            if revertive switching is enabled. The value 0 will be 
+            returned otherwise."
+       ::= { cApsChanStatusEntry 6 }
+
+   --
+   -- APS EVENTS
+   --
+
+    cApsNotificationsPrefix OBJECT IDENTIFIER
+        ::= {  cApsMIBNotifications 0 }
+
+    cApsEventSwitchover NOTIFICATION-TYPE
+       OBJECTS { cApsChanStatusSwitchovers,
+                 cApsChanStatusCurrent
+               }
+       STATUS  current
+       DESCRIPTION
+           "An  cApsEventSwitchover notification is sent when the
+            value of an instance of cApsChanStatusSwitchovers
+            increments."
+       ::= { cApsNotificationsPrefix 1 }
+
+    cApsEventModeMismatch NOTIFICATION-TYPE
+       OBJECTS { cApsStatusModeMismatches,
+                 cApsStatusCurrent
+               }
+       STATUS  current
+       DESCRIPTION
+           "An cApsEventModeMismatch notification is sent when
+            the value of an instance of cApsStatusModeMismatches
+            increments."
+       ::= {  cApsNotificationsPrefix 2 }
+
+    cApsEventChannelMismatch NOTIFICATION-TYPE
+       OBJECTS { cApsStatusChannelMismatches,
+                 cApsStatusCurrent
+               }
+       STATUS  current
+       DESCRIPTION
+           "An  cApsEventChannelMismatch notification is sent when
+            the value of an instance of cApsStatusChannelMismatches
+            increments."
+       ::= {  cApsNotificationsPrefix 3 }
+
+    cApsEventPSBF NOTIFICATION-TYPE
+       OBJECTS {  cApsStatusPSBFs,  cApsStatusCurrent }
+       STATUS  current
+       DESCRIPTION
+           "An  cApsEventPSBF notification is sent when the
+            value of an instance of  cApsStatusPSBFs increments."
+       ::= {  cApsNotificationsPrefix 4 }
+
+    cApsEventFEPLF NOTIFICATION-TYPE
+       OBJECTS {  cApsStatusFEPLFs,  cApsStatusCurrent }
+       STATUS  current
+       DESCRIPTION
+           "An  cApsEventFEPLFs notification is sent when the
+            value of an instance of  cApsStatusFEPLFs increments."
+       ::= {  cApsNotificationsPrefix 5 }
+
+
+   -- conformance information
+
+    cApsGroups      OBJECT IDENTIFIER 
+                               ::= { cApsMIBConformance 1 }
+    cApsCompliances OBJECT IDENTIFIER
+                               ::= { cApsMIBConformance 2 }
+
+    cApsCompliance MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+           "The compliance statement for linear APS groups."
+
+       MODULE
+       MANDATORY-GROUPS { cApsConfigGeneral, cApsStatusGeneral,
+                          cApsChanGeneral
+                        }
+
+           OBJECT   cApsConfigMode
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+           OBJECT   cApsConfigRevert
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+           OBJECT   cApsConfigDirection
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+           OBJECT   cApsConfigExtraTraffic
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+           OBJECT   cApsConfigSdBerThreshold
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+           OBJECT   cApsConfigSfBerThreshold
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+           OBJECT   cApsConfigWaitToRestore
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+           OBJECT   cApsConfigRowStatus
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+           OBJECT   cApsChanConfigIfIndex
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+           OBJECT   cApsChanConfigPriority
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+           OBJECT   cApsChanConfigRowStatus
+           MIN-ACCESS  read-only
+           DESCRIPTION
+               "Write access is not required."
+
+
+           GROUP        cApsConfigWtr
+           DESCRIPTION
+               "Implementation of this group is optional for all
+                linear APS implementations. The information is
+                applicable to groups supporting a configurable
+                WTR period."
+
+           GROUP        cApsCommandOnePlusOne
+           DESCRIPTION
+               "Implementation of this group is optional for all
+                linear APS implementations. The information is
+                applicable to groups implementing the linear
+                APS 1+1 architecture and supporting set operations."
+
+          GROUP        cApsCommandOneToN
+           DESCRIPTION
+               "Implementation of this group is optional for all
+                linear APS implementations. The information is
+                applicable to groups implementing the linear
+                APS 1:n architecture and supporting set operations."
+
+          GROUP        cApsChanOneToN
+           DESCRIPTION
+               "Implementation of this group is optional for all
+                linear APS implementations. The information is
+                applicable to groups implementing the linear
+                APS 1:n architecture."
+
+          GROUP        cApsTotalsGroup
+           DESCRIPTION
+               "Implementation of this group is optional for all
+                linear APS implementations."
+
+          GROUP        cApsMapGroup
+           DESCRIPTION
+               "Implementation of this group is optional for all
+                linear APS implementations."
+
+       ::= {  cApsCompliances 1 }
+
+   -- units of conformance
+
+    cApsConfigGeneral    OBJECT-GROUP
+       OBJECTS
+       {
+            cApsConfigMode,
+            cApsConfigRevert,
+            cApsConfigDirection,
+            cApsConfigExtraTraffic,
+            cApsConfigSdBerThreshold,
+            cApsConfigSfBerThreshold,
+            cApsConfigCreationTime,
+            cApsConfigRowStatus
+       }
+       STATUS  current
+       DESCRIPTION
+           "A collection of  cApsConfigTable objects providing
+            configuration information applicable to all linear
+            APS groups."
+       ::= {  cApsGroups 1 }
+
+    cApsConfigWtr    OBJECT-GROUP
+       OBJECTS
+       {
+            cApsConfigWaitToRestore
+       }
+       STATUS  current
+       DESCRIPTION
+           "The  cApsConfigTable object that provides information
+            which is applicable to groups supporting a configurable
+            WTR period."
+       ::= {  cApsGroups 2 }
+
+   --  If set operations are not supported neither of the following
+   --  two groups are implemented. If sets are supported only one 
+   --  of these groups is implemented for a linear APS group instance.
+
+    cApsCommandOnePlusOne    OBJECT-GROUP
+       OBJECTS
+       {
+            cApsCommandSwitch
+       }
+       STATUS  current
+       DESCRIPTION
+           "The   cApsCommandTable object which is applicable
+            to groups implementing the linear APS 1+1 architecture.
+            Also, set operations must be supported."
+       ::= {  cApsGroups 3 }
+
+    cApsCommandOneToN    OBJECT-GROUP
+       OBJECTS
+       {
+            cApsCommandSwitch,
+            cApsCommandControl
+       }
+       STATUS  current
+       DESCRIPTION
+       "A collection of  cApsCommandTable objects which are 
+        applicable to groups implementing the linear APS 1:n 
+        architecture. Also, set operations must be supported."
+       ::= {  cApsGroups 4 }
+
+    cApsStatusGeneral    OBJECT-GROUP
+       OBJECTS
+       {
+            cApsStatusK1K2Rcv,
+            cApsStatusK1K2Trans,
+            cApsStatusCurrent,
+            cApsStatusModeMismatches,
+            cApsStatusChannelMismatches,
+            cApsStatusPSBFs,
+            cApsStatusFEPLFs,
+            cApsStatusSwitchedChannel
+       }
+       STATUS  current
+       DESCRIPTION
+           "A collection of  cApsStatusTable objects providing
+            status information applicable to all linear APS groups."
+       ::= {  cApsGroups 5 }
+
+    cApsChanGeneral    OBJECT-GROUP
+       OBJECTS
+       {
+            cApsChanConfigIfIndex,
+            cApsChanConfigRowStatus,
+            cApsChanStatusCurrent,
+            cApsChanStatusSignalDegrades,
+            cApsChanStatusSignalFailures,
+            cApsChanStatusSwitchovers,
+            cApsChanStatusLastSwitchover,
+            cApsChanStatusSwitchoverSeconds
+      }
+       STATUS  current
+       DESCRIPTION
+           "A collection of channel objects providing information
+            applicable to all linear APS channels."
+       ::= {  cApsGroups 6 }
+
+    cApsChanOneToN    OBJECT-GROUP
+       OBJECTS
+       {
+            cApsChanConfigPriority
+       }
+       STATUS  current
+       DESCRIPTION
+           "The  cApsChanConfigTable object that provides
+            information which is only applicable to groups
+            implementing the linear APS 1:n architecture."
+       ::= {  cApsGroups 7 }
+
+    cApsTotalsGroup OBJECT-GROUP
+       OBJECTS
+       {
+            cApsConfigGroups,
+            cApsChanLTEs
+       }
+       STATUS  current
+       DESCRIPTION
+           "A collection of objects providing optional counts of
+            configured APS groups and SONET LTE interfaces."
+       ::= {  cApsGroups 8 }
+
+    cApsMapGroup OBJECT-GROUP
+       OBJECTS
+       {
+            cApsMapGroupName,
+            cApsMapChanNumber
+       }
+       STATUS  current
+       DESCRIPTION
+           "A collection of  cApsMapTable objects providing
+            a mapping from sonet(39) InterfaceIndex to group name
+            and channel number for assigned APS channels and a
+            list of unassigned sonet(39) interfaces."
+       ::= {  cApsGroups 9 }
+
+    cApsEventOptional NOTIFICATION-GROUP
+       NOTIFICATIONS { cApsEventSwitchover,  
+                       cApsEventModeMismatch,
+                       cApsEventChannelMismatch,
+                       cApsEventPSBF,
+                       cApsEventFEPLF
+                     }
+       STATUS    current
+       DESCRIPTION
+           "A collection of SONET linear APS notifications that may
+            optionally be implemented."
+       ::= {  cApsGroups 10 }
+
+   END

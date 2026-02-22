@@ -1,0 +1,1204 @@
+-- *******************************************************************
+-- CISCO-DOT11-HT-PHY-MIB.my: DOT11 HT PHY MIB
+-- July 2006, Prasanna Viswakumar
+--
+-- Copyright (c) 2006-2007 by Cisco Systems, Inc.
+-- *******************************************************************
+
+CISCO-DOT11-HT-PHY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+        MODULE-IDENTITY, 
+        OBJECT-TYPE,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TruthValue,
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+        ifIndex
+                FROM IF-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoDot11HtPhyMIB MODULE-IDENTITY
+        LAST-UPDATED   "200612110000Z"
+        ORGANIZATION   "Cisco Systems, Inc."
+        CONTACT-INFO  
+               "        Cisco Systems,
+                        Customer Service
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+                   Tel: +1 800 553-NETS
+ 
+                 Email: cs-wnbu-snmp@cisco.com"
+        DESCRIPTION
+                "This MIB is intended to be implemented on Cisco's
+                WLAN devices that provide the wired uplink to wireless
+                clients through the high-throughput dot11 radios
+                compliant to the 802.11n specification.
+
+                The MIB describes the PHY layer parameters of the 
+                802.11n compliant radio interfaces.
+
+                                   GLOSSARY
+
+                Access Point ( AP )
+
+                An entity that contains an 802.11 medium access
+                control ( MAC ) and physical layer ( PHY ) interface
+                and provides access to the distribution services via
+                the wireless medium for associated clients.
+
+                A-MPDU
+
+                An aggregated format that consists of several MAC
+                Protocol Data Units being aggregated and transmitted
+                in one PHY Service Data Unit.
+
+                A-MSDU
+
+                An aggregated format that consists of several MAC
+                Service Data Units being aggregated and transmitted
+                in one MAC Protocol Data Unit.
+
+                Block-Ack
+
+                This refers to the acknowledgement done for all the
+                MPDUs in an A-MDPU.
+
+                Basic Service Set ( BSS )
+
+                The IEEE 802.11 BSS of an AP comprises of the
+                stations directly associating with the AP.
+
+                CSI
+
+                Channel State Information
+
+                Clear Channel Assessment ( CCA )
+
+                A technique to assess the availability of the
+                channel for communication purposes.
+ 
+                Dual CTS 
+
+                Clear-To-Send control frame is sent by the receiver
+                in response to the Request-To-Send (RTS) control
+                frame from the sender to virtually reserve the
+                wireless medium for data transfer.
+
+                Dual CTS mechanism is used by the AP to reserve the
+                wireless medium for wireless devices that do not
+                support STBC. 
+
+                Green Field
+
+                A mode of operation where high-throughput 802.11n
+                frames are transmitted without a legacy compatible
+                part.
+
+                Mobile Node ( MN )
+
+                A roaming 802.11 wireless device in a wireless
+                network associated with an access point. Mobile Node
+                and client are used interchangeably.
+               
+                Modulation and Coding Scheme ( MCS )
+
+                This is a value that determines the modulation, coding and
+                number of spatial channels.  Each scheme specifies the       
+                modulation technique, coding rate , number of spatial
+                streams  etc and the corresponding data rate.
+
+                Multiple Input Multiple Output ( MIMO )
+
+                This technique advocates sending and receiving data
+                communication signals through multiple antennas.  MIMO
+                uses the multiple streams to transmit more information
+                and recombine the signal at the receiving end.  This
+                brings more reliability and significant gain over the
+                traditional antenna systems. 
+
+                PLCP 
+
+                PHY Layer Convergence Protocol
+
+                PMD
+
+                Physical Medium Dependent
+               
+                Power Save Multi-Poll ( PSMP )
+
+                A MAC control frame that schedules the transmissions
+                and receptions of PSMP devices.  
+ 
+                Phased Coexistence Operation ( PCO )
+
+                A BSS mode with alternating 20MHz and 40MHz phases of
+                operation controlled by a PCO AP.
+
+                PHY Protocol Data Unit ( PPDU )
+
+                Unit of data transfer at PHY level.
+
+                Short-Guard Interval ( SG )
+                
+                Space-Time Block Coding ( STBC )
+
+                By this technique, a wireless device transmits several
+                copies of a data stream across a series of antennas
+                so that the receiver can use the various received
+                portions of the data signal to improve reliability of
+                data transfer.
+               
+                Reduced Inter-Frame Space ( RIFS )
+
+                A time interval between multiple transmissions of a
+                single transmitter used to reduce overhead and
+                increase network efficiency.
+
+                Zero Length Frame ( ZLF )
+
+                A PPDU carrying a PSDU of zero-length.
+
+                REFERENCE
+
+                [1] Part 11. Wireless LAN Medium Access Control ( MAC )
+                and Physical Layer ( PHY ) Specifications: Enhancements
+                for Higher Throughput
+
+                [2] Enhanced Wireless Consortium MAC Specification,
+                v1.24
+
+                [3] Enhanced Wireless Consortium PHY Specification,
+                v1.27
+
+                [4] IEEE802dot11-MIB " 
+        
+        REVISION      "200612110000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoMgmt 607 }
+
+ciscoDot11HtPhyMIBNotifs OBJECT IDENTIFIER  
+        ::= { ciscoDot11HtPhyMIB 0 }
+
+ciscoDot11HtPhyMIBObjects OBJECT IDENTIFIER 
+        ::= { ciscoDot11HtPhyMIB 1 }
+
+ciscoDot11HtPhyMIBConform OBJECT IDENTIFIER 
+        ::= { ciscoDot11HtPhyMIB 2 }
+
+cD11HtPhy OBJECT IDENTIFIER    
+        ::= { ciscoDot11HtPhyMIBObjects 1 } 
+
+-- ********************************************************************
+-- TEXTUAL CONVENTION
+-- ********************************************************************
+
+CD11HtPhyBeamformFeedback ::= TEXTUAL-CONVENTION
+        STATUS current
+        DESCRIPTION
+                "This textual convention represents the Beamforming
+                feedback characteristics.  The semantics are as
+                follows.
+
+                'unsolicited' - The 802.11n interface can provide
+                unsolicited feedback.
+
+                'immediate' - The 802.11n interface can provide
+                immediate feedback.
+
+                'aggregated' - The 802.11n interface can provide
+                an aggregated feedback. 
+
+                If none of these bits are set, it indicates that the
+                802.11n interface is incapable of providing the
+                feedback. "                
+        SYNTAX BITS {
+                       unsolicited (0),
+                       immediate (1),
+                       aggregated (2)
+               }
+
+-- ********************************************************************
+-- HT PHY Antenna Table 
+-- ********************************************************************
+
+cD11HtPhyAntennaTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CD11HtPhyAntennaEntry 
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table describes the antennas connected to
+                the 802.11n interface.
+
+                Entries in this table are created automatically
+                by the agent corresponding to each 802.11n
+                radio interface.
+
+                There exists in this table, an entry corresponding
+                to each entry in dot11PhyOperationTable where
+                dot11PHYType equals 'ht'(7). "
+        ::= { cD11HtPhy 1 }
+
+cD11HtPhyAntennaEntry OBJECT-TYPE
+        SYNTAX     CD11HtPhyAntennaEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry represents a conceptual row in
+                cD11HtPhyAntennaTable and describes the antennas
+                connected to the 802.11n interface. "
+        INDEX   { ifIndex }
+        ::= { cD11HtPhyAntennaTable 1 }         
+ 
+CD11HtPhyAntennaEntry ::= 
+        SEQUENCE { 
+            cD11HtPhyAntennaSelectionImplemented  TruthValue,
+            cD11HtPhyXmitExpCSIFdbkASImplemented  TruthValue,
+            cD11HtPhyXmitIndFdbkASImplemented     TruthValue,
+            cD11HtPhyExplCSIFdbkASImplemented     TruthValue,
+            cD11HtPhyXmitIndCompFdbkASImplemented TruthValue,
+            cD11HtPhyRcvAntennaSelImplemented     TruthValue,
+            cD11HtPhyXmitSoundPPDUImplemented     TruthValue
+       } 
+
+cD11HtPhyAntennaSelectionImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when 'true', indicates that
+                antenna selection is supported on this 802.11n
+                interface. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyAntennaEntry 1 }
+
+cD11HtPhyXmitExpCSIFdbkASImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when 'true', indicates that
+                transmit Antenna Selection based on explicit CSI
+                feedback is supported on this 802.11n interface. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyAntennaEntry 5 } 
+
+cD11HtPhyXmitIndFdbkASImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when 'true', indicates that the 
+                transmit antenna selection based on antenna indices 
+                feedback is supported on this 802.11n interface. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyAntennaEntry 6 } 
+
+cD11HtPhyExplCSIFdbkASImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when 'true', indicates that the 
+                computation of CSI and feedback to support the peer to
+                do antenna selection is supported on this 802.11n
+                interface. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyAntennaEntry 7 }
+
+cD11HtPhyXmitIndCompFdbkASImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object is set to 'true' to indicate that the 
+                transmit antenna selection based on antenna indices
+                selection computation and feedback the results to
+                support the peer to do antenna selection is supported
+                on this 802.11n interface. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyAntennaEntry 8 }
+
+cD11HtPhyRcvAntennaSelImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object is set to 'true' to indicate that the
+                receive antenna selection is supported on this
+                802.11n interface. "
+        DEFVAL  { false } 
+        ::= { cD11HtPhyAntennaEntry 9 }
+
+cD11HtPhyXmitSoundPPDUImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object when set to 'true', indicates that the
+                transmission of sounding PPDUs is supported on the
+                802.11n interface. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyAntennaEntry 10 } 
+
+
+-- *********************************************************************
+-- * 802.11nPhy HT TABLE
+-- *********************************************************************
+
+cD11HtPhyTable OBJECT-TYPE 
+        SYNTAX SEQUENCE OF CD11HtPhyEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table represents the physical layer parameters
+                of the 802.11n radio interface. 
+           
+                Entries in this table are created automatically
+                by the agent corresponding to each 802.11n
+                interface.
+
+                There exists in this table, an entry corresponding
+                to each entry in dot11PhyOperationTable where
+                dot11PHYType equals 'ht'(7). "
+        ::= { cD11HtPhy 2 } 
+
+cD11HtPhyEntry OBJECT-TYPE
+        SYNTAX     CD11HtPhyEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry represents a conceptual row in
+                cD11HtPhyTable and corresponds to the support
+                available for the various high-throughput
+                capabilities on an 802.11n interface. "
+        INDEX   { ifIndex } 
+        ::= { cD11HtPhyTable 1 }
+
+CD11HtPhyEntry ::= SEQUENCE {
+        cD11HtPhyOperatingMode                     INTEGER,
+        cD11HtPhyOperModeFrequency                 INTEGER,  
+        cD11HtPhyOperBand                          INTEGER,
+        cD11HtPhyFortyMHzOperationImplemented      TruthValue,
+        cD11HtPhyFortyMHzOperationEnabled          TruthValue, 
+        cD11HtPhyCurrentControlChannel             Unsigned32, 
+        cD11HtPhyCurrentExtensionChannel           INTEGER, 
+        cD11HtPhyExtChannelCCAImplemented          TruthValue,
+        cD11HtPhyNumberOfSpatialStreamsImplemented INTEGER,
+        cD11HtPhyNumberOfSpatialStreamsEnabled     INTEGER,
+        cD11HtPhyGreenFieldImplemented             TruthValue, 
+        cD11HtPhyGreenFieldEnabled                 TruthValue,
+        cD11HtPhyShortGIInTwentyImplemented        TruthValue,
+        cD11HtPhyShortGIInTwentyEnabled            TruthValue,
+        cD11HtPhyShortGIInFortyImplemented         TruthValue,
+        cD11HtPhyShortGIInFortyEnabled             TruthValue,
+        cD11HtPhyAdvancedCodingImplemented         TruthValue, 
+        cD11HtPhyAdvancedCodingEnabled             TruthValue,
+        cD11HtPhyTxSTBCImplemented                 TruthValue, 
+        cD11HtPhyTxSTBCEnabled                     TruthValue,
+        cD11HtPhyRxSTBCImplemented                 TruthValue, 
+        cD11HtPhyRxSTBCEnabled                     TruthValue,
+        cD11HtPhyBeamFormingImplemented            TruthValue, 
+        cD11HtPhyBeamFormingEnabled                TruthValue
+} 
+
+cD11HtPhyOperatingMode OBJECT-TYPE
+        SYNTAX     INTEGER {
+                           legacy(1),
+                           mixed(2),
+                           greenField(3)
+                   }     
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object represents the mode of operation of
+                802.11n interface at the physical layer.  The
+                semantics are as follows.
+
+                legacy - In this mode, packets are transmitted
+                in the legacy 802.11a/g format.
+
+                mixed  - In this mode, packets are transmitted
+                with a preamble that can be recognized by the
+                legacy 802.11a/g devices.  Both mixed mode and
+                legacy packets can be recognised by the receiving
+                802.11n interface.
+
+                greenField - In this mode, a transmitting station
+                won't add a preamble to the packets sent. "
+        ::= { cD11HtPhyEntry 1 }
+
+cD11HtPhyOperModeFrequency OBJECT-TYPE
+        SYNTAX     INTEGER {
+                           legacyMode(1),
+                           htMode(2),
+                           dupLegacyMode(3),
+                           fortyMHzUpperMode(4),
+                           fortyMHzLowerMode(5)
+                   }        
+        MAX-ACCESS read-only
+        STATUS     current 
+        DESCRIPTION
+                "This object represents the channel characteristics
+                of the PHY.  The semantics are as follows.
+
+                legacyMode - The radio channel characteristics are the
+                same as that of 802.11a/802.11g radios.                
+ 
+                htMode - The radio operates in either 40MHz 
+                bandwidth with one to four spatial streams.
+
+                dupLegacyMode - The radio operates in a 40MHz
+                channel composed of 2 adjacent 20MHz channels.
+                The packets sent are in the legacy 802.11a format
+                in each of the 20MHz channels.
+
+                fortyMHzUpperMode - The radio tranmits a legacy or
+                HT packet in the upper 20MHz channel of a 40MHz
+                channel.
+
+                fortyMHzLowerMode - The radio transmits a legacy or
+                HT packet in the lower 20MHz channel of a 40MHz
+                channel. "
+        ::= { cD11HtPhyEntry 2 }
+
+cD11HtPhyOperBand OBJECT-TYPE
+        SYNTAX     INTEGER {
+                           band24GHz(1),
+                           band5GHz(2)
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object represents the frequency band an 
+                802.11n radio operates in.  The semantics are
+                as follows.
+
+                24GHz - The radio operates in the 2.4GHz frequency
+                band.
+
+                5GHz - The radio operates in the 5 GHz frequency
+                band. "
+        ::= { cD11HtPhyEntry 3 }
+            
+cD11HtPhyFortyMHzOperationImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the 
+                40 MHz operation is implemented. "
+        DEFVAL  { false } 
+        ::= { cD11HtPhyEntry 4 }
+
+cD11HtPhyFortyMHzOperationEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object , when set to 'true', indicates that
+                the 40 MHz Operation is enabled. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyEntry 5 }
+
+cD11HtPhyCurrentControlChannel OBJECT-TYPE
+        SYNTAX     Unsigned32 
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object represents the operating channel.
+                If 40 MHz mode is currently in use then this 
+                object indicates the control channel. " 
+        ::= { cD11HtPhyEntry 6 }
+
+cD11HtPhyCurrentExtensionChannel OBJECT-TYPE
+        SYNTAX     INTEGER {
+                           noExtension(1),
+                           extensionAbove(2),
+                           extensionBelow(3)
+                   } 
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object represents the channel extension
+                offset.  The semantics are as follows.
+
+                noExtension - No extension channel is present and
+                the radio operates in the 20MHz mode.
+ 
+                extensionAbove - The extension channel is above the
+                control channel.  This is applicable only if the
+                radio operates in the 40MHz mode.
+
+                extensionBelow - The extension channel is below the
+                control channel.  This is applicable only if the
+                radio operates in the 40MHz mode. "
+        ::= { cD11HtPhyEntry 7 }
+
+cD11HtPhyExtChannelCCAImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+               "This object, when set to true, indicates that
+               making a CCA on the extension channel is supported. "
+        DEFVAL { false }
+        ::= { cD11HtPhyEntry 8 }
+
+cD11HtPhyNumberOfSpatialStreamsImplemented OBJECT-TYPE
+        SYNTAX     INTEGER (1..4)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object represents the maximum number of 
+                spatial streams implemented. "
+        DEFVAL  { 2 }
+        ::= { cD11HtPhyEntry 9 }
+
+cD11HtPhyNumberOfSpatialStreamsEnabled OBJECT-TYPE
+        SYNTAX     INTEGER (1..4)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object represents the maximum number of
+                spatial streams enabled. "
+        DEFVAL  { 2 }
+        ::= { cD11HtPhyEntry 10 }
+
+cD11HtPhyGreenFieldImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current 
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that the 
+                Greenfield option is implemented. "
+        DEFVAL  { false } 
+        ::= { cD11HtPhyEntry 11 }
+
+cD11HtPhyGreenFieldEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current 
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that the 
+                Greenfield option is enabled. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyEntry 12 }
+
+cD11HtPhyShortGIInTwentyImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current 
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that the
+                Short-Guard option is implemented for 20 MHz 
+                operation. "
+        DEFVAL { false }
+        ::= { cD11HtPhyEntry 13}
+
+cD11HtPhyShortGIInTwentyEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that the
+                Short Guard option is enabled for 20 MHz operation. "
+        DEFVAL { false }
+        ::= { cD11HtPhyEntry 14 } 
+
+cD11HtPhyShortGIInFortyImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that the
+                Short Guard option is implemented for 40 MHz
+                operation. "
+        DEFVAL { false }
+        ::= { cD11HtPhyEntry 15 }
+
+cD11HtPhyShortGIInFortyEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that the
+                Short Guard option is enabled for 40 MHz operation. "
+        DEFVAL { false }
+        ::= { cD11HtPhyEntry 16 }
+
+cD11HtPhyAdvancedCodingImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the
+                Advanced Coding option is implemented. "
+        DEFVAL { false }
+        ::= { cD11HtPhyEntry 17 }
+
+cD11HtPhyAdvancedCodingEnabled OBJECT-TYPE 
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the
+                Advanced Coding option is enabled. "
+        DEFVAL { false }
+        ::= { cD11HtPhyEntry 18 }
+
+cD11HtPhyTxSTBCImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that
+                the entity is capable of transmitting frames using
+                Space-Time Block Code (STBC) option. "
+        DEFVAL { false }
+        ::= { cD11HtPhyEntry 19 }
+
+cD11HtPhyTxSTBCEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that
+                the entity's capability of transmitting frames using
+                Space-Time Block Code (STBC) option is enabled. "
+        DEFVAL  { false }
+       ::= { cD11HtPhyEntry 20 } 
+
+cD11HtPhyRxSTBCImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that the
+                entity is capable of receiving frames that are sent
+                using the Space-Time Block Code (STBC). "
+        DEFVAL  { false }
+        ::= { cD11HtPhyEntry 21 } 
+
+cD11HtPhyRxSTBCEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the
+                entity's capability of receiving frames that are
+                sent using the Space-Time Block Code (STBC) is
+                enabled. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyEntry 22 }
+
+cD11HtPhyBeamFormingImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the
+                Beam Forming option is implemented. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyEntry 23 }
+
+cD11HtPhyBeamFormingEnabled OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that the
+                BeamForming option is enabled. "
+        DEFVAL  { false } 
+        ::= { cD11HtPhyEntry 24 }
+
+-- *********************************************************************
+-- * End of 802.11n PHY HT TABLE 
+-- *********************************************************************
+
+-- *********************************************************************
+-- * 802.11nSupported MCS TABLE
+-- *********************************************************************
+
+cD11HtPhySupportedMCSTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF CD11HtPhySupportedMCSEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table represents the transmit and receive MCS
+                supported by the PLCP and PMD,  represented by a count
+                from 0 to 127, subject to limitations of each
+                individual PHY.
+
+                Entries in this table are created automatically
+                by the agent corresponding to each 802.11n
+                compliant interface.
+
+                There exists in this table, an entry corresponding
+                to each entry in dot11PhyOperationTable where
+                dot11PHYType equals 'ht'(7). "                
+        ::= { cD11HtPhy 3 }
+
+cD11HtPhySupportedMCSEntry OBJECT-TYPE
+        SYNTAX     CD11HtPhySupportedMCSEntry 
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry represents a conceptual row in 
+                cD11HtPhySupportedMCSTable and describes the transmit
+                and receive MCS supported on this 802.11n
+                interface. "
+        INDEX { ifIndex }
+        ::= { cD11HtPhySupportedMCSTable 1 }
+
+CD11HtPhySupportedMCSEntry ::= 
+        SEQUENCE { 
+                cD11HtPhySupportedMCSTxValue OCTET STRING,
+                cD11HtPhySupportedMCSRxValue OCTET STRING 
+        } 
+
+cD11HtPhySupportedMCSTxValue OBJECT-TYPE
+        SYNTAX     OCTET STRING (SIZE(1..127))
+        MAX-ACCESS read-only
+        STATUS current
+        DESCRIPTION
+                "This object represents the Transmit MCS supported by
+                the PLCP and PMD. "
+        ::= { cD11HtPhySupportedMCSEntry 1 }
+
+cD11HtPhySupportedMCSRxValue OBJECT-TYPE
+        SYNTAX     OCTET STRING (SIZE(1..127))
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object represents the Receive MCS supported by
+                the PLCP and PMD. "
+        ::= { cD11HtPhySupportedMCSEntry 2 }
+
+-- *********************************************************************
+-- * End of 802.11n Supported MCS TABLE 
+-- *********************************************************************
+
+-- *********************************************************************
+-- * 802.11nTx BF Config TABLE
+-- *********************************************************************
+
+cD11HtPhyTxBFConfigTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CD11HtPhyTxBFConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table describes the Transmit BeamForming 
+                capabilities of an 802.11n interface.
+
+                Entries in this table are created automatically
+                by the agent corresponding to each 802.11n interface.
+
+                There exists in this table, an entry corresponding
+                to each entry in dot11PhyOperationTable where
+                dot11PHYType equals 'ht'(7). " 
+        ::= { cD11HtPhy 4 } 
+
+cD11HtPhyTxBFConfigEntry OBJECT-TYPE
+        SYNTAX     CD11HtPhyTxBFConfigEntry
+        MAX-ACCESS not-accessible 
+        STATUS     current
+        DESCRIPTION
+                "Each entry represents a conceptual row in
+                cD11HtPhyTxBFConfigTable and corresponds to the
+                Beamforming capabilities of an 802.11n interface. "
+        INDEX { ifIndex }
+        ::= { cD11HtPhyTxBFConfigTable 1 }
+
+CD11HtPhyTxBFConfigEntry ::= 
+        SEQUENCE {
+              cD11HtPhyRxStaggerSoundImplemented             TruthValue,
+              cD11HtPhyTxStaggerSoundImplemented             TruthValue,
+              cD11HtPhyRxZLFImplemented                      TruthValue,
+              cD11HtPhyTxZLFImplemented                      TruthValue,
+              cD11HtPhyImplicitTxBFImplemented               TruthValue,
+              cD11HtPhyCalibrationImplemented                INTEGER,
+              cD11HtPhyExplCSITxBFImplemented                TruthValue,
+              cD11HtPhyExplUncompSteerMatrixImplemented      TruthValue,
+              cD11HtPhyExplBFCSIFdbkImplemented 
+                                              CD11HtPhyBeamformFeedback,
+              cD11HtPhyExplUncompSteerMatrixFdbkImplemented 
+                                              CD11HtPhyBeamformFeedback, 
+              cD11HtPhyExplCompSteerMatrixFdbkImplemented
+                                              CD11HtPhyBeamformFeedback,
+              cD11HtPhyNumberBeamFormingCSISupportAntenna    INTEGER,
+              cD11HtPhyNumberUncompSteerMatrixSupportAntenna INTEGER,
+              cD11HtPhyNumberCompSteerMatrixSupportAntenna   INTEGER
+        }
+
+cD11HtPhyRxStaggerSoundImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the
+                implementation supports the receiving of staggered
+                sounding frames.  "
+        DEFVAL  { false }
+        ::= { cD11HtPhyTxBFConfigEntry 1 } 
+
+cD11HtPhyTxStaggerSoundImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the 
+                implementation supports the transmission of 
+                staggered sounding frames. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyTxBFConfigEntry 2 }
+
+cD11HtPhyRxZLFImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current 
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that the
+                implementation is capable of receiving ZLF as
+                sounding frames. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyTxBFConfigEntry 3 }
+
+cD11HtPhyTxZLFImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the
+                implementation is capable of transmitting ZLF 
+                as sounding frames. "
+        DEFVAL  { false }        
+        ::= { cD11HtPhyTxBFConfigEntry 4 } 
+
+cD11HtPhyImplicitTxBFImplemented OBJECT-TYPE 
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the 
+                implementation is capable of applying implicit transmit 
+                beamforming. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyTxBFConfigEntry 5 }
+
+cD11HtPhyCalibrationImplemented OBJECT-TYPE
+        SYNTAX     INTEGER {
+                           inCapable (1),
+                           unableToInitiate (2), 
+                           ableToInitiate (3), 
+                           fullyCapable (4) 
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "This object indicates the level of calibration 
+                supported by the implementation.  The semantics
+                are follows.
+
+                'inCapable' - This station can't participate in a 
+                calibration procedure initiated by another station.
+
+                'unableToInitiate' - This station can involve in
+                calibration, but cannot apply reciprocity correction
+                vector received from the initiator and cannot
+                initiate calibration.
+
+                'ableToInitiate' - This station can initiate
+                calibration but cannot apply reciprocity correction
+                vector received from the initiator.
+
+                'fullyCapable' - This statin can participate in a
+                calibration procedure initiated by another station,
+                can respond to a Sounding PPDU and provide a MIMO
+                channel measurement report in response to the 
+                receipt of a Sounding PPDU.  The station can also
+                apply reciprocity correction vector received from
+                the initiator of calibration response. " 
+        DEFVAL  { inCapable }
+        ::= { cD11HtPhyTxBFConfigEntry 6 }
+
+cD11HtPhyExplCSITxBFImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that
+                implementation is capable of applying transmit
+                beamforming using CSI explicit feedback in its
+                transmission. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyTxBFConfigEntry 7 }
+
+cD11HtPhyExplUncompSteerMatrixImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that
+                implementation is capable of applying transmit
+                beamforming using uncompressed steering matrix
+                explicit feedback in its transmission. "
+        DEFVAL  { false }
+        ::= { cD11HtPhyTxBFConfigEntry 8 }
+
+cD11HtPhyExplBFCSIFdbkImplemented OBJECT-TYPE
+        SYNTAX     CD11HtPhyBeamformFeedback
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION 
+                "This object indicates the level of CSI explicit 
+                feedback supported by the implementation. "
+        ::= { cD11HtPhyTxBFConfigEntry 9 }
+
+cD11HtPhyExplUncompSteerMatrixFdbkImplemented OBJECT-TYPE
+        SYNTAX     CD11HtPhyBeamformFeedback
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the level of uncompressed 
+                steering matrix explicit feedback supported by 
+                the implementation. "
+        ::= { cD11HtPhyTxBFConfigEntry 10 }
+
+cD11HtPhyExplCompSteerMatrixFdbkImplemented OBJECT-TYPE
+        SYNTAX     CD11HtPhyBeamformFeedback
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "This object indicates the level of uncompressed 
+                steering matrix explicit feedback returned by the
+                implementation. "
+        ::= { cD11HtPhyTxBFConfigEntry 11 }
+ 
+cD11HtPhyNumberBeamFormingCSISupportAntenna OBJECT-TYPE 
+        SYNTAX     INTEGER (1..4)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the maximum number of
+                beamform antennas the beamformee can support when CSI 
+                feedback is required. " 
+        ::= { cD11HtPhyTxBFConfigEntry 12 }
+
+cD11HtPhyNumberUncompSteerMatrixSupportAntenna OBJECT-TYPE
+        SYNTAX     INTEGER (1..4)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the maximum number of 
+                beamform antennas the beamformee can support when
+                uncompressed steering matrix feedback is required. " 
+        ::= { cD11HtPhyTxBFConfigEntry 13 }
+
+cD11HtPhyNumberCompSteerMatrixSupportAntenna OBJECT-TYPE
+        SYNTAX     INTEGER (1..4)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the maximum number of 
+                beamform antennas the beamformee can support when
+                compressed steering matrix feedback is required. " 
+        ::= { cD11HtPhyTxBFConfigEntry 14 } 
+
+--********************************************************************
+--*    EWC Power level objects 
+--********************************************************************
+
+cD11HtPhyEnhPowerTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CD11HtPhyEnhPowerEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table represents the transmission power
+                characteristics specific to 802.11n radio interfaces.
+
+                There exists in this table, an entry corresponding
+                to each entry in dot11PhyOperationTable where
+                dot11PHYType equals 'ht'(7). "
+        ::= { cD11HtPhy 5 }
+
+cD11HtPhyEnhPowerEntry OBJECT-TYPE
+        SYNTAX     CD11HtPhyEnhPowerEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry represents a conceptual row in
+                ccD11HtPhyEnhPowerTable and describes the
+                transmission power characteristics specific to a 
+                802.11n radio. "  
+        INDEX   { ifIndex }
+        ::= { cD11HtPhyEnhPowerTable 1 }
+
+CD11HtPhyEnhPowerEntry ::= 
+        SEQUENCE {
+                cD11HtPhyEnhPowerLevel20MHz Unsigned32,
+                cD11HtPhyEnhPowerLevel40MHz Unsigned32
+        }
+
+cD11HtPhyEnhPowerLevel20MHz OBJECT-TYPE
+        SYNTAX     Unsigned32(0..10)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object represents the power level of the
+                802.11n radio when operating at 20 MHz. A value
+                of 0 indicates that the power level couldn't be
+                determined at the time the agent is queried for
+                an instance of this object. "
+        ::= { cD11HtPhyEnhPowerEntry 1 }
+
+cD11HtPhyEnhPowerLevel40MHz OBJECT-TYPE
+        SYNTAX     Unsigned32(0..10)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object represents the power level of the
+                802.11n radio when operating at 40 MHz. A value
+                of 0 indicates that the power level couldn't be
+                determined at the time the agent is queried for
+                an instance of this object. "
+        ::= { cD11HtPhyEnhPowerEntry 2 }
+
+--********************************************************************
+--*    Compliance statements  
+--********************************************************************
+
+ciscoDot11HtPhyMIBCompliances OBJECT IDENTIFIER
+        ::= { ciscoDot11HtPhyMIBConform 1 }
+
+ciscoDot11HtPhyMIBGroups OBJECT IDENTIFIER
+        ::= { ciscoDot11HtPhyMIBConform 2 }
+
+ciscoDot11HtMacCompliance MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                implement the ciscoDot11HtPhyMIB module. "
+        MODULE  MANDATORY-GROUPS {
+                ciscoDot11HtPhyAntennaGroup,
+                ciscoDot11HtPhyConfigGroup,
+                ciscoDot11HtPhyMcsGroup,
+                ciscoDot11HtPhyTxBfGroup,
+                ciscoDot11HtPhyEnhPowerLevelsGroup
+        }
+        ::= { ciscoDot11HtPhyMIBCompliances 1 }
+
+--********************************************************************
+--*    Units of conformance  
+--********************************************************************
+
+ciscoDot11HtPhyAntennaGroup OBJECT-GROUP
+        OBJECTS {
+                cD11HtPhyAntennaSelectionImplemented,
+                cD11HtPhyXmitExpCSIFdbkASImplemented,
+                cD11HtPhyXmitIndFdbkASImplemented,
+                cD11HtPhyExplCSIFdbkASImplemented,
+                cD11HtPhyXmitIndCompFdbkASImplemented,
+                cD11HtPhyRcvAntennaSelImplemented,
+                cD11HtPhyXmitSoundPPDUImplemented
+        }
+        STATUS current
+        DESCRIPTION
+                "This collection of objects represent the
+                antennae-related parameters. "
+        ::= { ciscoDot11HtPhyMIBGroups 1 }
+
+ciscoDot11HtPhyConfigGroup OBJECT-GROUP
+        OBJECTS {
+                cD11HtPhyOperatingMode,
+                cD11HtPhyOperModeFrequency,
+                cD11HtPhyOperBand,
+                cD11HtPhyFortyMHzOperationImplemented,
+                cD11HtPhyFortyMHzOperationEnabled,
+                cD11HtPhyCurrentControlChannel,
+                cD11HtPhyCurrentExtensionChannel,
+                cD11HtPhyExtChannelCCAImplemented,
+                cD11HtPhyNumberOfSpatialStreamsImplemented,
+                cD11HtPhyNumberOfSpatialStreamsEnabled,
+                cD11HtPhyGreenFieldImplemented,
+                cD11HtPhyGreenFieldEnabled,
+                cD11HtPhyShortGIInTwentyImplemented,
+                cD11HtPhyShortGIInTwentyEnabled,
+                cD11HtPhyShortGIInFortyImplemented,
+                cD11HtPhyShortGIInFortyEnabled,
+                cD11HtPhyAdvancedCodingImplemented,
+                cD11HtPhyAdvancedCodingEnabled,
+                cD11HtPhyTxSTBCImplemented,
+                cD11HtPhyTxSTBCEnabled,
+                cD11HtPhyRxSTBCImplemented,
+                cD11HtPhyRxSTBCEnabled,
+                cD11HtPhyBeamFormingImplemented,
+                cD11HtPhyBeamFormingEnabled
+         }       
+        STATUS current
+        DESCRIPTION
+                "This collection of objects represent the
+                operating parameters of the 802.11n radio at
+                the physical layer. "
+        ::= { ciscoDot11HtPhyMIBGroups 2 }
+
+
+ciscoDot11HtPhyMcsGroup OBJECT-GROUP
+        OBJECTS {
+                cD11HtPhySupportedMCSTxValue,
+                cD11HtPhySupportedMCSRxValue
+        }
+        STATUS current
+        DESCRIPTION
+                "This collection of objects represent the
+                MCS rates supported by the 802.11n radio. "
+        ::= { ciscoDot11HtPhyMIBGroups 3 }
+
+ciscoDot11HtPhyTxBfGroup OBJECT-GROUP
+        OBJECTS {
+                cD11HtPhyRxStaggerSoundImplemented,
+                cD11HtPhyTxStaggerSoundImplemented,
+                cD11HtPhyRxZLFImplemented,
+                cD11HtPhyTxZLFImplemented,
+                cD11HtPhyImplicitTxBFImplemented,
+                cD11HtPhyCalibrationImplemented,
+                cD11HtPhyExplCSITxBFImplemented,
+                cD11HtPhyExplUncompSteerMatrixImplemented,
+                cD11HtPhyExplBFCSIFdbkImplemented,
+                cD11HtPhyExplUncompSteerMatrixFdbkImplemented,
+                cD11HtPhyExplCompSteerMatrixFdbkImplemented,
+                cD11HtPhyNumberBeamFormingCSISupportAntenna,
+                cD11HtPhyNumberUncompSteerMatrixSupportAntenna,
+                cD11HtPhyNumberCompSteerMatrixSupportAntenna
+        }
+        STATUS current
+        DESCRIPTION
+                "This collection of objects represent the transmit
+                BeamForming configuration on an 802.11n radio. " 
+        ::= { ciscoDot11HtPhyMIBGroups 4 }
+
+ciscoDot11HtPhyEnhPowerLevelsGroup OBJECT-GROUP
+        OBJECTS {
+                cD11HtPhyEnhPowerLevel20MHz,
+                cD11HtPhyEnhPowerLevel40MHz
+        }
+        STATUS current
+        DESCRIPTION
+                "This collection of objects represents the
+                transmission power characteristics specific to
+                a 802.11n radio. "
+        ::= { ciscoDot11HtPhyMIBGroups 5 }
+
+--********************************************************************
+--*   End of units of conformance  
+--********************************************************************
+
+END
+

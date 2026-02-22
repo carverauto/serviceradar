@@ -1,0 +1,143 @@
+-- *****************************************************************
+-- PRIVILEGE-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-PRIVILEGE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    Unsigned32 FROM SNMPv2-SMI
+    ;
+
+me1200PrivilegeMib MODULE-IDENTITY
+    LAST-UPDATED "201404170000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of Privilege"
+    REVISION    "201404170000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 59 }
+
+
+me1200PrivilegeMibObjects OBJECT IDENTIFIER
+    ::= { me1200PrivilegeMib 1 }
+
+me1200PrivilegeConfig OBJECT IDENTIFIER
+    ::= { me1200PrivilegeMibObjects 2 }
+
+me1200PrivilegeConfigWebTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PrivilegeConfigWebEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to configure web privilege"
+    ::= { me1200PrivilegeConfig 1 }
+
+me1200PrivilegeConfigWebEntry OBJECT-TYPE
+    SYNTAX      ME1200PrivilegeConfigWebEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each module has a set of parameters"
+    INDEX       { me1200PrivilegeConfigWebModuleName }
+    ::= { me1200PrivilegeConfigWebTable 1 }
+
+ME1200PrivilegeConfigWebEntry ::= SEQUENCE {
+    me1200PrivilegeConfigWebModuleName    ME1200DisplayString,
+    me1200PrivilegeConfigWebConfigRoPriv      Unsigned32,
+    me1200PrivilegeConfigWebConfigRwPriv      Unsigned32,
+    me1200PrivilegeConfigWebStatusRoPriv      Unsigned32,
+    me1200PrivilegeConfigWebStatusRwPriv      Unsigned32
+}
+
+me1200PrivilegeConfigWebModuleName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Module name."
+    ::= { me1200PrivilegeConfigWebEntry 1 }
+
+me1200PrivilegeConfigWebConfigRoPriv OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Web privilege of read-only configuration."
+    ::= { me1200PrivilegeConfigWebEntry 2 }
+
+me1200PrivilegeConfigWebConfigRwPriv OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Web privilege of read-write configuration."
+    ::= { me1200PrivilegeConfigWebEntry 3 }
+
+me1200PrivilegeConfigWebStatusRoPriv OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Web privilege of read-only status."
+    ::= { me1200PrivilegeConfigWebEntry 4 }
+
+me1200PrivilegeConfigWebStatusRwPriv OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Web privilege of read-write status."
+    ::= { me1200PrivilegeConfigWebEntry 5 }
+
+me1200PrivilegeMibConformance OBJECT IDENTIFIER
+    ::= { me1200PrivilegeMib 2 }
+
+me1200PrivilegeMibCompliances OBJECT IDENTIFIER
+    ::= { me1200PrivilegeMibConformance 1 }
+
+me1200PrivilegeMibGroups OBJECT IDENTIFIER
+    ::= { me1200PrivilegeMibConformance 2 }
+
+me1200PrivilegeConfigWebInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PrivilegeConfigWebConfigRoPriv, 
+                  me1200PrivilegeConfigWebConfigRwPriv, 
+                  me1200PrivilegeConfigWebStatusRoPriv, 
+                  me1200PrivilegeConfigWebStatusRwPriv }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PrivilegeMibGroups 1 }
+
+me1200PrivilegeMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200PrivilegeConfigWebInfoGroup }
+
+    ::= { me1200PrivilegeMibCompliances 1 }
+
+END

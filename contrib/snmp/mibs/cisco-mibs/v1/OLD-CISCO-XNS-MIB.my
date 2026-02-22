@@ -1,0 +1,214 @@
+-- *****************************************************************
+-- OLD-CISCO-XNS-MIB.my:  Old Cisco XNS MIB file
+--
+-- May 1994, Jeffrey T. Johnson
+--
+-- Copyright (c) 1994 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+
+               OLD-CISCO-XNS-MIB DEFINITIONS ::= BEGIN
+
+               IMPORTS
+			OBJECT-TYPE
+				FROM RFC-1212
+			temporary
+				FROM CISCO-SMI;
+          
+               tmpxns OBJECT IDENTIFIER ::= { temporary 2 }
+
+               -- Temporary XNS Section
+
+          -- This group is present in all router based products.
+
+               xnsInput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total input count of number of XNS packets."
+                   ::= { tmpxns 1 }
+
+               xnsLocal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of XNS input packets for this
+                           host."
+                   ::= { tmpxns 2 }
+
+               xnsBcastin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input broadcast
+                           packets."
+                   ::= { tmpxns 3 }
+
+               xnsForward OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS packets
+                           forwarded."
+                   ::= { tmpxns 4 }
+
+               xnsBcastout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS output
+                           broadcast packets."
+                   ::= { tmpxns 5 }
+
+               xnsErrin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Error input
+                           packets."
+                   ::= { tmpxns 6 }
+
+               xnsErrout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Error output
+                           packets."
+                   ::= { tmpxns 7 }
+
+               xnsFormerr OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input packets
+                           with header errors."
+                   ::= { tmpxns 8 }
+
+               xnsChksum OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input packets
+                           with checksum errors."
+                   ::= { tmpxns 9 }
+
+               xnsNotgate OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input packets
+                           received while not routing."
+                   ::= { tmpxns 10 }
+
+               xnsHopcnt OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input packets
+                           that have exceeded the maximum hop count."
+                   ::= { tmpxns 11 }
+
+               xnsNoroute OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS packets dropped
+                           due to no route."
+                   ::= { tmpxns 12 }
+
+               xnsNoencap OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS packets dropped
+                           due to output encapsulation failure."
+                   ::= { tmpxns 13 }
+
+               xnsOutput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS output
+                           packets."
+                   ::= { tmpxns 14 }
+
+               xnsInmult OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS input multicast
+                           packets."
+                   ::= { tmpxns 15 }
+
+               xnsUnknown OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of unknown XNS input
+                           packets."
+                   ::= { tmpxns 16 }
+
+               xnsFwdbrd OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS broadcast
+                           packets forwarded."
+                   ::= { tmpxns 17 }
+
+               xnsEchoreqin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Echo request
+                           packets received."
+                   ::= { tmpxns 18 }
+
+               xnsEchoreqout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Echo request
+                           packets sent."
+                   ::= { tmpxns 19 }
+
+               xnsEchorepin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Echo reply
+                           packets received."
+                   ::= { tmpxns 20 }
+
+               xnsEchorepout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of XNS Echo reply
+                           packets sent."
+                   ::= { tmpxns 21 }
+
+END

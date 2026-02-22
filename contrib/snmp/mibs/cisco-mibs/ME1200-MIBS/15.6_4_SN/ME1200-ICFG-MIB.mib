@@ -1,0 +1,338 @@
+-- *****************************************************************
+-- ICFG-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-ICFG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200IcfgMIB MODULE-IDENTITY
+    LAST-UPDATED "201402180000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of ICFG"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401090000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 101 }
+
+
+ME1200ConfigStatus ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of configuration."
+    SYNTAX      INTEGER { none(0), success(1), inProgress(2), errOtherInProcessing(3), errNoSuchFile(4), errSameSrcDst(5), errPermissionDenied(6), errLoadSrc(7), errSaveDst(8) }
+
+ME1200ConfigType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of configuration."
+    SYNTAX      INTEGER { none(0), runningConfig(1), startupConfig(2), configFile(3) }
+
+ME1200ReloadDefault ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of reload default."
+    SYNTAX      INTEGER { none(0), default(1), defaultKeepIp(2) }
+
+me1200IcfgMIBObjects OBJECT IDENTIFIER
+    ::= { me1200IcfgMIB 1 }
+
+me1200IcfgStatus OBJECT IDENTIFIER
+    ::= { me1200IcfgMIBObjects 3 }
+
+me1200IcfgStatusFileStatistics OBJECT IDENTIFIER
+    ::= { me1200IcfgStatus 1 }
+
+me1200IcfgStatusFileStatisticsNumberOfFiles OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of files in flash."
+    ::= { me1200IcfgStatusFileStatistics 1 }
+
+me1200IcfgStatusFileStatisticsTotalBytes OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Total number of bytes used by all files in flash."
+    ::= { me1200IcfgStatusFileStatistics 2 }
+
+me1200IcfgStatusFileTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IcfgStatusFileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of status of files in flash."
+    ::= { me1200IcfgStatus 2 }
+
+me1200IcfgStatusFileEntry OBJECT-TYPE
+    SYNTAX      ME1200IcfgStatusFileEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of file status."
+    INDEX       { me1200IcfgStatusFileFileNo }
+    ::= { me1200IcfgStatusFileTable 1 }
+
+ME1200IcfgStatusFileEntry ::= SEQUENCE {
+    me1200IcfgStatusFileFileNo    Integer32,
+    me1200IcfgStatusFileFileName      ME1200DisplayString,
+    me1200IcfgStatusFileBytes     Unsigned32,
+    me1200IcfgStatusFileModifiedTime      ME1200DisplayString,
+    me1200IcfgStatusFileAttribute     ME1200DisplayString
+}
+
+me1200IcfgStatusFileFileNo OBJECT-TYPE
+    SYNTAX      Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The number of File. The number starts from 1."
+    ::= { me1200IcfgStatusFileEntry 1 }
+
+me1200IcfgStatusFileFileName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..127))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "File name."
+    ::= { me1200IcfgStatusFileEntry 2 }
+
+me1200IcfgStatusFileBytes OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of bytes of the file."
+    ::= { me1200IcfgStatusFileEntry 3 }
+
+me1200IcfgStatusFileModifiedTime OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..39))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Last modified time of the file."
+    ::= { me1200IcfgStatusFileEntry 4 }
+
+me1200IcfgStatusFileAttribute OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..15))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "File attribute in the linux format of drwxrwxrwx. 'd' is directory or
+         not, the permission of rwx is for owner, group and other, respectively."
+    ::= { me1200IcfgStatusFileEntry 5 }
+
+me1200IcfgStatusCopyConfig OBJECT IDENTIFIER
+    ::= { me1200IcfgStatus 3 }
+
+me1200IcfgStatusCopyConfigStatus OBJECT-TYPE
+    SYNTAX      ME1200ConfigStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The status indicates the status of current copy operation. none(0)
+         means no copy operation. success(1) means copy operation is successful.
+         inProgress(2) means current copy operation is in progress.
+         errOtherInProcessing(3) means copy operation is failed due to other in
+         processing. errNoSuchFile(4) means copy operation is failed due to file
+         not existing. errSameSrcDst(5) means copy operation is failed due to
+         the source and destination are the same. errPermissionDenied(6) means
+         copy operation is failed due to the destination is not permitted to
+         modify. errLoadSrc(7) means copy operation is failed due to the error
+         to load source file. errSaveDst(8) means copy operation is failed due
+         to the error to save or commit destination."
+    ::= { me1200IcfgStatusCopyConfig 1 }
+
+me1200IcfgControl OBJECT IDENTIFIER
+    ::= { me1200IcfgMIBObjects 4 }
+
+me1200IcfgControlGlobals OBJECT IDENTIFIER
+    ::= { me1200IcfgControl 1 }
+
+me1200IcfgControlGlobalsReloadDefault OBJECT-TYPE
+    SYNTAX      ME1200ReloadDefault
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Reset system to default. none(0) is to do nothing. default(1) is to
+         reset the whole system to default. defaultKeepIp(2) is to reset system
+         to default, but keep IP address of VLAN 1."
+    ::= { me1200IcfgControlGlobals 1 }
+
+me1200IcfgControlGlobalsDeleteFile OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..127))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Delete file in flash. The format is flash:filename. Where
+         'default-config' is read-only and not allowed to be deleted."
+    ::= { me1200IcfgControlGlobals 2 }
+
+me1200IcfgControlCopyConfig OBJECT IDENTIFIER
+    ::= { me1200IcfgControl 2 }
+
+me1200IcfgControlCopyConfigCopy OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action to do copy or not. true(1) is to do the copy operation. false(2)
+         is to do nothing"
+    ::= { me1200IcfgControlCopyConfig 1 }
+
+me1200IcfgControlCopyConfigSourceConfigType OBJECT-TYPE
+    SYNTAX      ME1200ConfigType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Source configuration type. none(0) means no configuration file.
+         runningConfig(1) means running configuration. startupConfig(2) means
+         startup configuration file in flash. configFile(3) is the configuration
+         file specified in SourceConfigFile."
+    ::= { me1200IcfgControlCopyConfig 2 }
+
+me1200IcfgControlCopyConfigSourceConfigFile OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..127))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Source configuration file. If the configuration file is in flash then
+         the format is flash:'filename'. If the configuration file is from tftp
+         then the format is tftp://server[:port]/path-to-file."
+    ::= { me1200IcfgControlCopyConfig 3 }
+
+me1200IcfgControlCopyConfigDestinationConfigType OBJECT-TYPE
+    SYNTAX      ME1200ConfigType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Source configuration type. none(0) means no configuration file.
+         runningConfig(1) means running configuration. startupConfig(2) means
+         startup configuration file in flash. configFile(3) is the configuration
+         file specified in DestinationConfigFile."
+    ::= { me1200IcfgControlCopyConfig 4 }
+
+me1200IcfgControlCopyConfigDestinationConfigFile OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..127))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Destination configuration file. If the configuration file is in flash
+         then the format is flash:filename. If the configuration file is from
+         tftp then the format is tftp://server[:port]/filename_with_path. Where
+         'default-config' is read-only and not allowed to be deleted."
+    ::= { me1200IcfgControlCopyConfig 5 }
+
+me1200IcfgControlCopyConfigMerge OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "This flag works only if DestinationConfigType is runningConfig(1).
+         true(1) is to merge the source configuration into the current running
+         configuration. false(2) is to replace the current running configuration
+         with the source configuration."
+    ::= { me1200IcfgControlCopyConfig 6 }
+
+me1200IcfgMIBConformance OBJECT IDENTIFIER
+    ::= { me1200IcfgMIB 2 }
+
+me1200IcfgMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200IcfgMIBConformance 1 }
+
+me1200IcfgMIBGroups OBJECT IDENTIFIER
+    ::= { me1200IcfgMIBConformance 2 }
+
+me1200IcfgStatusFileStatisticsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IcfgStatusFileStatisticsNumberOfFiles, 
+                  me1200IcfgStatusFileStatisticsTotalBytes }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IcfgMIBGroups 1 }
+
+me1200IcfgStatusFileTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IcfgStatusFileFileName, me1200IcfgStatusFileBytes, 
+                  me1200IcfgStatusFileModifiedTime, me1200IcfgStatusFileAttribute }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IcfgMIBGroups 2 }
+
+me1200IcfgStatusCopyConfigInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IcfgStatusCopyConfigStatus }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IcfgMIBGroups 3 }
+
+me1200IcfgControlGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IcfgControlGlobalsReloadDefault, 
+                  me1200IcfgControlGlobalsDeleteFile }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IcfgMIBGroups 4 }
+
+me1200IcfgControlCopyConfigInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IcfgControlCopyConfigCopy, 
+                  me1200IcfgControlCopyConfigSourceConfigType, 
+                  me1200IcfgControlCopyConfigSourceConfigFile, 
+                  me1200IcfgControlCopyConfigDestinationConfigType, 
+                  me1200IcfgControlCopyConfigDestinationConfigFile, 
+                  me1200IcfgControlCopyConfigMerge }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IcfgMIBGroups 5 }
+
+me1200IcfgMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200IcfgStatusFileStatisticsInfoGroup, 
+                  me1200IcfgStatusFileTableInfoGroup, 
+                  me1200IcfgStatusCopyConfigInfoGroup, 
+                  me1200IcfgControlGlobalsInfoGroup, 
+                  me1200IcfgControlCopyConfigInfoGroup }
+
+    ::= { me1200IcfgMIBCompliances 1 }
+
+END

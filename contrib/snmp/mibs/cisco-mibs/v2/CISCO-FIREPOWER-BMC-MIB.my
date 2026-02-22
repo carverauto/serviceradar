@@ -1,0 +1,275 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-BMC-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- BMC management information model package
+-- 
+-- Created May 2024 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2024 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-BMC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerMIBObjects,
+    CfprManagedObjectId,
+    CfprManagedObjectDn
+        FROM CISCO-FIREPOWER-MIB
+    CfprBmcSELCntEqptClassId,
+    CfprBmcSELCntEqptInstIdPropId,
+    CfprBmcSELCntStatsClassId
+        FROM CISCO-FIREPOWER-TC-MIB;
+
+cfprBmcObjects MODULE-IDENTITY
+    LAST-UPDATED    "202405160000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        BMC management information model package"
+    ::= { ciscoFirepowerMIBObjects 6 }
+
+cfprBmcSELCounterTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprBmcSELCounterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter managed object table"
+    ::= { cfprBmcObjects 1 }
+
+cfprBmcSELCounterEntry OBJECT-TYPE
+    SYNTAX           CfprBmcSELCounterEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprBmcSELCounterTable table."
+    INDEX { cfprBmcSELCounterInstanceId }
+    ::= { cfprBmcSELCounterTable 1 }
+
+CfprBmcSELCounterEntry ::= SEQUENCE {
+    cfprBmcSELCounterInstanceId                                      CfprManagedObjectId,
+    cfprBmcSELCounterDn                                              CfprManagedObjectDn,
+    cfprBmcSELCounterRn                                              SnmpAdminString,
+    cfprBmcSELCounterBitmask                                         SnmpAdminString,
+    cfprBmcSELCounterCollInterval                                    Gauge32,
+    cfprBmcSELCounterContClassId                                     CfprBmcSELCntEqptClassId,
+    cfprBmcSELCounterContInstId                                      SnmpAdminString,
+    cfprBmcSELCounterContInstIdPropId                                CfprBmcSELCntEqptInstIdPropId,
+    cfprBmcSELCounterEqptClassId                                     CfprBmcSELCntEqptClassId,
+    cfprBmcSELCounterEqptInstId                                      SnmpAdminString,
+    cfprBmcSELCounterEqptInstIdPropId                                CfprBmcSELCntEqptInstIdPropId,
+    cfprBmcSELCounterGlobalId                                        SnmpAdminString,
+    cfprBmcSELCounterLocalId                                         SnmpAdminString,
+    cfprBmcSELCounterPcGlobalId                                      SnmpAdminString,
+    cfprBmcSELCounterPcLocalId                                       SnmpAdminString,
+    cfprBmcSELCounterStatsClassId                                    CfprBmcSELCntStatsClassId,
+    cfprBmcSELCounterStatsPropId                                     INTEGER,
+    cfprBmcSELCounterThreshold                                       Gauge32,
+    cfprBmcSELCounterValue                                           SnmpAdminString
+}
+
+cfprBmcSELCounterInstanceId OBJECT-TYPE
+    SYNTAX       CfprManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprBmcSELCounterEntry 1 }
+
+cfprBmcSELCounterDn OBJECT-TYPE
+    SYNTAX       CfprManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:dn managed object property"
+    ::= { cfprBmcSELCounterEntry 2 }
+
+cfprBmcSELCounterRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:rn managed object property"
+    ::= { cfprBmcSELCounterEntry 3 }
+
+cfprBmcSELCounterBitmask OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:bitmask managed object property"
+    ::= { cfprBmcSELCounterEntry 4 }
+
+cfprBmcSELCounterCollInterval OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:collInterval managed
+        object property"
+    ::= { cfprBmcSELCounterEntry 5 }
+
+cfprBmcSELCounterContClassId OBJECT-TYPE
+    SYNTAX       CfprBmcSELCntEqptClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:contClassId managed
+        object property"
+    ::= { cfprBmcSELCounterEntry 6 }
+
+cfprBmcSELCounterContInstId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:contInstId managed
+        object property"
+    ::= { cfprBmcSELCounterEntry 7 }
+
+cfprBmcSELCounterContInstIdPropId OBJECT-TYPE
+    SYNTAX       CfprBmcSELCntEqptInstIdPropId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:contInstIdPropId
+        managed object property"
+    ::= { cfprBmcSELCounterEntry 8 }
+
+cfprBmcSELCounterEqptClassId OBJECT-TYPE
+    SYNTAX       CfprBmcSELCntEqptClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:eqptClassId managed
+        object property"
+    ::= { cfprBmcSELCounterEntry 9 }
+
+cfprBmcSELCounterEqptInstId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:eqptInstId managed
+        object property"
+    ::= { cfprBmcSELCounterEntry 10 }
+
+cfprBmcSELCounterEqptInstIdPropId OBJECT-TYPE
+    SYNTAX       CfprBmcSELCntEqptInstIdPropId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:eqptInstIdPropId
+        managed object property"
+    ::= { cfprBmcSELCounterEntry 11 }
+
+cfprBmcSELCounterGlobalId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:globalId managed object property"
+    ::= { cfprBmcSELCounterEntry 12 }
+
+cfprBmcSELCounterLocalId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:localId managed object property"
+    ::= { cfprBmcSELCounterEntry 13 }
+
+cfprBmcSELCounterPcGlobalId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:pcGlobalId managed
+        object property"
+    ::= { cfprBmcSELCounterEntry 14 }
+
+cfprBmcSELCounterPcLocalId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:pcLocalId managed object property"
+    ::= { cfprBmcSELCounterEntry 15 }
+
+cfprBmcSELCounterStatsClassId OBJECT-TYPE
+    SYNTAX       CfprBmcSELCntStatsClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:statsClassId managed
+        object property"
+    ::= { cfprBmcSELCounterEntry 16 }
+
+cfprBmcSELCounterStatsPropId OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:statsPropId managed
+        object property"
+    ::= { cfprBmcSELCounterEntry 17 }
+
+cfprBmcSELCounterThreshold OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:threshold managed object property"
+    ::= { cfprBmcSELCounterEntry 18 }
+
+cfprBmcSELCounterValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower bmc:SELCounter:value managed object property"
+    ::= { cfprBmcSELCounterEntry 19 }
+
+END

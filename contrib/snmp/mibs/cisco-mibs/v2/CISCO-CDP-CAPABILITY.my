@@ -1,0 +1,225 @@
+-- *****************************************************************
+-- CISCO-CDP-CAPABILITY.my:
+-- Cisco CISCO-CDP-MIB AGENT-CAPABILITIES
+--   
+-- September 2003 Edward Pham
+--   
+-- Copyright (c) 2003, 2005-2007 by Cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-CDP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoCdpCapability MODULE-IDENTITY
+    LAST-UPDATED    "200707180000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-CDP-MIB."
+    REVISION        "200707180000Z"
+    DESCRIPTION
+        "Added capability statement ciscoCdpCapV12R0233SXHPCat6K."
+    REVISION        "200610260000Z"
+    DESCRIPTION
+        "Added capability for Cisco TelePresence System (CTS) and
+        Cisco TelePresence Manager (CTM) platforms."
+    REVISION        "200602060000Z"
+    DESCRIPTION
+        "Added capability for IOS-XR 2.0 CRS-1."
+    REVISION        "200505240000Z"
+    DESCRIPTION
+        "Added capability for MDS platform."
+    REVISION        "200309030000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 43 }
+
+
+
+ciscoCdpCapV12R0111bEXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(11b)EX on Catalyst 6000/6500
+
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CDP-MIB capabilities."
+
+    SUPPORTS        CISCO-CDP-MIB
+    INCLUDES        { ciscoCdpMIBGroupV12R02 }
+    ::= { ciscoCdpCapability 1 }
+
+ciscoCdpCapV12R0217SXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(17)SX on Catalyst 6000/6500
+
+                     and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CDP-MIB capabilities."
+
+    SUPPORTS        CISCO-CDP-MIB
+    INCLUDES        { ciscoCdpMIBGroupV12R02 }
+    ::= { ciscoCdpCapability 2 }
+
+ciscoCdpCapCatOSV08R0101Cat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+
+                     and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CDP-MIB capabilities."
+
+    SUPPORTS        CISCO-CDP-MIB
+    INCLUDES        {
+                        ciscoCdpMIBGroupV12R02,
+                        ciscoCdpV2MIBGroup,
+                        ciscoCdpV2IfExtGroup
+                    }
+    ::= { ciscoCdpCapability 3 }
+
+ciscoCdpCapCatOSV08R0101Cat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 4000 series
+
+                     devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CDP-MIB capabilities."
+
+    SUPPORTS        CISCO-CDP-MIB
+    INCLUDES        {
+                        ciscoCdpMIBGroupV12R02,
+                        ciscoCdpV2MIBGroup
+                    }
+    ::= { ciscoCdpCapability 4 }
+
+ciscoCdpCapSanOSV03R0001 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco SAN-OS 3.0(1) on MDS platform."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CDP-MIB capabilities."
+
+    SUPPORTS        CISCO-CDP-MIB
+    INCLUDES        {
+                        ciscoCdpMIBGroupV12R02,
+                        ciscoCdpV2MIBGroup
+                    }
+    VARIATION       cdpGlobalDeviceIdFormat
+    ACCESS          read-only
+    DESCRIPTION
+        "read-write is not supported as the
+        format of Device-Id contained in
+        cdpGlobalDeviceId object is not
+        configurable."
+
+    ::= { ciscoCdpCapability 5 }
+
+ciscoCdpCapIOSXRV2R0CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS XR 2.0 for CRS-1"
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CDP-MIB capabilities for
+        IOS XR release 2.0"
+
+    SUPPORTS        CISCO-CDP-MIB
+    INCLUDES        { ciscoCdpMIBGroupV12R02 }
+    VARIATION       cdpInterfaceGroup
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is only relevant to interfaces
+        which are repeater ports on 802.3 repeaters.
+        In this situation, it indicates the RFC1516
+        port number of the repeater port which
+        corresponds to this interface."
+
+    VARIATION       cdpInterfacePort
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is only relevant to interfaces
+        which are repeater ports on 802.3 repeaters.
+        In this situation, it indicates the RFC1516
+        port number of the repeater port which
+        corresponds to this interface."
+
+    ::= { ciscoCdpCapability 6 }
+
+ciscoCdpCapCTSV100 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco TelePresence System (CTS) 1.0.0."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CDP-MIB capabilities for CTS 1.0.0"
+
+    SUPPORTS        CISCO-CDP-MIB
+    INCLUDES        {
+                        ciscoCdpMIBGroupV12R02,
+                        ciscoCdpV2MIBGroup
+                    }
+    VARIATION       cdpGlobalDeviceIdFormat
+    ACCESS          read-write
+    DESCRIPTION
+        "This object can only be configured to
+        macAddress(2). Other format are not
+        supported."
+
+    ::= { ciscoCdpCapability 7 }
+
+ciscoCdpCapCTMV1000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco TelePresence Manager (CTM) 1.0.0.0."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CDP-MIB capabilities for CTM 1.0.0.0"
+
+    SUPPORTS        CISCO-CDP-MIB
+    INCLUDES        {
+                        ciscoCdpMIBGroupV12R02,
+                        ciscoCdpV2MIBGroup
+                    }
+    VARIATION       cdpGlobalDeviceIdFormat
+    ACCESS          read-write
+    DESCRIPTION
+        "This object can only be configured to
+        macAddress(2). Other format are not
+        supported."
+
+    ::= { ciscoCdpCapability 8 }
+
+ciscoCdpCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500 
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-CDP-MIB capabilities."
+
+    SUPPORTS        CISCO-CDP-MIB
+    INCLUDES        {
+                        ciscoCdpMIBGroupV12R03,
+                        ciscoCdpV2IfExtGroup
+                    }
+    VARIATION       cdpInterfaceCosForUntrustedPort
+    DESCRIPTION
+        "write access is not allowed if the
+        value of the corresponding instance of
+        cdpInterfaceExtendedTrust is 'trusted'."
+
+    ::= { ciscoCdpCapability 9 }
+
+END
+
+

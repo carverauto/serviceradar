@@ -1,0 +1,326 @@
+-- *****************************************************************
+-- CISCO-TCP-METRICS-MIB
+-- Definitions of managed objects describing TCP flow metrics.
+--   
+-- March 2011, Ganesan Rajam
+--   
+-- Copyright (c) 2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-TCP-METRICS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeStamp
+        FROM SNMPv2-TC
+    cfmFlowMonitorId,
+    cfmFlowId,
+    cfmFlowMetricsIntNumber
+        FROM CISCO-FLOW-MONITOR-MIB
+    FlowMetricScale,
+    FlowMetricPrecision,
+    FlowMetricValue
+        FROM CISCO-FLOW-MONITOR-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoTcpMetricsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201103060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects that describe the quality
+        metrics of TCP streams.
+
+        GLOSSARY
+        ============
+
+        Flow Monitor - a hardware or software entity that classifies
+            traffic flows, collects flow data, and periodically
+            computes flow metrics.
+
+        Flow Metric - a measurement that reflects the quality of a
+            traffic flow.
+
+        Measurement Interval - the length of time over which a flow
+            monitor collects data related to a traffic flow, after
+        which
+            the flow monitor computes flow metrics using the collected
+            data.
+
+        Traffic Flow - a unidirectional stream of packets conforming to
+            a classifier.  For example, packets having a particular 
+            source IP address, destination IP address, protocol type,
+            source port number, and destination port number.
+
+        Traffic Flow Stream - when the monitor identifies multiple
+            individual traffic flows based on the flow classificiation,
+            the monitor aggregates the flows and represents them as a 
+            single entry in the cfmFlowTable.  The individual traffic
+            flows contributing to the metrics are called as individual
+            traffic flow stream. The metrics for the traffic flow with
+            multiple streams contributing, are determined either by 
+            aggregating metrics of all individual streams, for example,
+            cumulative bit rate is computed by cumulative bits of all 
+            streams divided by total duration, or by selecting the 
+            metric for one of the individual stream, for example,
+            maximum bit rate of an individual stream."
+    REVISION        "201103060000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 770 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoTcpMetricsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoTcpMetricsMIB 0 }
+
+ciscoTcpMetricsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoTcpMetricsMIB 1 }
+
+ciscoTcpMetricsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoTcpMetricsMIB 2 }
+
+ciscoTcpMetricsMIBIds  OBJECT IDENTIFIER
+    ::= { ciscoTcpMetricsMIB 3 }
+
+ciscoTcpMetricsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoTcpMetricsMIBConform 1 }
+
+cfmTcpMetrics  OBJECT IDENTIFIER
+    ::= { ciscoTcpMetricsMIBObjects 1 }
+
+
+cfmTcpMetricsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmTcpMetricsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains aggregate data maintained by a flow monitor
+        for traffic flows for which it is computing TCP metrics.
+
+        This table has an sparse dependent relationship on the
+        cfmFlowMetricsTable (defined by the CISCO-FLOW-MONITOR-MIB),
+        containing a row for each row in the cfmFlowMetricsTable having
+        a corresponding instance of cfmFlowMetricsCollected with the
+        'tcp' bit set to one."
+    ::= { cfmTcpMetrics 1 }
+
+cfmTcpMetricsEntry OBJECT-TYPE
+    SYNTAX          CfmTcpMetricsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes cumulative and aggregate TCP metrics for a
+        single traffic flow.
+
+        The devices creates a row in the cfmTcpMetricsTable when a flow
+        monitor starts monitoring a traffic flow and has been configured
+        to compute TCP metrics for the same traffic flow. Likewise, the
+        device destroys a row in the cfmTcpMetricsTable when the
+        corresponding flow monitor has ceased monitoring the traffic
+        flow (e.g., when a traffic flow has timed out)."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmTcpMetricsTable 1 }
+
+CfmTcpMetricsEntry ::= SEQUENCE {
+        cfmTcpMetricsValid                  BITS,
+        cfmTcpMetricsRoundTripTimeScale     FlowMetricScale,
+        cfmTcpMetricsRoundTripTimePrecision FlowMetricPrecision,
+        cfmTcpMetricsRoundTripTime          FlowMetricValue
+}
+
+cfmTcpMetricsValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        roundTripTime(0)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which metrics are valid for the traffic
+        flow:
+
+            'roundTripTime'
+                If this bit is set to '1', then the corresponding
+                instances of cfmTcpMetricsRoundTripTimeScale,
+                cfmTcpMetricsRoundTripTimePrecision, and 
+                cfmTcpMetricsRoundTripTime are valid." 
+    ::= { cfmTcpMetricsEntry 1 }
+
+cfmTcpMetricsRoundTripTimeScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmTcpMetricsRoundTripTime." 
+    ::= { cfmTcpMetricsEntry 2 }
+
+cfmTcpMetricsRoundTripTimePrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmFlowMetricsRoundTripTime." 
+    ::= { cfmTcpMetricsEntry 3 }
+
+cfmTcpMetricsRoundTripTime OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the round trip time for the packet
+        observed by the flow monitor for the corresponding flow.  The
+        round trip time is defined as the length of time it takes for a
+        TCP segment transmission and receipt of acknowledgement." 
+    ::= { cfmTcpMetricsEntry 4 }
+ 
+
+
+cfmTcpMetricsTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device created/destroyed a row in the cfmTcpMetricsTable." 
+    ::= { cfmTcpMetrics 2 }
+
+cfmTcpMetricsIntTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmTcpMetricsIntEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains historic TCP metrics for the traffic flows
+        monitored by each of the flow monitors supported by the device.
+
+        This table has an sparse dependent relationship on the
+        cfmFlowMetricsIntTable (defined by the CISCO-FLOW-MONITOR-MIB),
+        containing a row for each row in the cfmFlowMetricsIntTable
+        having a corresponding instance of cfmFlowMetricsCollected with
+        the 'tcp' bit set to one."
+    ::= { cfmTcpMetrics 3 }
+
+cfmTcpMetricsIntEntry OBJECT-TYPE
+    SYNTAX          CfmTcpMetricsIntEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes TCP metrics collected for a previous
+        measurement interval for a corresponding traffic flow."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId,
+                        cfmFlowMetricsIntNumber
+                    } 
+    ::= { cfmTcpMetricsIntTable 1 }
+
+CfmTcpMetricsIntEntry ::= SEQUENCE {
+        cfmTcpMetricsIntValid                  BITS,
+        cfmTcpMetricsIntRoundTripTimeScale     FlowMetricScale,
+        cfmTcpMetricsIntRoundTripTimePrecision FlowMetricPrecision,
+        cfmTcpMetricsIntRoundTripTime          FlowMetricValue
+}
+
+cfmTcpMetricsIntValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        roundTripTime(0)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which metrics are valid for the
+        measurement interval:
+
+            'roundTripTime'
+                If this bit is set to '1', then the corresponding
+                instances of cfmTcpMetricsIntRoundTripTimeScale,
+                cfmTcpMetricsIntRoundTripTimePrecision, and 
+                cfmTcpMetricsIntRoundTripTime are valid." 
+    ::= { cfmTcpMetricsIntEntry 1 }
+
+cfmTcpMetricsIntRoundTripTimeScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmTcpMetricsIntRoundTripTime." 
+    ::= { cfmTcpMetricsIntEntry 2 }
+
+cfmTcpMetricsIntRoundTripTimePrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmFlowMetricsIntRoundTripTime." 
+    ::= { cfmTcpMetricsIntEntry 3 }
+
+cfmTcpMetricsIntRoundTripTime OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the round trip time for traffic flow
+        during the measurement interval." 
+    ::= { cfmTcpMetricsIntEntry 4 }
+ 
+
+ciscoTcpMetricsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoTcpMetricsMIBConform 2 }
+
+
+ciscoTcpMetricsMIBCompliance01 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This compliance statement specifies the minimal requirements an
+        implementation must meet in order to claim full compliance with
+        the definition of the CISCO-TCP-METRICS-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoTcpMetricsGroup }
+    ::= { ciscoTcpMetricsMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoTcpMetricsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmTcpMetricsValid,
+                        cfmTcpMetricsRoundTripTimeScale,
+                        cfmTcpMetricsRoundTripTimePrecision,
+                        cfmTcpMetricsRoundTripTime,
+                        cfmTcpMetricsTableChanged,
+                        cfmTcpMetricsIntValid,
+                        cfmTcpMetricsIntRoundTripTimeScale,
+                        cfmTcpMetricsIntRoundTripTimePrecision,
+                        cfmTcpMetricsIntRoundTripTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects that describe TCP metrics."
+    ::= { ciscoTcpMetricsMIBGroups 1 }
+
+END
+
+
+

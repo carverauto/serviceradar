@@ -1,0 +1,88 @@
+-- *****************************************************************
+-- CISCO-DIGITAL-MEDIA-SYSTEMS-CAPABILITY.my:
+-- AGENT-CAPABILITIES MIB for CISCO-DIGITAL-MEDIA-SYSTEMS-MIB
+--   
+-- June 2008, Santhosh Meleppuram
+--   
+-- Copyright (c) 2008 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-DIGITAL-MEDIA-SYSTEMS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoDigitalMediaSystemsCapability MODULE-IDENTITY
+    LAST-UPDATED    "200806040000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-dms@cisco.com"
+    DESCRIPTION
+        "The agent capabilities for
+        CISCO-DIGITAL-MEDIA-SYSTEMS-MIB."
+    REVISION        "200806040000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 570 }
+
+
+
+ciscoDigitalMediaSystemsCapabilityV5R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "DMS Release 5.0.0"
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for DMS in Release 5.0.0."
+
+    SUPPORTS        CISCO-DIGITAL-MEDIA-SYSTEMS-MIB
+    INCLUDES        {
+                        ciscoDmsSystemGroup,
+                        ciscoDmsFeatureGroup,
+                        ciscoDmsInventoryGroup,
+                        ciscoDmsEventGroup,
+                        ciscoDmsNotificationsGroup
+                    }
+    VARIATION       cdmsAdministrator
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cdmsLastLicenseUpdate
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cdmsNumMediaIngestionDevices
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cdmsInventoryElementMetadata
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION       cdmsInventoryElementState
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoDigitalMediaSystemsCapability 1 }
+
+END

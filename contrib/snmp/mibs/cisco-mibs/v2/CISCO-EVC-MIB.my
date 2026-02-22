@@ -1,0 +1,4285 @@
+-- *****************************************************************
+-- CISCO-EVC-MIB.my : Cisco Ethernet Virtual Connection MIB
+--   
+-- January 2007, Viet Nguyen
+-- April 2008, Pravin Gohite
+--   
+-- Copyright (c) 2007-2008, 2012 by Cisco Systems Inc.
+--   
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-EVC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    NOTIFICATION-TYPE,
+    OBJECT-TYPE,
+    Unsigned32,
+    Gauge32,
+    Integer32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    RowStatus,
+    StorageType,
+    MacAddress
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    VlanId,
+    VlanIdOrNone
+        FROM Q-BRIDGE-MIB
+    ifIndex,
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    CiscoCosList
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoEvcMIB MODULE-IDENTITY
+    LAST-UPDATED    "201205210000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ethermibs@cisco.com"
+    DESCRIPTION
+        "Metro Ethernet services can support a wide range of
+        applications and subscriber needs easily, efficiently
+        and cost-effectively.  Using standard Ethernet interfaces, 
+        subscribers can set up secure, private Ethernet Virtual 
+        Connections, to connect their sites together and connect 
+        to business partners, suppliers and the Internet.
+
+        This MIB module defines the managed objects and notifications
+        describing Ethernet Virtual Connections.
+
+        Ethernet Virtual Connections (EVC), are defined by the Metro
+        Ethernet Forum (MEF), as an association between two or more
+        UNIs.  Frames within an EVC can only be exchanged among the
+        associated UNIs.  Frames sent into the MEN via a particular
+        UNI must not be delivered back to the UNI from which it 
+        originated.  
+
+        Along an EVC path, there are demarcation flow points on 
+        associated ingress and egress interface, of every device, 
+        through which the EVC passes.  A service instance represents
+        these flow points where a service passes through an interface.  
+
+        From an operational perspective, a service instance serves 
+        three purposes: 
+            1.  Defines the instance of a particular EVC service on
+                a specific interface and identifies all frames that
+                belongs to that particular service/flow.
+            2.  To provide the capability of applying the configured 
+                features to those frames belonging to the service.
+            3.  To optionally define how to forward those frames in
+                the data-path.  
+
+        The association of a service instance to an EVC depicts
+        an instance of an Ethernet flow on a particular interface
+        for an end-to-end (UNI-to-UNI) Ethernet service for a 
+        subscriber.
+
+        The following diagram illustrates the association of
+        EVC, UNIs and service instances.  UNI physical ports
+        are depicted as 'U', and service instances as 'x'.
+
+            CE             MEN            MEN            CE
+          -------        -------        -------        -------
+          |     |        |     |   ()   |     |        |     |
+          |     |--------Ux   x|--(  )--|x   xU--------|     |
+          |     |        |     |   ()   |     |        |     |
+          -------        -------        -------        -------
+                         ^                    ^
+                         |                    |
+                         -------- EVC ---------
+
+        This MIB module addresses the functional areas of network
+        management for EVC, including:
+
+            The operational mode for interfaces that are providing
+            Ethernet service(s).
+
+            The service attributes regarding an interface behaving
+            as UNI, such as CE-VLAN mapping and layer 2 control 
+            protocol (eg. stp, vtp, cdp) processing.
+
+            The provisioning of service instances to define flow 
+            points for an Ethernet service.
+
+            The operational status of EVCs for notifications
+            of status changes, and EVC creation and deletion.
+
+        Definition of terms and acronyms:
+
+            B-Tag: Backbone Tag field in Ethernet 802.1ah frame
+
+            CE: Customer Edge
+
+            CE-VLAN: Customer Edge VLAN
+
+            CoS: Class Of Service
+
+            EVC: Ethernet Virtual Connection
+
+            I-SID: Service Instance Identifier field in Ethernet 
+            802.1ah frame
+
+            MAC: Media Access Control
+
+            MEN: Metro Ethernet Network 
+
+            NNI: Network to Network Interface
+
+            OAM: Operations Administration and Management
+
+            PPPoE: Point-to-Point Protocol over Ethernet
+
+            Service frame: An Ethernet frame transmitted across the 
+            UNI toward the service provider or an Ethernet frame 
+            transmitted across the UNI toward the Subscriber.
+
+            Service Instance: A flow point of an Ethernet service
+
+            Service provider: The organization providing Ethernet
+            service(s).
+
+            Subscriber: The organization purchasing and/or using 
+            Ethernet service(s).
+
+            UNI: User Network Interface
+                 The physical demarcation point between the 
+                 responsibility of the service provider and 
+                 the responsibility of the Subscriber.
+
+            UNI-C: User Network Interface, subscriber side
+
+            UNI-N: User Network Interface, service provider side
+
+            VLAN: Virtual Local Area Network"
+    REVISION        "201205210000Z"
+    DESCRIPTION
+        "- Added following objects to cevcSITable:
+        * cevcSICreationType
+        * cevcSIType
+        - Added following objects to cevcSIForwardBdTable:
+         * cevcSIForwardBdNumberBase
+         * cevcSIForwardBdNumber1kBitmap
+         * cevcSIForwardBdNumber2kBitmap
+         * cevcSIForwardBdNumber3kBitmap
+         * cevcSIForwardBdNumber4kBitmap
+        - Added MacSecurityViolation OID subtree and following objects:
+        * cevcMacAddress
+        * cevcMaxMacConfigLimit
+        * cevcSIID
+        - Deprecated cevcEvcNotificationGroup and added
+                cevcEvcNotificationGroupRev1 and added 
+                cevcMacSecurityViolationNotification
+        - Deprecated cevcSIGroup and added cevcSIGroupRev1
+         and added cevcSICreationType and cevcSIType
+        - Deprecated cevcSIForwardGroup and added cevcSIForwardGroupRev1
+         and added the new objects mentioned in cevcSIForwardBdTable
+        - Added CevcMacSecurityViolationCause Textual convention
+        - Added new ciscoEvcMIBComplianceRev2"
+    REVISION        "200805010000Z"
+    DESCRIPTION
+        "- Added following enums to cevcSIOperStatus:
+        * deleted(4)
+        * errorDisabled(5)
+        * unknown(6)
+
+        - Added following named bits to cevcSIMatchEncapValid:
+        * payloadTypes(3)
+        * priorityCos(4)
+        * dot1qNativeVlan(5)
+        * dot1adNativeVlan(6)
+        * encapExact(7)
+
+        - The Object cevcSIMatchEncapPayloadType is replaced by
+        new object cevcSIMatchEncapPayloadTypes to support multiple
+        payload types for service instance match criteria.
+
+        - Added new object cevcSIMatchEncapPriorityCos to 
+        cevcSIMatchEncapTable.
+
+        - Added new Compliance ciscoEvcMIBComplianceRev1.
+
+        - Added new Object Group cevcSIMatchCriteriaGroupRev1.
+
+        - Miscellaneous updates/corrections."
+    REVISION        "200712200000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 613 }
+
+
+ciscoEvcMIBNotifications  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIB 0 }
+
+ciscoEvcMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIB 1 }
+
+ciscoEvcMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIB 2 }
+
+cevcSystem  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIBObjects 1 }
+
+cevcPort  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIBObjects 2 }
+
+cevcEvc  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIBObjects 3 }
+
+cevcServiceInstance  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIBObjects 4 }
+
+cevcEvcNotificationConfig  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIBObjects 5 }
+
+cevcMacSecurityViolation  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIBObjects 6 }
+
+
+-- Textual Conventions
+
+CevcMacSecurityViolationCauseType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An integer value which identifies the cause for the MAC
+        Security Violation.
+        
+        If the system MAC Address limit is exceeded, the
+        cevcMacSecurityViolationCauseType will contain 
+        'exceedSystemLimit' value.
+
+        If the Bridge domain limit is exceeded, the
+        cevcMacSecurityViolationCauseType will contain 
+        'exceedBdLimit' value.
+
+        If the Service Instance limit is exceeded, the
+        cevcMacSecurityViolationCauseType will contain 
+        'exceedSILimit' value.
+
+        If the MAC address is present in the Black list
+        then cevcMacSecurityViolationCauseType will contain 
+        'blackListDeny' value."
+        
+        
+    SYNTAX          INTEGER  {
+                        exceedSystemLimit(1),
+                        exceedBdLimit(2),
+                        exceedSILimit(3),
+                        blackListDeny(4)
+                    }
+
+CiscoEvcIndex ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An integer-value which uniquely identifies the EVC."
+    SYNTAX          Unsigned32 (1..4294967295)
+
+CiscoEvcIndexOrZero ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is an extension to textual
+        convention 'CiscoEvcIndex'.  It includes the value of
+        '0' in addition to the range of 1-429496725.  Value
+        of '0' indicates that the EVC has been neither configured
+        nor assigned."
+    SYNTAX          Unsigned32 (0..4294967295)
+
+CevcL2ControlProtocolType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Defines the different types of layer 2 control protocols:
+
+
+        'other'
+            None of the following.
+
+
+        'cdp' 
+            Cisco Discovery Protocol.
+
+
+        'dtp'
+            Dynamic Trunking Protocol.
+
+
+        'pagp'
+            Port Aggregration Protocol.
+
+
+        'udld'
+            UniDirectional Link Detection.
+
+
+        'vtp' 
+            Vlan Trunking Protocol.
+
+
+        'lacp'
+            Link Aggregation Control Protocol.
+
+
+        'dot1x'
+            IEEE 802.1x
+
+
+        'stp'
+            Spanning Tree Protocol."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        cdp(2),
+                        dtp(3),
+                        pagp(4),
+                        udld(5),
+                        vtp(6),
+                        lacp(7),
+                        dot1x(8),
+                        stp(9)
+                    }
+
+ServiceInstanceTarget ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Denotes a generic service instance target.
+
+        An ServiceInstanceTarget value is always interpreted within the
+        context of an ServiceInstanceTargetType value.  Every usage of
+        the ServiceInstanceTarget textual convention is required to
+        specify the ServiceInstanceTargetType object which provides the
+        context.  It is suggested that the ServiceInstanceTargetType
+        object is logically registered before the object(s) which use
+        the ServiceInstanceTarget textual convention if they appear in
+        the same logical row.
+
+        The value of an ServiceInstanceTarget object must always be
+        consistent with the value of the associated
+        ServiceInstanceTargetType object.  Attempts to set an
+        ServiceInstanceTarget object to a value which is inconsistent
+        with the associated ServiceInstanceTargetType must fail with an
+        inconsistentValue error.
+
+        When this textual convention is used as the syntax of an index
+        object, there may be issues with the limit of 128
+        sub-identifiers specified in SMIv2, STD 58.  In this
+        case, the object definition MUST include a 'SIZE' clause
+        to limit the number of potential instance sub-identifiers."
+    SYNTAX          OCTET STRING (SIZE (0..40))
+
+ServiceInstanceTargetType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Defines the type of interface/media to which a service instance
+        is attached.
+
+            'other'
+                None of the following.  This value MUST be used if the
+                value of the corresponding ServiceInstanceTarget
+                object is a zero-length string.
+
+            'interface'
+                Service instance is attached to the the interface
+                defined by ServiceInstanceInterface textual
+                convention.
+
+        Each definition of a concrete ServiceInstanceTargetType value
+        must be accompanied by a definition of a textual convention for
+        use with that ServiceInstanceTargetType.
+
+        To support future extensions, the ServiceInstanceTargetType
+        textual convention SHOULD NOT be sub-typed in object type
+        definitions.  It MAY be sub-typed in compliance statements in
+        order to require only a subset of these target types for a
+        compliant implementation.
+
+        Implementations must ensure that ServiceInstanceTargetType
+        objects and any dependent objects (e.g. ServiceInstanceTarget
+        objects) are consistent.  An inconsistentValue error must be
+        generated if an attempt to change an ServiceInstanceTargetType
+        object would, for example, lead to an undefined
+        ServiceInstanceTarget value.  In particular,
+        ServiceInstanceTargetType/ServiceInstanceTarget pairs must be
+        changed together if the service instance taget type changes."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        interface(2)
+                    }
+                    
+ServiceInstanceInterface ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention indicates the ifIndex which identifies
+        the interface that the service instance is attached, for which 
+        the corresponding ifType has the value of (but not limited to)
+        'ethernetCsmacd'.
+
+            octets   contents     encoding
+            1-4      ifIndex      network-byte order
+
+        The corresponding ServiceInstanceTargetType value is
+        interface(2)."
+    SYNTAX          OCTET STRING (SIZE (4))
+    
+-- Mac Security Violation Attributes
+
+cevcMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the MAC Address which has violated
+         the Mac security rules." 
+    ::= { cevcMacSecurityViolation 1 }
+
+cevcMaxMacConfigLimit OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum MAC configuration limit. This
+        is also sent as a part of MAC security violation notification.
+        Every platform has their own forwarding table limitation. User 
+        can also set the maximum MAC configuration limit and if the 
+        limit set by user is not supported by platform then the object
+        returns error." 
+    ::= { cevcMacSecurityViolation 2 }
+
+cevcSIID OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the service instance ID for the MAC
+        security violation notification." 
+    ::= { cevcMacSecurityViolation 3 }
+
+cevcViolationCause OBJECT-TYPE
+    SYNTAX          CevcMacSecurityViolationCauseType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the MAC security violation cause.
+        
+        When the system MAC Address limit is exceeded, the
+        cevcMacSecurityViolationCause will contain
+        'exceedSystemLimit' value.
+
+        When the Bridge domain limit is exceeded, the
+        cevcMacSecurityViolationCause will contain
+        'exceedBdLimit' value.
+
+        When the Service Instance limit is exceeded, the
+        cevcMacSecurityViolationCause will contain
+        'exceedSILimit' value.
+
+        If the MAC address is present in the Black list
+        then cevcMacSecurityViolationCause will contain
+        'blackListDeny' value." 
+        
+    ::= { cevcMacSecurityViolation 4 }
+
+-- System Attributes
+
+cevcMaxNumEvcs OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of EVCs that the
+        system supports." 
+    ::= { cevcSystem 1 }
+
+cevcNumCfgEvcs OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the actual number of EVCs currently
+        configured on the system." 
+    ::= { cevcSystem 2 }
+-- Port  Table
+
+cevcPortTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcPortEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the operational mode and configuration
+        limitations of the physical interfaces (ports) that provide
+        Ethernet services for the MEN. 
+
+        This table has a sparse depedent relationship on the ifTable, 
+        containing a row for each ifEntry having an ifType of 
+        'ethernetCsmacd' capable of supporting Ethernet services."
+    ::= { cevcPort 1 }
+
+cevcPortEntry OBJECT-TYPE
+    SYNTAX          CevcPortEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents a port, a physical point, at which
+        signals can enter or leave the network en route to or from
+        another network to provide Ethernet services for the MEN.
+
+        The system automatically creates an entry for each ifEntry in
+        the ifTable having an ifType of 'ethernetCsmacd' capable of
+        supporting Ethernet services and entries are automatically
+        destroyed when the corresponding row in the ifTable is
+        destroyed."
+    INDEX           { ifIndex } 
+    ::= { cevcPortTable 1 }
+
+CevcPortEntry ::= SEQUENCE {
+        cevcPortMode                   INTEGER,
+        cevcPortMaxNumEVCs             Gauge32,
+        cevcPortMaxNumServiceInstances Gauge32
+}
+
+cevcPortMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        uni(1),
+                        nni(2)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Port denotes the physcial interface which can provide
+        Ethernet services.  This object indicates the mode of the
+        port and its operational behaviour in the MEN. 
+
+
+           'uni'
+               User Network Interface
+               The port resides on the interface between the end user
+               and the network.  Additional information related
+               to the UNI is included in cevcUniTable.
+
+
+            'nni'
+                Network to Network Interface.  The port resides on the
+                interface between two networks." 
+    ::= { cevcPortEntry 1 }
+
+cevcPortMaxNumEVCs OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of EVCs that the
+        interface can support." 
+    ::= { cevcPortEntry 2 }
+
+cevcPortMaxNumServiceInstances OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of service instances
+        that the interface can support." 
+    ::= { cevcPortEntry 3 }
+ 
+
+-- UNI Service Attributes
+
+cevcUniTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcUniEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of UNIs locally configured on the
+        system.
+
+        This table has a sparse dependent relationship on the 
+        cevcPortTable, containing a row for each cevcPortEntry
+        having a cevcPortMode column value 'uni'."
+    ::= { cevcPort 2 }
+
+cevcUniEntry OBJECT-TYPE
+    SYNTAX          CevcUniEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents an UNI and its service attributes.
+
+        The system automatically creates an entry when the system or
+        the EMS/NMS creates a row in the cevcPortTable with a 
+        cevcPortMode of 'uni'.  Likewise, the system automatically
+        destroys an entry when the system or the EMS/NMS destroys the
+        corresponding row in the cevcPortTable."
+    INDEX           { ifIndex } 
+    ::= { cevcUniTable 1 }
+
+CevcUniEntry ::= SEQUENCE {
+        cevcUniIdentifier        SnmpAdminString,
+        cevcUniPortType          INTEGER,
+        cevcUniServiceAttributes BITS
+}
+
+cevcUniIdentifier OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a string-value assigned to a UNI for
+        identification.  When the UNI identifier is configured by the
+        system or the EMS/NMS, it should be unique among all UNIs for
+        the MEN.
+
+        If the UNI identifier value is not specified, the value of the
+        cevcUniIdentifier column is a zero-length string."
+    REFERENCE
+        "MEF 16, 'Ethernet Local Management Interface (E-LMI)', 
+        January 2006" 
+    ::= { cevcUniEntry 1 }
+
+cevcUniPortType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        dot1q(1),
+                        dot1ad(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the UNI port type.
+
+
+        'dot1q'
+            The UNI port is an IEEE 802.1q port.   
+
+
+        'dot1ad'
+            The UNI port is an IEEE 802.1ad port."
+    DEFVAL          { dot1q } 
+    ::= { cevcUniEntry 2 }
+
+cevcUniServiceAttributes OBJECT-TYPE
+    SYNTAX          BITS {
+                        serviceMultiplexing(0),
+                        bundling(1),
+                        allToOneBundling(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the UNI service attributes.
+
+
+        'serviceMultiplexing'
+            This bit specifies whether the UNI supports multiple
+            EVCs.  Point-to-Point EVCs and Multipoint-to-Multipoint
+            EVCs may be multiplexed in any combination at the UNI 
+            if this bit is set to '1'.
+
+
+        'bundling'
+            This bit specifies whether the UNI has the bundling
+            attribute configured.  If this bit is set to '1', more
+            than one CE-VLAN ID can map to a particular EVC at the
+            UNI. 
+
+
+        'allToOneBundling'
+            This bit specifies whether the UNI has the all to one
+            bundling attribute.  If this bit is set to '1', all
+            CE-VLAN IDs map to a single EVC at the UNI.
+
+        To summarize the valid combinations of serviceMultiplexing(0),
+        bundling(1) and allToOneBundling(2) bits for an UNI, consider 
+        the following diagram:
+
+                   VALID COMBINATIONS
+        +---------------+-------+-------+-------+-------+-------+ 
+        |UNI ATTRIBUTES |   1   |   2   |   3   |   4   |   5   |
+        +---------------+-------+------+------------------------+
+        |Service        |       |       |       |       |       |
+        |Multiplexing   |       |   Y   |   Y   |       |       |
+        |               |       |       |       |       |       |
+        +---------------+-------+-------+-------+-------+-------+
+        |               |       |       |       |       |       |
+        |Bundling       |       |       |   Y   |   Y   |       |
+        |               |       |       |       |       |       |
+        +---------------+-------+-------+-------+-------+-------+
+        |All to One     |       |       |       |       |       |
+        |Bundling       |       |       |       |       |   Y   |
+        |               |       |       |       |       |       |
+        +---------------+-------+-------+------ +-------+-------+"
+    DEFVAL          { { serviceMultiplexing , bundling } } 
+    ::= { cevcUniEntry 3 }
+ 
+
+-- Table for layer 2 control protocol processing
+
+cevcPortL2ControlProtocolTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcPortL2ControlProtocolEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the layer 2 control protocol processing
+        attributes at UNI ports.  
+
+        This table has an expansion dependent relationship on the 
+        cevcUniTable, containing zero or more rows for each UNI."
+    ::= { cevcPort 3 }
+
+cevcPortL2ControlProtocolEntry OBJECT-TYPE
+    SYNTAX          CevcPortL2ControlProtocolEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents the layer 2 control protocol processing
+        at the UNI.
+
+        The system automatically creates an entry for each layer 2
+        control protocol type when an entry is created in the
+        cevcUniTable, and entries are automatically destroyed when the
+        system destroys the corresponding row in the cevcUniTable."
+    INDEX           {
+                        ifIndex,
+                        cevcPortL2ControlProtocolType
+                    } 
+    ::= { cevcPortL2ControlProtocolTable 1 }
+
+CevcPortL2ControlProtocolEntry ::= SEQUENCE {
+        cevcPortL2ControlProtocolType   CevcL2ControlProtocolType,
+        cevcPortL2ControlProtocolAction INTEGER
+}
+
+cevcPortL2ControlProtocolType OBJECT-TYPE
+    SYNTAX          CevcL2ControlProtocolType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of layer 2 control
+        protocol service frame as denoted by the value of 
+        cevcPortL2ControlProtocolAction column." 
+    ::= { cevcPortL2ControlProtocolEntry 1 }
+
+cevcPortL2ControlProtocolAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        discard(1),
+                        peer(2),
+                        passToEvc(3),
+                        peerAndPassToEvc(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the action to be taken for the given
+        layer 2 control protocol service frames which matches the 
+        cevcPortL2ControlProtocolType, including:
+
+
+            'discard' 
+                The port must discard all ingress service frames
+                carrying the layer 2 control protocol service
+                frames and the port must not generate any egress
+                service frames carrying the layer 2 control protocol
+                service frames.  When this action is set at the port,
+                an EVC cannot process the layer 2 control protocol
+                service frames.
+
+
+            'peer' 
+                The port must act as a peer, meaning it actively
+                participates with the Customer Equipment, in the
+                operation of the layer 2 control protocol service
+                frames.  An example of this is port authentication
+                service at the UNI with 802.1x or enhanced link OAM
+                functionality by peering at the UNI with link OAM
+                (IEEE 802.3ah).  When this action is set at the port,
+                an EVC cannot process the layer 2 control protocol
+                service frames.
+
+
+            'passToEvc'
+                The disposition of the service frames which are layer 2
+                control protocol service frames must be determined by
+                the layer 2 control protocol action attribute of the
+                EVC, (see cevcSIL2ControlProtocolAction for further
+                details).
+
+
+            'peerAndPassToEvc' 
+                The layer 2 control protocol service frames will be
+                peered at the port and also passed to one or more EVCs
+                for tunneling.  An example of this possibility is where
+                an 802.1x authentication frame is peered at the UNI for
+                UNI-based authentication, but also passed to a given
+                EVC for customer end-to-end authentication."
+    DEFVAL          { discard } 
+    ::= { cevcPortL2ControlProtocolEntry 2 }
+ 
+
+-- Table for UNI CE-VLAN ID/EVC Map
+
+cevcUniCEVlanEvcTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcUniCEVlanEvcEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains for each UNI, a list of EVCs and the
+        association of CE-VLANs to the EVC.  The CE-VLAN mapping is 
+        locally significant to the UNI.
+
+        This table has an expansion dependent relationship on the 
+        cevcUniTable, containing zero or more rows for each UNI."
+    ::= { cevcPort 4 }
+
+cevcUniCEVlanEvcEntry OBJECT-TYPE
+    SYNTAX          CevcUniCEVlanEvcEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents an EVC and the CE-VLANs that are mapped
+        to it at an UNI.
+
+        For example, if CE-VLANs 10, 20-30, 40 are mapped to an EVC
+        indicated by  cevcUniEvcIndex = 1, at an UNI with ifIndex = 2,
+        this table will contain following rows to represent above
+        CE-VLAN map:
+
+          cevcUniCEVlanEvcEndingVlan.2.1.10 = 0
+          cevcUniCEVlanEvcEndingVlan.2.1.20 = 30
+          cevcUniCEVlanEvcEndingVlan.2.1.40 = 0
+
+        The system automatically creates an entry when the system
+        creates an entry in the cevcUniTable and an entry is created in
+        cevcSICEVlanTable for a service instance which is attached to
+        an EVC on this UNI.  Likewise, the system automatically destroys
+        an entry when the system or the EMS/NMS destroys the
+        corresponding row in the cevcUniTable or in the
+        cevcSICEVlanTable."
+    INDEX           {
+                        ifIndex,
+                        cevcUniEvcIndex,
+                        cevcUniCEVlanEvcBeginningVlan
+                    } 
+    ::= { cevcUniCEVlanEvcTable 1 }
+
+CevcUniCEVlanEvcEntry ::= SEQUENCE {
+        cevcUniEvcIndex               CiscoEvcIndex,
+        cevcUniCEVlanEvcBeginningVlan VlanId,
+        cevcUniCEVlanEvcEndingVlan    VlanIdOrNone
+}
+
+cevcUniEvcIndex OBJECT-TYPE
+    SYNTAX          CiscoEvcIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies the EVC attached at an UNI." 
+    ::= { cevcUniCEVlanEvcEntry 1 }
+
+cevcUniCEVlanEvcBeginningVlan OBJECT-TYPE
+    SYNTAX          VlanId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "If cevcUniCEVlanEvcEndingVlan is '0', then this object
+        indicates a single VLAN in the list.
+
+        If cevcUniCEVlanEvcEndingVlan is not '0', then this object
+        indicates the first VLAN in a range of VLANs." 
+    ::= { cevcUniCEVlanEvcEntry 2 }
+
+cevcUniCEVlanEvcEndingVlan OBJECT-TYPE
+    SYNTAX          VlanIdOrNone
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last VLAN in a range of VLANs.  If
+        the row does not describe a range, then the value of this
+        column must be '0'." 
+    ::= { cevcUniCEVlanEvcEntry 3 }
+ 
+
+-- EVC Service Attributes
+
+cevcEvcTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcEvcEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of EVCs and their service
+        attributes."
+    ::= { cevcEvc 1 }
+
+cevcEvcEntry OBJECT-TYPE
+    SYNTAX          CevcEvcEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents the EVC configured on the system and
+        its service atrributes.
+
+        Entries in this table may be created and deleted via the
+        cevcEvcRowStatus object or the management console on the
+        system.
+
+        Using SNMP, rows are created by a SET request setting the value
+        of cevcEvcRowStatus column to 'createAndGo'or 'createAndWait'. 
+        Rows are deleted by a SET request setting the value of
+        cevcEvcRowStatus column to 'destroy'."
+    INDEX           { cevcEvcIndex } 
+    ::= { cevcEvcTable 1 }
+
+CevcEvcEntry ::= SEQUENCE {
+        cevcEvcIndex       CiscoEvcIndex,
+        cevcEvcRowStatus   RowStatus,
+        cevcEvcStorageType StorageType,
+        cevcEvcIdentifier  SnmpAdminString,
+        cevcEvcType        INTEGER,
+        cevcEvcCfgUnis     Unsigned32
+}
+
+cevcEvcIndex OBJECT-TYPE
+    SYNTAX          CiscoEvcIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies the EVC." 
+    ::= { cevcEvcEntry 1 }
+
+cevcEvcRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object enables a SNMP peer to create, modify, and
+        delete rows in the cevcEvcTable. 
+
+        cevcEvcIdentifier column must have a valid value before a 
+        row can be set to 'active'.
+
+        Writable objects in this table can be modified while the
+        value of cevcEvcRowStatus column is 'active'.
+
+        An entry cannot be deleted if there exists a service instance
+        which is referring to the cevcEvcEntry i.e. cevcSIEvcIndex
+        in the cevcSITable has the same value as cevcEvcIndex being
+        deleted." 
+    ::= { cevcEvcEntry 2 }
+
+cevcEvcStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.
+
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL          { volatile } 
+    ::= { cevcEvcEntry 3 }
+
+cevcEvcIdentifier OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..100))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a string-value identifying the EVC.
+        This value should be unique across the MEN."
+    REFERENCE
+        "MEF 16, 'Ethernet Local Management Interface (E-LMI)', 
+        January 2006" 
+    ::= { cevcEvcEntry 4 }
+
+cevcEvcType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        pointToPoint(1),
+                        multipointToMultipoint(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of EVC:
+
+
+        'pointToPoint' 
+            Exactly two UNIs are associated with one another.  An
+            ingress service frame at one UNI must not result in an
+            egress service frame at a UNI other than the other UNI
+            in the EVC.
+
+
+        'multipointToMultipoint'
+            Two or more UNIs are associated with one another.  An
+            ingress service frame at one UNI must not result in an
+            egress service frame at a UNI that is not in the EVC."
+    DEFVAL          { pointToPoint } 
+    ::= { cevcEvcEntry 5 }
+
+cevcEvcCfgUnis OBJECT-TYPE
+    SYNTAX          Unsigned32 (2..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of UNIs expected to be
+        configured for the EVC in the MEN.  The underlying OAM
+        protocol can use this value of UNIs to determine the EVC
+        operational status, cevcEvcOperStatus.  For a 
+        Multipoint-to-Multipoint EVC the minimum number of Uni's
+        would be two."
+    DEFVAL          { 2 } 
+    ::= { cevcEvcEntry 6 }
+ 
+
+
+cevcEvcStateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcEvcStateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists statical/status data of the EVC.
+
+        This table has an one-to-one dependent relationship on the
+        cevcEvcTable, containing a row for each EVC."
+    ::= { cevcEvc 2 }
+
+cevcEvcStateEntry OBJECT-TYPE
+    SYNTAX          CevcEvcStateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents status atrributes of an EVC.
+
+        The system automatically creates an entry when the system or
+        the EMS/NMS creates a row in the cevcEvcTable.  Likewise, the
+        system automatically destroys an entry when the system or the
+        EMS/NMS destroys the corresponding row in the cevcEvcTable."
+    INDEX           { cevcEvcIndex } 
+    ::= { cevcEvcStateTable 1 }
+
+CevcEvcStateEntry ::= SEQUENCE {
+        cevcEvcOperStatus INTEGER,
+        cevcEvcActiveUnis Gauge32
+}
+
+cevcEvcOperStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        active(2),
+                        partiallyActive(3),
+                        inactive(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the operational status of the EVC:
+
+
+        'unknown'
+            Not enough information available regarding the EVC to
+            determine the operational status at this time or EVC 
+            operational status is undefined.
+
+        'active'
+            Fully operational between the UNIs in the EVC.  
+
+
+        'partiallyActive'
+            Capable of transferring traffic among some but not all
+            of the UNIs in the EVC.  This operational status is
+            applicable only for Multipoint-to-Multipoint EVCs.
+
+
+        'inactive'
+            Not capable of transferring traffic among any of the
+            UNIs in the EVC.  
+
+        This value is derived from data gathered by underlying OAM
+        protocol." 
+    ::= { cevcEvcStateEntry 1 }
+
+cevcEvcActiveUnis OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active UNIs for the EVC
+        in the MEN.  This value is derived from data gathered by 
+        underlying OAM Protocol." 
+    ::= { cevcEvcStateEntry 2 }
+ 
+
+-- Table for UNIs (local and remote) which are part of the EVC
+
+cevcEvcUniTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcEvcUniEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of UNI's for each EVC configured
+        on the device.  The UNIs can be  local (i.e. physically 
+        located on the system) or remote (i.e. not physically located
+        on the device).  For local UNIs, the UNI Id is the same as 
+        denoted by cevcUniIdentifier with the same ifIndex value as 
+        cevcEvcLocalUniIfIndex.  For remote UNIs, the underlying OAM 
+        protocol, if capable, provides the UNI Id via its protocol 
+        messages.
+
+        This table has an expansion dependent relationship on the
+        cevcEvcTable, containing a row for each UNI that is in
+        the EVC."
+    ::= { cevcEvc 3 }
+
+cevcEvcUniEntry OBJECT-TYPE
+    SYNTAX          CevcEvcUniEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents a UNI, either local or remote, in the
+        EVC.
+
+        The system automatically creates an entry, when an UNI is
+        attached to the EVC.  Entries are automatically destroyed
+        when the system or the EMS/NMS destroys the corresponding 
+        row in the cevcEvcTable or when an UNI is removed from the
+        EVC."
+    INDEX           {
+                        cevcEvcIndex,
+                        cevcEvcUniIndex
+                    } 
+    ::= { cevcEvcUniTable 1 }
+
+CevcEvcUniEntry ::= SEQUENCE {
+        cevcEvcUniIndex        Unsigned32,
+        cevcEvcUniId           SnmpAdminString,
+        cevcEvcUniOperStatus   INTEGER,
+        cevcEvcLocalUniIfIndex InterfaceIndexOrZero
+}
+
+cevcEvcUniIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+
+        identifies the UNI in an EVC." 
+    ::= { cevcEvcUniEntry 1 }
+
+cevcEvcUniId OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the string-value identifying the UNI
+        that is in the EVC.  For UNI that is local, this value is the
+        same as cevcUniIdentifier for the same ifIndex value as 
+        cevcEvcLocalUniIfIndex.  For UNI that is not on the system, 
+        this value may be derived from the underlying OAM protocol.
+
+        If the UNI identifier value is not specified for the UNI or it
+        is unknown, the value of the cevcEvcUniId column is a
+        zero-length string."
+    REFERENCE
+        "MEF 16, Ethernet Local Management Interface (E-LMI),
+         January 2006" 
+    ::= { cevcEvcUniEntry 2 }
+
+cevcEvcUniOperStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        notReachable(2),
+                        up(3),
+                        down(4),
+                        adminDown(5),
+                        localExcessiveError(6),
+                        remoteExcessiveError(7),
+                        localInLoopback(8),
+                        remoteInLoopback(9),
+                        localOutLoopback(10),
+                        remoteOutLoopback(11)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the operational status derived from data
+        gathered by the OAM protocol for an UNI.
+
+
+            'unknown' 
+                Status is not known; possible reason could be caused
+                by the OAM protocol has not provided information
+                regarding the UNI.
+
+
+            'notReachable'
+                UNI is not reachable; possible reason could be caused
+                by the OAM protocol messages having not been received
+                for an excessive length of time.
+
+
+            'up'
+                UNI is active, up, and able to pass traffic.
+
+
+            'down'
+                UNI is down and not passing traffic.
+
+
+            'adminDown'
+                UNI has been administratively put in down state.
+
+
+            'localExcessiveError'
+                UNI has experienced excessive number of invalid frames
+                on the local end of the physical link between UNI-C 
+                and UNI-N.
+
+
+            'remoteExcessiveError'
+                UNI has experienced excessive number of invalid frames
+                on the remote side of the physical connection between
+                UNI-C and UNI-N.
+
+
+            'localInLoopback'
+                UNI is loopback on the local end of the physical link
+                between UNI-C and UNI-N.
+
+
+            'remoteInLoopback'
+                UNI is looped back on the remote end of the link 
+                between UNI-C and UNI-N.
+
+
+            'localOutLoopback'
+                UNI just transitioned out of loopback on the local end
+                of the physcial link between UNI-C and UNI-N.
+
+            'remoteOutLoopback'
+                UNI just transitioned out of loopback on the remote 
+                end of the physcial link between UNI-C and UNI-N." 
+    ::= { cevcEvcUniEntry 3 }
+
+cevcEvcLocalUniIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "When the UNI is local on the system, this object specifies
+        the ifIndex of the UNI.  The value '0' of this column
+        indicates remote UNI." 
+    ::= { cevcEvcUniEntry 4 }
+ 
+
+-- Service Instance Table
+
+cevcSITable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcSIEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists each service instance and its service
+        attributes."
+    ::= { cevcServiceInstance 1 }
+
+cevcSIEntry OBJECT-TYPE
+    SYNTAX          CevcSIEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents a service instance configured on the
+        system and its service attributes.
+
+        Entries in this table may be created and deleted via the
+        cevcSIRowStatus object or the management console on the
+        system.
+
+        Using SNMP, rows are created by a SET request setting the value
+        of cevcSIRowStatus column to 'createAndGo'or 'createAndWait'. 
+        Rows are deleted by a SET request setting the value of
+        cevcSIRowStatus column to 'destroy'."
+    INDEX           { cevcSIIndex } 
+    ::= { cevcSITable 1 }
+
+CevcSIEntry ::= SEQUENCE {
+        cevcSIIndex          Unsigned32,
+        cevcSIRowStatus      RowStatus,
+        cevcSIStorageType    StorageType,
+        cevcSITargetType     ServiceInstanceTargetType,
+        cevcSITarget         ServiceInstanceTarget,
+        cevcSIName           SnmpAdminString,
+        cevcSIEvcIndex       CiscoEvcIndexOrZero,
+        cevcSIAdminStatus    INTEGER,
+        cevcSIForwardingType INTEGER,
+        cevcSICreationType   INTEGER,
+        cevcSIType           INTEGER
+}
+
+cevcSIIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies a service instance.  An implementation MAY assign
+        an ifIndex-value assigned to the service instance to
+        cevcSIIndex." 
+    ::= { cevcSIEntry 1 }
+
+cevcSIRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object enables a SNMP peer to create, modify, and delete
+        rows in the cevcSITable.
+
+        This object cannot be set to 'active' until following
+        corresponding objects are assigned to valid values:
+
+           - cevcSITargetType
+           - cevcSITarget
+           - cevcSIName
+           - cevcSIType
+
+        Following writable objects in this table cannot be modified
+        while the value of cevcSIRowStatus is 'active':
+
+           - cevcSITargetType
+           - cevcSITarget
+           - cevcSIName
+           - cevcSIType
+
+        Objects in this table and all other tables that have the same
+        cevcSIIndex value as an index disappear when cevcSIRowStatus is
+        set to 'destroy'." 
+    ::= { cevcSIEntry 2 }
+
+cevcSIStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.
+
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL          { volatile } 
+    ::= { cevcSIEntry 3 }
+
+cevcSITargetType OBJECT-TYPE
+    SYNTAX          ServiceInstanceTargetType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of interface/media to which a
+        service instance has an attachment." 
+    ::= { cevcSIEntry 4 }
+
+cevcSITarget OBJECT-TYPE
+    SYNTAX          ServiceInstanceTarget
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the target to which a service instance
+        has an attachment.
+
+        If the target is unknown, the value of the cevcSITarget column
+        is a zero-length string." 
+    ::= { cevcSIEntry 5 }
+
+cevcSIName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The textual name of the service instance.  The value of this
+        column should be the name of the component as assigned by the
+        local interface/media type and should be be suitable for use
+        in commands entered at the device's 'console'.  This might be
+        text name, such as 'si1' or a simple service instance number, 
+        such as '1', depending on the interface naming syntax of the
+        device.
+
+        If there is no local name or this object is otherwise not
+        applicable, then this object contains a zero-length string." 
+    ::= { cevcSIEntry 6 }
+
+cevcSIEvcIndex OBJECT-TYPE
+    SYNTAX          CiscoEvcIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the EVC Index that the service instance
+        is associated.  The value of '0' this column indicates that
+        the service instance is not associated to an EVC.
+
+        If the value of cevcSIEvcIndex column is not '0', there must
+        exist an active row in the cevcEvcTable with the same index
+        value for cevcEvcIndex."
+    DEFVAL          { 0 } 
+    ::= { cevcSIEntry 7 }
+
+cevcSIAdminStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the desired state of the Service
+        Instance.  
+
+
+            'up'
+                Ready to transfer traffic.  When a system initializes,
+                all service instances start with this state.  
+
+
+            'down'
+                The service instance is administratively down and is
+                not capable of transferring traffic."
+    DEFVAL          { up } 
+    ::= { cevcSIEntry 8 }
+
+cevcSIForwardingType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(0),
+                        bridgeDomain(1)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates technique used by a service instance to
+        forward service frames.
+
+            'other'
+                If the forwarding behavior of a service instance is
+                not defined or unknown, this object is set to other(0).
+
+
+            'bridgeDomain'
+                Bridge domain is used to forward service frames by a
+                service instance.  If cevcSIForwardingType is 
+                'bridgeDomain(1)', there must exist an active
+                row in the cevcSIForwardBdTable with the same
+                index value of cevcSIIndex.  The object
+                cevcSIForwardBdNumber indicates the identifier of
+                the bridge domain component being used." 
+    ::= { cevcSIEntry 9 }
+
+cevcSICreationType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        static(1),
+                        dynamic(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the service instance created
+        is statically configured by the user or is dynamically created.
+
+              'static'
+                  If the service instance is configured manually this  
+                  object is set to static(1).
+
+              'dynamic'
+                  If the service instance is created dynamically
+                   by the first sign of life of an Ethernet frame,
+                    then this object is set to dynamic(2) for 
+                    the service instance." 
+    ::= { cevcSIEntry 10 }
+
+cevcSIType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        regular(1),
+                        trunk(2),
+                        l2context(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of the service instance. It
+        mentions if the service instance is either a regular or trunk
+        or l2context service instance.
+
+                'regular'
+                      If a service instance is configured without  
+                      any type specified, then it is a regular service 
+                      instance.
+                      
+
+                'trunk'
+                      If the service instance is configured
+                      with trunk type, then it is a trunk service
+                      instance. For a trunk service instance,
+                      its Bridge domain IDs are derived from 
+                      encapsulation VLAN plus an optional offset
+                       (refer cevcSIForwardBdNumberBase object).
+                     
+
+                  'l2context'
+                      If the service instance is configured 
+                      with dynamic type, then it is a L2 context 
+                      service instance. The Ethernet L2 Context
+                      is a statically configured service instance
+                      which contains the Ethernet Initiator
+                      for attracting the first sign of life. In other
+                      words, Ethernet L2 Context service instance is
+                      used for catching the first sign of life of 
+                      Ethernet frames to create dynamic Ethernet 
+                      sessions service instances."
+    ::= { cevcSIEntry 11 }
+ 
+
+-- Service Instance Attributes
+
+cevcSIStateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcSIStateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists statical status data of the service instance.
+
+        This table has an one-to-one dependent relationship on the
+        cevcSITable, containing a row for each service instance."
+    ::= { cevcServiceInstance 2 }
+
+cevcSIStateEntry OBJECT-TYPE
+    SYNTAX          CevcSIStateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents operational status of a service instance.
+
+        The system automatically creates an entry when the system or
+        the EMS NMS creates a row in the cevcSITable.  Likewise, the
+        system automatically destroys an entry when the system or the
+        EMS NMS destroys the corresponding row in the cevcSITable."
+    INDEX           { cevcSIIndex } 
+    ::= { cevcSIStateTable 1 }
+
+CevcSIStateEntry ::= SEQUENCE {
+        cevcSIOperStatus INTEGER
+}
+
+cevcSIOperStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2),
+                        adminDown(3),
+                        deleted(4),
+                        errorDisabled(5),
+                        unknown(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the operational status of the Service
+        Instance.
+
+
+            'up' 
+                Service instance is fully operational and able to
+                transfer traffic.
+
+
+            'down'
+                Service instance is down and not capable of
+                transferring traffic, and is not administratively
+                configured to be down by management system. 
+
+
+            'adminDown'
+                Service instance has been explicitly configured to
+                administratively down by a management system and is not
+                capable of transferring traffic.
+
+
+            'deleted'
+                Service instance has been deleted.
+
+
+            'errorDisabled'
+                Service instance has been shut down due to MAC 
+                security violations. 
+
+
+            'unknown'
+                Operational status of service instance is unknown or
+                undefined." 
+    ::= { cevcSIStateEntry 1 }
+ 
+
+-- VLAN Rewrite Table
+
+cevcSIVlanRewriteTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcSIVlanRewriteEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the rewrite adjustments of the service
+        frame's VLAN tags for service instances.
+
+        This table has an expansion dependent relationship on the
+        cevcSITable, containing a row for a VLAN adjustment
+        for ingress and egress frames at each service instance."
+    ::= { cevcServiceInstance 3 }
+
+cevcSIVlanRewriteEntry OBJECT-TYPE
+    SYNTAX          CevcSIVlanRewriteEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents the VLAN adjustment for a Service
+        Instance."
+    INDEX           {
+                        cevcSIIndex,
+                        cevcSIVlanRewriteDirection
+                    } 
+    ::= { cevcSIVlanRewriteTable 1 }
+
+CevcSIVlanRewriteEntry ::= SEQUENCE {
+        cevcSIVlanRewriteDirection     INTEGER,
+        cevcSIVlanRewriteRowStatus     RowStatus,
+        cevcSIVlanRewriteStorageType   StorageType,
+        cevcSIVlanRewriteAction        INTEGER,
+        cevcSIVlanRewriteEncapsulation INTEGER,
+        cevcSIVlanRewriteVlan1         VlanId,
+        cevcSIVlanRewriteVlan2         VlanId,
+        cevcSIVlanRewriteSymmetric     TruthValue
+}
+
+cevcSIVlanRewriteDirection OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ingress(1),
+                        egress(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the VLAN adjustment for 'ingress'
+        frames or 'egress' frames on the service instance." 
+    ::= { cevcSIVlanRewriteEntry 1 }
+
+cevcSIVlanRewriteRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object enables a SNMP peer to create, modify, and delete
+        rows in the cevcSIVlanRewriteTable.
+
+        cevcSIVlanRewriteAction and cevcSIVlanRewriteEncapsulation must
+        have valid values before this object can be set to 'active'.
+
+        Writable objects in this table can be modified while the
+        value of cevcSIVlanRewriteRowStatus column is 'active'." 
+    ::= { cevcSIVlanRewriteEntry 2 }
+
+cevcSIVlanRewriteStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.
+
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL          { volatile } 
+    ::= { cevcSIVlanRewriteEntry 3 }
+
+cevcSIVlanRewriteAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        push1(1),
+                        push2(2),
+                        pop1(3),
+                        pop2(4),
+                        translate1To1(5),
+                        translate1To2(6),
+                        translate2To1(7),
+                        translate2To2(8)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rewrite action the device performs
+        for the service instance, including:
+
+            'push1'
+                Add cevcSIVlanRewriteVlan1 as the VLAN tag to the
+                service frame.
+
+
+            'push2'
+                Add cevcSIVlanRewriteVlan1 as the outer VLAN tag 
+                and cevcSIVlanRewriteVlan2 as the inner VLAN tag of
+                the service frame.
+
+
+            'pop1'
+                Remove the outermost VLAN tag from the service frame.
+
+
+            'pop2'
+                Remove the two outermost VLAN tags from the service
+                frame.
+
+
+            'translate1To1'
+                Replace the outermost VLAN tag with the 
+                cevcSIVlanRewriteVlan1 tag.
+
+
+           'translate1To2'
+               Replace the outermost VLAN tag with
+               cevcSIVlanRewriteVlan1 and add cevcSIVlanRewriteVlan2
+               to the second VLAN tag of the service frame.
+
+
+            'translate2To1'
+                Remove the outermost VLAN tag and replace the second
+                VLAN tag with cevcSIVlanVlanRewriteVlan1.
+
+
+           'translate2To2'
+               Replace the outermost VLAN tag with
+               cevcSIVlanRewriteVlan1 and the second VLAN tag with
+               cevcSIVlanRewriteVlan2." 
+    ::= { cevcSIVlanRewriteEntry 4 }
+
+cevcSIVlanRewriteEncapsulation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        dot1q(1),
+                        dot1ad(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the encapsulation type to
+        process for the service instance.
+
+
+            'dot1q'
+                The IEEE 802.1q encapsulation.
+
+
+            'dot1ad'
+                The IEEE 802.1ad encapsulation." 
+    ::= { cevcSIVlanRewriteEntry 5 }
+
+cevcSIVlanRewriteVlan1 OBJECT-TYPE
+    SYNTAX          VlanId
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the outermost VLAN ID tag of the
+        frame for the service instance.  This object is valid 
+        only when cevcSIVlanRewriteAction is 'push1', 'push2',
+        'translate1To1', 'translate1To2', 'translate2To1', or 
+        'translate2To2'." 
+    ::= { cevcSIVlanRewriteEntry 6 }
+
+cevcSIVlanRewriteVlan2 OBJECT-TYPE
+    SYNTAX          VlanId
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the second VLAN ID tag of the
+        frame for the service instance.  This object is valid 
+        only when cevcSIVlanRewriteAction is 'push2',
+        'translate1To2', or 'translate2To2'." 
+    ::= { cevcSIVlanRewriteEntry 7 }
+
+cevcSIVlanRewriteSymmetric OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is valid only when cevcSIVlanRewriteDirection is
+        'ingress'.  The value 'true' of this column specifies that
+        egress packets are tagged with a VLAN specified by an active
+        row in cevcSIPrimaryVlanTable.
+
+        There could only be one VLAN value assigned in the 
+        cevcSIPrimaryVlanTable, i.e. only one 'active' entry
+        that has the same index value of cevcSIIndex column and
+        corresponding instance of cevcSIPrimaryVlanEndingVlan
+        column has value '0'."
+    DEFVAL          { false } 
+    ::= { cevcSIVlanRewriteEntry 8 }
+ 
+
+-- Table for EVC layer 2 control protocol processing
+
+cevcSIL2ControlProtocolTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcSIL2ControlProtocolEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the layer 2 control protocol processing
+        attributes at service instances.  
+
+        This table has an expansion dependent relationship on the 
+        cevcSITable, containing a row for each layer 2 
+        control protocol disposition at each service instance."
+    ::= { cevcServiceInstance 4 }
+
+cevcSIL2ControlProtocolEntry OBJECT-TYPE
+    SYNTAX          CevcSIL2ControlProtocolEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents the layer 2 control protocol processing
+        at a service instance.
+
+        The system automatically creates an entry for each layer 2
+        control protocol type when an entry is created in the
+        cevcSITable, and entries are automatically destroyed when the
+        system destroys the corresponding row in the cevcSITable."
+    INDEX           {
+                        cevcSIIndex,
+                        cevcSIL2ControlProtocolType
+                    } 
+    ::= { cevcSIL2ControlProtocolTable 1 }
+
+CevcSIL2ControlProtocolEntry ::= SEQUENCE {
+        cevcSIL2ControlProtocolType   CevcL2ControlProtocolType,
+        cevcSIL2ControlProtocolAction INTEGER
+}
+
+cevcSIL2ControlProtocolType OBJECT-TYPE
+    SYNTAX          CevcL2ControlProtocolType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The layer 2 control protocol service frame that the
+        service instance is to process as defined by object
+        cevcSIL2ControlProtocolAction." 
+    ::= { cevcSIL2ControlProtocolEntry 1 }
+
+cevcSIL2ControlProtocolAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        discard(1),
+                        tunnel(2),
+                        forward(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The actions to be taken for a given layer 2 control protocol
+        service frames that matches cevcSIL2ControlProtocolType, 
+        including:
+
+
+            'discard'
+                The MEN must discard all ingress service frames 
+                carrying the layer 2 control protocol service frames
+                on the EVC and the MEN must not generate any egress
+                service frames carrying the layer 2 control protocol
+                frames on the EVC.
+
+
+            'tunnel'
+                Forward the layer 2 control protocol service frames 
+                with the MAC address changed as defined by the
+                individual layer 2 control protocol.  The EVC does not
+                process the layer 2 protocol service frames.  If a 
+                layer 2 control protocol service frame is to be
+                tunneled, all the UNIs in the EVC must be configured to
+                pass the layer 2 control protocol service frames to the
+                EVC, cevcPortL2ControlProtocolAction column has the
+                value of 'passToEvc' or 'peerAndPassToEvc'.
+
+
+            'forward'
+                Forward the layer 2 conrol protocol service frames as
+                data; similar to tunnel but layer 2 control protocol
+                service frames are forwarded without changing the MAC
+                address."
+    DEFVAL          { discard } 
+    ::= { cevcSIL2ControlProtocolEntry 2 }
+ 
+
+-- Service Instance CE-VLAN List Table
+
+cevcSICEVlanTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcSICEVlanEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the CE-VLAN map list for each Service
+        Instance.
+
+        This table has an expansion dependent relationship on the
+        cevcSITable, containing a row for each CE-VLAN or a range of
+        CE-VLANs that are mapped to a service instance."
+    ::= { cevcServiceInstance 5 }
+
+cevcSICEVlanEntry OBJECT-TYPE
+    SYNTAX          CevcSICEVlanEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry contains the CE-VLANs that are mapped at a Service
+        Instance.
+
+        Entries in this table may be created and deleted via the
+        cevcSICEVlanRowStatus object or the management console on the
+        system.
+
+        Using SNMP, rows are created by a SET request setting the value
+        of cevcSICEVlanRowStatus column to 'createAndGo' or
+        'createAndWait'.  Rows are deleted by a SET request setting the
+        value of cevcSICEVlanRowStatus column to 'destroy'."
+    INDEX           {
+                        cevcSIIndex,
+                        cevcSICEVlanBeginningVlan
+                    } 
+    ::= { cevcSICEVlanTable 1 }
+
+CevcSICEVlanEntry ::= SEQUENCE {
+        cevcSICEVlanBeginningVlan VlanId,
+        cevcSICEVlanRowStatus     RowStatus,
+        cevcSICEVlanStorageType   StorageType,
+        cevcSICEVlanEndingVlan    VlanIdOrNone
+}
+
+cevcSICEVlanBeginningVlan OBJECT-TYPE
+    SYNTAX          VlanId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "If cevcSICEVlanEndingVlan is '0', then this object
+        indicates a single VLAN in the list.
+
+        If cevcSICEVlanEndingVlan is not '0', then this object
+        indicates the first VLAN in a range of VLANs." 
+    ::= { cevcSICEVlanEntry 1 }
+
+cevcSICEVlanRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object enables a SNMP peer to create, modify, and delete
+        rows in the cevcSICEVlanTable.
+
+        This object cannot be set to 'active' until all objects have 
+        been assigned valid values.
+
+        Writable objects in this table can be modified while the
+        value of the cevcSICEVlanRowStatus column is 'active'." 
+    ::= { cevcSICEVlanEntry 2 }
+
+cevcSICEVlanStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.
+
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL          { volatile } 
+    ::= { cevcSICEVlanEntry 3 }
+
+cevcSICEVlanEndingVlan OBJECT-TYPE
+    SYNTAX          VlanIdOrNone
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last VLAN in a range of VLANs.  If
+        the row does not describe a range, then the value of this
+        column must be '0'." 
+    ::= { cevcSICEVlanEntry 4 }
+ 
+
+-- Service Instance Match Criteria Table
+
+cevcSIMatchCriteriaTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcSIMatchCriteriaEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the match criteria for each Service
+        Instance.
+
+        This table has an expansion dependent relationship on the
+        cevcSITable, containing a row for each group of  match
+        criteria of each service instance."
+    ::= { cevcServiceInstance 6 }
+
+cevcSIMatchCriteriaEntry OBJECT-TYPE
+    SYNTAX          CevcSIMatchCriteriaEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents a group of match criteria for a service
+        instance.  Each entry in the table with the same cevcSIIndex and
+        different cevcSIMatchCriteriaIndex represents an OR operation of
+        the match criteria for the service instance.
+
+        Entries in this table may be created and deleted via the
+        cevcSIMatchRowStatus object or the management console on the
+        system.
+
+        Using SNMP, rows are created by a SET request setting the value
+        of cevcSIMatchRowStatus column to 'createAndGo' or
+        'createAndWait'.  Rows are deleted by a SET request setting the
+        value of cevcSIMatchRowStatus column to 'destroy'."
+    INDEX           {
+                        cevcSIIndex,
+                        cevcSIMatchCriteriaIndex
+                    } 
+    ::= { cevcSIMatchCriteriaTable 1 }
+
+CevcSIMatchCriteriaEntry ::= SEQUENCE {
+        cevcSIMatchCriteriaIndex Unsigned32,
+        cevcSIMatchRowStatus     RowStatus,
+        cevcSIMatchStorageType   StorageType,
+        cevcSIMatchCriteriaType  INTEGER
+}
+
+cevcSIMatchCriteriaIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates an arbitrary integer-value that uniquely
+        identifies a match criteria for a service instance." 
+    ::= { cevcSIMatchCriteriaEntry 1 }
+
+cevcSIMatchRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object enables a SNMP peer to create, modify, and delete
+        rows in the cevcSIMatchCriteriaTable.
+
+        If the value of cevcSIMatchCriteriaType column is 'dot1q(1)'
+        or 'dot1ad(2)' or 'untaggedAndDot1q' or 'untaggedAndDot1ad,
+        then cevcSIMatchCriteriaRowStatus can not be set to 'active'
+        until there exist an active row in the cevcSIMatchEncapTable
+        with the same index value for cevcSIIndex and
+        cevcSIMatchCriteriaIndex.
+
+        Writable objects in this table can be modified while the
+        value of the cevcSIMatchRowStatus column is 'active'." 
+    ::= { cevcSIMatchCriteriaEntry 2 }
+
+cevcSIMatchStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.
+
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL          { volatile } 
+    ::= { cevcSIMatchCriteriaEntry 3 }
+
+cevcSIMatchCriteriaType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        dot1q(2),
+                        dot1ad(3),
+                        untagged(4),
+                        untaggedAndDot1q(5),
+                        untaggedAndDot1ad(6),
+                        priorityTagged(7),
+                        defaultTagged(8)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the criteria used to match a service
+        instance.
+
+            'unknown'
+                Match criteria for the service instance is not
+                defined or unknown.
+
+
+            'dot1q'
+                The IEEE 802.1q encapsulation is used as a match
+                criteria for the service instance.  The ether type
+                value of the IEEE 802.1q tag is specified by the
+                object cevcSIEncapEncapsulation with the same 
+                index value of cevcSIIndex and
+                cevcSIMatchCreriaIndex.
+
+
+            'dot1ad'
+                The IEEE 802.1ad encapsulation is used as a match
+                criteria for the service instance.  The ether type
+                value of the IEEE 802.1ad tag is specified by the
+                cevcSIEncapEncapsulation column with the same index
+                value of cevcSIIndex and cevcSIMatchCreriaIndex.
+
+            'untagged'
+                Service instance processes untagged service frames.
+                Only one service instance on the interface/media
+                type can use untagged frames as a match criteria.
+
+
+            'untaggedAndDot1q'
+                Both untagged frames and the IEEE 802.1q encapsulation
+                are used as a match criteria for the service instance.
+                Only one service instance on the interface/media
+                type can use untagged frames as a match criteria.
+                The ether type value of the IEEE 802.1q tag is
+                specified by the cevcSIEncapEncapsulation column
+                with the same index value of cevcSIIndex and
+                cevcSIMatchCreriaIndex.
+
+            'untaggedAndDot1ad'
+                Both untagged frames and the IEEE 802.1ad encapsulation
+                are used as a match criteria for the service instance.
+                Only one service instance on the interface/media
+                type can use untagged frames as a match criteria.
+                The ether type value of the IEEE 802.1ad tag is
+                specified by the cevcSIEncapEncapsulation column
+                with the same index value of cevcSIIndex and
+                cevcSIMatchCreriaIndex.
+
+
+            'priorityTagged'
+                Service instance processes priority tagged frames.
+                Only one service instance on the interface/media
+                type can use priority tagged frames as a match 
+                criteria.
+
+
+            'defaultTagged'
+                Service instance is a default service instance.  The
+                default service instance processes frames with VLANs
+                that do not match to any other service instances
+                configured on the interface/media type.  Only one
+                service instance on the interface/media type can be
+                the default service instance." 
+    ::= { cevcSIMatchCriteriaEntry 4 }
+ 
+
+-- Service Instance Encapsulation Match Criteria Table
+
+cevcSIMatchEncapTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcSIMatchEncapEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the encapsulation based match criteria for
+        each service instance.  
+
+        This table has a sparse dependent relationship on the 
+        cevcSIMatchCriteriaTable, containing a row for each match 
+        criteria having one of the following values for 
+        cevcSIMatchCriteriaType:
+
+            - 'dot1q'
+            - 'dot1ad'
+            - 'untaggedAndDot1q'
+            - 'untaggedAndDot1ad'
+            - 'priorityTagged'"
+    ::= { cevcServiceInstance 7 }
+
+cevcSIMatchEncapEntry OBJECT-TYPE
+    SYNTAX          CevcSIMatchEncapEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents a group of encapulation match criteria
+        for a service instance.
+
+        Entries in this table may be created and deleted via the
+        cevcSIMatchEncapRowStatus object or the management console
+        on the system.
+
+        Using SNMP, rows are created by a SET request setting the value
+        of cevcSIMatchEncapRowStatus column to 'createAndGo' or
+        'createAndWait'.  Rows are deleted by a SET request setting the
+        value of cevcSIMatchEncapRowStatus column to 'destroy'."
+    INDEX           {
+                        cevcSIIndex,
+                        cevcSIMatchCriteriaIndex
+                    } 
+    ::= { cevcSIMatchEncapTable 1 }
+
+CevcSIMatchEncapEntry ::= SEQUENCE {
+        cevcSIMatchEncapRowStatus     RowStatus,
+        cevcSIMatchEncapStorageType   StorageType,
+        cevcSIMatchEncapValid         BITS,
+        cevcSIMatchEncapEncapsulation INTEGER,
+        cevcSIMatchEncapPrimaryCos    CiscoCosList,
+        cevcSIMatchEncapSecondaryCos  CiscoCosList,
+        cevcSIMatchEncapPayloadType   INTEGER,
+        cevcSIMatchEncapPayloadTypes  BITS,
+        cevcSIMatchEncapPriorityCos   CiscoCosList
+}
+
+cevcSIMatchEncapRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object enables a SNMP peer to create, modify, and delete
+        rows in the cevcSIMatchEncapTable.
+
+        This object cannot be set to 'active' until
+        cevcSIEncapEncapsulation and objects referred by 
+        cevcSIMatchEncapValid have been assigned their respective
+        valid values.
+
+        Writable objects in this table can be modified while the value
+        of the cevcSIEncapMatchRowStatus column is 'active'." 
+    ::= { cevcSIMatchEncapEntry 1 }
+
+cevcSIMatchEncapStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.
+
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL          { volatile } 
+    ::= { cevcSIMatchEncapEntry 2 }
+
+cevcSIMatchEncapValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        primaryCos(0),
+                        secondaryCos(1),
+                        payloadType(2),
+                        payloadTypes(3),
+                        priorityCos(4),
+                        dot1qNativeVlan(5),
+                        dot1adNativeVlan(6),
+                        encapExact(7)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the encapsulation criteria used to match
+        a service instance.
+
+
+            'primaryCos'
+                The 'primaryCos' bit set to '1' specifies the
+                Class of Service is used as service match criteria for
+                the service instance.  When this bit is set to '1'
+                there must exist aleast one active rows in the
+                cevcSIPrimaryVlanTable which has the same index values
+                of cevcSIIndex and cevcSIMatchCriteriaIndex.  When
+                'primaryCos' bit is '1', the cevcSIPrimaryCos column
+                indicates the CoS value(s).
+
+            'secondaryCos'
+                The 'secondaryCos' bit set to '1' specifies the
+                Class of Service is used as service match criteria for
+                the service instance.  When this bit is set to '1'
+                there must exist aleast one active rows in the
+                cevcSISecondaryVlanTable which has the same index
+                values of cevcSIIndex and cevcSIMatchCriteriaIndex.
+                When 'secondaryCos' bit is '1', the
+                cevcSISecondaryCos column indicates the CoS 
+                value(s).
+
+
+            'payloadType'
+                This bit set to '1' specifies that the value of
+                corresponding instance of cevcSIMatchEncapPayloadType
+                is used as service match criteria for the service
+                instance.
+
+
+            'payloadTypes'
+                This bit set to '1' specifies that the value of
+                corresponding instance of cevcSIMatchEncapPayloadTypes
+                is used as service match criteria for the service
+                instance.
+
+
+            'priorityCos'
+                This bit set to '1' specifies that the value of
+                corresponding instance of cevcSIMatchEncapPriorityCos
+                is used as service match criteria for the service
+                instance.
+
+
+            'dot1qNativeVlan'
+                This bit set to '1' specifies that the IEEE 802.1q
+                tag with native vlan is used as service match 
+                criteria for the service instance.
+
+
+            'dot1adNativeVlan'
+                This bit set to '1' specifies that the IEEE 802.1ad
+                tag with native vlan is used as service match 
+                criteria for the service instance.
+
+
+            'encapExact'
+                This bit set to '1' specifies that a service frame is
+                mapped to the service instance only if it matches
+                exactly to the encapsulation specified by the service
+                instance." 
+    ::= { cevcSIMatchEncapEntry 3 }
+
+cevcSIMatchEncapEncapsulation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        dot1qEthertype0x8100(1),
+                        dot1qEthertype0x9100(2),
+                        dot1qEthertype0x9200(3),
+                        dot1qEthertype0x88A8(4),
+                        dot1adEthertype0x88A8(5),
+                        dot1ahEthertype0x88A8(6)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the encapsulation type used as service
+        match criteria.  The object also specifies the Ethertype for
+        egress packets on the service instance.
+
+
+            'dot1qEthertype0x8100'
+                The IEEE 801.1q encapsulation with ether type value
+                0x8100.
+
+
+            'dot1qEthertype0x9100'
+                The IEEE 801.1q encapsulation with ether type value
+                0x9100.
+
+
+            'dot1qEthertype0x9200'
+                The IEEE 801.1q encapsulation with ether type value
+                0x9200.
+
+
+            'dot1qEthertype0x88A8'
+                 The IEEE 801.1q encapsulation with ether type value
+                 0x88A8.
+
+
+            'dot1adEthertype0x88A8'
+                The IEEE 801.1ad encapsulation with ether type value
+                0x88A8.
+
+
+            'dot1ahEthertype0x88A8'
+                The IEEE 801.1ah encapsulation with ether type value
+                0x88A8." 
+    ::= { cevcSIMatchEncapEntry 4 }
+
+cevcSIMatchEncapPrimaryCos OBJECT-TYPE
+    SYNTAX          CiscoCosList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CoS values which the Service
+        Instance uses as service match criteria.  This object is valid
+        only when 'primaryVlans' and 'primaryCos' bits are set to '1'
+        in corresponding instance of the object
+        cevcSIMatchEncapValid." 
+    ::= { cevcSIMatchEncapEntry 5 }
+
+cevcSIMatchEncapSecondaryCos OBJECT-TYPE
+    SYNTAX          CiscoCosList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CoS values which the Service
+        Instance uses as service match criteria.  This object is valid
+        only when 'secondaryVlans' and 'secondaryCos' bits are set to
+        '1' in corresponding instance of the object
+        cevcSIMatchEncapValid." 
+    ::= { cevcSIMatchEncapEntry 6 }
+
+cevcSIMatchEncapPayloadType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        payloadType0x0800ip(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the PayloadType(etype/protocol type)
+        values that the service instance uses as a service match
+        criteria.  This object is required when the forwarding of
+        layer-2 ethernet packet is done through the payloadType i.e IP
+        etc.
+
+
+            'other'
+                None of the following.
+
+
+            'payloadType0x0800ip'
+                Payload type value for IP is 0x0800.
+
+
+        This object is valid only when 'payloadType' bit is set to '1'
+        in corresponding instance of the object 
+        cevcSIMatchEncapValid.
+
+        This object is deprecated by cevcSIMatchEncapPayloadTypes." 
+    ::= { cevcSIMatchEncapEntry 7 }
+
+cevcSIMatchEncapPayloadTypes OBJECT-TYPE
+    SYNTAX          BITS {
+                        payloadTypeIPv4(0),
+                        payloadTypeIPv6(1),
+                        payloadTypePPPoEDiscovery(2),
+                        payloadTypePPPoESession(3),
+                        payloadTypePPPoEAll(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the etype/protocol type values that
+        service instance uses as a service match criteria.  This
+        object is required when the forwarding of layer-2 ethernet
+        packet is done through the payload ether type i.e IP etc.
+
+
+            'payloadTypeIPv4'
+                Ethernet payload type value for IPv4 protocol.
+
+
+            'payloadTypeIPv6'
+                Ethernet payload type value for IPv6 protocol.
+
+
+            'payloadTypePPPoEDiscovery'
+                Ethernet payload type value for PPPoE discovery
+                stage.
+
+
+            'payloadTypePPPoESession'
+                Ethernet payload type value for PPPoE session
+                stage.
+
+
+            'payloadTypePPPoEAll'
+                All ethernet payload type values for PPPoE protocol.
+
+        This object is valid only when 'payloadTypes' bit is set to
+        '1' in corresponding instance of the object
+        cevcSIMatchEncapValid.
+
+        This object deprecates cevcSIMatchEncapPayloadType." 
+    ::= { cevcSIMatchEncapEntry 8 }
+
+cevcSIMatchEncapPriorityCos OBJECT-TYPE
+    SYNTAX          CiscoCosList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the priority CoS values which the
+        service instance uses as service match criteria.  This 
+        object is valid only when 'priorityCos' bit is set to '1'
+        in corresponding instance of the object cevcSIMatchEncapValid." 
+    ::= { cevcSIMatchEncapEntry 9 }
+ 
+
+-- Service Instance Primary Vlan List Table
+
+cevcSIPrimaryVlanTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcSIPrimaryVlanEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the primary VLAN ID list for each Service
+        Instance.
+
+        This table has an expansion dependent relationship on the 
+        cevcSIMatchEncapTable, containing zero or more rows for each 
+        encapsulation match criteria."
+    ::= { cevcServiceInstance 8 }
+
+cevcSIPrimaryVlanEntry OBJECT-TYPE
+    SYNTAX          CevcSIPrimaryVlanEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry specifies a single VLAN or a range of VLANs
+        contained in the primary VLAN list that's part of the 
+        encapsulation match criteria.
+
+        Entries in this table may be created and deleted via the
+        cevcSIPrimaryVlanRowStatus object or the management console
+        on the system.
+
+        Using SNMP, rows are created by a SET request setting the value
+        of the cevcSIPrimaryVlanRowStatus column to 'createAndGo' or
+        'createAndWait'.  Rows are deleted by a SET request setting the
+        value of the cevcSIPrimaryVlanRowStatus column to 'destroy'."
+    INDEX           {
+                        cevcSIIndex,
+                        cevcSIMatchCriteriaIndex,
+                        cevcSIPrimaryVlanBeginningVlan
+                    } 
+    ::= { cevcSIPrimaryVlanTable 1 }
+
+CevcSIPrimaryVlanEntry ::= SEQUENCE {
+        cevcSIPrimaryVlanBeginningVlan VlanId,
+        cevcSIPrimaryVlanRowStatus     RowStatus,
+        cevcSIPrimaryVlanStorageType   StorageType,
+        cevcSIPrimaryVlanEndingVlan    VlanIdOrNone
+}
+
+cevcSIPrimaryVlanBeginningVlan OBJECT-TYPE
+    SYNTAX          VlanId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "If cevcSIPrimaryVlanEndingVlan is '0', then this object
+        indicates a single VLAN in the list.
+
+        If cevcSIPrimaryVlanEndingVlan is not '0', then this object
+        indicates the first VLAN in a range of VLANs." 
+    ::= { cevcSIPrimaryVlanEntry 1 }
+
+cevcSIPrimaryVlanRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object enables a SNMP peer to create, modify, and delete
+        rows in the cevcSIPrimaryVlanTable.
+
+        This column cannot be set to 'active' until all objects have 
+        been assigned valid values.
+
+        Writable objects in this table can be modified while the
+        value of the cevcSIPrimaryVlanRowStatus column is 'active'." 
+    ::= { cevcSIPrimaryVlanEntry 2 }
+
+cevcSIPrimaryVlanStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.
+
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL          { volatile } 
+    ::= { cevcSIPrimaryVlanEntry 3 }
+
+cevcSIPrimaryVlanEndingVlan OBJECT-TYPE
+    SYNTAX          VlanIdOrNone
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last VLAN in a range of VLANs.  If
+        the row does not describe a range, then the value of this
+        column must be '0'." 
+    ::= { cevcSIPrimaryVlanEntry 4 }
+ 
+
+-- Service Instance Secondary Vlan List Table
+
+cevcSISecondaryVlanTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcSISecondaryVlanEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the seconadary VLAN ID list for each
+        service instance.
+
+        This table has an expansion dependent relationship on the 
+        cevcSIMatchEncapTable, containing zero or more rows for each 
+        encapsulation match criteria."
+    ::= { cevcServiceInstance 9 }
+
+cevcSISecondaryVlanEntry OBJECT-TYPE
+    SYNTAX          CevcSISecondaryVlanEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry specifies a single VLAN or a range of VLANs
+        contained in the secondary VLAN list that's part of the 
+        encapsulation match criteria.
+
+        Entries in this table may be created and deleted via the
+        cevcSISecondaryVlanRowStatus object or the management console
+        on the system.
+
+        Using SNMP, rows are created by a SET request setting the value
+        of the cevcSISecondaryVlanRowStatus column to 'createAndGo' or
+        'createAndWait'.  Rows are deleted by a SET request setting the
+        value of the cevcSISecondaryVlanRowStatus column to 'destroy'."
+    INDEX           {
+                        cevcSIIndex,
+                        cevcSIMatchCriteriaIndex,
+                        cevcSISecondaryVlanBeginningVlan
+                    } 
+    ::= { cevcSISecondaryVlanTable 1 }
+
+CevcSISecondaryVlanEntry ::= SEQUENCE {
+        cevcSISecondaryVlanBeginningVlan VlanId,
+        cevcSISecondaryVlanRowStatus     RowStatus,
+        cevcSISecondaryVlanStorageType   StorageType,
+        cevcSISecondaryVlanEndingVlan    VlanIdOrNone
+}
+
+cevcSISecondaryVlanBeginningVlan OBJECT-TYPE
+    SYNTAX          VlanId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "If cevcSISecondaryVlanEndingVlan is '0', then this object
+        indicates a single VLAN in the list.
+
+        If cevcSISecondaryVlanEndingVlan is not '0', then this
+        object indicates the first VLAN in a range of VLANs." 
+    ::= { cevcSISecondaryVlanEntry 1 }
+
+cevcSISecondaryVlanRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object enables a SNMP peer to create, modify, and delete
+        rows in the cevcSISecondaryVlanTable.
+
+        This column can not be set to 'active' until all objects have 
+        been assigned valid values.
+
+        Writable objects in this table can be modified while the
+        value of cevcSISecondaryVlanRowStatus column is 'active'." 
+    ::= { cevcSISecondaryVlanEntry 2 }
+
+cevcSISecondaryVlanStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.
+
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL          { volatile } 
+    ::= { cevcSISecondaryVlanEntry 3 }
+
+cevcSISecondaryVlanEndingVlan OBJECT-TYPE
+    SYNTAX          VlanIdOrNone
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last VLAN in a range of VLANs.  If
+        the row does not describe a range, then the value of this
+        column must be '0'." 
+    ::= { cevcSISecondaryVlanEntry 4 }
+ 
+
+-- Service Instance Forwarding Bridge Domain Table
+
+cevcSIForwardBdTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CevcSIForwardBdEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the forwarding bridge domain information
+        for each service instance.
+
+        This table has a sparse dependent relationship on the 
+        cevcSITable, containing a row for each service instance having 
+        a cevcSIForwardingType of 'bridgeDomain'."
+    ::= { cevcServiceInstance 10 }
+
+cevcSIForwardBdEntry OBJECT-TYPE
+    SYNTAX          CevcSIForwardBdEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry represents an bridged domain used to forward service
+        frames by the service instance.
+
+        Entries in this table may be created and deleted via the
+        cevcSIForwardBdRowStatus object or the management console
+        on the system.
+
+        Using SNMP, rows are created by a SET request setting the value
+        of the cevcSIForwardBdRowStatus column to 'createAndGo' or
+        'createAndWait'.  Rows are deleted by a SET request setting the
+        value of the cevcSIForwardBdRowStatus column to 'destroy'."
+    INDEX           { cevcSIIndex } 
+    ::= { cevcSIForwardBdTable 1 }
+
+CevcSIForwardBdEntry ::= SEQUENCE {
+        cevcSIForwardBdRowStatus      RowStatus,
+        cevcSIForwardBdStorageType    StorageType,
+        cevcSIForwardBdNumber         Unsigned32,
+        cevcSIForwardBdNumberBase     INTEGER,
+        cevcSIForwardBdNumber1kBitmap OCTET STRING,
+        cevcSIForwardBdNumber2kBitmap OCTET STRING,
+        cevcSIForwardBdNumber3kBitmap OCTET STRING,
+        cevcSIForwardBdNumber4kBitmap OCTET STRING
+}
+
+cevcSIForwardBdRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object enables a SNMP peer to create, modify, and delete
+        rows in the cevcSIForwardBdTable.
+
+        This column can not be set to 'active' until all objects have 
+        been assigned valid values.
+
+        Writable objects in this table can be modified while the
+        value of the cevcSIForwardBdRowStatus column is 'active'." 
+    ::= { cevcSIForwardBdEntry 1 }
+
+cevcSIForwardBdStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies how the SNMP entity stores the data
+        contained by the corresponding conceptual row.
+
+        This object can be set to either 'volatile' or 'nonVolatile'.
+        Other values are not applicable for this conceptual row and
+        are not supported."
+    DEFVAL          { volatile } 
+    ::= { cevcSIForwardBdEntry 2 }
+
+cevcSIForwardBdNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "The bridge domain identifier that is associated with the
+        service instance.
+
+        A bridge domain refers to a layer 2 broadcast domain spanning
+        a set of physical or virtual ports.  Frames are switched 
+        Multicast and unknown destination unicast frames are flooded
+        within the confines of the bridge domain."
+        
+    ::= { cevcSIForwardBdEntry 3 }
+
+cevcSIForwardBdNumberBase OBJECT-TYPE
+    SYNTAX    INTEGER  {
+                        bdNumBase0(0),
+                        bdNumBase4096(4096),
+                        bdNumBase8192(8192),
+                        bdNumBase12288(12288),
+                        bdNumBase16384(16384)
+                    }
+
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+      "This object specifies the base of bridge domain. The bridge
+	   domain range is 1~16k, cevcSIForwardBdNumberBase is to track what
+	   is the base of each 4k bitmap. In this way we can specify all the 
+	   16k bridge domains using four 1k bitmaps and having the base which
+	   describes that is the base of each 4k bitmap. The four 1k bitmaps,
+       cevcSIForwardBdNumber1kBitmap represents 0~1023,
+	   cevcSIForwardBdNumber2kBitmap represents 1024~2047,
+	   cevcSIForwardBdNumber3kBitmap represents 2048~3071,
+	   cevcSIForwardBdNumber4kBitmap represents 3072~4095
+	   And cevcSIForwardBdNumberBase is one of 0, 4096, 8192, 12288, 
+	   16384.
+       SNMP Administrator can use cevcSIForwardBdNumberBase + (position 
+       of the set bit in four 1k bitmaps) to get BD number of a 
+       service instance."   
+    ::= { cevcSIForwardBdEntry 4 }
+
+cevcSIForwardBdNumber1kBitmap OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE(0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a string of octets containing one bit 
+        per Bridge domain per service instance(generally we have one
+        bridge domain per nontrunk service instance but can have more
+        than one bridge configured with a trunk service instance).
+        The first octet corresponds to Bridge domains with 
+        Bridge domain ID values of 0 through 7; the second octet to
+        Bridge domains 8 through 15; etc. Thus, this 128-octet bitmap
+        represents bridge domain ID value 0~1023.
+        
+        For each Bridge domain configured, the bit corresponding to
+        that bridge domain is set to '1'. SNMP Administrator uses
+        cevcSIForwardBdNumberBase + (position of the set bit in 
+        bitmap)to calculate BD number of a service instance.
+        
+        Note that if the length of this string is less than 128 octets, 
+        any 'missing' octets are assumed to contain the value zero. An 
+        NMS may omit any zero-valued octets from the end of this string 
+        in order to reduce SetPDU size, and the agent may also omit 
+        zero-valued trailing octets, to reduce the size of GetResponse 
+        PDUs."   
+    DEFVAL { "" }    
+    ::= { cevcSIForwardBdEntry 5 }
+
+cevcSIForwardBdNumber2kBitmap OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE(0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+         "This object specifies a string of octets containing one bit 
+        per Bridge domain per service instance(generally we have one
+        bridge domain per nontrunk service instance but can have more
+        than one bridge configured with a trunk service instance).
+        The first octet corresponds to Bridge domains with 
+        Bridge domain ID values of 1024 through 1031; the second 
+        octet to Bridge domains 1032 through 1039; etc. Thus, this 
+        128-octet bitmap represents bridge domain ID value 1024~2047.
+
+        For each Bridge domain configured, the bit corresponding to
+        that bridge domain is set to 1. SNMP Administrator uses
+        cevcSIForwardBdNumberBase + (position of the set bit in 
+        bitmap)to calculate BD number of a service instance.  
+        
+        Note that if the length of this string is less than 128 octets, 
+        any 'missing' octets are assumed to contain the value zero. An 
+        NMS may omit any zero-valued octets from the end of this string 
+        in order to reduce SetPDU size, and the agent may also omit 
+        zero-valued trailing octets, to reduce the size of GetResponse 
+        PDUs."      
+    DEFVAL { "" }     
+    ::= { cevcSIForwardBdEntry 6 }
+
+cevcSIForwardBdNumber3kBitmap OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE(0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a string of octets containing one bit
+        per Bridge domain per service instance(generally we have one
+        bridge domain per non-trunk service instance but can have more
+        than one bridge configured with a trunk service instance).
+        The first octet corresponds to Bridge domains with Bridgedomain
+        ID values of 2048 through 2055; the second octet to Bridge 
+        domains 2056 through 2063; etc. Thus, this 128-octet bitmap
+        represents bridge domain ID value 2048~3071.
+        
+        For each Bridge domain configured, the bit corresponding to
+        that bridge domain is set to 1. SNMP Administrator uses
+        cevcSIForwardBdNumberBase + (position of the set bit in
+         bitmap)to calculate BD number of a service instance.  
+        
+        Note that if the length of this string is less than 128 octets, 
+        any 'missing' octets are assumed to contain the value zero. An 
+        NMS may omit any zero-valued octets from the end of this string 
+        in order to reduce SetPDU size, and the agent may also omit 
+        zero-valued trailing octets, to reduce the size of GetResponse 
+        PDUs."
+    DEFVAL { "" }    
+    ::= { cevcSIForwardBdEntry 7 }
+
+cevcSIForwardBdNumber4kBitmap OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE(0..128))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a string of octets containing one bit 
+        per Bridge domain per service instance(generally we have one
+        bridge domain per non-trunk service instance but can have more
+        than one bridge configured with a trunk service instance).
+        The first octet corresponds to Bridge domains with 
+        Bridgedomain ID values of 3078 through 3085; the second octet 
+        to Bridge domains 3086 through 3093; etc. Thus, this 128-octet
+         bitmap represents bridge domain ID value 3072~4095.
+
+        For each Bridge domain configured, the bit corresponding to
+        that bridge domain is set to 1. SNMP Administrator uses
+        cevcSIForwardBdNumberBase + (position of the set bit in
+         bitmap)to calculate BD number of a service instance.  
+        
+        Note that if the length of this string is less than 128 octets, 
+        any 'missing' octets are assumed to contain the value zero. An 
+        NMS may omit any zero-valued octets from the end of this string 
+        in order to reduce SetPDU size, and the agent may also omit 
+        zero-valued trailing octets, to reduce the size of GetResponse 
+        PDUs." 
+    DEFVAL { "" }    
+    ::= { cevcSIForwardBdEntry 8 }
+ 
+
+
+-- Notification Configuration
+
+cevcEvcNotifyEnabled OBJECT-TYPE
+    SYNTAX          BITS {
+                        status(0),
+                        creation(1),
+                        deletion(2),
+                        macSecurityViolation(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the system generation of notification,
+        including:
+
+            'status'
+                This bit set to '1' specifies the system 
+                generation of cevcEvcStatusChangedNotification.
+
+
+            'creation'
+                This bit set to '1' specifies the system
+               generation of cevcEvcCreationNotification.
+
+
+            'deletion'
+                This bit set to '1' specifices the system
+                generation of cevcEvcDeletionNotification.
+                
+            'macSecurityViolation'
+              This bit set to '1' specifies the system 
+              generation of cevcMacSecurityViolation." 
+                          
+    ::= { cevcEvcNotificationConfig 1 }
+
+
+-- Notifications
+
+ciscoEvcNotificationPrefix  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIBNotifications 0 }
+
+
+cevcEvcStatusChangedNotification NOTIFICATION-TYPE
+    OBJECTS         {
+                        cevcEvcOperStatus,
+                        cevcEvcCfgUnis,
+                        cevcEvcActiveUnis
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A device generates this notification when an EVC's
+        operational status changes, or the number of active UNIs 
+        associated with the EVC (cevcNumActiveUnis) changes."
+   ::= { ciscoEvcNotificationPrefix 1 }
+
+cevcEvcCreationNotification NOTIFICATION-TYPE
+    OBJECTS         { cevcEvcOperStatus }
+    STATUS          current
+    DESCRIPTION
+        "A device generates this notification upon the creation of an
+        EVC."
+   ::= { ciscoEvcNotificationPrefix 2 }
+
+cevcEvcDeletionNotification NOTIFICATION-TYPE
+    OBJECTS         { cevcEvcOperStatus }
+    STATUS          current
+    DESCRIPTION
+        "A device generates this notification upon the deletion of
+        an EVC."
+   ::= { ciscoEvcNotificationPrefix 3 }
+
+cevcMacSecurityViolationNotification NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifIndex,
+                        cevcSIForwardBdNumberBase,
+                        cevcSIForwardBdNumber1kBitmap,
+                        cevcSIForwardBdNumber2kBitmap,
+                        cevcSIForwardBdNumber3kBitmap,
+                        cevcSIForwardBdNumber4kBitmap,
+                        cevcSIID,
+                        cevcMacAddress,
+                        cevcMaxMacConfigLimit,
+                        cevcViolationCause
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A SNMP entity generates this notification
+         in the following cases: 
+
+        When the system MAC Address limit is exceeded, the
+        cevcMacSecurityViolationCauseType will contain 
+        'exceedSystemLimit' value.
+
+        When the Bridge domain limit is exceeded, the
+        cevcMacSecurityViolationCauseType will contain 
+        'exceedBdLimit' value.
+
+        When the Service Instance limit is exceeded, the
+        cevcMacSecurityViolationCauseType will contain 
+        'exceedSILimit' value.
+
+        If the MAC address is present in the Black list
+        then cevcMacSecurityViolationCauseType will contain 
+        'blackListDeny' value.
+        
+        Description of all the varbinds for this Notification is
+        as follows:
+        
+        ifIndex indicates the interface index which identifies
+        the interface that the service instance is attached.
+        
+        cevcSIForwardBdNumberBase indicates the base of bridge domain.
+        The bridge domain range is 1~16k, this object is to track the
+         base of each 4k bitmap.
+         
+        cevcSIForwardBdNumber1kBitmap indicates a string of octets 
+        containing one bit per Bridge domain per service instance. This
+        128-octet bitmap represents bridge domain ID values 0~1023.
+        
+        cevcSIForwardBdNumber2kBitmap indicates a string of octets 
+        containing one bit per Bridge domain per service instance. This
+        128-octet bitmap represents bridge domain ID values 1024~2047.
+        
+        cevcSIForwardBdNumber3kBitmap indicates a string of octets 
+        containing one bit per Bridge domain per service instance. This
+        128-octet bitmap represents bridge domain ID values 2048~3071.
+        
+        cevcSIForwardBdNumber4kBitmap indicates a string of octets 
+        containing one bit per Bridge domain per service instance. This
+        128-octet bitmap represents bridge domain ID values 3072~4095.
+          
+        cevcSIID indicates the service instance ID for the Mac
+        security violation notification.
+        
+        cevcMacAddress indicates the Mac address which has violated
+        the Mac security rules.
+         
+        cevcMaxMacConfigLimit indicates the maximum Mac configuration 
+        limit. This is also sent as a part of Mac security violation 
+        notification.
+        
+        cevcViolationCause indicates the Mac security violation cause."
+   ::= { ciscoEvcNotificationPrefix 4 }
+-- Conformance Information
+
+ciscoEvcMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIBConformance 1 }
+
+ciscoEvcMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoEvcMIBConformance 2 }
+
+
+ciscoEvcMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The new compliance statement for entities which implement
+        the CISCO-EVC-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cevcSystemGroup,
+                        cevcPortGroup,
+                        cevcEvcGroup,
+                        cevcSIGroup,
+                        cevcEvcNotificationConfigGroup,
+                        cevcEvcNotificationGroup
+                    }
+
+    GROUP           cevcSICosMatchCriteriaGroup
+    DESCRIPTION
+        "This group is optional for Cos MatchCriteria."
+
+    GROUP           cevcSIVlanRewriteGroup
+    DESCRIPTION
+        "This group is optional for the Vlan Rewrite for Service
+        Instance."
+
+    GROUP           cevcSIMatchCriteriaGroup
+    DESCRIPTION
+        "This group is optional for the Match Criteria information of
+        of a service instance."
+
+    GROUP           cevcSIForwardGroup
+    DESCRIPTION
+        "This group is optional for the Forwarding information of
+        service instance."
+
+    OBJECT          cevcPortL2ControlProtocolAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcUniIdentifier
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcUniPortType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcUniServiceAttributes
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcIdentifier
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcCfgUnis
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSITargetType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSITarget
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapEncapsulation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapPrimaryCos
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapSecondaryCos
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapPayloadType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIEvcIndex
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIAdminStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIL2ControlProtocolAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteEncapsulation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteVlan1
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteVlan2
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteSymmetric
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcNotifyEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIForwardingType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSICEVlanRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchCriteriaType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSICEVlanStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIPrimaryVlanRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIPrimaryVlanStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapValid
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSICEVlanEndingVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIPrimaryVlanEndingVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSISecondaryVlanRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSISecondaryVlanStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSISecondaryVlanEndingVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIForwardBdRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIForwardBdStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIForwardBdNumber
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoEvcMIBCompliances 1 }
+
+ciscoEvcMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO-EVC-MIB.
+
+        This compliance module deprecates
+        ciscoEvcMIBCompliance."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cevcSystemGroup,
+                        cevcPortGroup,
+                        cevcEvcGroup,
+                        cevcSIGroup,
+                        cevcEvcNotificationConfigGroup,
+                        cevcEvcNotificationGroup
+                    }
+
+    GROUP           cevcSICosMatchCriteriaGroup
+    DESCRIPTION
+        "This group is optional for Cos MatchCriteria."
+
+    GROUP           cevcSIVlanRewriteGroup
+    DESCRIPTION
+        "This group is optional for the Vlan Rewrite for Service
+        Instance."
+
+    GROUP           cevcSIMatchCriteriaGroupRev1
+    DESCRIPTION
+        "This group is optional for the Match Criteria information of
+        of a service instance."
+
+    GROUP           cevcSIForwardGroup
+    DESCRIPTION
+        "This group is optional for the Forwarding information of
+        service instance."
+
+    OBJECT          cevcPortMode
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcUniIdentifier
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcUniPortType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcUniServiceAttributes
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcPortL2ControlProtocolAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcIdentifier
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcCfgUnis
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSITargetType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSITarget
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIEvcIndex
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIAdminStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIForwardingType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteEncapsulation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteVlan1
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteVlan2
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIVlanRewriteSymmetric
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIL2ControlProtocolAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSICEVlanRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSICEVlanStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSICEVlanEndingVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchCriteriaType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapValid
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapEncapsulation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapPrimaryCos
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapSecondaryCos
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapPayloadTypes
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIMatchEncapPriorityCos
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIPrimaryVlanRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIPrimaryVlanStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIPrimaryVlanEndingVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSISecondaryVlanRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSISecondaryVlanStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSISecondaryVlanEndingVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIForwardBdRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIForwardBdStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcSIForwardBdNumber
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cevcEvcNotifyEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { ciscoEvcMIBCompliances 2 }
+
+ciscoEvcMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO-EVC-MIB.
+
+        This compliance module deprecates
+        ciscoEvcMIBComplianceRev1."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cevcSystemGroup,
+                        cevcPortGroup,
+                        cevcEvcGroup,
+                        cevcSIGroupRev1,
+                        cevcEvcNotificationConfigGroup,
+                        cevcEvcNotificationGroupRev1
+                    }
+
+    GROUP           cevcSICosMatchCriteriaGroup
+    DESCRIPTION
+        "This group is optional for Cos MatchCriteria."
+
+    GROUP           cevcSIVlanRewriteGroup
+    DESCRIPTION
+        "This group is optional for the Vlan Rewrite for Service
+        Instance."
+
+    GROUP           cevcSIMatchCriteriaGroupRev1
+    DESCRIPTION
+        "This group is optional for the Match Criteria information of
+        of a service instance."
+
+    GROUP           cevcSIForwardGroupRev1
+    DESCRIPTION
+        "This group is optional for the Forwarding information of
+        service instance."
+
+    GROUP           cevcMacSecurityViolationGroup
+    DESCRIPTION
+        "This group is optional for Mac Security Violation for any 
+         of the following cases:
+			- System Mac address limit exceeded
+			- Bridge domain limit exceeded
+			- Service Instance limit exceeded
+			- If the Mac address is present in Black list"
+
+    OBJECT          cevcPortMode
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write Access not required"
+
+    OBJECT          cevcUniIdentifier
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcUniPortType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcUniServiceAttributes
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcPortL2ControlProtocolAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcEvcRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcEvcIdentifier
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcEvcType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcEvcCfgUnis
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIVlanRewriteRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSITargetType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSITarget
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIName
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIEvcIndex
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIAdminStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIForwardingType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIVlanRewriteStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIVlanRewriteAction
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIVlanRewriteEncapsulation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIVlanRewriteVlan1
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIVlanRewriteVlan2
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIVlanRewriteSymmetric
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSICEVlanRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSICEVlanStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSICEVlanEndingVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchCriteriaType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchEncapRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchEncapStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchEncapValid
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchEncapEncapsulation
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchEncapPrimaryCos
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchEncapSecondaryCos
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchEncapPayloadTypes
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIMatchEncapPriorityCos
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIPrimaryVlanRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIPrimaryVlanStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIPrimaryVlanEndingVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSISecondaryVlanRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSISecondaryVlanStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSISecondaryVlanEndingVlan
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIForwardBdRowStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIForwardBdStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIForwardBdNumberBase
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIForwardBdNumber1kBitmap
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIForwardBdNumber2kBitmap
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIForwardBdNumber3kBitmap
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcSIForwardBdNumber4kBitmap
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+
+    OBJECT          cevcEvcNotifyEnabled
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access not required"
+    ::= { ciscoEvcMIBCompliances 3 }
+
+-- Units of Conformance
+
+cevcSystemGroup OBJECT-GROUP
+    OBJECTS         {
+                        cevcMaxNumEvcs,
+                        cevcNumCfgEvcs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing system configuration
+        of EVCs."
+    ::= { ciscoEvcMIBGroups 1 }
+
+cevcPortGroup OBJECT-GROUP
+    OBJECTS         {
+                        cevcPortMode,
+                        cevcPortMaxNumEVCs,
+                        cevcPortMaxNumServiceInstances,
+                        cevcPortL2ControlProtocolAction,
+                        cevcUniIdentifier,
+                        cevcUniPortType,
+                        cevcUniServiceAttributes,
+                        cevcUniCEVlanEvcEndingVlan
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing configuration
+        for ports in an EVC."
+    ::= { ciscoEvcMIBGroups 2 }
+
+cevcEvcGroup OBJECT-GROUP
+    OBJECTS         {
+                        cevcEvcIdentifier,
+                        cevcEvcType,
+                        cevcEvcOperStatus,
+                        cevcEvcCfgUnis,
+                        cevcEvcActiveUnis,
+                        cevcEvcStorageType,
+                        cevcEvcRowStatus,
+                        cevcEvcUniId,
+                        cevcEvcUniOperStatus,
+                        cevcEvcLocalUniIfIndex
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing configuration and
+        status information for EVCs."
+    ::= { ciscoEvcMIBGroups 3 }
+
+cevcSIGroup OBJECT-GROUP
+    OBJECTS         {
+                        cevcSIName,
+                        cevcSITargetType,
+                        cevcSITarget,
+                        cevcSIEvcIndex,
+                        cevcSIRowStatus,
+                        cevcSIStorageType,
+                        cevcSIAdminStatus,
+                        cevcSIOperStatus,
+                        cevcSIL2ControlProtocolAction,
+                        cevcSIVlanRewriteAction,
+                        cevcSIVlanRewriteEncapsulation,
+                        cevcSIVlanRewriteVlan1,
+                        cevcSIVlanRewriteVlan2,
+                        cevcSIVlanRewriteSymmetric,
+                        cevcSIVlanRewriteStorageType,
+                        cevcSIVlanRewriteRowStatus,
+                        cevcSIForwardingType,
+                        cevcSICEVlanRowStatus,
+                        cevcSICEVlanStorageType,
+                        cevcSICEVlanEndingVlan,
+                        cevcSIMatchStorageType,
+                        cevcSIMatchRowStatus,
+                        cevcSIMatchCriteriaType,
+                        cevcSIMatchEncapRowStatus,
+                        cevcSIMatchEncapStorageType,
+                        cevcSIMatchEncapValid,
+                        cevcSIMatchEncapEncapsulation,
+                        cevcSIPrimaryVlanRowStatus,
+                        cevcSIPrimaryVlanStorageType,
+                        cevcSIPrimaryVlanEndingVlan
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing configuration and
+        match criteria for service instances.
+        cevcSIGroup object is superseded by cevcSIGroupRev1."
+    ::= { ciscoEvcMIBGroups 4 }
+
+cevcSIVlanRewriteGroup OBJECT-GROUP
+    OBJECTS         {
+                        cevcSIVlanRewriteAction,
+                        cevcSIVlanRewriteEncapsulation,
+                        cevcSIVlanRewriteVlan1,
+                        cevcSIVlanRewriteVlan2,
+                        cevcSIVlanRewriteSymmetric,
+                        cevcSIVlanRewriteStorageType,
+                        cevcSIVlanRewriteRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides VLAN rewrite
+        information for a service instance."
+    ::= { ciscoEvcMIBGroups 5 }
+
+cevcSICosMatchCriteriaGroup OBJECT-GROUP
+    OBJECTS         {
+                        cevcSIMatchEncapPrimaryCos,
+                        cevcSIMatchEncapSecondaryCos
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides CoS match criteria
+        for a service instance."
+    ::= { ciscoEvcMIBGroups 6 }
+
+cevcSIMatchCriteriaGroup OBJECT-GROUP
+    OBJECTS         {
+                        cevcSIMatchRowStatus,
+                        cevcSIMatchStorageType,
+                        cevcSIMatchCriteriaType,
+                        cevcSIMatchEncapRowStatus,
+                        cevcSIMatchEncapStorageType,
+                        cevcSIMatchEncapValid,
+                        cevcSIMatchEncapEncapsulation,
+                        cevcSIMatchEncapPrimaryCos,
+                        cevcSIMatchEncapSecondaryCos,
+                        cevcSIMatchEncapPayloadType,
+                        cevcSIPrimaryVlanRowStatus,
+                        cevcSIPrimaryVlanStorageType,
+                        cevcSIPrimaryVlanEndingVlan,
+                        cevcSISecondaryVlanRowStatus,
+                        cevcSISecondaryVlanStorageType,
+                        cevcSISecondaryVlanEndingVlan
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing match criteria information
+        for service instances.
+        cevcSIMatchCriteriaGroup object is superseded by 
+        cevcSIMatchCriteriaGroupRev1."
+    ::= { ciscoEvcMIBGroups 7 }
+
+cevcSIForwardGroup OBJECT-GROUP
+    OBJECTS         {
+                        cevcSIForwardingType,
+                        cevcSIForwardBdRowStatus,
+                        cevcSIForwardBdStorageType,
+                        cevcSIForwardBdNumber
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing service frame forwarding
+        information for service instances.
+        cevcSIForwardGroup object is superseded by 
+        cevcSIForwardGroupRev1."
+    ::= { ciscoEvcMIBGroups 8 }
+
+cevcEvcNotificationConfigGroup OBJECT-GROUP
+    OBJECTS         { cevcEvcNotifyEnabled }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for configuring notification
+        of this MIB." 
+    ::= { ciscoEvcMIBGroups 9 }
+
+cevcEvcNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cevcEvcStatusChangedNotification,
+                        cevcEvcCreationNotification,
+                        cevcEvcDeletionNotification
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of notifications that this MIB module is
+        required to implement.
+        cevcEvcNotificationGroup object is superseded by 
+        cevcEvcNotificationGroupRev1."
+    ::= { ciscoEvcMIBGroups 10 }
+
+cevcSIMatchCriteriaGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cevcSIMatchRowStatus,
+                        cevcSIMatchStorageType,
+                        cevcSIMatchCriteriaType,
+                        cevcSIMatchEncapRowStatus,
+                        cevcSIMatchEncapStorageType,
+                        cevcSIMatchEncapValid,
+                        cevcSIMatchEncapEncapsulation,
+                        cevcSIMatchEncapPrimaryCos,
+                        cevcSIMatchEncapSecondaryCos,
+                        cevcSIMatchEncapPayloadTypes,
+                        cevcSIMatchEncapPriorityCos,
+                        cevcSIPrimaryVlanRowStatus,
+                        cevcSIPrimaryVlanStorageType,
+                        cevcSIPrimaryVlanEndingVlan,
+                        cevcSISecondaryVlanRowStatus,
+                        cevcSISecondaryVlanStorageType,
+                        cevcSISecondaryVlanEndingVlan
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing match criteria information
+        for service instances.
+
+        This group deprecates the old group cevcSIMatchCriteriaGroup."
+    ::= { ciscoEvcMIBGroups 11 }
+
+
+cevcEvcNotificationGroupRev1 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cevcEvcStatusChangedNotification,
+                        cevcEvcCreationNotification,
+                        cevcEvcDeletionNotification,
+                        cevcMacSecurityViolationNotification
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications that this MIB module is
+        required to implement.
+
+        This module deprecates the cevcNotificationGroup"
+    ::= { ciscoEvcMIBGroups 12 }
+
+cevcSIGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cevcSIName,
+                        cevcSITargetType,
+                        cevcSITarget,
+                        cevcSIEvcIndex,
+                        cevcSIRowStatus,
+                        cevcSIStorageType,
+                        cevcSIAdminStatus,
+                        cevcSIOperStatus,
+                        cevcPortL2ControlProtocolAction,
+                        cevcSIVlanRewriteAction,
+                        cevcSIVlanRewriteEncapsulation,
+                        cevcSIVlanRewriteVlan1,
+                        cevcSIVlanRewriteVlan2,
+                        cevcSIVlanRewriteSymmetric,
+                        cevcSIVlanRewriteRowStatus,
+                        cevcSIVlanRewriteStorageType,
+                        cevcSIForwardingType,
+                        cevcSICEVlanRowStatus,
+                        cevcSICEVlanStorageType,
+                        cevcSICEVlanEndingVlan,
+                        cevcSIMatchStorageType,
+                        cevcSIMatchCriteriaType,
+                        cevcSIMatchEncapRowStatus,
+                        cevcSIMatchEncapStorageType,
+                        cevcSIMatchEncapValid,
+                        cevcSIMatchEncapEncapsulation,
+                        cevcSIPrimaryVlanRowStatus,
+                        cevcSIPrimaryVlanStorageType,
+                        cevcSIPrimaryVlanEndingVlan,
+                        cevcSIMatchRowStatus,
+                        cevcSICreationType,
+                        cevcSIType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing configuration and
+        match criteria for service instances.
+        This module deprecates the cevcSIGroup"
+    ::= { ciscoEvcMIBGroups 13 }
+
+cevcSIForwardGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cevcSIForwardingType,
+                        cevcSIForwardBdRowStatus,
+                        cevcSIForwardBdStorageType,
+                        cevcSIForwardBdNumberBase,
+                        cevcSIForwardBdNumber1kBitmap,
+                        cevcSIForwardBdNumber2kBitmap,
+                        cevcSIForwardBdNumber3kBitmap,
+                        cevcSIForwardBdNumber4kBitmap
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing service frame forwarding
+        information for service instances.
+
+        This module deprecates cevcSIForwardGroup"
+    ::= { ciscoEvcMIBGroups 14 }
+
+cevcMacSecurityViolationGroup OBJECT-GROUP
+    OBJECTS         {
+                        cevcMacAddress,
+                        cevcMaxMacConfigLimit,
+                        cevcSIID,
+                        cevcViolationCause
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the maximum configured MAC
+        limit, the MAC address, service instance ID and Violation 
+        cause for  Mac Security Violation Information."
+    ::= { ciscoEvcMIBGroups 15 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

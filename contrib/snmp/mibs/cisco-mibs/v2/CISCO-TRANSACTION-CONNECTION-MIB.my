@@ -1,0 +1,771 @@
+ -- *****************************************************************
+-- Cisco Transaction Connection
+--
+-- Copyright (c) 1996-1999, 2005 by StarQuest Software, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-TRANSACTION-CONNECTION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    OBJECT-IDENTITY,
+    IpAddress,
+    Unsigned32
+        FROM SNMPv2-SMI
+    DateAndTime,
+    TimeInterval,
+    TruthValue
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    ifIndex
+        FROM IF-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoTransactionConnectionMIB MODULE-IDENTITY
+    LAST-UPDATED    "200512220000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:    170 W. Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+            E-mail: ctrc-dev@external.cisco.com"
+    DESCRIPTION
+            "The MIB module for retrieving Cisco Transaction 
+            Connection configuration and status.  Cisco Transaction 
+            Connection routes transactions between IBM CICS (Customer
+            Information Control System) hosts and clients using the 
+            ISC (Inter-System Communication) protocol."
+    REVISION        "200512220000Z"
+    DESCRIPTION
+            "Imported Unsigned32 from SNMPv2-SMI instead
+            of CISCO-TC."
+    REVISION        "9908190000Z"
+    DESCRIPTION
+            "The initial version of this MIB module."
+    ::= { ciscoMgmt 144 }
+
+ciscoTransConnMIBObjects OBJECT IDENTIFIER
+    ::= { ciscoTransactionConnectionMIB 1 }
+
+-- License Information
+ctcLicense OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+            "An object containing a Cisco Transaction Connection
+            license."
+    ::= { ciscoTransConnMIBObjects 1 }
+
+ctcLicenseState OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        unconfigured(1),
+                        notValidatedYet(2),
+                        badKey(3),
+                        licenseOK(4),
+                        expired(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The state of the Transaction Connection license.
+            unconfigured    : A license key has not been provided.
+            notValidatedYet : A license key has been provided, but
+                              it cannot be validated until a server
+                              is created. When the first server is
+                              created, the license key is validated,
+                              changing the license state to one of 
+                              the following.
+            badKey          : The content of ctcLicenseKey is not a 
+                              valid license key.
+            licenseOK       : The license has been validated.
+            expired         : The expiration date of the license 
+                              has passed."
+    ::= { ctcLicense 1 }
+
+ctcLicenseKey OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE (16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "A Transaction Connection license key. The field must 
+             be exactly 32 hexadecimal characters in length."
+    ::= { ctcLicense 2 }
+
+ctcLicenseMaxConn OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The maximum number of connections allowed by the license.
+            This field contains zero if the license is for an unlimited
+            number of connections or if the ctcLicenseState is not 
+            licenseOK."
+    ::= { ctcLicense 3 }
+
+ctcLicenseCurrConn OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Current number of connections in use. Normally, the value
+            of this field should be less then or equal to the value in
+            ctcLicenseMaxConn if it is not zero. However, when a license
+            key is changed to decrease the maximum number ofconnections,
+            the value  of this field may temporarily exceed the limit.
+            When this occurs, existing connections will not be deleted
+            automatically to meet the new, smaller limit.  New 
+            connections will be denied until the existing connections 
+            voluntarily disconnect."
+    ::= { ctcLicense 4 }
+
+ctcLicenseExpiration OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The expiration date of the Transaction Connection
+            license. This object contains a valid expiration date only
+            if the license is not permanent."
+    ::= { ctcLicense 5 }
+
+-- Destination Information
+ctcDestinationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtcDestinationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A table containing Cisco Transaction Connection
+            destination configurations."
+    ::= { ciscoTransConnMIBObjects 2 }
+
+ctcDestinationEntry OBJECT-TYPE
+    SYNTAX          CtcDestinationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A row containing a Cisco Transaction Connection
+            destination configuration."
+    INDEX           { ctcDestinationName }
+    ::= { ctcDestinationTable 1 }
+
+CtcDestinationEntry ::= SEQUENCE {
+    ctcDestinationName          SnmpAdminString,
+    ctcDestinationRemoteLUName  SnmpAdminString,
+    ctcDestinationModeName      SnmpAdminString,
+    ctcDestinationNumHits       Unsigned32
+}
+
+ctcDestinationName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     
+            "The destination name."
+    ::= { ctcDestinationEntry 1 }
+
+ctcDestinationRemoteLUName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..17))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The Remote LU (Logical Unit) name of the destination
+            target."
+    ::= { ctcDestinationEntry 2 }
+
+ctcDestinationModeName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..10))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The mode name of the destination target. In SNA, a mode
+            name is the name used by the initiator of a session to 
+            designate the characteristics desired for that session,
+            such as traffic pacing values, message length limits, 
+            and the class of service within the transport network."
+    ::= { ctcDestinationEntry 3 }
+
+ctcDestinationNumHits OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of hits the destination target has received. A
+            hit is registered each time a route is looked up. This 
+            means that every time a connection is established, one 
+            destination target of the route has its hit count 
+            incremented."
+    ::= { ctcDestinationEntry 4 }
+
+-- Route Information
+ctcRouteTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtcRouteEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A table containing Cisco Transaction Connection route
+            configurations."
+    ::= { ciscoTransConnMIBObjects 3 }
+
+ctcRouteEntry OBJECT-TYPE
+    SYNTAX          CtcRouteEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A row containing a Cisco Transaction Connection
+            destination configuration."
+    INDEX           { ifIndex }
+    ::= { ctcRouteTable 1 }
+
+CtcRouteEntry ::= SEQUENCE {
+    ctcRouteOwningServer     Unsigned32,
+    ctcRouteTransactionID    SnmpAdminString,
+    ctcRouteDestinationName  SnmpAdminString
+}
+
+ctcRouteOwningServer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The ctcServerIndex of the server that owns this route."
+    ::= { ctcRouteEntry 1 }
+
+ctcRouteTransactionID OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     
+            "The transaction ID that this route handles."
+    ::= { ctcRouteEntry 2 }
+
+ctcRouteDestinationName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     
+            "The name of this route's destination."
+    ::= { ctcRouteEntry 3 }
+
+-- Server Table
+ctcServerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtcServerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A table containing Transaction Connection servers."
+    ::= { ciscoTransConnMIBObjects 4 }
+
+ctcServerEntry OBJECT-TYPE
+    SYNTAX          CtcServerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A row containing a Transaction Connection server. This
+            server routes APPC (Advanced Program-to-Program 
+            Communcations)  data streams between TCP/IP clients and
+            CICS hosts. Each server will have a unique IP address and
+            port."
+    INDEX           { ctcServerIndex }
+    ::= { ctcServerTable 1 }
+
+CtcServerEntry ::= SEQUENCE {
+    ctcServerIndex              Unsigned32,
+    ctcServerName               SnmpAdminString,
+    ctcServerListening          TruthValue,
+    ctcServerIPAddr             IpAddress,
+    ctcServerPort               Unsigned32,
+    ctcServerDestinationName    SnmpAdminString,
+    ctcServerClientTimeout      Unsigned32,
+    ctcServerHostTimeout        Unsigned32,
+    ctcServerWindowSize         Unsigned32,
+    ctcServerConnectionCount    Unsigned32,
+    ctcServerProgNameUpperCase  TruthValue
+}
+
+ctcServerIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     
+            "The index of this server in the server list."
+    ::= { ctcServerEntry 1 }
+
+ctcServerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     
+            "The name of the server."
+    ::= { ctcServerEntry 2 }
+
+ctcServerListening OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object reflects whether or not the server is
+            listening for connections.  A return value of 'true' 
+            means the server is actively listening."
+    ::= { ctcServerEntry 3 }
+
+ctcServerIPAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object reflects the IP address for which the server is
+            listening for connections. If it is set to 0.0.0.0, then 
+            the server is listening on all IP addresses."
+    DEFVAL          { '00000000'H }
+    ::= { ctcServerEntry 4 }
+
+ctcServerPort OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The port on which the server is listening for connections."
+    DEFVAL          { 1435 }
+    ::= { ctcServerEntry 5 }
+
+ctcServerDestinationName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object reflects the name of this server's default
+            destination."
+    ::= { ctcServerEntry 6 }
+
+ctcServerClientTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..1440)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object reflects the period of time that a client end
+            connection can remain idle before being dropped by a server.
+            The maximum time is 24 hours. If set to 0, the server will
+            never drop the connection due to a timeout event."
+    DEFVAL          { 0 }
+    ::= { ctcServerEntry 7 }
+
+ctcServerHostTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..1440)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object reflects the period of time that a host end
+            connection can remain idle before being dropped by a server.
+            The maximum time is 24 hours. If set to 0, the server will
+            never drop the connection due to a timeout event."
+    DEFVAL          { 0 }
+    ::= { ctcServerEntry 8 }
+
+ctcServerWindowSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "TCP window size for each connection of the Transaction
+            Connection server."
+    DEFVAL          { 4096 }
+    ::= { ctcServerEntry 9 }
+
+ctcServerConnectionCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of connections on this server at this moment."
+    ::= { ctcServerEntry 10 }
+
+ctcServerProgNameUpperCase OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object reflects whether or not the server will
+            convert CICS program names to upper case. A return value of 
+            'true' means the server will convert such names to upper 
+            case."
+    DEFVAL          { true }
+    ::= { ctcServerEntry 11 }
+
+-- Connection Table
+ctcConnectionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtcConnectionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A table containing connection information. Each row
+            reflects a client connection that is active at this moment."
+    ::= { ciscoTransConnMIBObjects 5 }
+
+ctcConnectionEntry OBJECT-TYPE
+    SYNTAX          CtcConnectionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION     
+            "A row containing connection information."
+    INDEX           { ifIndex }
+    ::= { ctcConnectionTable 1 }
+
+CtcConnectionEntry ::= SEQUENCE {
+    ctcConnectionId                  OCTET STRING,
+    ctcConnectionServer              Unsigned32,
+    ctcConnectionState               INTEGER,
+    ctcConnectionSessionCount        Unsigned32,
+    ctcConnectionClientIPAddr        IpAddress,
+    ctcConnectionClientPort          Unsigned32,
+    ctcConnectionTotalConversations  Unsigned32,
+    ctcConnectionConnectTime         DateAndTime,
+    ctcConnectionIdleTime            TimeInterval,
+    ctcConnectionTotalBytesRecvd     Unsigned32
+}
+
+ctcConnectionId OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE (4))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     
+            "The ID of the connection object."
+    ::= { ctcConnectionEntry 1 }
+
+ctcConnectionServer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The ctcServerIndex of the server that owns this
+            connection."
+    ::= { ctcConnectionEntry 2 }
+
+ctcConnectionState OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        reset(1),
+                        closing(2),
+                        halt(3),
+                        receiving(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The state of a connection object.
+            reset     :  the connection is ready to process data
+            closing   :  the connection is in the process of closing
+            halt      :  the connection has halted due to an error 
+                         condition
+            receiving :  the connection is receive normal data"
+    ::= { ctcConnectionEntry 3 }
+
+ctcConnectionSessionCount OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of sessions currently in use for the
+            connection."
+    ::= { ctcConnectionEntry 4 }
+
+ctcConnectionClientIPAddr OBJECT-TYPE
+    SYNTAX          IpAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "IP address of client machine using this connection."
+    ::= { ctcConnectionEntry 5 }
+
+ctcConnectionClientPort OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Port number used on client machine for this connection."
+    ::= { ctcConnectionEntry 6 }
+
+ctcConnectionTotalConversations OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of conversations that have been processed by
+            the connection."
+    ::= { ctcConnectionEntry 7 }
+
+ctcConnectionConnectTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     
+            "The moment when the connection was established."
+    ::= { ctcConnectionEntry 8 }
+
+ctcConnectionIdleTime OBJECT-TYPE
+    SYNTAX          TimeInterval
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Amount of time the connection has gone without activity."
+    ::= { ctcConnectionEntry 9 }
+
+ctcConnectionTotalBytesRecvd OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     
+            "The total number of bytes received from client."
+    ::= { ctcConnectionEntry 10 }
+
+-- Transaction Table
+ctcTransactionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CtcTransactionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A table containing transaction information. Each row
+            reflects a host transaction that is active at this moment."
+    ::= { ciscoTransConnMIBObjects 6 }
+
+ctcTransactionEntry OBJECT-TYPE
+    SYNTAX          CtcTransactionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION     
+            "A row containing transaction information."
+    INDEX           { ifIndex }
+    ::= { ctcTransactionTable 1 }
+
+CtcTransactionEntry ::= SEQUENCE {
+    ctcTransactionSessionId     OCTET STRING,
+    ctcTransactionServer        Unsigned32,
+    ctcTransactionConnectionId  OCTET STRING,
+    ctcTransactionState         INTEGER,
+    ctcTransactionTPName        SnmpAdminString,
+    ctcTransactionUserId        SnmpAdminString
+}
+
+ctcTransactionSessionId OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE (4))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION     
+            "The ID of the transaction session object."
+    ::= { ctcTransactionEntry 1 }
+
+ctcTransactionServer OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The ctcServerIndex of the server that owns this
+            transaction."
+    ::= { ctcTransactionEntry 2 }
+
+ctcTransactionConnectionId OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE (4))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The ID of the transaction session object's connection."
+    ::= { ctcTransactionEntry 3 }
+
+ctcTransactionState OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        reset(1),
+                        opening(2),
+                        sending(3),
+                        receiving(4),
+                        exception(5),
+                        exceptionresponse(6),
+                        closing(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The state of a connection object.
+            reset             : the transaction is ready to process data
+            opening           : the transaction is opening a connection
+            sending           : the transaction is sending data
+            receiving         : the transaction is receiving data
+            exception         : the transaction has encountered an error
+            exceptionresponse : the transaction is awaiting an error 
+                                response
+            closing           : the transaction is in the process of 
+                                closing"
+    ::= { ctcTransactionEntry 4 }
+
+ctcTransactionTPName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The transaction program name of the transaction. This is
+            sometimes referred to as the TRANID in CICS."
+    ::= { ctcTransactionEntry 5 }
+
+ctcTransactionUserId OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE (0..16))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The user ID that was used to initiate the transaction."
+    ::= { ctcTransactionEntry 6 }
+
+-- conformance information
+ciscoTransConnMIBConformance OBJECT IDENTIFIER
+    ::= { ciscoTransactionConnectionMIB 3 }
+
+ciscoTransConnMIBCompliances OBJECT IDENTIFIER
+    ::= { ciscoTransConnMIBConformance 1 }
+
+ciscoTransConnMIBGroups OBJECT IDENTIFIER
+    ::= { ciscoTransConnMIBConformance 2 }
+
+-- compliance statement
+ciscoTransConnMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+            "The compliance statement for entities which implement the
+            Cisco Transaction Connection MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoTransConnLicenseGroup,
+                        ciscoTransConnDestinationGroup,
+                        ciscoTransConnRouteGroup,
+                        ciscoTransConnServerGroup,
+                        ciscoTransConnConnectionGroup,
+                        ciscoTransConnTransactionGroup
+                    }
+    ::= { ciscoTransConnMIBCompliances 1 }
+
+-- units of conformance
+ciscoTransConnLicenseGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctcLicenseState,
+                        ctcLicenseKey,
+                        ctcLicenseMaxConn,
+                        ctcLicenseCurrConn,
+                        ctcLicenseExpiration
+                    }
+    STATUS          current
+    DESCRIPTION
+            "A collection of objects providing Transaction Connection
+            license monitoring."
+    ::= { ciscoTransConnMIBGroups 1 }
+
+ciscoTransConnDestinationGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctcDestinationName,
+                        ctcDestinationRemoteLUName,
+                        ctcDestinationModeName,
+                        ctcDestinationNumHits
+                    }
+    STATUS          current
+    DESCRIPTION
+            "A collection of objects providing Transaction Connection
+            destination monitoring."
+    ::= { ciscoTransConnMIBGroups 2 }
+
+ciscoTransConnRouteGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctcRouteOwningServer,
+                        ctcRouteTransactionID,
+                        ctcRouteDestinationName
+                    }
+    STATUS          current
+    DESCRIPTION
+            "A collection of objects providing Transaction Connection
+            route monitoring."
+    ::= { ciscoTransConnMIBGroups 3 }
+
+ciscoTransConnServerGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctcServerIndex,
+                        ctcServerName,
+                        ctcServerListening,
+                        ctcServerIPAddr,
+                        ctcServerPort,
+                        ctcServerDestinationName,
+                        ctcServerClientTimeout,
+                        ctcServerHostTimeout,
+                        ctcServerWindowSize,
+                        ctcServerConnectionCount,
+                        ctcServerProgNameUpperCase
+                    }
+    STATUS          current
+    DESCRIPTION
+            "A collection of objects providing Transaction Connection
+            server monitoring."
+    ::= { ciscoTransConnMIBGroups 4 }
+
+ciscoTransConnConnectionGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctcConnectionId,
+                        ctcConnectionServer,
+                        ctcConnectionState,
+                        ctcConnectionSessionCount,
+                        ctcConnectionClientIPAddr,
+                        ctcConnectionClientPort,
+                        ctcConnectionTotalConversations,
+                        ctcConnectionConnectTime,
+                        ctcConnectionIdleTime,
+                        ctcConnectionTotalBytesRecvd
+                    }
+    STATUS          current
+    DESCRIPTION
+            "A collection of objects providing Transaction Connection
+            monitoring."
+    ::= { ciscoTransConnMIBGroups 5 }
+
+ciscoTransConnTransactionGroup OBJECT-GROUP
+    OBJECTS         {
+                        ctcTransactionSessionId,
+                        ctcTransactionServer,
+                        ctcTransactionConnectionId,
+                        ctcTransactionState,
+                        ctcTransactionTPName,
+                        ctcTransactionUserId
+                    }
+    STATUS          current
+    DESCRIPTION
+            "A collection of objects providing Transaction Connection
+            transaction monitoring."
+    ::= { ciscoTransConnMIBGroups 6 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+     
+  
+ 
+ 

@@ -1,0 +1,253 @@
+-- *****************************************************************
+-- CISCO-VISM-PORT-MIB 
+--   The MIB contain Port configuration information for 
+--   VISM(Voice Interworking Service Module).
+--
+-- October 2003, George Ogagan
+--
+-- Copyright (c) 2003 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-VISM-PORT-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32
+                               FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP               FROM SNMPv2-CONF
+    vismPort                   FROM BASIS-MIB
+    ciscoWan                   FROM CISCOWAN-SMI;
+
+ciscoVismPortMIB MODULE-IDENTITY
+    LAST-UPDATED    "200310160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module containing Port information for VISM service module."
+
+    REVISION    "200310160000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in SMIv1 version. The MIB has been converted to
+        SMIv2 version and descriptions of some of the objects
+        have been modified."
+    ::= { ciscoWan 92 }
+
+
+vismPortCnfGrp          OBJECT IDENTIFIER ::= { vismPort 1 }
+
+--
+-- vismPortConfig group
+--
+-- This port configuration group is used for configuring the virtual
+-- port between VISM and PXM. This group contains only a single port
+-- which is the network port.
+-- 
+-- The virtual port has to be configured before
+-- adding LCN(Logical Channel Numbers) connections. 
+-- All the LCNs are added on the same port. 
+--
+
+vismPortCnfGrpTable    OBJECT-TYPE
+    SYNTAX        SEQUENCE OF VismPortCnfGrpEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "Port configuration table for the virtual port.
+        Only one entry is allowed in this table.
+        "
+    ::= { vismPortCnfGrp 1 }
+
+vismPortCnfGrpEntry    OBJECT-TYPE
+    SYNTAX        VismPortCnfGrpEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        " An entry for logical port.
+        "
+    INDEX    { vismPortNum }
+    ::= { vismPortCnfGrpTable 1 }
+
+VismPortCnfGrpEntry ::=
+    SEQUENCE {
+        vismPortNum             Integer32,
+        vismPortRowStatus       INTEGER,
+        vismPortLineNum         Integer32,
+        vismPortType            INTEGER,
+        vismPortDs0ConfigBitMap Integer32,
+        vismPortSpeed           Integer32,
+        vismPortState           INTEGER
+        }
+
+vismPortNum    OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647) 
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This is a logical port number. If PXM1
+         (Processor Switch Module) is the PXM
+         used on the shelf this object should be set to 1.
+         For PXM1E this object should be set to 255.
+        "
+    ::= { vismPortCnfGrpEntry 1}
+
+vismPortRowStatus  OBJECT-TYPE
+    SYNTAX     INTEGER {
+                 add(1),
+                 del(2),
+                 mod(3)
+                }
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The object add, delete or modify a port.
+ 
+         'add' - add a port, a port acn only be added if the
+                 status is in 'del'.
+         'del' - delete a port, once a port is deleted
+                 the status is chane to 'del'. The port 
+                 can only be deleted after deleting all the
+                 connections and the resource partition. 
+         'mod' - modify a port and change status to 'mod'. 
+        "
+    ::= { vismPortCnfGrpEntry 2 }
+
+vismPortLineNum  OBJECT-TYPE
+    SYNTAX       Integer32 (0..8) 
+    MAX-ACCESS   read-create 
+    STATUS       current
+    DESCRIPTION
+        "This represents the line number to which this port is associated.
+         Since the network port is not associated with any line,
+         line number 0 is returned on a GET.
+        "
+    DEFVAL { 0 }
+    ::= { vismPortCnfGrpEntry 3}
+
+vismPortType   OBJECT-TYPE
+    SYNTAX        INTEGER {
+                  voIP     (1),
+                  userPort (2)
+                 }
+    MAX-ACCESS  read-create 
+    STATUS      current
+    DESCRIPTION
+        "The value of this object is always set to 'voIP'.
+         It indicates that network port. The same value
+         is used even when VISM supports VoAAL1 or VoAAL2.
+        "
+    DEFVAL { voIP }
+    ::= { vismPortCnfGrpEntry 4 }
+
+vismPortDs0ConfigBitMap    OBJECT-TYPE
+    SYNTAX       Integer32 (0..'ffffff'h) 
+    MAX-ACCESS   read-create 
+    STATUS       current
+    DESCRIPTION
+        "This respesents the bit map of DS0s which is used to create
+         this port.  Bit 0 represents DS0-1.
+         Since this object is not applicable to the network port, 
+         value 0 is returned on a GET.
+        "
+    DEFVAL { 0 }
+    ::= { vismPortCnfGrpEntry 5 }
+
+vismPortSpeed   OBJECT-TYPE
+    SYNTAX      Integer32 (1..5651320)
+    MAX-ACCESS  read-create 
+    STATUS      current
+    DESCRIPTION
+        "The speed of the port in cells per second.
+         It is used by VISM card to advertise virtual port bandwidth to 
+         the controller, SVC(Switched Virtual Circuit) and
+         PVC(Permanent Virtual Circuit) connection admission
+         control and aggregate traffic clipping.
+
+         This object can be modified only when there is no existing
+         resource partition on the port.
+        "
+    DEFVAL { 5651320 }
+    ::= { vismPortCnfGrpEntry 6 }
+
+vismPortState OBJECT-TYPE
+    SYNTAX     INTEGER {
+                 notConfigured(1),
+                 active       (2)
+                }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object indicates the state of the port.
+        "
+    ::= { vismPortCnfGrpEntry 7 }
+
+-- conformance information
+
+ciscoVismPortMIBConformance  OBJECT IDENTIFIER ::= { ciscoVismPortMIB 2 }
+
+ciscoVismPortMIBGroups       OBJECT IDENTIFIER ::=
+                              { ciscoVismPortMIBConformance 1 }
+
+ciscoVismPortMIBCompliances  OBJECT IDENTIFIER ::=
+                              { ciscoVismPortMIBConformance 2 }
+
+-- compliance statements
+
+ciscoVismPortCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for objects related
+        to VISM Port module."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+         ciscoVismPortGroup
+        }
+
+    OBJECT       vismPortLineNum
+    MIN-ACCESS   read-only
+    DESCRIPTION  "Write access is not required."
+
+    OBJECT       vismPortType 
+    MIN-ACCESS   read-only
+    DESCRIPTION  "Write access is not required."
+
+    OBJECT       vismPortDs0ConfigBitMap 
+    MIN-ACCESS   read-only
+    DESCRIPTION  "Write access is not required."
+
+    ::= { ciscoVismPortMIBCompliances 1 }
+
+
+ciscoVismPortGroup OBJECT-GROUP
+     OBJECTS {
+        vismPortNum,
+        vismPortRowStatus,
+        vismPortLineNum,
+        vismPortType,
+        vismPortDs0ConfigBitMap,
+        vismPortSpeed,
+        vismPortState
+     }
+     STATUS current
+     DESCRIPTION
+          "The collection of objects which are used to represent
+          VISM Port information."
+      ::= { ciscoVismPortMIBGroups 1 }
+
+END
+
+

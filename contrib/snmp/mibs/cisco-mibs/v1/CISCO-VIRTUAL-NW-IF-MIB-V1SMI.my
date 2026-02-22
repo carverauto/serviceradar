@@ -1,0 +1,317 @@
+-- MIB file created 27-Dec-2002 14:30:10, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VIRTUAL-NW-IF-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VIRTUAL-NW-IF-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InterfaceIndex, ifName
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    entPhysicalIndex
+            FROM ENTITY-MIB
+    FcAddressId
+            FROM CISCO-ST-TC
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoVirtualNwIfMIB OBJECT IDENTIFIER ::= { ciscoMgmt 290 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200210020000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--         Cisco Systems 
+--          Customer Service 
+--    Postal: 170 W Tasman Drive 
+--            San Jose, CA  95134 
+--            USA 
+--    Tel: +1 800 553 -NETS 
+--    E-mail: cs-san@cisco.com
+--  Descr
+--    The MIB module for management of virtual network  
+--     interfaces to VSAN and VLAN.
+--  RevDate
+--    200210020000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoVirtualNwIfObjects OBJECT IDENTIFIER ::= { ciscoVirtualNwIfMIB 1 }
+virtualNwIfMIBConformance OBJECT IDENTIFIER ::= { ciscoVirtualNwIfMIB 2 }
+virtualNwIfConfig OBJECT IDENTIFIER ::= { ciscoVirtualNwIfObjects 1 }
+virtualNwIfStatistics OBJECT IDENTIFIER ::= { ciscoVirtualNwIfObjects 2 }
+virtualNwIfNotification OBJECT IDENTIFIER ::= { ciscoVirtualNwIfObjects 3 }
+virtualNwIfNotifications OBJECT IDENTIFIER ::= { virtualNwIfNotification 0 }
+virtualNwIfMIBCompliances OBJECT IDENTIFIER ::= { virtualNwIfMIBConformance 1 }
+virtualNwIfMIBGroups OBJECT IDENTIFIER ::= { virtualNwIfMIBConformance 2 }
+
+virtualNwIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF VirtualNwIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains one entry for each local virtual  
+         interface to a VSAN or VLAN, at most one such interface 
+         per processor on a Supervisor or Line card managed by 
+         the agent. Each such processor will have an entry in  
+         the entPhysicalTable ( from ENTITY-MIB ) and will have a  
+         unique PhysicalIndex. For e.g. if Line card has  
+         2 processors on it then each processor will have a 
+         entry in the entPhysicaltable and each will have  
+         unique PhysicalIndex. It is possible that there can be 
+         multiple VSAN's or VLAN's per processor, but the  
+         network manager can create only one virtual interface 
+         for a VSAN and only one for a VLAN per physical entity 
+         i.e. per processor on the card. 
+         Note:Processor is represented as a physical entity in 
+         the entPhysicalTable. 
+         Each such interface has a unique ifIndex assigned by  
+         the agent. When requested to create an entry in this 
+         table, the agent also creates a corresponding entry in 
+         the ifTable of IF-MIB and also an entry in the  
+         cieIfInterfaceTable of CISCO-IF-EXTENSION-MIB.  Next,  
+         the agent fills in the values of virtualNwIfIndex, after 
+         which the creation of the entry in this table completes. 
+         The ciiIPIfAddressTable of CISCO-IP-IF-MIB can be used 
+         to configure the IP addresses.  The ifTable and this 
+         table can be used to monitor the interface.  
+        
+         Entries in this table are created by network managers. 
+         But the entries can be deleted either by the network 
+         managers or will be deleted by the agent if the 
+         corresponding VSAN or VLAN is deleted.  
+         An entry will be allowed to be created only if the  
+         corresponding VSAN or VLAN has been created. 
+         The ifType for an created interface of type 'vsan(1)' 
+         will be 'fibreChannel(56)' and of type 'vlan(2)' would 
+         be  'ethernetCsmacd(6)'. "
+    ::= { virtualNwIfConfig 1 }
+
+virtualNwIfEntry OBJECT-TYPE
+    SYNTAX VirtualNwIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry provides information on a local virtual  
+        interface for a VSAN or VLAN."
+    INDEX { entPhysicalIndex, virtualNwIfType, virtualNwIfId }
+    ::= { virtualNwIfTable 1 }
+
+VirtualNwIfEntry ::= SEQUENCE {
+    virtualNwIfType INTEGER,
+    virtualNwIfId Gauge,
+    virtualNwIfIndex InterfaceIndex,
+    virtualNwIfFcId FcAddressId,
+    virtualNwIfOperStatusCause INTEGER,
+    virtualNwIfOperStatusCauseDescr SnmpAdminString,
+    virtualNwIfRowStatus RowStatus
+    }
+
+virtualNwIfType OBJECT-TYPE
+    SYNTAX INTEGER {
+        vsan(1),
+        vlan(2)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "If the virtualNwIfType is vsan(1) and if the  
+         corresponding virtual interface is enabled 
+         ( ifAdminStatus='up' ), then the operational state of 
+         virtual interface will become active  
+         ( ifOperStatus='up' ) only if the VSAN state is active 
+         and a FCID is obtained through a successful FLOGI. 
+         Even if the desired state of the virtual interface is 
+         enabled ( ifAdminStatus='up' ), but if the VSAN state is 
+         non-active or FCID has not been obtained, then the 
+         virtual interface is disabled(ifOperStatus='down'). 
+         Only when the VSAN state becomes active and an FCID is 
+         obtained will the virtual interface be enabled 
+         ( ifOperStatus='up' ). An interface can be disabled while 
+         its VSAN exists by setting ifAdminStatus='down'. When  
+         an VSAN is deleted, the corresponding interface 
+         ( if created ) is also deleted. 
+        
+         If the virtualNwIfType is vlan(2) and if the  
+         corresponding virtual interface is enabled 
+         ( ifAdminStatus='up' ) , then the virtual interface will 
+         become active ( ifOperStatus='up' ) only if the VLAN 
+         state is active. Even if the desired state of the  
+         virtual interface is enabled(ifAdminStatus='up'), but if 
+         the VLAN state is non-active, then the virtual interface 
+         is disabled ( ifOperStatus='down' ) . Only when the VLAN 
+         state becomes active will the virtual interface be  
+         enabled ( ifOperStatus='up' ). An interface can be  
+         disabled while its VLAN exists by setting  
+         ifAdminStatus='down'. When an VLAN is deleted, the 
+         corresponding interface ( if created ) is also deleted. "
+    ::= { virtualNwIfEntry 1 }
+
+virtualNwIfId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The id of VSAN or VLAN, according to the value of 
+         virtualNwIfType. "
+    ::= { virtualNwIfEntry 2 }
+
+virtualNwIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ifIndex of this interface. This value is  
+         dynamically assigned by the agent. It is valid 
+         whenever the value of the corresponding 
+         virtualNwIfRowStatus is 'active'.  
+         The ifType of interface of type vsan(1) will be  
+         'fibreChannel(56)' and of type 'vlan(2)' would be 
+          'ethernetCsmacd(6)'. "
+    ::= { virtualNwIfEntry 3 }
+
+virtualNwIfFcId OBJECT-TYPE
+    SYNTAX FcAddressId
+--    Rsyntax OCTET STRING(SIZE(3))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Fibre Channel Identifier(FC-ID) of this interface. 
+         This object is relevant to interfaces with  
+         'virtualNwIfType' of vsan(1) only. "
+    ::= { virtualNwIfEntry 4 }
+
+virtualNwIfOperStatusCause OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        adminDown(2),
+        vsanNotOperational(3),
+        noFcid(4),
+        kernelConfFailure(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The cause of current operational state of the interface. 
+         'none(1)'              - no failure. 
+         'adminDown(2)'         - 'ifAdminStatus' is down(2). 
+         'vsanNotOperational(3) - VSAN not operational. 
+         'noFcid(4)'            - failed to get an FCID. 
+         'kernelConfFailure(5)' - failed to configure the  
+                                  network device. 
+         The current operational state of the interface is shown 
+         by the 'ifOperStatus' defined in rfc2863. This object 
+         will show 'none(1)' for all the 'ifOperStatus' values 
+         except for 'down(2)'. It will show one of the values 
+         defined above if 'ifOperStatus' is 'down(2)'. "
+    ::= { virtualNwIfEntry 5 }
+
+virtualNwIfOperStatusCauseDescr OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The description for the cause of current operational  
+         state of the interface, shown by the object  
+         'virtualNwIfOperStatusCause'. "
+    ::= { virtualNwIfEntry 6 }
+
+virtualNwIfRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row. "
+    ::= { virtualNwIfEntry 7 }
+
+virtualNwIfCreateEntryNotify TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE virtualNwIfNotification
+    VARIABLES {
+        virtualNwIfIndex, ifName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated by the agent 
+        whenever an virtual interface is created in the, 
+        'virtualNwIfTable'. Note that this notification 
+        is generated only when a new entry is added to the  
+        table and not for any modifications to an existing 
+        entry. "
+    ::= 1
+
+virtualNwIfDeleteEntryNotify TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE virtualNwIfNotification
+    VARIABLES {
+        virtualNwIfIndex }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated by the agent 
+        whenever an virtual interface is deleted from the 
+        'virtualNwIfTable'. "
+    ::= 2
+
+virtualNwIfGroup OBJECT IDENTIFIER ::= { virtualNwIfMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to virtual interface 
+--     parameters. 
+--  objects
+--    virtualNwIfIndex, virtualNwIfFcId, virtualNwIfOperStatusCause, 
+--    virtualNwIfOperStatusCauseDescr, virtualNwIfRowStatus
+
+virtualNwIfNotificationGroup OBJECT IDENTIFIER ::= { virtualNwIfMIBGroups 2 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for monitoring virtual  
+--     interfaces. 
+--  notifications
+--    virtualNwIfCreateEntryNotify, virtualNwIfDeleteEntryNotify
+
+virtualNwIfMIBCompliance OBJECT IDENTIFIER ::= { virtualNwIfMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which  
+--    implement the CISCO-VIRTUAL-NW-IF-MIB mib. 
+--  Module
+--    >>current<<
+--   MandGroup
+--    virtualNwIfGroup
+--   MandGroup
+--    virtualNwIfNotificationGroup
+--   ObjVar
+--    virtualNwIfRowStatus
+
+
+END
+

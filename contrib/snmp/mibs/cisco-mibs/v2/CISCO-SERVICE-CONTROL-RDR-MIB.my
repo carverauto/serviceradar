@@ -1,0 +1,829 @@
+-- *****************************************************************
+-- CISCO-SERVICE-CONTROL-RDR-MIB.my
+--   
+-- MIB file for Cisco Service Control Raw Data Reporter.
+-- March 2007, Zaryab Munir.
+--   
+-- Copyright (c) 2007 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- ****************************************************************
+
+CISCO-SERVICE-CONTROL-RDR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    NOTIFICATION-TYPE,
+    Gauge32,
+    Unsigned32,
+    Integer32,
+    TimeTicks
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    entPhysicalIndex,
+    entPhysicalName
+        FROM ENTITY-MIB
+    TruthValue,
+    TimeStamp
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoServiceControlRdrMIB MODULE-IDENTITY
+    LAST-UPDATED    "200708140000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-excelsior-dev@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects describing statistics and
+        configuration relating to the Raw Data Record Formatter running
+        on a service control entity.
+
+        The Raw Data Record (RDR) formatter is a component implemented
+        by the service control entity that gathers raw data records
+        produced by the entity and delivers them to external entities
+        as reports.  The external entities are called RDR destinations
+        or RDR collectors.  The RDR formatter can be configured to send
+        reports to one or multiple destinations. 
+
+        RDR formatter can group RDRs into potentially four categories.
+        RDR mapping to the categories is done by the client application
+        or the user and reflects different logical destinations or
+        purposes.  For example the application may map Quota related
+        RDRs to category 1, and Transaction related RDRs to category 2. 
+        The user can configure these categories to different
+        destinations and assign them with different priorities.  Each
+        category has a separate queue for forwarding the RDRs and has
+        seperate counters for gathering of statistics (sent, dropped,
+        queued etc.).  An RDR can belong to any one of the category as
+        chosen by the user or client application.  
+
+        The RDR formatter supports multiple destinations identified by
+        IP address and a port number. Each destination is assigned with
+        a priority for each of the categories.  Priority is a number in
+        the range of 1-100, with 100 being the highest priority.  The
+        priorities are effective only when the formatter is in
+        forwarding mode 'Redundancy' and are configured during
+        destination configuration (while assigning the destination with
+        categories).  For example we have destination A configured with
+        category 1 which is configured with priority 100, destination B
+        configured with category 1 and priority 80 and destination C
+        with category 1 and priority 90.  When in redundancy mode the
+        formatter will set the active destination for a category to be
+        the destination with the highest priority.  For category 1 the
+        active destination will be A. If destination A goes down then
+        the next destination selected by the formatter as active is
+        destination C."
+    REVISION        "200708140000Z"
+    DESCRIPTION
+        "Initial version of this MIB module"
+    ::= { ciscoMgmt 637 }
+
+
+ciscoSCRdrMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoServiceControlRdrMIB 0 }
+
+ciscoSCRdrMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoServiceControlRdrMIB 1 }
+
+ciscoSCRdrMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoServiceControlRdrMIB 2 }
+
+
+cscRdrFormatterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CscRdrFormatterEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the operational information and aggregated
+        statistics for the RDR formatter of a service control entity."
+    ::= { ciscoSCRdrMIBObjects 1 }
+
+cscRdrFormatterEntry OBJECT-TYPE
+    SYNTAX          CscRdrFormatterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry contains the operational data and global counters
+        for the RDR formatter associated with the service control entity
+        identified by its assigned entPhysicalIndex.  An entry exists
+        for each corresponding row in the entPhysicalTable having one of
+        the following values assigned to entPhysicalVendorType:
+            - cevChassisSCE2000
+            - cevChassisSCE1000
+            - cevNmeApaModule."
+    INDEX           { entPhysicalIndex } 
+    ::= { cscRdrFormatterTable 1 }
+
+CscRdrFormatterEntry ::= SEQUENCE {
+        cscRdrFormatterEnable              TruthValue,
+        cscRdrFormatterNumSentReports      Counter32,
+        cscRdrFormatterNumDiscardedReports Counter32,
+        cscRdrFormatterReportRate          Gauge32,
+        cscRdrFormatterReportRatePeak      Gauge32,
+        cscRdrFormatterReportRatePeakTime  TimeTicks,
+        cscRdrFormatterProtocol            INTEGER ,
+        cscRdrFormatterForwardingMode      INTEGER 
+}
+
+cscRdrFormatterEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the RDR formatter is enabled or
+        disabled.  When the RDR formatter is enabled, it sends the
+        records it gets from the traffic processors to the RDR
+        destination as defined in the cscRdrDestTable." 
+    ::= { cscRdrFormatterEntry 1 }
+
+cscRdrFormatterNumSentReports OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of reports sent by the
+        RDR formatter.
+
+        Discontinuities in the value of this counter can occur at
+        disabling/enabling of the RDR formatter, and at other times
+        as indicated by the value of cscRdrCounterDiscontinuityTime." 
+    ::= { cscRdrFormatterEntry 2 }
+
+cscRdrFormatterNumDiscardedReports OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of reports discarded by the
+        RDR formatter due to insufficient resources or unavailibility
+        of
+        the destination.
+
+        Discontinuities in the value of this counter can occur at
+        disabling/enabling of the RDR formatter, and at other times
+        as indicated by the value of cscRdrCounterDiscontinuityTime." 
+    ::= { cscRdrFormatterEntry 3 }
+
+cscRdrFormatterReportRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "reports per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the rate at which the RDR formatter is
+        currently sending reports to all of the destinations." 
+    ::= { cscRdrFormatterEntry 4 }
+
+cscRdrFormatterReportRatePeak OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "reports per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum rate at which the RDR
+        formatter sent reports to all of the destinations since
+        sysUpTime, if cscRdrCounterDiscontinuityTime is zero.  If
+        cscRdrCounterDiscontinuityTime has a non zero value, the
+        maximum rate is determined from this value." 
+    ::= { cscRdrFormatterEntry 5 }
+
+cscRdrFormatterReportRatePeakTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time elapsed since the
+        cscRdrFormatterReportRatePeak value occured." 
+    ::= { cscRdrFormatterEntry 6 }
+
+cscRdrFormatterProtocol OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        rdrv1(2),
+                        netflowV9(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the RDR protocol currently used by the
+        RDR formatter.
+        'other'      : The RDR formatter is using a protocol not 
+                       recognized by this revision of the MIB.
+        'rdrv1'      : RDR protocol version 1
+        'netflowV9'  : NetFlow ver 9"
+    DEFVAL          { rdrv1 } 
+    ::= { cscRdrFormatterEntry 7 }
+
+cscRdrFormatterForwardingMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        redundancy(2),
+                        simpleLoadBalancing(3),
+                        multicast(4)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the mode by which the RDR formatter
+        sends the reports to its destinations.
+        'other'                : The RDR formatter is using a protocol 
+                                 not recognized by this revision of the 
+                                 MIB.
+        'redundancy'           : The reports are sent to the primary 
+                                 (active destination) and all of the
+                                 other destinations are in standby.
+        'simpleLoadBalancing'  : The reports are sent to one
+        destination
+                                 at a time in a round robin manner.
+        'multicast'            : The reports are sent to all of the 
+                                 destinations."
+    DEFVAL          { redundancy } 
+    ::= { cscRdrFormatterEntry 8 }
+ 
+
+
+cscRdrDestTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CscRdrDestEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the addresses of the configured RDR
+        destination servers and the corresponding connection status for
+        each destination.  The RDR formatter sends reports to one or
+        more configured destinations that have a connection to the RDR
+        formatter.
+        This table also shows the current connection status of each
+        destination."
+    ::= { ciscoSCRdrMIBObjects 2 }
+
+cscRdrDestEntry OBJECT-TYPE
+    SYNTAX          CscRdrDestEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry contains the operational data and global counters
+        for a connection between the RDR formatter destination and the
+        RDR formatter associated with the service control entity
+        identified by its assigned entPhysicalIndex.  An entry exists
+        for each corresponding row in the entPhysicalTable having one
+        of
+        the following values assigned to entPhysicalVendorType:
+            - cevChassisSCE2000
+            - cevChassisSCE1000
+            - cevNmeApaModule.
+
+        Each connection between RDR formatter and RDR destination is
+        uniquely identified by 'cscRdrDestIndex'."
+    INDEX           {
+                        entPhysicalIndex,
+                        cscRdrDestIndex
+                    } 
+    ::= { cscRdrDestTable 1 }
+
+CscRdrDestEntry ::= SEQUENCE {
+        cscRdrDestIndex               Unsigned32,
+        cscRdrDestInetAddressType     InetAddressType,
+        cscRdrDestInetAddress         InetAddress,
+        cscRdrDestPort                InetPortNumber,
+        cscRdrDestPriority            Integer32,
+        cscRdrDestStatus              INTEGER ,
+        cscRdrDestConnectionStatus    INTEGER ,
+        cscRdrDestNumSentReports      Counter32,
+        cscRdrDestNumDiscardedReports Counter32,
+        cscRdrDestReportRate          Gauge32
+}
+
+cscRdrDestIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A monotonically increasing integer for the sole purpose of
+        indexing RDR destinations.  When it reaches the maximum value
+        the agent flushes the table and wraps the value back to 1." 
+    ::= { cscRdrDestEntry 1 }
+
+cscRdrDestInetAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of Internet address by which
+        the RDR destination server is reachable." 
+    ::= { cscRdrDestEntry 2 }
+
+cscRdrDestInetAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the RDR destination server IP Address." 
+    ::= { cscRdrDestEntry 3 }
+
+cscRdrDestPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the port on which the RDR destination
+        server listens." 
+    ::= { cscRdrDestEntry 4 }
+
+cscRdrDestPriority OBJECT-TYPE
+    SYNTAX          Integer32 (1..100 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the priority given to the RDR destination
+        server.  The RDR formatter determines the priority of a
+        destination by the value of entPhysicalIndex and the RDR
+        category of the destination.  RDR formatter assigns the highest
+        priority to the destination which has the same value of
+        entPhysicalIndex and RDR category as that of the RDR formatter. 
+        The RDR formatter activates the destination server which is
+        reachable and with the highest priority." 
+    ::= { cscRdrDestEntry 5 }
+
+cscRdrDestStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        active(2),
+                        standby(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of this RDR destination.
+
+        'other'  :    None of the following.
+        'active' :    The reports are sent to this destination.
+        'standby':    This destination is a backup.
+
+        Only one RDR destination can be 'active' if the
+        cscRdrFormatterForwardingMode is set to either 'redundancy' or
+        'simpleLoadBalancing'.  Multiple RDR destinations can be in
+        'active' state when cscRdrFormatterForwardingMode is set to
+        'multicast'." 
+    ::= { cscRdrDestEntry 6 }
+
+cscRdrDestConnectionStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        up(2),
+                        down(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of the connection between the
+        RDR formatter and this destination.
+        'other'   : The connection is in some unknown state.
+        'up'      : The RDR formatter can reach this destination.
+        'down'    : The RDR formatter cannot reach this destination." 
+    ::= { cscRdrDestEntry 7 }
+
+cscRdrDestNumSentReports OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of reports sent by the
+        RDR formatter to this destination.
+
+        Discontinuities in the value of this counter can occur at
+        disabling/enabling of the RDR formatter, and at other times
+        as indicated by the value of cscRdrCounterDiscontinuityTime." 
+    ::= { cscRdrDestEntry 8 }
+
+cscRdrDestNumDiscardedReports OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of reports dropped by the RDR
+        formatter for this destination. 
+
+        Discontinuities in the value of this counter can occur at
+        disabling/enabling of the RDR formatter, and at other times
+        as indicated by the value of cscRdrCounterDiscontinuityTime." 
+    ::= { cscRdrDestEntry 9 }
+
+cscRdrDestReportRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "reports per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the rate at which the RDR formatter is
+        currently sending reports to this destinations." 
+    ::= { cscRdrDestEntry 10 }
+ 
+
+
+cscRdrCategoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CscRdrCategoryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the operational values and aggregated
+        statistics of the different categories of the RDR Formatter."
+    ::= { ciscoSCRdrMIBObjects 3 }
+
+cscRdrCategoryEntry OBJECT-TYPE
+    SYNTAX          CscRdrCategoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry contains the operational data and global counters
+        for a category configured on a RDR formatter of a service
+        control entity identified by the entPhysicalIndex in the
+        ENTITY-MIB with the entPhysicalVendorType set to any of the
+        following values:
+        'cevChassisSCE2000'
+        'cevChassisSCE1000'
+        'cevNmeApaModule'."
+    INDEX           {
+                        entPhysicalIndex,
+                        cscRdrCategoryIndex
+                    } 
+    ::= { cscRdrCategoryTable 1 }
+
+CscRdrCategoryEntry ::= SEQUENCE {
+        cscRdrCategoryIndex               Unsigned32,
+        cscRdrCategoryID                  Unsigned32,
+        cscRdrCategoryName                SnmpAdminString,
+        cscRdrCategoryNumSentReports      Counter32,
+        cscRdrCategoryNumDiscardedReports Counter32,
+        cscRdrCategoryReportRate          Gauge32,
+        cscRdrCategoryNumQueuedReports    Gauge32
+}
+
+cscRdrCategoryIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the category number, index to the
+        table." 
+    ::= { cscRdrCategoryEntry 1 }
+
+cscRdrCategoryID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the unique id assigned to this RDR
+        category by the RDR formatter." 
+    ::= { cscRdrCategoryEntry 2 }
+
+cscRdrCategoryName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the human readable name assigned to this
+        RDR category by the RDR formatter.  The client application
+        provides the RDR formatter with the value of this object." 
+    ::= { cscRdrCategoryEntry 3 }
+
+cscRdrCategoryNumSentReports OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RDR reports sent over this
+        category.
+
+        Discontinuities in the value of this counter can occur at
+        disabling/enabling of the RDR formatter, and at other times
+        as indicated by the value of cscRdrCounterDiscontinuityTime." 
+    ::= { cscRdrCategoryEntry 4 }
+
+cscRdrCategoryNumDiscardedReports OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RDR reports dropped for
+        this category.
+
+        Discontinuities in the value of this counter can occur at
+        disabling/enabling of the RDR formatter, and at other times
+        as indicated by the value of cscRdrCounterDiscontinuityTime." 
+    ::= { cscRdrCategoryEntry 5 }
+
+cscRdrCategoryReportRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "reports per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the rate at which the RDR formatter is
+        currently sending reports over this category." 
+    ::= { cscRdrCategoryEntry 6 }
+
+cscRdrCategoryNumQueuedReports OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of pending RDR reports within
+        this category." 
+    ::= { cscRdrCategoryEntry 7 }
+ 
+
+
+cscRdrCategoryDestTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CscRdrCategoryDestEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the operational data for RDR destination
+        servers for each RDR category for a service control entity."
+    ::= { ciscoSCRdrMIBObjects 4 }
+
+cscRdrCategoryDestEntry OBJECT-TYPE
+    SYNTAX          CscRdrCategoryDestEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry contains the operational data for a category of
+        RDR formatter for a destination server of the service control
+        entity identified by the entPhysicalIndex in the ENTITY-MIB with
+        the entPhysicalVendorType set to any of the following values:
+        'cevChassisSCE2000'
+        'cevChassisSCE1000'
+        'cevNmeApaModule'."
+    INDEX           {
+                        entPhysicalIndex,
+                        cscRdrCategoryIndex,
+                        cscRdrDestPort,
+                        cscRdrDestInetAddress
+                    } 
+    ::= { cscRdrCategoryDestTable 1 }
+
+CscRdrCategoryDestEntry ::= SEQUENCE {
+        cscRdrCategoryDestPriority Integer32,
+        cscRdrCategoryDestStatus   INTEGER 
+}
+
+cscRdrCategoryDestPriority OBJECT-TYPE
+    SYNTAX          Integer32 (1..100 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the priority configured for this category
+        on the RDR destination server.  The priority is determined by
+        entPhysicalIndex and the category of the destination server." 
+    ::= { cscRdrCategoryDestEntry 1 }
+
+cscRdrCategoryDestStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        active(2),
+                        standby(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of this RDR destination for
+        this category. 
+
+        'other'  :    None of the following.
+        'active' :    The reports are sent to this destination.
+        'standby':    This destination is a backup.
+
+        Only one RDR destination can be 'active' if the
+        cscRdrFormatterForwardingMode is set to either 'redundancy' or
+        'simpleLoadBalancing'.  Multiple RDR destinations can be in
+        'active' state when cscRdrFormatterForwardingMode is set to
+        'multicast'." 
+    ::= { cscRdrCategoryDestEntry 2 }
+ 
+
+cscRdrNotifsConfig  OBJECT IDENTIFIER
+    ::= { ciscoSCRdrMIBObjects 5 }
+
+
+cscRdrCounterDiscontinuityTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of service up time on the most recent occasion at
+        which any one or more of the RDR counters suffered a
+        discontinuity.  If no such discontinuities have occurred since
+        the last re-initialization of the local management subsystem,
+        then this object contains a zero value." 
+    ::= { ciscoSCRdrMIBObjects 6 }
+
+cscRdrReportsEnableNotifs OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls whether the system produces notifications
+        defined in thi MIB.  A 'false' value will prevent the
+        notifications from being generated by this system." 
+    ::= { cscRdrNotifsConfig 1 }
+
+cscRdrCategoryStoppedDiscardingReportsTrap NOTIFICATION-TYPE
+    OBJECTS         {
+                        entPhysicalName,
+                        cscRdrCategoryID
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The system generates this notification to indicate that the
+        system has recovered from congestion or unavailibility of the
+        RDR collector identified by the value of cscRdrCategoryID and
+        has stopped discarding reports being sent to this RDR
+        collector."
+   ::= { ciscoSCRdrMIBNotifs 1 }
+
+cscRdrCategoryDiscardingReportsTrap NOTIFICATION-TYPE
+    OBJECTS         {
+                        entPhysicalName,
+                        cscRdrCategoryID
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The system generates this notification to indicate that the
+        system has either encountered congestion or unavailibility of
+        the RDR collector with the category identified by the value of
+        cscRdrCategoryID and has started discarding reports destined to
+        this collector.  The value of cscRdrCategoryNumReportsDiscarded
+        indicates the number of discarded reports."
+   ::= { ciscoSCRdrMIBNotifs 2 }
+
+cscRdrNoActiveConnectionTrap NOTIFICATION-TYPE
+    OBJECTS         { entPhysicalName }
+    STATUS          current
+    DESCRIPTION
+        "The system generates this notification to indicate that there
+        is no active connection between the RDR formatter and any
+        collector."
+   ::= { ciscoSCRdrMIBNotifs 3 }
+
+cscRdrConnectionStatusDownTrap NOTIFICATION-TYPE
+    OBJECTS         {
+                        entPhysicalName,
+                        cscRdrDestStatus,
+                        cscRdrDestInetAddress,
+                        cscRdrDestPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The system generates this notification to indicate that a
+        connection to destination has transitioned to the 'down' state."
+   ::= { ciscoSCRdrMIBNotifs 4 }
+
+cscRdrActiveConnectionTrap NOTIFICATION-TYPE
+    OBJECTS         {
+                        entPhysicalName,
+                        cscRdrDestInetAddress,
+                        cscRdrDestPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The system generates this notification to indicate that a
+        connection to the destination address cscRdrDestInetAddress has
+        become active on TCP port cscRdrDestPort."
+   ::= { ciscoSCRdrMIBNotifs 5 }
+
+cscRdrConnectionStatusUpTrap NOTIFICATION-TYPE
+    OBJECTS         {
+                        entPhysicalName,
+                        cscRdrDestStatus,
+                        cscRdrDestInetAddress,
+                        cscRdrDestPort
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The system generates this notification to indicate that a
+        connection to the destination address cscRdrDestInetAddress has
+        become transitioned to 'up' state on TCP port cscRdrDestPort."
+   ::= { ciscoSCRdrMIBNotifs 6 }
+-- Conformance
+
+cscRdrMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSCRdrMIBConform 1 }
+
+cscRdrMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSCRdrMIBConform 2 }
+
+
+cscRdrCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for SNMP Agents which implement this
+        MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cscRdrObjectGroup,
+                        cscRdrNotificationGroup,
+                        cscRdrCounterDiscontinuityGroup
+                    }
+
+    GROUP           cscRdrNotifsControlGroup
+    DESCRIPTION
+        "This is optional group."
+    ::= { cscRdrMIBCompliances 1 }
+
+-- Units of Conformance
+
+cscRdrObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cscRdrFormatterEnable,
+                        cscRdrFormatterNumSentReports,
+                        cscRdrFormatterNumDiscardedReports,
+                        cscRdrFormatterReportRate,
+                        cscRdrFormatterProtocol,
+                        cscRdrFormatterForwardingMode,
+                        cscRdrDestInetAddressType,
+                        cscRdrDestInetAddress,
+                        cscRdrDestPort,
+                        cscRdrDestPriority,
+                        cscRdrDestStatus,
+                        cscRdrDestConnectionStatus,
+                        cscRdrDestNumSentReports,
+                        cscRdrDestNumDiscardedReports,
+                        cscRdrDestReportRate,
+                        cscRdrCategoryName,
+                        cscRdrCategoryNumSentReports,
+                        cscRdrCategoryNumDiscardedReports,
+                        cscRdrCategoryReportRate,
+                        cscRdrCategoryNumQueuedReports,
+                        cscRdrCategoryDestPriority,
+                        cscRdrCategoryDestStatus,
+                        cscRdrFormatterReportRatePeak,
+                        cscRdrFormatterReportRatePeakTime,
+                        cscRdrCategoryID
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects maintains informative data for RDRs."
+    ::= { cscRdrMIBGroups 1 }
+
+cscRdrNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cscRdrActiveConnectionTrap,
+                        cscRdrCategoryStoppedDiscardingReportsTrap,
+                        cscRdrCategoryDiscardingReportsTrap,
+                        cscRdrNoActiveConnectionTrap,
+                        cscRdrConnectionStatusDownTrap,
+                        cscRdrConnectionStatusUpTrap
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains notifications for this MIB."
+    ::= { cscRdrMIBGroups 2 }
+
+cscRdrNotifsControlGroup OBJECT-GROUP
+    OBJECTS         { cscRdrReportsEnableNotifs }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects to control the enable/disable
+        state of notification generation."
+    ::= { cscRdrMIBGroups 3 }
+
+cscRdrCounterDiscontinuityGroup OBJECT-GROUP
+    OBJECTS         { cscRdrCounterDiscontinuityTime }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information specific to
+        RDR counter discontinuities."
+    ::= { cscRdrMIBGroups 4 }
+
+END
+
+
+

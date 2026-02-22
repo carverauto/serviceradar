@@ -1,0 +1,1247 @@
+-- *****************************************************************
+-- MSTP-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-MSTP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200MstpMib MODULE-IDENTITY
+    LAST-UPDATED "201403280000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the 802.1Q-2005 MSTP MIB"
+    REVISION    "201403280000Z"
+    DESCRIPTION
+        "Change VLAN ID range specification from (0..4094) to (1..4095)"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201402100000Z"
+    DESCRIPTION
+        "Removed empty capabilities OID"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201311010000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 20 }
+
+
+ME1200MSTPForceVersion ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration control the STP protocol variant to run."
+    SYNTAX      INTEGER { stp(0), rstp(2), mstp(3) }
+
+ME1200Point2Point ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration describe the values of adminPointToPointMAC and
+         operPointToPointMAC parameters. (Full duplex port administrative and
+         operational status.) See 6.4.3 of IEEE Std 802.1D."
+    SYNTAX      INTEGER { forceTrue(0), forceFalse(1), auto(2) }
+
+ME1200PortState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration describe the forwarding state of an interface."
+    SYNTAX      INTEGER { disabled(0), discarding(1), learning(2), forwarding(3) }
+
+me1200Mstp OBJECT IDENTIFIER
+    ::= { me1200MstpMib 1 }
+
+me1200MstpConfig OBJECT IDENTIFIER
+    ::= { me1200Mstp 2 }
+
+me1200MstpBridgeParams OBJECT IDENTIFIER
+    ::= { me1200MstpConfig 1 }
+
+me1200MstpBridgeParamsBridgeMaxAge OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Bridge Max Age, IEEE-802.1D-2004 sect 13.23.4"
+    ::= { me1200MstpBridgeParams 1 }
+
+me1200MstpBridgeParamsBridgeHelloTime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Bridge Hello Time, 13.25.7 of IEEE-802.1Q-2005. Fixed value of two
+         seconds by the standard, but this implementation allow a compatibility
+         range from 1 to 2 seconds, in stipulated in 802.1Q-2005"
+    ::= { me1200MstpBridgeParams 2 }
+
+me1200MstpBridgeParamsBridgeForwardDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Bridge Forward Delay, IEEE-802.1D-2004 sect 17.20"
+    ::= { me1200MstpBridgeParams 3 }
+
+me1200MstpBridgeParamsForceVersion OBJECT-TYPE
+    SYNTAX      ME1200MSTPForceVersion
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "value of the Force Protocol Version parameter - 13.6.2 of
+         IEEE-802.1Q-2005"
+    ::= { me1200MstpBridgeParams 4 }
+
+me1200MstpBridgeParamsTxHoldCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "TxHoldCount - 17.13.12 of IEEE Std 802.1D"
+    ::= { me1200MstpBridgeParams 5 }
+
+me1200MstpBridgeParamsMaxHops OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "MaxHops - 13.22.1 of IEEE-802.1Q-2005"
+    ::= { me1200MstpBridgeParams 6 }
+
+me1200MstpBridgeParamsBpduFiltering OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "BPDU filtering for edge ports. Control whether a port explicitly
+         configured as Edge will transmit and receive BPDUs"
+    ::= { me1200MstpBridgeParams 7 }
+
+me1200MstpBridgeParamsBpduGuard OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "BPDU guard for edge ports. Control whether a port explicitly configured
+         as Edge will disable itself upon reception of a BPDU. The port will
+         enter the error-disabled state, and will be removed from the active
+         topology. "
+    ::= { me1200MstpBridgeParams 8 }
+
+me1200MstpBridgeParamsErrorRecoveryDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The number of seconds until a STP inconsistent port is recovered. Valid
+         values are zero (recovery disabled) or between 30 and 86400 (24 hours)"
+    ::= { me1200MstpBridgeParams 9 }
+
+me1200MstpMstiParamTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200MstpMstiParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of the bridge instance (MSTIs) parameters"
+    ::= { me1200MstpConfig 2 }
+
+me1200MstpMstiParamEntry OBJECT-TYPE
+    SYNTAX      ME1200MstpMstiParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each MSTI has a set of parameters"
+    INDEX       { me1200MstpMstiParamInstance }
+    ::= { me1200MstpMstiParamTable 1 }
+
+ME1200MstpMstiParamEntry ::= SEQUENCE {
+    me1200MstpMstiParamInstance   Integer32,
+    me1200MstpMstiParamPriority   ME1200Unsigned8
+}
+
+me1200MstpMstiParamInstance OBJECT-TYPE
+    SYNTAX      Integer32 (0..255)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Bridge instance number. The CIST = 0, MSTI1 = 1, etc"
+    ::= { me1200MstpMstiParamEntry 1 }
+
+me1200MstpMstiParamPriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Bridge Priority"
+    ::= { me1200MstpMstiParamEntry 2 }
+
+me1200MstpMstiConfig OBJECT IDENTIFIER
+    ::= { me1200MstpConfig 3 }
+
+me1200MstpMstiConfigId OBJECT IDENTIFIER
+    ::= { me1200MstpMstiConfig 1 }
+
+me1200MstpMstiConfigIdName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The configuration name"
+    ::= { me1200MstpMstiConfigId 1 }
+
+me1200MstpMstiConfigIdRevision OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The configuration revision"
+    ::= { me1200MstpMstiConfigId 2 }
+
+me1200MstpMstiConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200MstpMstiConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is the 802.1Q - 8.9 MST Configuration table
+         
+         For the purposes of calculating the Configuration Digest, the MST
+         Configuration Table is considered to contain 4096 consecutive single
+         octet elements, where each element of the table (with the exception of
+         the first and last) contains an MSTID value."
+    ::= { me1200MstpMstiConfig 2 }
+
+me1200MstpMstiConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200MstpMstiConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The first element of the table contains the value 0, the second element
+         the MSTID value corresponding to VID 1, the third element the MSTID
+         value corresponding to VID 2, and so on, with the next to last element
+         of the table containing the MSTID value corresponding to VID 4094, and
+         the last element containing the value 0."
+    INDEX       { me1200MstpMstiConfigVid }
+    ::= { me1200MstpMstiConfigTable 1 }
+
+ME1200MstpMstiConfigEntry ::= SEQUENCE {
+    me1200MstpMstiConfigVid   Integer32,
+    me1200MstpMstiConfigMstid     ME1200Unsigned8
+}
+
+me1200MstpMstiConfigVid OBJECT-TYPE
+    SYNTAX      Integer32 (1..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Vlan id"
+    ::= { me1200MstpMstiConfigEntry 1 }
+
+me1200MstpMstiConfigMstid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The MSTID value associated with the vlan id"
+    ::= { me1200MstpMstiConfigEntry 2 }
+
+me1200MstpCistInterfaceParamTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200MstpCistInterfaceParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of the CIST physical interface parameters"
+    ::= { me1200MstpConfig 4 }
+
+me1200MstpCistInterfaceParamEntry OBJECT-TYPE
+    SYNTAX      ME1200MstpCistInterfaceParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each CIST physical interface has a set of parameters"
+    INDEX       { me1200MstpCistInterfaceParamInterfaceNo }
+    ::= { me1200MstpCistInterfaceParamTable 1 }
+
+ME1200MstpCistInterfaceParamEntry ::= SEQUENCE {
+    me1200MstpCistInterfaceParamInterfaceNo   ME1200InterfaceIndex,
+    me1200MstpCistInterfaceParamEnable    TruthValue,
+    me1200MstpCistInterfaceParamAdminEdgePort     TruthValue,
+    me1200MstpCistInterfaceParamAdminAutoEdgePort     TruthValue,
+    me1200MstpCistInterfaceParamAdminPointToPointMAC      ME1200Point2Point,
+    me1200MstpCistInterfaceParamRestrictedRole    TruthValue,
+    me1200MstpCistInterfaceParamRestrictedTcn     TruthValue,
+    me1200MstpCistInterfaceParamBpduGuard     TruthValue
+}
+
+me1200MstpCistInterfaceParamInterfaceNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200MstpCistInterfaceParamEntry 1 }
+
+me1200MstpCistInterfaceParamEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Control whether port is controlled by xSTP. If disabled, the port
+         forwarding state follow the MAC state"
+    ::= { me1200MstpCistInterfaceParamEntry 2 }
+
+me1200MstpCistInterfaceParamAdminEdgePort OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "adminEdgePort parameter - 18.3.3 of IEEE Std 802.1D"
+    ::= { me1200MstpCistInterfaceParamEntry 3 }
+
+me1200MstpCistInterfaceParamAdminAutoEdgePort OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "adminAutoEdgePort parameter - 17.13.3 of IEEE Std 802.1D"
+    ::= { me1200MstpCistInterfaceParamEntry 4 }
+
+me1200MstpCistInterfaceParamAdminPointToPointMAC OBJECT-TYPE
+    SYNTAX      ME1200Point2Point
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "adminPointToPointMAC parameter - 6.4.3 of IEEE Std 802.1D"
+    ::= { me1200MstpCistInterfaceParamEntry 5 }
+
+me1200MstpCistInterfaceParamRestrictedRole OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "restrictedRole parameter - 13.25.14 of IEEE Std 802.1Q-2005"
+    ::= { me1200MstpCistInterfaceParamEntry 6 }
+
+me1200MstpCistInterfaceParamRestrictedTcn OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "restrictedRole parameter - 13.25.15 of IEEE Std 802.1Q-2005"
+    ::= { me1200MstpCistInterfaceParamEntry 7 }
+
+me1200MstpCistInterfaceParamBpduGuard OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If enabled, causes the port to disable itself upon receiving valid
+         BPDU's. Contrary to the similar bridge setting, the port Edge status
+         does not effect this setting. A port entering error-disabled state due
+         to this setting is subject to the bridge ErrorRecoveryDelay setting as
+         well"
+    ::= { me1200MstpCistInterfaceParamEntry 8 }
+
+me1200MstpAggrParams OBJECT IDENTIFIER
+    ::= { me1200MstpConfig 5 }
+
+me1200MstpAggrParamsEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Control whether port is controlled by xSTP. If disabled, the port
+         forwarding state follow the MAC state"
+    ::= { me1200MstpAggrParams 1 }
+
+me1200MstpAggrParamsAdminEdgePort OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "adminEdgePort parameter - 18.3.3 of IEEE Std 802.1D"
+    ::= { me1200MstpAggrParams 2 }
+
+me1200MstpAggrParamsAdminAutoEdgePort OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "adminAutoEdgePort parameter - 17.13.3 of IEEE Std 802.1D"
+    ::= { me1200MstpAggrParams 3 }
+
+me1200MstpAggrParamsAdminPointToPointMAC OBJECT-TYPE
+    SYNTAX      ME1200Point2Point
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "adminPointToPointMAC parameter - 6.4.3 of IEEE Std 802.1D"
+    ::= { me1200MstpAggrParams 4 }
+
+me1200MstpAggrParamsRestrictedRole OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "restrictedRole parameter - 13.25.14 of IEEE Std 802.1Q-2005"
+    ::= { me1200MstpAggrParams 5 }
+
+me1200MstpAggrParamsRestrictedTcn OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "restrictedRole parameter - 13.25.15 of IEEE Std 802.1Q-2005"
+    ::= { me1200MstpAggrParams 6 }
+
+me1200MstpAggrParamsBpduGuard OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If enabled, causes the port to disable itself upon receiving valid
+         BPDU's. Contrary to the similar bridge setting, the port Edge status
+         does not effect this setting. A port entering error-disabled state due
+         to this setting is subject to the bridge ErrorRecoveryDelay setting as
+         well"
+    ::= { me1200MstpAggrParams 7 }
+
+me1200MstpMstiInterfaceParamTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200MstpMstiInterfaceParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of the MSTI interface parameters"
+    ::= { me1200MstpConfig 6 }
+
+me1200MstpMstiInterfaceParamEntry OBJECT-TYPE
+    SYNTAX      ME1200MstpMstiInterfaceParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each MSTI interface has a set of parameters"
+    INDEX       { me1200MstpMstiInterfaceParamInterfaceNo, me1200MstpMstiInterfaceParamInstance }
+    ::= { me1200MstpMstiInterfaceParamTable 1 }
+
+ME1200MstpMstiInterfaceParamEntry ::= SEQUENCE {
+    me1200MstpMstiInterfaceParamInterfaceNo   ME1200InterfaceIndex,
+    me1200MstpMstiInterfaceParamInstance      Integer32,
+    me1200MstpMstiInterfaceParamAdminPathCost     Unsigned32,
+    me1200MstpMstiInterfaceParamAdminPortPriority     ME1200Unsigned8
+}
+
+me1200MstpMstiInterfaceParamInterfaceNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200MstpMstiInterfaceParamEntry 1 }
+
+me1200MstpMstiInterfaceParamInstance OBJECT-TYPE
+    SYNTAX      Integer32 (0..255)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Bridge instance number. The CIST = 0, MSTI1 = 1, etc"
+    ::= { me1200MstpMstiInterfaceParamEntry 2 }
+
+me1200MstpMstiInterfaceParamAdminPathCost OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Path Cost - 13.37.1 of 802.1Q-2005"
+    ::= { me1200MstpMstiInterfaceParamEntry 3 }
+
+me1200MstpMstiInterfaceParamAdminPortPriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "priority field for the Port Identifier - 13.24.12 of 802.1Q-2005"
+    ::= { me1200MstpMstiInterfaceParamEntry 4 }
+
+me1200MstpMstiAggrParamTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200MstpMstiAggrParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of the MSTI aggregations parameters"
+    ::= { me1200MstpConfig 7 }
+
+me1200MstpMstiAggrParamEntry OBJECT-TYPE
+    SYNTAX      ME1200MstpMstiAggrParamEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The aggregations for each MSTI has a set of parameters"
+    INDEX       { me1200MstpMstiAggrParamInstance }
+    ::= { me1200MstpMstiAggrParamTable 1 }
+
+ME1200MstpMstiAggrParamEntry ::= SEQUENCE {
+    me1200MstpMstiAggrParamInstance   Integer32,
+    me1200MstpMstiAggrParamAdminPathCost      Unsigned32,
+    me1200MstpMstiAggrParamAdminPortPriority      ME1200Unsigned8
+}
+
+me1200MstpMstiAggrParamInstance OBJECT-TYPE
+    SYNTAX      Integer32 (0..255)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Bridge instance number. The CIST = 0, MSTI1 = 1, etc"
+    ::= { me1200MstpMstiAggrParamEntry 1 }
+
+me1200MstpMstiAggrParamAdminPathCost OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Path Cost - 13.37.1 of 802.1Q-2005"
+    ::= { me1200MstpMstiAggrParamEntry 3 }
+
+me1200MstpMstiAggrParamAdminPortPriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "priority field for the Port Identifier - 13.24.12 of 802.1Q-2005"
+    ::= { me1200MstpMstiAggrParamEntry 4 }
+
+me1200MstpStatus OBJECT IDENTIFIER
+    ::= { me1200Mstp 3 }
+
+me1200MstpBridgeStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200MstpBridgeStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represent the status of the bridge instances"
+    ::= { me1200MstpStatus 1 }
+
+me1200MstpBridgeStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200MstpBridgeStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "A MSTP Bridge instance set of status objects"
+    INDEX       { me1200MstpBridgeStatusInstance }
+    ::= { me1200MstpBridgeStatusTable 1 }
+
+ME1200MstpBridgeStatusEntry ::= SEQUENCE {
+    me1200MstpBridgeStatusInstance    Integer32,
+    me1200MstpBridgeStatusBridgeId    OCTET STRING,
+    me1200MstpBridgeStatusTimeSinceTopologyChange     Unsigned32,
+    me1200MstpBridgeStatusTopologyChangeCount     Unsigned32,
+    me1200MstpBridgeStatusTopologyChange      TruthValue,
+    me1200MstpBridgeStatusDesignatedRoot      OCTET STRING,
+    me1200MstpBridgeStatusRootPathCost    Unsigned32,
+    me1200MstpBridgeStatusRootPort    Unsigned32,
+    me1200MstpBridgeStatusMaxAge      Unsigned32,
+    me1200MstpBridgeStatusForwardDelay    Unsigned32,
+    me1200MstpBridgeStatusBridgeMaxAge    Unsigned32,
+    me1200MstpBridgeStatusBridgeHelloTime     Unsigned32,
+    me1200MstpBridgeStatusBridgeForwardDelay      Unsigned32,
+    me1200MstpBridgeStatusTxHoldCount     Unsigned32,
+    me1200MstpBridgeStatusForceVersion    ME1200MSTPForceVersion,
+    me1200MstpBridgeStatusCistRegionalRoot    OCTET STRING,
+    me1200MstpBridgeStatusCistInternalPathCost    Unsigned32,
+    me1200MstpBridgeStatusMaxHops     ME1200Unsigned8
+}
+
+me1200MstpBridgeStatusInstance OBJECT-TYPE
+    SYNTAX      Integer32 (0..255)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Bridge instance number. The CIST = 0, MSTI1 = 1, etc"
+    ::= { me1200MstpBridgeStatusEntry 1 }
+
+me1200MstpBridgeStatusBridgeId OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(8))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Bridge Identifier of this bridge"
+    ::= { me1200MstpBridgeStatusEntry 2 }
+
+me1200MstpBridgeStatusTimeSinceTopologyChange OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The count in seconds of the time elapsed since the Topology Change flag
+         was last True"
+    ::= { me1200MstpBridgeStatusEntry 3 }
+
+me1200MstpBridgeStatusTopologyChangeCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The count of the times the Topology Change flag parameter for the
+         Bridge has been set since the Bridge was powered on or initialized"
+    ::= { me1200MstpBridgeStatusEntry 4 }
+
+me1200MstpBridgeStatusTopologyChange OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Topology Change Flag current status"
+    ::= { me1200MstpBridgeStatusEntry 5 }
+
+me1200MstpBridgeStatusDesignatedRoot OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(8))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Designated Root Bridge"
+    ::= { me1200MstpBridgeStatusEntry 6 }
+
+me1200MstpBridgeStatusRootPathCost OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Root Path Cost"
+    ::= { me1200MstpBridgeStatusEntry 7 }
+
+me1200MstpBridgeStatusRootPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Root Port"
+    ::= { me1200MstpBridgeStatusEntry 8 }
+
+me1200MstpBridgeStatusMaxAge OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Max Age, IEEE-802.1D-2004 sect 13.23.7"
+    ::= { me1200MstpBridgeStatusEntry 9 }
+
+me1200MstpBridgeStatusForwardDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Forward Delay, IEEE-802.1D-2004 sect 13.23.7"
+    ::= { me1200MstpBridgeStatusEntry 10 }
+
+me1200MstpBridgeStatusBridgeMaxAge OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Bridge Max Age, IEEE-802.1D-2004 sect 13.23.4"
+    ::= { me1200MstpBridgeStatusEntry 11 }
+
+me1200MstpBridgeStatusBridgeHelloTime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Bridge Hello Time, IEEE-802.1D-2004 sect 13.23.4"
+    ::= { me1200MstpBridgeStatusEntry 12 }
+
+me1200MstpBridgeStatusBridgeForwardDelay OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Bridge Forward Delay, IEEE-802.1D-2004 sect 13.23.4"
+    ::= { me1200MstpBridgeStatusEntry 13 }
+
+me1200MstpBridgeStatusTxHoldCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Hold Time / Transmission Limit, IEEE-802.1D-2004 sect 13.22"
+    ::= { me1200MstpBridgeStatusEntry 14 }
+
+me1200MstpBridgeStatusForceVersion OBJECT-TYPE
+    SYNTAX      ME1200MSTPForceVersion
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Value of the Force Protocol Version parameter - IEEE-802.1D-2004 sect
+         17.16.1"
+    ::= { me1200MstpBridgeStatusEntry 15 }
+
+me1200MstpBridgeStatusCistRegionalRoot OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(8))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "CIST Regional Root Identifier (13.16.4)"
+    ::= { me1200MstpBridgeStatusEntry 16 }
+
+me1200MstpBridgeStatusCistInternalPathCost OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "CIST Path Cost"
+    ::= { me1200MstpBridgeStatusEntry 17 }
+
+me1200MstpBridgeStatusMaxHops OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "MaxHops (13.22.1)"
+    ::= { me1200MstpBridgeStatusEntry 18 }
+
+me1200MstpInterfaceStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200MstpInterfaceStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represent the status of the interface instances"
+    ::= { me1200MstpStatus 2 }
+
+me1200MstpInterfaceStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200MstpInterfaceStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "A MSTP interface instance set of status objects"
+    INDEX       { me1200MstpInterfaceStatusInterfaceNo, me1200MstpInterfaceStatusInstance }
+    ::= { me1200MstpInterfaceStatusTable 1 }
+
+ME1200MstpInterfaceStatusEntry ::= SEQUENCE {
+    me1200MstpInterfaceStatusInterfaceNo      ME1200InterfaceIndex,
+    me1200MstpInterfaceStatusInstance     Integer32,
+    me1200MstpInterfaceStatusEnabled      TruthValue,
+    me1200MstpInterfaceStatusActive   TruthValue,
+    me1200MstpInterfaceStatusParentPort   Unsigned32,
+    me1200MstpInterfaceStatusUpTime   Unsigned32,
+    me1200MstpInterfaceStatusPortState    ME1200PortState,
+    me1200MstpInterfaceStatusPortId   OCTET STRING,
+    me1200MstpInterfaceStatusPathCost     Unsigned32,
+    me1200MstpInterfaceStatusDesignatedRoot   OCTET STRING,
+    me1200MstpInterfaceStatusDesignatedCost   Unsigned32,
+    me1200MstpInterfaceStatusDesignatedBridge     OCTET STRING,
+    me1200MstpInterfaceStatusDesignatedPort   OCTET STRING,
+    me1200MstpInterfaceStatusTcAck    TruthValue,
+    me1200MstpInterfaceStatusHelloTime    Unsigned32,
+    me1200MstpInterfaceStatusAdminEdgePort    TruthValue,
+    me1200MstpInterfaceStatusOperEdgePort     TruthValue,
+    me1200MstpInterfaceStatusAutoEdgePort     TruthValue,
+    me1200MstpInterfaceStatusMacOperational   TruthValue,
+    me1200MstpInterfaceStatusAdminPointToPointMAC     ME1200Point2Point,
+    me1200MstpInterfaceStatusOperPointToPointMAC      TruthValue,
+    me1200MstpInterfaceStatusRestrictedRole   TruthValue,
+    me1200MstpInterfaceStatusRestrictedTcn    TruthValue,
+    me1200MstpInterfaceStatusPortRole     ME1200DisplayString,
+    me1200MstpInterfaceStatusDisputed     TruthValue
+}
+
+me1200MstpInterfaceStatusInterfaceNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200MstpInterfaceStatusEntry 1 }
+
+me1200MstpInterfaceStatusInstance OBJECT-TYPE
+    SYNTAX      Integer32 (0..255)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Bridge instance number. The CIST = 0, MSTI1 = 1, etc"
+    ::= { me1200MstpInterfaceStatusEntry 2 }
+
+me1200MstpInterfaceStatusEnabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Whether port is controlled by xSTP"
+    ::= { me1200MstpInterfaceStatusEntry 3 }
+
+me1200MstpInterfaceStatusActive OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Whether port is active"
+    ::= { me1200MstpInterfaceStatusEntry 4 }
+
+me1200MstpInterfaceStatusParentPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Parent port if physical port is aggregated. (Otherwise 0xffff)"
+    ::= { me1200MstpInterfaceStatusEntry 5 }
+
+me1200MstpInterfaceStatusUpTime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "seconds of the time elapsed since the Port was last reset or
+         initialized"
+    ::= { me1200MstpInterfaceStatusEntry 6 }
+
+me1200MstpInterfaceStatusPortState OBJECT-TYPE
+    SYNTAX      ME1200PortState
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current state of the Port"
+    ::= { me1200MstpInterfaceStatusEntry 7 }
+
+me1200MstpInterfaceStatusPortId OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(2))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Unique Port identifier comprising two parts, the Port Number and the
+         Port Priority field"
+    ::= { me1200MstpInterfaceStatusEntry 8 }
+
+me1200MstpInterfaceStatusPathCost OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Path Cost (17.16.5 of IEEE Std 802.1D)"
+    ::= { me1200MstpInterfaceStatusEntry 9 }
+
+me1200MstpInterfaceStatusDesignatedRoot OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(8))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Designated Root"
+    ::= { me1200MstpInterfaceStatusEntry 10 }
+
+me1200MstpInterfaceStatusDesignatedCost OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Designated Cost"
+    ::= { me1200MstpInterfaceStatusEntry 11 }
+
+me1200MstpInterfaceStatusDesignatedBridge OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(8))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Designated Bridge"
+    ::= { me1200MstpInterfaceStatusEntry 12 }
+
+me1200MstpInterfaceStatusDesignatedPort OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(2))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Designated Port"
+    ::= { me1200MstpInterfaceStatusEntry 13 }
+
+me1200MstpInterfaceStatusTcAck OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Topology Change Acknowledge"
+    ::= { me1200MstpInterfaceStatusEntry 14 }
+
+me1200MstpInterfaceStatusHelloTime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Hello Time"
+    ::= { me1200MstpInterfaceStatusEntry 15 }
+
+me1200MstpInterfaceStatusAdminEdgePort OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "adminEdgePort (18.3.3 of IEEE Std 802.1D)"
+    ::= { me1200MstpInterfaceStatusEntry 16 }
+
+me1200MstpInterfaceStatusOperEdgePort OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "operEdgePort (18.3.4 of IEEE Std 802.1D)"
+    ::= { me1200MstpInterfaceStatusEntry 17 }
+
+me1200MstpInterfaceStatusAutoEdgePort OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "autoEdgePort (17.13.3 of IEEE Std 802.1D)"
+    ::= { me1200MstpInterfaceStatusEntry 18 }
+
+me1200MstpInterfaceStatusMacOperational OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current state of the MAC Operational parameter (6.4.2 of IEEE Std
+         802.1D,)"
+    ::= { me1200MstpInterfaceStatusEntry 19 }
+
+me1200MstpInterfaceStatusAdminPointToPointMAC OBJECT-TYPE
+    SYNTAX      ME1200Point2Point
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current state of the adminPointToPointMAC parameter (6.4.3 of IEEE Std
+         802.1D)"
+    ::= { me1200MstpInterfaceStatusEntry 20 }
+
+me1200MstpInterfaceStatusOperPointToPointMAC OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current state of the operPointToPointMAC parameter (6.4.3 of IEEE Std
+         802.1D)"
+    ::= { me1200MstpInterfaceStatusEntry 21 }
+
+me1200MstpInterfaceStatusRestrictedRole OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current state of the restrictedRole parameter for the Port (13.25.14)"
+    ::= { me1200MstpInterfaceStatusEntry 22 }
+
+me1200MstpInterfaceStatusRestrictedTcn OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current state of the restrictedTcn parameter for the Port (13.25.15)"
+    ::= { me1200MstpInterfaceStatusEntry 23 }
+
+me1200MstpInterfaceStatusPortRole OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..15))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current Port Role"
+    ::= { me1200MstpInterfaceStatusEntry 24 }
+
+me1200MstpInterfaceStatusDisputed OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current value of the disputed variable for the CIST Port"
+    ::= { me1200MstpInterfaceStatusEntry 25 }
+
+me1200MstpInterfaceStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200MstpInterfaceStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represent the statistics of the CIST interfaces"
+    ::= { me1200MstpStatus 3 }
+
+me1200MstpInterfaceStatisticsEntry OBJECT-TYPE
+    SYNTAX      ME1200MstpInterfaceStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "A CIST interface set of statistics"
+    INDEX       { me1200MstpInterfaceStatisticsInterfaceNo }
+    ::= { me1200MstpInterfaceStatisticsTable 1 }
+
+ME1200MstpInterfaceStatisticsEntry ::= SEQUENCE {
+    me1200MstpInterfaceStatisticsInterfaceNo      ME1200InterfaceIndex,
+    me1200MstpInterfaceStatisticsStpFrameXmits    Unsigned32,
+    me1200MstpInterfaceStatisticsStpFrameReceived     Unsigned32,
+    me1200MstpInterfaceStatisticsRstpFrameXmits   Unsigned32,
+    me1200MstpInterfaceStatisticsRstpFrameReceived    Unsigned32,
+    me1200MstpInterfaceStatisticsMstpFrameXmits   Unsigned32,
+    me1200MstpInterfaceStatisticsMstpFrameReceived    Unsigned32,
+    me1200MstpInterfaceStatisticsUnknownFramesReceived    Unsigned32,
+    me1200MstpInterfaceStatisticsIllegalFrameReceived     Unsigned32
+}
+
+me1200MstpInterfaceStatisticsInterfaceNo OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200MstpInterfaceStatisticsEntry 1 }
+
+me1200MstpInterfaceStatisticsStpFrameXmits OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of STP frames transmitted"
+    ::= { me1200MstpInterfaceStatisticsEntry 2 }
+
+me1200MstpInterfaceStatisticsStpFrameReceived OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of STP frames received"
+    ::= { me1200MstpInterfaceStatisticsEntry 3 }
+
+me1200MstpInterfaceStatisticsRstpFrameXmits OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of RSTP frames transmitted"
+    ::= { me1200MstpInterfaceStatisticsEntry 4 }
+
+me1200MstpInterfaceStatisticsRstpFrameReceived OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of RSTP frames received"
+    ::= { me1200MstpInterfaceStatisticsEntry 5 }
+
+me1200MstpInterfaceStatisticsMstpFrameXmits OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of MSTP frames transmitted"
+    ::= { me1200MstpInterfaceStatisticsEntry 6 }
+
+me1200MstpInterfaceStatisticsMstpFrameReceived OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of MSTP frames received"
+    ::= { me1200MstpInterfaceStatisticsEntry 7 }
+
+me1200MstpInterfaceStatisticsUnknownFramesReceived OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of unknown frames received and discarded in error"
+    ::= { me1200MstpInterfaceStatisticsEntry 8 }
+
+me1200MstpInterfaceStatisticsIllegalFrameReceived OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of illegal frames received and discarded in error"
+    ::= { me1200MstpInterfaceStatisticsEntry 9 }
+
+me1200MstpMibConformance OBJECT IDENTIFIER
+    ::= { me1200MstpMib 3 }
+
+me1200MstpMibCompliances OBJECT IDENTIFIER
+    ::= { me1200MstpMibConformance 1 }
+
+me1200MstpMibGroups OBJECT IDENTIFIER
+    ::= { me1200MstpMibConformance 2 }
+
+me1200MstpBridgeParamsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpBridgeParamsBridgeMaxAge, 
+                  me1200MstpBridgeParamsBridgeHelloTime, 
+                  me1200MstpBridgeParamsBridgeForwardDelay, 
+                  me1200MstpBridgeParamsForceVersion, 
+                  me1200MstpBridgeParamsTxHoldCount, me1200MstpBridgeParamsMaxHops, 
+                  me1200MstpBridgeParamsBpduFiltering, 
+                  me1200MstpBridgeParamsBpduGuard, 
+                  me1200MstpBridgeParamsErrorRecoveryDelay }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 1 }
+
+me1200MstpMstiParamTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpMstiParamPriority }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 2 }
+
+me1200MstpMstiConfigIdInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpMstiConfigIdName, me1200MstpMstiConfigIdRevision }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 3 }
+
+me1200MstpMstiConfigTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpMstiConfigMstid }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 4 }
+
+me1200MstpCistInterfaceParamTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpCistInterfaceParamEnable, 
+                  me1200MstpCistInterfaceParamAdminEdgePort, 
+                  me1200MstpCistInterfaceParamAdminAutoEdgePort, 
+                  me1200MstpCistInterfaceParamAdminPointToPointMAC, 
+                  me1200MstpCistInterfaceParamRestrictedRole, 
+                  me1200MstpCistInterfaceParamRestrictedTcn, 
+                  me1200MstpCistInterfaceParamBpduGuard }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 5 }
+
+me1200MstpAggrParamsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpAggrParamsEnable, me1200MstpAggrParamsAdminEdgePort, 
+                  me1200MstpAggrParamsAdminAutoEdgePort, 
+                  me1200MstpAggrParamsAdminPointToPointMAC, 
+                  me1200MstpAggrParamsRestrictedRole, 
+                  me1200MstpAggrParamsRestrictedTcn, me1200MstpAggrParamsBpduGuard }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 6 }
+
+me1200MstpMstiInterfaceParamTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpMstiInterfaceParamAdminPathCost, 
+                  me1200MstpMstiInterfaceParamAdminPortPriority }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 7 }
+
+me1200MstpMstiAggrParamTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpMstiAggrParamAdminPathCost, 
+                  me1200MstpMstiAggrParamAdminPortPriority }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 8 }
+
+me1200MstpBridgeStatusTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpBridgeStatusBridgeId, 
+                  me1200MstpBridgeStatusTimeSinceTopologyChange, 
+                  me1200MstpBridgeStatusTopologyChangeCount, 
+                  me1200MstpBridgeStatusTopologyChange, 
+                  me1200MstpBridgeStatusDesignatedRoot, 
+                  me1200MstpBridgeStatusRootPathCost, me1200MstpBridgeStatusRootPort, 
+                  me1200MstpBridgeStatusMaxAge, me1200MstpBridgeStatusForwardDelay, 
+                  me1200MstpBridgeStatusBridgeMaxAge, 
+                  me1200MstpBridgeStatusBridgeHelloTime, 
+                  me1200MstpBridgeStatusBridgeForwardDelay, 
+                  me1200MstpBridgeStatusTxHoldCount, 
+                  me1200MstpBridgeStatusForceVersion, 
+                  me1200MstpBridgeStatusCistRegionalRoot, 
+                  me1200MstpBridgeStatusCistInternalPathCost, 
+                  me1200MstpBridgeStatusMaxHops }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 9 }
+
+me1200MstpInterfaceStatusTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpInterfaceStatusEnabled, me1200MstpInterfaceStatusActive, 
+                  me1200MstpInterfaceStatusParentPort, 
+                  me1200MstpInterfaceStatusUpTime, 
+                  me1200MstpInterfaceStatusPortState, 
+                  me1200MstpInterfaceStatusPortId, me1200MstpInterfaceStatusPathCost, 
+                  me1200MstpInterfaceStatusDesignatedRoot, 
+                  me1200MstpInterfaceStatusDesignatedCost, 
+                  me1200MstpInterfaceStatusDesignatedBridge, 
+                  me1200MstpInterfaceStatusDesignatedPort, 
+                  me1200MstpInterfaceStatusTcAck, me1200MstpInterfaceStatusHelloTime, 
+                  me1200MstpInterfaceStatusAdminEdgePort, 
+                  me1200MstpInterfaceStatusOperEdgePort, 
+                  me1200MstpInterfaceStatusAutoEdgePort, 
+                  me1200MstpInterfaceStatusMacOperational, 
+                  me1200MstpInterfaceStatusAdminPointToPointMAC, 
+                  me1200MstpInterfaceStatusOperPointToPointMAC, 
+                  me1200MstpInterfaceStatusRestrictedRole, 
+                  me1200MstpInterfaceStatusRestrictedTcn, 
+                  me1200MstpInterfaceStatusPortRole, 
+                  me1200MstpInterfaceStatusDisputed }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 10 }
+
+me1200MstpInterfaceStatisticsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200MstpInterfaceStatisticsStpFrameXmits, 
+                  me1200MstpInterfaceStatisticsStpFrameReceived, 
+                  me1200MstpInterfaceStatisticsRstpFrameXmits, 
+                  me1200MstpInterfaceStatisticsRstpFrameReceived, 
+                  me1200MstpInterfaceStatisticsMstpFrameXmits, 
+                  me1200MstpInterfaceStatisticsMstpFrameReceived, 
+                  me1200MstpInterfaceStatisticsUnknownFramesReceived, 
+                  me1200MstpInterfaceStatisticsIllegalFrameReceived }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200MstpMibGroups 11 }
+
+me1200MstpMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200MstpBridgeParamsInfoGroup, 
+                  me1200MstpMstiParamTableInfoGroup, me1200MstpMstiConfigIdInfoGroup, 
+                  me1200MstpMstiConfigTableInfoGroup, 
+                  me1200MstpCistInterfaceParamTableInfoGroup, 
+                  me1200MstpAggrParamsInfoGroup, 
+                  me1200MstpMstiInterfaceParamTableInfoGroup, 
+                  me1200MstpMstiAggrParamTableInfoGroup, 
+                  me1200MstpBridgeStatusTableInfoGroup, 
+                  me1200MstpInterfaceStatusTableInfoGroup, 
+                  me1200MstpInterfaceStatisticsTableInfoGroup }
+
+    ::= { me1200MstpMibCompliances 1 }
+
+END

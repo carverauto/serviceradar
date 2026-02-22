@@ -1,0 +1,757 @@
+-- *******************************************************************
+-- CISCO-WAN-TRAP-VARS-MIB
+--
+-- MIB Containing Objects Which are used only in trap definitions.
+--
+-- November 2002, Yizhong Shen
+--
+-- Copyright(c) 1999-2002 by Cisco Systems,Inc.
+-- All Rights Reserved.
+-- ********************************************************************
+
+CISCO-WAN-TRAP-VARS-MIB DEFINITIONS ::= BEGIN
+ 
+IMPORTS
+    MODULE-IDENTITY, 
+    OBJECT-TYPE,Integer32,
+    Unsigned32            FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP          FROM SNMPv2-CONF
+    AutonomousType,
+    DisplayString         FROM SNMPv2-TC
+    ciscoWan              FROM CISCOWAN-SMI;
+
+ciscoWanTrapVarsMIB MODULE-IDENTITY 
+     LAST-UPDATED       "200211260000Z"
+     ORGANIZATION       "Cisco Systems, Inc."
+     CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+     DESCRIPTION
+       "This MIB module is for Supporting Varbinds used only
+        in trap defintions. The NMS applications should not
+        depend on the implementation of these objects.The 
+        SNMP Requests(GET,GET-NEXT) may not be valid for
+        these objects."
+
+     REVISION        "200211260000Z"
+     DESCRIPTION     "Added following objects:
+                       - cwTrapSecondIndex
+                       - cwTrapThirdIndex
+                     "
+
+     REVISION        "200207170000Z"
+     DESCRIPTION     "a) Importing Unsigned32 from SNMPv2-SMI.
+                      b) Add cwTrapVarLength, cwTrapAtmAdressType
+                         and cwTrapReference.
+                      c) Add cwTrapSecondIndex and cwTrapThirdIndex"
+
+     REVISION        "200111070000Z"
+     DESCRIPTION     "Added following objects:
+                      cwTrapCardRole,
+                      cwTrapSctCardType, cwTrapSctType, cwTrapSctId and
+                      cwTrapSctMajorVersion."
+
+     REVISION        "200111060000Z"
+     DESCRIPTION     "Added following objects:
+                      cwTrapPhysicalContainer,
+                      cwTrapPhysicalUnit."
+
+     REVISION        "200107260000Z"
+     DESCRIPTION     "Add cwTrapDisplayString"
+
+     REVISION        "199905210000Z"
+     DESCRIPTION     "Initial version of the MIB"
+
+     ::= { ciscoWan 5 }
+
+cwTrapVarMIBObjects OBJECT IDENTIFIER ::= { ciscoWanTrapVarsMIB 1 }
+
+cwTrapVars OBJECT IDENTIFIER ::= { cwTrapVarMIBObjects 1 }
+
+cwTrapIndex OBJECT-TYPE
+    SYNTAX      Integer32(0..2147483647)
+--    MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The object containing the value which can be used
+             for indexing to any table."
+    ::= { cwTrapVars 1 }
+
+cwTrapSlotNumber   OBJECT-TYPE
+    SYNTAX      Integer32(1..64)     
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object contains the slot number of the module."
+    ::= { cwTrapVars 2 }
+
+cwTrapPhysicalVendorType OBJECT-TYPE
+    SYNTAX      AutonomousType
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+             "This object contains the entPhysicalVendorType value
+              for the physical entity."
+    ::= { cwTrapVars 3 }
+
+cwTrapLineModuleNumber  OBJECT-TYPE
+    SYNTAX      Integer32(1..4)     
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This object contains the value for entPhysicalParentRelPos 
+             object for line modules."
+    ::= { cwTrapVars 4 }
+
+cwTrapOctetString  OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE (0..1024))     
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This object contains the octet string value."
+    ::= { cwTrapVars 5 }
+
+cwTrapDisplayString  OBJECT-TYPE
+    SYNTAX     DisplayString 
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This object contains the display string value."
+    ::= { cwTrapVars 6 }
+
+cwTrapPhysicalContainer OBJECT-TYPE
+    SYNTAX      INTEGER (0..2147483647)
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object contains the container(parent unit number) number of 
+        an entity in entPhysicalTable. This object contains the value
+        for the following entities:
+            Fan   Tray
+            Power Supply Tray/Group.
+        If it contains value zero, then this object is not applicable
+        for the entity identified by cwTrapPhysicalUnit."
+    ::= { cwTrapVars 7 }
+
+cwTrapPhysicalUnit OBJECT-TYPE
+    SYNTAX      INTEGER (0..2147483647)
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object contains the physical unit number(Relative Position)
+        of the physical entity. The physical unit number depends upon
+        the value specified in cwTrapPhysicalContainer object."
+    ::= { cwTrapVars 8 }
+
+cwTrapCardRole  OBJECT-TYPE
+    SYNTAX     INTEGER {
+         t1(1),
+         e1(2),
+         t3(3),
+         e3(4)
+    } 
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This object indicates the card role change to
+             T1 from E1, or T3 from E3, vice versa. In case of a card
+             with multiple roles, this object only indicates the changeable
+             role swap between T1 and E1, or T3 and E3."
+    ::= { cwTrapVars 9 }
+
+cwTrapSctCardType  OBJECT-TYPE
+    SYNTAX     INTEGER {
+         axsm   (1),
+         axsme  (2),
+         pxm1e  (3),
+         hsfr   (4)
+    } 
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This object is used only for traps and represents the 
+             cwSctCardType object in CISCO-WAN-SCT-MGMT-MIB.my."
+    ::= { cwTrapVars 10 }
+
+cwTrapSctType  OBJECT-TYPE
+    SYNTAX     INTEGER {
+         portSct(1),
+         cardSct(2)
+    } 
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This object is used only for traps and represents the 
+             cwSctType object in CISCO-WAN-SCT-MGMT-MIB.my."
+    ::= { cwTrapVars 11 }
+
+cwTrapSctId  OBJECT-TYPE
+    SYNTAX     Unsigned32 (1..65535)
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This object is used only for traps and represents the cwSctId
+             object in CISCO-WAN-SCT-MGMT-MIB.my."
+    ::= { cwTrapVars 12 }
+
+cwTrapSctMajorVersion  OBJECT-TYPE
+    SYNTAX     Unsigned32 (1..65535)
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This object is used only for traps and represents the 
+             cwSctMajorVersion object in CISCO-WAN-SCT-MGMT-MIB.my."
+    ::= { cwTrapVars 13 }
+
+cwTrapVarLength OBJECT-TYPE
+    SYNTAX      Unsigned32(1..1024) 
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This is an object used only for traps and contains 
+            a value for the length of another object. 
+            For instance, this can be the length of 
+            an address."
+    ::= { cwTrapVars 14 }
+
+cwTrapAtmAddressType OBJECT-TYPE
+    SYNTAX    INTEGER{ 
+                       e164(3),
+                       nsap(8)
+              } 
+--   MAX-ACCESS  accessible-for-notify
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This object is used only for traps and represents
+            the type of an ATM addresses."
+    ::= { cwTrapVars 15 }
+
+cwTrapReference OBJECT-TYPE
+    SYNTAX     Integer32(1..65535)
+--    MAX-ACCESS accessible-for-notify
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION 
+            "This object is used only for traps and represents an object
+            of the same SYNTAX. This object is used in place of:
+               a) 'cwapReference' in CISCO-WAN-ATM-PARTY-MIB.my."
+     ::= { cwTrapVars 16 }
+
+cwTrapSecondIndex OBJECT-TYPE
+    SYNTAX      Integer32(0..2147483647)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The object containing the value which can be used
+             for indexing to any table."
+    ::= { cwTrapVars 17 }
+
+cwTrapThirdIndex OBJECT-TYPE
+    SYNTAX      Integer32(0..2147483647)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The object containing the value which can be used
+             for indexing to any table."
+    ::= { cwTrapVars 18 }
+
+ 
+-- conformance information
+cwTrapVarsMIBConformance OBJECT IDENTIFIER ::= { ciscoWanTrapVarsMIB 2 }
+
+cwTrapVarsMIBCompliances OBJECT IDENTIFIER ::= { cwTrapVarsMIBConformance 1 }
+cwTrapVarsMIBGroups      OBJECT IDENTIFIER ::= { cwTrapVarsMIBConformance 2 }
+
+-- compliance statements
+cwTrapVarsCompliance MODULE-COMPLIANCE
+    STATUS deprecated -- replaced by cwTrapVarsCompliance2 
+    DESCRIPTION
+            "The compliance statement for cwTrapVarsGroup."
+    MODULE  -- this module
+
+    GROUP cwTrapVarsTrapGroup
+    DESCRIPTION 
+        "Implementation of this group is not mandatory for the agents
+         which does not use these objects in traps.
+        "
+
+    OBJECT cwTrapIndex
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSlotNumber
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalVendorType
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapLineModuleNumber
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+    OBJECT cwTrapOctetString
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+    ::= { cwTrapVarsMIBCompliances 1 }
+
+cwTrapVarsCompliance2 MODULE-COMPLIANCE
+    STATUS deprecated -- replaced by cwTrapVarsCompliance3 
+    DESCRIPTION
+            "The compliance statement for cwTrapVarsGroup."
+    MODULE  -- this module
+
+    GROUP cwTrapVarsTrapGroup2
+    DESCRIPTION
+        "Implementation of this group is not mandatory for the agents
+         which does not use these objects in traps.
+        "
+
+    OBJECT cwTrapIndex
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSlotNumber
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalVendorType
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapLineModuleNumber
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapOctetString
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapDisplayString
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    ::= { cwTrapVarsMIBCompliances 2 }
+
+cwTrapVarsCompliance3 MODULE-COMPLIANCE
+    STATUS  deprecated -- replaced by cwTrapVarsCompliance4
+    DESCRIPTION
+            "The compliance statement for cwTrapVarsGroup."
+    MODULE  -- this module
+
+    GROUP cwTrapVarsTrapGroup3
+    DESCRIPTION
+        "Implementation of this group is not mandatory for the agents
+         which does not use these objects in traps.
+        "
+
+    OBJECT cwTrapIndex
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSlotNumber
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalVendorType
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapLineModuleNumber
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapOctetString
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapDisplayString
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalContainer
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalUnit
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+    ::= { cwTrapVarsMIBCompliances 3 }
+
+
+cwTrapVarsCompliance4 MODULE-COMPLIANCE
+    STATUS  deprecated -- replaced by cwTrapVarsCompliance5
+    DESCRIPTION
+            "The compliance statement for cwTrapVarsGroup."
+    MODULE  -- this module
+
+    GROUP cwTrapVarsTrapGroup4
+    DESCRIPTION
+        "Implementation of this group is not mandatory for the agents
+         which does not use these objects in traps.
+        "
+
+    OBJECT cwTrapIndex
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSlotNumber
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalVendorType
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapLineModuleNumber
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapOctetString
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapDisplayString
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalContainer
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalUnit
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapCardRole
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSctCardType
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSctType
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSctId
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSctMajorVersion
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+    ::= { cwTrapVarsMIBCompliances 4 }
+
+cwTrapVarsCompliance5 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "The compliance statement for cwTrapVarsGroup."
+    MODULE  -- this module
+
+    GROUP cwTrapVarsTrapGroup5
+    DESCRIPTION
+        "Implementation of this group is not mandatory for the agents
+         which does not use these objects in traps.
+        "
+
+    OBJECT cwTrapIndex
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSlotNumber
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalVendorType
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapLineModuleNumber
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapOctetString
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapDisplayString
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalContainer
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapPhysicalUnit
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapCardRole
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSctCardType
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSctType
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSctId
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSctMajorVersion
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+   OBJECT cwTrapVarLength
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapAtmAddressType
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapReference
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapSecondIndex
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+    OBJECT cwTrapThirdIndex
+    MIN-ACCESS   not-accessible
+    DESCRIPTION
+        "Read and write access is not required.This Object is
+         used only in trap varbinds."
+
+
+    ::= { cwTrapVarsMIBCompliances 5 }
+
+
+-- Units of conformance
+
+cwTrapVarsTrapGroup OBJECT-GROUP
+    OBJECTS {
+        cwTrapIndex,
+        cwTrapSlotNumber,
+        cwTrapPhysicalVendorType,
+        cwTrapLineModuleNumber,
+        cwTrapOctetString
+    }
+    STATUS deprecated -- replaced by cwTrapVarsTrapGroup2 
+    DESCRIPTION
+            "The collection of objects which are used only
+             in trap varbinds."
+    ::= { cwTrapVarsMIBGroups 1 }
+
+cwTrapVarsTrapGroup2 OBJECT-GROUP
+    OBJECTS {
+        cwTrapIndex,
+        cwTrapSlotNumber,
+        cwTrapPhysicalVendorType,
+        cwTrapLineModuleNumber,
+        cwTrapOctetString,
+        cwTrapDisplayString
+    }
+    STATUS deprecated -- replaced by cwTrapVarsTrapGroup3 
+    DESCRIPTION
+            "The collection of objects which are used only
+             in trap varbinds."
+    ::= { cwTrapVarsMIBGroups 2 }
+
+cwTrapVarsTrapGroup3 OBJECT-GROUP
+    OBJECTS {
+        cwTrapIndex,
+        cwTrapSlotNumber,
+        cwTrapPhysicalVendorType,
+        cwTrapLineModuleNumber,
+        cwTrapOctetString,
+        cwTrapDisplayString,
+        cwTrapPhysicalContainer,
+        cwTrapPhysicalUnit
+    }
+    STATUS deprecated -- replaced by cwTrapVarsTrapGroup4
+    DESCRIPTION
+            "The collection of objects which are used only
+             in trap varbinds."
+    ::= { cwTrapVarsMIBGroups 3 }
+
+
+cwTrapVarsTrapGroup4 OBJECT-GROUP
+    OBJECTS {
+        cwTrapIndex,
+        cwTrapSlotNumber,
+        cwTrapPhysicalVendorType,
+        cwTrapLineModuleNumber,
+        cwTrapOctetString,
+        cwTrapDisplayString,
+        cwTrapPhysicalContainer,
+        cwTrapPhysicalUnit,
+        cwTrapCardRole,
+        cwTrapSctCardType,
+        cwTrapSctType,
+        cwTrapSctId,
+        cwTrapSctMajorVersion
+    }
+    STATUS deprecated -- replaced by cwTrapVarsTrapGroup5 
+    DESCRIPTION
+            "The collection of objects which are used only
+             in trap varbinds."
+    ::= { cwTrapVarsMIBGroups 4 }
+
+cwTrapVarsTrapGroup5 OBJECT-GROUP
+    OBJECTS {
+        cwTrapIndex,
+        cwTrapSlotNumber,
+        cwTrapPhysicalVendorType,
+        cwTrapLineModuleNumber,
+        cwTrapOctetString,
+        cwTrapDisplayString,
+        cwTrapPhysicalContainer,
+        cwTrapPhysicalUnit,
+        cwTrapCardRole,
+        cwTrapSctCardType,
+        cwTrapSctType,
+        cwTrapSctId,
+        cwTrapSctMajorVersion,
+        cwTrapVarLength,
+        cwTrapAtmAddressType,
+        cwTrapReference,
+        cwTrapSecondIndex,
+        cwTrapThirdIndex
+    }
+    STATUS  current
+    DESCRIPTION
+            "The collection of objects which are used only
+             in trap varbinds."
+    ::= { cwTrapVarsMIBGroups 5 }
+
+END

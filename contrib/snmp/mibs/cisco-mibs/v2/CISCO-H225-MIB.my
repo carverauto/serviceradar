@@ -1,0 +1,1125 @@
+-- *****************************************************************
+-- CISCO-H225-MIB.my: H225 MIB file
+--
+-- February 2004   Paari Elangovan
+--
+-- Copyright (c) 2000-2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-H225-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Counter32
+                FROM SNMPv2-SMI
+        TEXTUAL-CONVENTION,
+        DisplayString
+                FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoH225MIB MODULE-IDENTITY
+        LAST-UPDATED    "200411240000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-h323@cisco.com"
+        DESCRIPTION
+                "Cisco H225 MIB module. This module consists of H225 
+                call signaling and H225 RAS (Registration, Admission 
+                and Status). These are protocols specified by H323 
+                for transmission of real-time audio, video and data 
+                over packet-based networks.
+
+                H225 call signaling is used to set up connections 
+                between H323 endpoints such as terminals and gateways, 
+                over which the real-time data can be transported. 
+
+                H225 RAS is the protocol between endpoints (terminals 
+                and gateways) and gatekeepers."
+        REVISION  "200411240000Z"
+        DESCRIPTION
+                "Added Disconnection Cause Codes to the MIB as 
+                 separate table."
+        REVISION  "200403150000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+
+        ::= { ciscoMgmt 397 }
+
+--
+--********************************************************************
+-- H225 MIB objects definitions
+
+
+--********************************************************************
+--
+
+h225MIBObjects OBJECT IDENTIFIER ::= { ciscoH225MIB 1 }
+
+h225CallSignal              OBJECT IDENTIFIER ::= { h225MIBObjects 1 }
+
+h225Ras                     OBJECT IDENTIFIER ::= { h225MIBObjects 2 }
+
+h225MIBConformance          OBJECT IDENTIFIER ::= { h225MIBObjects 3 }
+
+h225DisconnectCauseCode     OBJECT IDENTIFIER ::= { h225MIBObjects 4 }
+
+--
+--********************************************************************
+-- TEXTUAL-CONVENTION
+--********************************************************************
+--
+CauseCodeType ::= TEXTUAL-CONVENTION
+        STATUS       current
+        DESCRIPTION
+            "The decimal value of the cause code representing the 
+             cause for disconnection."
+        REFERENCE    "ITU-T Q.931"
+        SYNTAX      INTEGER{
+             unallocatedNumber(1),
+             noRouteToSpecifiedTransitNetwork(2),
+             noRouteToDestination(3),
+             sendSpecialInformationTone(4),
+             misdialledTrunkPrefix(5),
+             channelUnacceptable(6),
+             callAwardedAndDelivered(7),
+             preemption(8),
+             preemptionCircuitReserved(9),
+             glare(15),
+             normalCallClearing(16),
+             userBusy(17),
+             noUserResponding(18),
+             noAnswerFromUser(19),
+             subscriberAbsent(20),
+             callRejected(21),
+             numberChanged(22),
+             redirectionToNewDestination(23),
+             exchangeRoutingError(25),
+             nonSelectedUserClearing(26),
+             destinationOutOfOrder(27),
+             invalidNumberORAddressIncomplete(28),
+             facilityRejected(29),
+             responseToSTATUSENQUIRY(30),
+             normalUnspecified(31),
+             nocircuitORchannelAvailable(34),
+             requestedVPCIorVCINotAvailable(35),
+             vpciORvciAssignmentFailure(36),
+             cellRateNotAvailable(37),
+             networkOutOfOrder(38),
+             permanentFrameModeOutOfService(39),
+             permanentFrameModeOperational(40),
+             temporaryFailure(41),
+             switchingEquipmentCongestion(42),
+             accessInformationDiscarded(43),
+             noRequestedCircuitORchannel(44),
+             noVPCIorVCIAvailable(45),
+             precedenceCallBlocked(46),
+             resourceUnavailableUnspecified(47),
+             qualityOfServiceNotAvailable(49),
+             requestedFacilityNotSubscribed(50),
+             outgoingCallsBarredWithinCUG(53),
+             incomingCallsBarredWithinCUG(55),
+             bearerCapabilityNotAuthorized(57),
+             bearerCapabilityNotAvailable(58),
+             inconsistencyInOutgoingInfo(62),
+             noServiceOROption(63),
+             bearerCapabilityNotImplemented(65),
+             channelTypeNotImplemented(66),
+             requestedFacilityNotImplemented(69),
+             onlyRestrictedDigitalInfoBC(70),
+             serviceOROptionNotImplemented(79),
+             invalidCallReferenceValue(81),
+             identifiedChannelDoesNotExist(82),
+             callExistsButCallIdentityDoesNot(83),
+             callIdentityInUse(84),
+             noCallSuspended(85),
+             requestedCallIdentityCleared(86),
+             userNotMemberOfCUG(87),
+             incompatibleDestination(88),
+             nonExistentCUG(90),
+             invalidTransitNetworkSelection(91),
+             allParametersNotSupported(93),
+             invalidMessageUnspecified(95),
+             mandatoryInfoElementMissing(96),
+             messageTypeNotImplemented(97),
+             messageInCompatible(98),
+             infoElementORNotImplemented(99),
+             invalidInfoElementContents(100),
+             messageInCompatibleCallState(101),
+             recoveryOnTimerExpiry(102),
+             nonImplementedParamPassedon(103),
+             unrecognizedParamMSGDiscarded(110),
+             protocolErrorUnspecified(111),
+             noVoiceResource(126),
+             interworkingUnspecified(127),
+             nextNodeUnreachable(128),
+             htspmOutOfService(129),
+             dtlTransitNotNodeId(160),
+             noDSPChannel(170),
+             codecIncompatible(171),
+             dspError(172),
+             glaringSwitchPRI(180),
+             sipUndefinedMapped(250),
+             sipUndefinedUnmapped(251),
+             unknownCauseCodeType(256)
+}
+
+
+--
+--********************************************************************
+-- H225 Call Signal Group
+--********************************************************************
+--
+
+--
+--********************************************************************
+-- H225 Call Signal Statistics
+--********************************************************************
+--
+
+h225CallSignalStats         OBJECT IDENTIFIER ::= { h225CallSignal 1}
+
+
+h225CallSignalStatsSetupIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Setup messages received by this entity."
+        ::= { h225CallSignalStats 1 }
+
+h225CallSignalStatsSetupOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Setup messages sent by this entity."
+        ::= { h225CallSignalStats 2 }
+
+h225CallSignalStatsSetupFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Setup messages that could not be sent by 
+            this entity."
+        ::= { h225CallSignalStats 3 }
+
+h225CallSignalStatsSetupConfIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Setup Confirmation messages received by 
+            this entity. Processing this message on receipt is 
+            optional."
+        ::= { h225CallSignalStats 4 }
+
+h225CallSignalStatsSetupConfOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Setup Confirmation messages sent by this 
+            entity."
+        ::= { h225CallSignalStats 5 }
+
+h225CallSignalStatsSetupConFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Setup Confirmation messages that could not 
+            be sent by this entity."
+        ::= { h225CallSignalStats 6 }
+
+h225CallSignalStatsAlertingIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of alerting messages received by this entity."
+        ::= { h225CallSignalStats 7 }
+
+h225CallSignalStatsAlertingOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of alerting messages sent by this entity."
+        ::= { h225CallSignalStats 8 }
+
+h225CallSignalStatsAlertingFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of alerting messages that could not be sent by 
+            this entity."
+        ::= { h225CallSignalStats 9 }
+
+h225CallSignalStatsProgIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Progress messages received by this entity."
+        ::= { h225CallSignalStats 10 }
+
+h225CallSignalStatsProgOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Progress messages sent by this entity."
+        ::= { h225CallSignalStats 11 }
+
+h225CallSignalStatsProgFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Progress messages that could not be sent by 
+            this entity."
+        ::= { h225CallSignalStats 12 }
+
+h225CallSignalStatsCallProcsIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Call Proceeding messages received by this 
+            entity."
+        ::= { h225CallSignalStats 13 }
+
+h225CallSignalStatsCallProcsOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Call Proceeding messages sent by this 
+            entity."
+        ::= { h225CallSignalStats 14 }
+
+h225CallSignalStatsCallProcFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Call Proceeding messages that could not be 
+            sent by is entity."
+        ::= { h225CallSignalStats 15 }
+
+h225CallSignalStatsNotifyIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Notify messages received by this entity."
+        ::= { h225CallSignalStats 16 }
+
+h225CallSignalStatsNotifyOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Notify messages sent by this entity."
+        ::= { h225CallSignalStats 17 }
+
+h225CallSignalStatsNotifyFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Notify messages that could not be sent by 
+            this entity."
+        ::= { h225CallSignalStats 18 }
+
+h225CallSignalStatsInfoIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Information messages received by this 
+            entity."
+        ::= { h225CallSignalStats 19 }
+
+h225CallSignalStatsInfoOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Information messages sent by this entity."
+        ::= { h225CallSignalStats 20 }
+
+h225CallSignalStatsInfoFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Information messages that could not be 
+            sent by this entity."
+        ::= { h225CallSignalStats 21 }
+
+h225CallSignalStatsUserInfoIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of User Information messages received by this 
+            entity."
+        ::= { h225CallSignalStats 22 }
+
+h225CallSignalStatsUserInfoOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of User Information messages sent by this 
+            entity."
+        ::= { h225CallSignalStats 23 }
+
+h225CallSignalStatsUserInfoFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of User Information messages that could not be 
+            sent by is entity."
+        ::= { h225CallSignalStats 24 }
+
+h225CallSignalStatsFacilityIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Facility messages received by this entity."
+        ::= { h225CallSignalStats 25 }
+
+h225CallSignalStatsFacilityOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Facility messages sent by this entity."
+        ::= { h225CallSignalStats 26 }
+
+h225CallSignalStatsFacilityFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Facility messages that could not be sent by 
+            this entity."
+        ::= { h225CallSignalStats 27 }
+
+h225CallSignalStatsReleaseIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Release Complete messages received by this 
+            entity."
+        ::= { h225CallSignalStats 28 }
+
+h225CallSignalStatsReleaseOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Release Complete messages sent by this 
+            entity."
+        ::= { h225CallSignalStats 29 }
+
+h225CallSignalStatsReleaseFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Release Complete messages that could not 
+            be sent by this entity."
+        ::= { h225CallSignalStats 30 }
+
+h225CallSignalStatsRejectIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Reject messages received by this entity."
+        ::= { h225CallSignalStats 31 }
+
+h225CallSignalStatsRejectOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Reject messages sent by this entity."
+        ::= { h225CallSignalStats 32 }
+
+h225CallSignalStatsRejectFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Reject messages that could not be sent by 
+
+            this entity."
+        ::= { h225CallSignalStats 33 }
+
+h225CallSignalStatsPassthroIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Passthrough messages received by this 
+            entity."
+        ::= { h225CallSignalStats 34 }
+
+h225CallSignalStatsPassthroOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Passthrough messages sent by this entity."
+        ::= { h225CallSignalStats 35 }
+
+h225CallSignalStatsPassthroFails OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Passthrough messages that could not be sent 
+            by this entity."
+        ::= { h225CallSignalStats 36 }
+
+--
+--********************************************************************
+-- H225 Registration Admission and Status Group
+--********************************************************************
+--
+
+--
+--********************************************************************
+-- H225 RAS Statistics
+--********************************************************************
+--
+
+h225RasStats OBJECT IDENTIFIER ::= { h225Ras 1}
+
+
+h225RasStatsGkDiscoveryReqIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Gate Keeper Discovery requests received by 
+            this entity."
+        ::= { h225RasStats 1 }
+
+h225RasStatsGkDiscoveryReqOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Gate Keeper Discovery requests sent by this 
+            entity."
+        ::= { h225RasStats 2 }
+
+h225RasStatsGkDiscoveryConfIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Gate Keeper Discovery confirmations 
+            received by this entity."
+        ::= { h225RasStats 3 }
+
+h225RasStatsGkDiscoveryConfOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Gate Keeper Discovery confirmations sent by 
+            this entity."
+        ::= { h225RasStats 4 }
+
+h225RasStatsGkDiscoveryRejectIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Gate Keeper Discovery rejects received by 
+            this entity."
+        ::= { h225RasStats 5 }
+
+h225RasStatsGkDiscoveryRejOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Gate Keeper Discovery rejects sent by this 
+            entity."
+        ::= { h225RasStats 6 }
+
+h225RasStatsRegistrationReqIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Registration requests received by this 
+            entity."
+        ::= { h225RasStats 7 }
+
+h225RasStatsRegistrationReqOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Registration requests sent by this entity."
+        ::= { h225RasStats 8 }
+
+h225RasStatsRegistrationConfIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Registration confirmations received by this 
+            entity."
+        ::= { h225RasStats 9 }
+
+h225RasStatsRegistrationConfOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Registration confirmations sent by this 
+            entity."
+        ::= { h225RasStats 10 }
+
+h225RasStatsRegistrationRejIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Registration rejects received by this 
+            entity."
+        ::= { h225RasStats 11 }
+
+h225RasStatsRegistrationRejOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Registration rejects sent by this entity."
+        ::= { h225RasStats 12 }
+
+h225RasStatsAdmissionReqIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Admission requests received by this entity."
+        ::= { h225RasStats 13 }
+
+h225RasStatsAdmissionReqOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Admission requests sent by this entity."
+        ::= { h225RasStats 14 }
+
+h225RasStatsAdmissionConfirmIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Admission confirmations received by this 
+            entity."
+        ::= { h225RasStats 15 }
+
+h225RasStatsAdmissionConfirmOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Admission confirmations sent by this entity."
+        ::= { h225RasStats 16 }
+
+h225RasStatsAdmissionRejectIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Admission rejects received by this entity."
+        ::= { h225RasStats 17 }
+
+h225RasStatsAdmissionRejectOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Admission rejects sent by this entity."
+        ::= { h225RasStats 18 }
+
+h225RasStatsBandwidthReqIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Bandwidth requests received by this entity."
+        ::= { h225RasStats 19 }
+
+h225RasStatsBandwidthReqOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Bandwidth requests sent by this entity."
+        ::= { h225RasStats 20 }
+
+h225RasStatsBandwidthConfirmIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Bandwidth confirmations received by this 
+            entity."
+        ::= { h225RasStats 21 }
+
+h225RasStatsBandwidthConfirmOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Bandwidth confirmations sent by this entity."
+        ::= { h225RasStats 22 }
+
+h225RasStatsBandwidthRejectIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Bandwidth rejects received by this entity."
+        ::= { h225RasStats 23 }
+
+h225RasStatsBandwidthRejectOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Bandwidth rejects sent by this entity."
+        ::= { h225RasStats 24 }
+
+h225RasStatsDisengageReqIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Disengage requests received by this entity."
+        ::= { h225RasStats 25 }
+
+h225RasStatsDisengageReqOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Disengage requests sent by this entity."
+        ::= { h225RasStats 26 }
+
+h225RasStatsDisengageConfirmIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Disengage confirmations received by this 
+            entity."
+        ::= { h225RasStats 27 }
+
+h225RasStatsDisengageConfirmOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Disengage confirmations sent by this 
+            entity."
+        ::= { h225RasStats 28 }
+
+h225RasStatsDisengageRejectIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Disengage rejects received by this entity."
+        ::= { h225RasStats 29 }
+
+h225RasStatsDisengageRejectOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Disengage rejects sent by this entity."
+        ::= { h225RasStats 30 }
+
+h225RasStatsUnregisterReqIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Unregister requests received by this 
+            entity."
+        ::= { h225RasStats 31 }
+
+h225RasStatsUnregisterReqOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Unregister requests sent by this entity."
+        ::= { h225RasStats 32 }
+
+h225RasStatsUnregisterConfirmIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Unregister confirmations received by this 
+            entity."
+        ::= { h225RasStats 33 }
+
+h225RasStatsUnregisterConfOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Unregister confirmations sent by this 
+            entity."
+        ::= { h225RasStats 34 }
+
+h225RasStatsUnregisterRejectIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Unregister rejects received by this entity."
+        ::= { h225RasStats 35 }
+
+h225RasStatsUnregisterRejectOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Unregister rejects sent by this entity."
+        ::= { h225RasStats 36 }
+
+h225RasStatsResourceAvailIndIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Resource Availability Indications received 
+            by this entity."
+        ::= { h225RasStats 37 }
+
+h225RasStatsResourceAvailIndOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Resource Availability Indications sent by 
+            this entity."
+        ::= { h225RasStats 38 }
+
+h225RasStatsResourceAvailConfIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Resource Availability Indication 
+            confirmations received by this entity."
+        ::= { h225RasStats 39 }
+
+h225RasStatsResourceAvailConOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Resource Availability Indication 
+            confirmations sent by this entity."
+        ::= { h225RasStats 40 }
+
+h225RasStatsRequestInProgIns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Request In Progress requests received by 
+            this entity."
+        ::= { h225RasStats 41 }
+
+h225RasStatsRequestInProgOuts OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The number of Request In Progress requests sent by this 
+            entity."
+        ::= { h225RasStats 42 }
+
+--
+--********************************************************************
+-- H225 Disconnect Cause code Group
+--********************************************************************
+--
+
+--
+--********************************************************************
+-- H225 Disconnect Cause code Table
+--********************************************************************
+--
+
+h225DisconnectCauseCodeTable OBJECT-TYPE
+	  SYNTAX       SEQUENCE OF H225DisconnectCauseCodeEntry
+	  MAX-ACCESS   not-accessible
+	  STATUS       current
+	  DESCRIPTION 
+              "The list of disconnect cause codes that the H.323 
+               subsystem has received. A disconnect can originate 
+               either from the far-end gateway or from the opposite 
+               call leg on the local gateway. Whenever a disconnect 
+               occurs the entry in the table will be updated by the 
+               agent. The cause for disconnect is mapped to one of 
+               cause codes and if an entry for the cause code exists 
+               in the table, number of disconnects is incremented for 
+               that entry, otherwise a new entry is made with cause 
+               code as index."
+	 ::= {h225DisconnectCauseCode 1}
+
+h225DisconnectCauseCodeEntry OBJECT-TYPE
+	  SYNTAX       H225DisconnectCauseCodeEntry
+	  MAX-ACCESS   not-accessible
+	  STATUS       current
+	  DESCRIPTION 
+              "The table entry consists of an entry for each cause 
+               code. This entry consists of cause code, description 
+               of the code and number of disconnects that have been 
+               received from the opposite call leg on the local gateway 
+               and far-end H323 gateway. "
+	  INDEX        { h225CauseCode }
+	  ::= {h225DisconnectCauseCodeTable 1}
+
+H225DisconnectCauseCodeEntry ::= SEQUENCE {
+	  h225CauseCode                  CauseCodeType,
+	  h225CauseCodeDescription       DisplayString,
+	  h225FromOtherPeerDisconnects   Counter32,
+	  h225FromH323PeerDisconnects    Counter32
+}
+	
+h225CauseCode OBJECT-TYPE
+	  SYNTAX       CauseCodeType
+	  MAX-ACCESS   not-accessible
+	  STATUS       current
+	  DESCRIPTION 
+              "The decimal value of the cause code representing 
+               the cause for disconnection."
+          REFERENCE    "ITU-T Q.931"
+	  ::= {h225DisconnectCauseCodeEntry 1}
+
+h225CauseCodeDescription OBJECT-TYPE
+	  SYNTAX      DisplayString
+	  MAX-ACCESS  read-only
+	  STATUS      current
+	  DESCRIPTION 
+              "The object contains the textual description of 
+               the cause code"
+	  ::= {h225DisconnectCauseCodeEntry 2}
+
+h225FromOtherPeerDisconnects OBJECT-TYPE
+	  SYNTAX      Counter32
+	  MAX-ACCESS  read-only
+	  STATUS      current
+	  DESCRIPTION 
+              "Number of disconnects that have been received from 
+               the opposite call leg on the local gateway for the 
+               cause code(for example, from PRI T1 POTS peer or 
+               a Foreign exchange station [FXS]POTS peer)"
+	  ::= {h225DisconnectCauseCodeEntry 3}
+
+h225FromH323PeerDisconnects OBJECT-TYPE
+	  SYNTAX      Counter32
+	  MAX-ACCESS  read-only
+	  STATUS      current
+	  DESCRIPTION 
+              "Number of disconnects that have been received from 
+               the far-end H323 gateway for the cause code"
+	  ::= {h225DisconnectCauseCodeEntry 4}
+
+--
+--********************************************************************
+-- H225 MIB Conformance and Compliance
+--********************************************************************
+--
+
+h225MIBCompliances OBJECT IDENTIFIER ::= { h225MIBConformance 1 }
+
+h225MIBGroups      OBJECT IDENTIFIER ::= { h225MIBConformance 2 }
+
+--
+--********************************************************************
+-- H225 MIB Compliance
+--********************************************************************
+--
+
+
+h225MIBCompliance MODULE-COMPLIANCE
+        STATUS      deprecated
+        DESCRIPTION
+            "The compliance statement for entities which
+             implement the CISCO-H225-MIB"
+        MODULE      -- this module
+        MANDATORY-GROUPS
+            { h225CallSignalStatsGroup, h225RasStatsGroup }
+        ::= { h225MIBCompliances 1 }
+
+h225MIBComplianceRev1 MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+            "The compliance statement for entities which
+             implement the CISCO-H225-MIB"
+        MODULE      -- this module
+        MANDATORY-GROUPS
+            { h225CallSignalStatsGroup, h225RasStatsGroup,
+              h225DisconnectCauseCodeGroup }
+        ::= { h225MIBCompliances 2 }
+
+--
+--********************************************************************
+-- H225 MIB Groups
+--********************************************************************
+--
+
+h225CallSignalStatsGroup OBJECT-GROUP
+        OBJECTS {
+            h225CallSignalStatsSetupIns,
+            h225CallSignalStatsSetupOuts,
+            h225CallSignalStatsSetupFails,
+            h225CallSignalStatsSetupConfIns,
+            h225CallSignalStatsSetupConfOuts,
+            h225CallSignalStatsSetupConFails,
+            h225CallSignalStatsAlertingIns,
+            h225CallSignalStatsAlertingOuts,
+            h225CallSignalStatsAlertingFails,
+            h225CallSignalStatsProgIns,
+            h225CallSignalStatsProgOuts,
+            h225CallSignalStatsProgFails,
+            h225CallSignalStatsCallProcsIns,
+            h225CallSignalStatsCallProcsOuts,
+            h225CallSignalStatsCallProcFails,
+            h225CallSignalStatsNotifyIns,
+            h225CallSignalStatsNotifyOuts,
+            h225CallSignalStatsNotifyFails,
+            h225CallSignalStatsInfoIns,
+            h225CallSignalStatsInfoOuts,
+            h225CallSignalStatsInfoFails,
+            h225CallSignalStatsUserInfoIns,
+            h225CallSignalStatsUserInfoOuts,
+            h225CallSignalStatsUserInfoFails,
+            h225CallSignalStatsFacilityIns,
+            h225CallSignalStatsFacilityOuts,
+            h225CallSignalStatsFacilityFails,
+            h225CallSignalStatsReleaseIns,
+            h225CallSignalStatsReleaseOuts,
+            h225CallSignalStatsReleaseFails,
+            h225CallSignalStatsRejectIns,
+            h225CallSignalStatsRejectOuts,
+            h225CallSignalStatsRejectFails,
+            h225CallSignalStatsPassthroIns,
+            h225CallSignalStatsPassthroOuts,
+            h225CallSignalStatsPassthroFails
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the H225 call signaling 
+            statistics."
+        ::= { h225MIBGroups 1 }
+
+h225RasStatsGroup OBJECT-GROUP
+        OBJECTS {
+            h225RasStatsGkDiscoveryReqIns,
+            h225RasStatsGkDiscoveryReqOuts,
+            h225RasStatsGkDiscoveryConfIns,
+            h225RasStatsGkDiscoveryConfOuts,
+            h225RasStatsGkDiscoveryRejectIns,
+            h225RasStatsGkDiscoveryRejOuts,
+            h225RasStatsRegistrationReqIns,
+            h225RasStatsRegistrationReqOuts,
+            h225RasStatsRegistrationConfIns,
+            h225RasStatsRegistrationConfOuts,
+            h225RasStatsRegistrationRejIns,
+            h225RasStatsRegistrationRejOuts,
+            h225RasStatsAdmissionReqIns,
+            h225RasStatsAdmissionReqOuts,
+            h225RasStatsAdmissionConfirmIns,
+            h225RasStatsAdmissionConfirmOuts,
+            h225RasStatsAdmissionRejectIns,
+            h225RasStatsAdmissionRejectOuts,
+            h225RasStatsBandwidthReqIns,
+            h225RasStatsBandwidthReqOuts,
+            h225RasStatsBandwidthConfirmIns,
+            h225RasStatsBandwidthConfirmOuts,
+            h225RasStatsBandwidthRejectIns,
+            h225RasStatsBandwidthRejectOuts,
+            h225RasStatsDisengageReqIns,
+            h225RasStatsDisengageReqOuts,
+            h225RasStatsDisengageConfirmIns,
+            h225RasStatsDisengageConfirmOuts,
+            h225RasStatsDisengageRejectIns,
+            h225RasStatsDisengageRejectOuts,
+            h225RasStatsUnregisterReqIns,
+            h225RasStatsUnregisterReqOuts,
+            h225RasStatsUnregisterConfirmIns,
+            h225RasStatsUnregisterConfOuts,
+            h225RasStatsUnregisterRejectIns,
+            h225RasStatsUnregisterRejectOuts,
+            h225RasStatsResourceAvailIndIns,
+            h225RasStatsResourceAvailIndOuts,
+            h225RasStatsResourceAvailConfIns,
+            h225RasStatsResourceAvailConOuts,
+            h225RasStatsRequestInProgIns,
+            h225RasStatsRequestInProgOuts
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the H225 Registration, 
+            Admission and Status statistics."
+        ::= { h225MIBGroups 2 }
+
+h225DisconnectCauseCodeGroup OBJECT-GROUP
+        OBJECTS {
+	    h225CauseCodeDescription,
+	    h225FromOtherPeerDisconnects,
+	    h225FromH323PeerDisconnects
+        }
+	STATUS      current
+        DESCRIPTION
+            "A collection of objects providing details of Disconnect 
+             cause codes that the H.323 subsystem has received. "
+        ::= { h225MIBGroups 3 }
+
+
+END
+

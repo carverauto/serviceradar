@@ -1,0 +1,490 @@
+-- *****************************************************************
+-- CISCO-WAN-AAL2-PROFILES-MIB.my:  CISCO AAL2 PROFILES MIB file
+--
+-- October 2003, George Ogagan
+-- March   2004, Rashmi Purandare
+-- August  2005, Rashmi Purandare
+--
+-- Copyright (c) 2001-2003, 2004, 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-WAN-AAL2-PROFILES-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32
+                FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+                FROM SNMPv2-CONF
+    ciscoWan    FROM CISCOWAN-SMI;
+
+ciscoWanAal2ProfilesMIB MODULE-IDENTITY
+    LAST-UPDATED "200509010000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-vism@cisco.com"
+    DESCRIPTION
+            "The MIB module for configuring AAL2 profile elements. This
+             table will be used in AAL2 switching and trunking
+             applications."
+
+    REVISION    "200509010000Z"
+    DESCRIPTION "
+                Updated aal2ProfileNumber description with
+                correction for enumeration value 'seven'.
+                "
+    REVISION    "200404090000Z"
+    DESCRIPTION "
+                Updated aal2ProfileNumber description.
+                "
+    REVISION    "200310100000Z"
+    DESCRIPTION "
+                Update descriptions in the MIB.
+                "
+    REVISION    "200308140000Z"
+    DESCRIPTION "
+                Add new custom 210 profile.
+                "
+    REVISION    "200305230000Z"
+    DESCRIPTION "
+                Changes for Lossless codec.
+                "
+    REVISION    "200109100000Z"
+    DESCRIPTION "
+                Added changes for G723. 
+                "                
+    REVISION    "200108241500Z"
+    DESCRIPTION "
+                Added new enum for g726-16k, g726-24k, and g276-40k in 
+                aal2ProfileVBDCodec.
+                "                
+    REVISION    "200101191500Z"
+    DESCRIPTION "
+                Added ITU profile 3. Take out hyphen in the
+                definitions and change voiceCodec name to make
+                it more clear.
+                "                
+
+    ::= { ciscoWan 17 }
+
+ciscoWanAal2ProfilesMIBObjects  OBJECT IDENTIFIER ::= 
+                                  { ciscoWanAal2ProfilesMIB 1 }
+
+aal2ProfilesGrp                 OBJECT IDENTIFIER ::=
+                                  { ciscoWanAal2ProfilesMIBObjects 1 }
+
+--
+-- 
+-- aal2ProfilesGrpTable 
+-- 
+-- 
+
+aal2ProfilesGrpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF Aal2ProfilesGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table contains configuration information about
+         various profiles elements (packetization period, voice
+         activity detection, voice codec, preference and voice 
+         band data codec) used in switched AAL2 PVC(Permanent
+         Virtual Circuit) voice calls.
+        "
+    ::= { aal2ProfilesGrp 1 }
+
+aal2ProfilesGrpEntry OBJECT-TYPE
+    SYNTAX      Aal2ProfilesGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in the vismAal2ProfilesGrpTable. 
+
+         All the entries in this table are implicitly created
+         when the card comes up.
+        "
+    INDEX { aal2ProfileType, aal2ProfileNumber}
+    ::= { aal2ProfilesGrpTable 1 }
+
+Aal2ProfilesGrpEntry ::=
+    SEQUENCE {
+          aal2ProfileType              INTEGER,
+          aal2ProfileNumber            INTEGER,
+          aal2ProfilePreference        Integer32,
+          aal2ProfileVoiceCodec        INTEGER,
+          aal2ProfileVoicePktPeriod    INTEGER,
+          aal2ProfileVoiceVAD          INTEGER,
+          aal2ProfileVBDCodec          INTEGER,
+          aal2ProfileVBDPktPeriod      INTEGER
+       }
+
+aal2ProfileType    OBJECT-TYPE
+    SYNTAX      INTEGER {
+                        itu (1),
+                        custom (3)
+                    }
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+         " This object serves as the first index into this table.
+           Only the following combination of aal2ProfileType and
+           aal2ProfileNumber will be found in the table.
+                    first entry containing   itu 1
+                    second containing itu 2
+                    third containing itu 3 
+                    fourth containing itu 7 
+                    fifth containing itu 8
+                    sixth containing itu 12
+                    seventh containing custom 100
+                    eighth containing custom 101
+                    ninth containing custom 110.
+                    tenth  containing custom 200
+                    eleventh containing custom 201
+                    twelveth containing custom 210
+         "
+        ::= { aal2ProfilesGrpEntry 1 }
+
+aal2ProfileNumber OBJECT-TYPE
+     SYNTAX    INTEGER {
+                 one              (1),
+                 two              (2),
+                 three            (3),
+                 seven            (7),
+                 eight            (8),
+                 twelve           (12),
+                 oneHundred       (100),
+                 oneHundredOne    (101),
+                 oneHundredTen    (110),
+                 twoHundred       (200),
+                 twoHundredOne    (201),
+                 twoHundredTen    (210) 
+                 }
+     MAX-ACCESS not-accessible
+     STATUS     current
+     DESCRIPTION
+        "This object serves as the second index into this table.
+
+         The pre-defined ITU aal2ProfileNumber are specify in
+         ITU-T I.366.2 standard.
+ 
+         'one'   - G.711u/G.711a(No SID - Silence insertion
+                   descriptor) based on T1/E1 card type.
+         'two'   - G.711u/G.711a(SID Generic) based on T1/E1 card type.
+         'three' - G.726-40 kbps(SID Generic), G.726-32 kbps(SID
+                   Generic), G.726-24 kbps(SID Generic), G.726-16
+                   kbps(SID Generic), G.711u/G.711a(SID Generic).
+         'seven' - G.729ab(SID G729)/G.729a(No SID), 
+                   G.711u/G.711a(No SID).
+         'eight' - G.729ab(SID G729)/G.729a(No SID),
+                   G.711u/G.711a(No SID), G.726-32 kbps(No SID).
+         'twelve'- G.723AH(SID G723), G.723H(No SID), G.723AL
+                   (SID G723), G.723L(No SID). 
+
+         'oneHundred'(custom 100) - G.726-32 kbps(SID Generic),
+                   G.711u/G.711a(SID Generic).
+         'oneHundredOne'(custom 101) - G.729ab(SID G729)/G.729a
+                   (No SID), G.726-32 kbps(No SID),
+                   G.711u/G.711a(No SID)
+         'oneHundredTen'(custom 110) - G.729ab(SID G729)/G.729a
+                   (No SID), G.726-32 kbps(SID Generic),
+                   G.711u/G.711a(SID Generic).
+         'twoHundred'(custom 200) - clearChannel.
+         'twoHundredOne'(custom 201) - Lossless.
+         'twoHundredTen'(custom 210) - G.729ab(SID G729)/G.729a
+                   (No SID), G.726-32 kbps(No SID), 
+                   G.711u/G.711a(No SID), clearChannel. 
+        "
+        ::= { aal2ProfilesGrpEntry 2 }
+
+aal2ProfilePreference   OBJECT-TYPE
+     SYNTAX     Integer32 (0..65535)
+     MAX-ACCESS read-write
+     STATUS     current
+     DESCRIPTION
+        " This object is used to configure the preference of one
+          profile over another. A profile with a preference of
+          zero (0) means that this profile element will not be
+          used. A non-zero value with a lower number has a
+          higher preference.  The range of writable values is
+          limited to the number of profiles, which means the
+          number of rows in this table. 
+   
+          If two or more entries has the same preference number then 
+          the first entry in the table will be used.
+
+          The default preference for each profile will be as
+          follows : 
+
+              itu 3      = 1
+              itu 7      = 2
+              itu 2      = 3
+              itu 1      = 4
+              itu 8      = 5
+              custom 100 = 6
+              custom 101 = 7 
+              custom 110 = 8 
+              custom 200 = 9            
+              itu 12     = 10
+              custom 201 = 11
+              custom 210 = 12
+        "
+        ::= { aal2ProfilesGrpEntry 3 }
+
+aal2ProfileVoiceCodec OBJECT-TYPE
+     SYNTAX    INTEGER {
+                  g711u          (1),
+                  g711a          (2),
+                  g726r32000     (3),
+                  g729a          (4),
+                  g729ab         (5),
+                  clearChannel   (6),
+                  g726r16000     (7),
+                  g726r24000     (8),
+                  g726r40000     (9),
+                  g723h         (11),
+                  g723ah        (12),
+                  g723l         (13),
+                  g723al        (14),
+                  lossless      (15)
+                 }
+     MAX-ACCESS read-write
+     STATUS     current 
+     DESCRIPTION
+        " This object determines the codecs to be used in this profile.
+          Validation will be done before setting this object based
+          on the current template used in the card.
+
+          The default value of this object depends upon the profile
+          for itu 1       = G.711u/G.711a  based on T1/E1 card type
+              itu 2       = G.711u/G.711a  based on T1/E1 card type
+              itu 3       = G.726 at rate 32 kbps
+              itu 7       = G.729ab
+              itu 8       = G.729ab
+              custom 100  = G.726 at rate 32 kbps
+              custom 101  = G.729ab
+              custom 110  = G.729ab
+              custom 200  = clearChannel
+              itu 12      = G.723 family
+              custom 201  = Lossless
+              custom 210  = G.729a
+
+              'g711u' stands for G.711u
+              'g711a' stands for G.711a 
+              'g726r32000' stands for G.726 at rate 32 kbps
+              'g729a' stands for G.729a
+              'g729ab' stands for G.729ab
+              'g726r16000' stands for G.726 at rate 16 kbps
+              'g726r24000' stands for G.726 at rate 24 kbps
+              'g726r40000' stands for G.726 at rate 40 kbps
+              'g723h' stands for G.723.1-H
+              'g723l' stands for G.723.1-L
+              'g723ah' stands for G.723.1a-H
+              'g723al' stands for G.723.1a-L
+              'lossless' stands for Lossless
+            "
+        ::= { aal2ProfilesGrpEntry 4 }
+ 
+
+aal2ProfileVoicePktPeriod  OBJECT-TYPE
+     SYNTAX    INTEGER {
+                 five (5),
+                 ten (10),
+                 twenty (20),
+                 thirty(30),
+                 fourty (40)
+                }
+     UNITS      "milli seconds"
+     MAX-ACCESS read-write
+     STATUS     current 
+     DESCRIPTION
+        " This object is used to configure the packetization period in
+          millisecs for a given codec.
+
+          The default value of this object depends upon the profile
+          for itu 1       = 5   (Applicable value is only 5)
+              itu 2       = 5   (Applicable value is only 5)
+              itu 3       = 5   (Applicable value is only 5) 
+              itu 7       = 10  (Applicable values are 5 & 10)
+              itu 8       = 10  (Applicable values are 5 & 10)
+              itu 12      = 30  (Applicable value is only 30)
+              custom 100  = 10  (Applicable values are 5 & 10)
+              custom 101  = 10  (Applicable values are 5 & 10)
+              custom 110  = 30  (Applicable values are 5,10 & 30)
+              custom 200  = 5   (Applicable value is only 5)
+              custom 201  = 5 	(Applicable value is only 5)
+              custom 210  = 20 	(Applicable value are only 5, 10 & 20)
+        "
+        ::= { aal2ProfilesGrpEntry 5 }
+ 
+aal2ProfileVoiceVAD OBJECT-TYPE
+     SYNTAX    INTEGER {
+                off (1),
+                on  (2),
+                sidGenric (3),
+                sid729 (4),
+		sid723 (5)
+            }
+     MAX-ACCESS read-write
+     STATUS     current
+     DESCRIPTION
+        "This object defines whether or not the VAD (Voice Activity
+         Detection) has to be applied or not when the current
+         profile is chosen. Upon detection of silence based on the
+         configuration in this object either generic SID packet as
+         specified in I.366.2 standards or SID 729 packet will be
+         sent to the other end.
+
+         The default value of this object depends on the profile:
+
+         itu 1      = on  - silence suppression enabled with no SID
+         itu 2      = sidGeneric
+         itu 3      = sidGeneric
+         itu 7      = sid729
+         itu 8      = sid729
+         itu 12     = sid723 
+         custom 100 = sidGeneric
+         custom 101 = sid729
+         custom 110 = sid729
+         custom 200 = off - silence suppression disabled with no SID.
+         custom 201 = off - silence suppression disabled with no SID.
+         custom 210 = off - silence suppression disabled with no SID.
+        "
+        ::= { aal2ProfilesGrpEntry 6 }
+
+aal2ProfileVBDCodec OBJECT-TYPE
+     SYNTAX     INTEGER {
+                  g711u        (1),
+                  g711a        (2),
+                  g726r32000   (3),
+                  clearChannel (6),
+                  g726r16000   (7),
+                  g726r24000   (8),
+                  g726r40000   (9),
+                  g723h        (11),
+                  g723l        (13),
+                  lossless     (15)
+            }
+     MAX-ACCESS read-write
+     STATUS     current
+     DESCRIPTION
+        " This object determines the voice band data (VBD)
+          codecs to be used when upspeed happens.
+        
+          The default value of this object depends upon the profile
+          for itu 1        G.711u/G.711a  based on T1/E1 card type
+              itu 2        G.711u/G.711a  based on T1/E1 card type
+              itu 3        G.711u/G.711a  based on T1/E1 card type
+              itu 7        G.711u/G.711a  based on T1/E1 card type
+              itu 8        G.711u/G.711a  based on T1/E1 card type 
+              itu 12       G.723.1-H 
+              custom 100   G.711u/G.711a  based on T1/E1 card type
+              custom 101   G.711u/G.711a  based on T1/E1 card type 
+              custom 110   G.711u/G.711a  based on T1/E1 card type
+              custom 200   clearChannel
+              custom 201   Lossless
+              custom 210   G.711u/G.711a  based on T1/E1 card type
+        "
+        ::= { aal2ProfilesGrpEntry 7 }
+
+aal2ProfileVBDPktPeriod  OBJECT-TYPE
+     SYNTAX    INTEGER {
+                 five (5),
+                 ten (10),
+                 thirty (30)
+                }
+     UNITS      "milli seconds"
+     MAX-ACCESS read-write
+     STATUS     current
+     DESCRIPTION
+        " This object is used to configure the packetization period in
+          millisecs for a given VBD codec.
+       
+          The default value of this object depends on the profile
+          for itu 1      = 5
+             itu 2       = 5
+             itu 3       = 5
+             itu 7       = 5
+             itu 8       = 5
+             itu 12      = 30
+             custom 100  = 5
+             custom 101  = 5
+             custom 110  = 5
+             custom 200  = 5
+             custom 201  = 5
+             custom 210  = 5
+        "
+        ::= { aal2ProfilesGrpEntry 8 }
+
+
+-- *****************************************************************
+-- AAL2 Profile group notification
+-- *****************************************************************
+
+-- **********************************************************************
+-- Conformance
+-- **********************************************************************
+
+--
+-- conformance information
+--
+
+aal2ProfileMIBConformance  OBJECT IDENTIFIER  ::=
+                             { ciscoWanAal2ProfilesMIB 2 }
+
+aal2ProfileMIBCompliances  OBJECT IDENTIFIER ::=
+                             { aal2ProfileMIBConformance 1 }
+
+aal2ProfileMIBGroups       OBJECT IDENTIFIER  ::=
+                             { aal2ProfileMIBConformance 2 }
+
+
+--
+-- Conformance and compliance statements statements
+--
+
+aal2ProfileMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+            " The compliance statement for AAL2 profile group
+              which implement this MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { aal2ProfileGroup 
+                         }
+    ::= { aal2ProfileMIBCompliances 1 }
+
+--
+-- units of conformance
+--
+-- MIB Groups
+--
+
+aal2ProfileGroup OBJECT-GROUP
+         OBJECTS {
+                     aal2ProfilePreference,       
+                     aal2ProfileVoiceCodec,      
+                     aal2ProfileVoicePktPeriod, 
+                     aal2ProfileVoiceVAD,      
+                     aal2ProfileVBDCodec,    
+                     aal2ProfileVBDPktPeriod
+                 }
+    STATUS    current
+    DESCRIPTION
+            "This group contains objects related to configuration 
+             of AAL2 profiles.
+             "
+    ::= { aal2ProfileMIBGroups 1 }
+
+END
+ 

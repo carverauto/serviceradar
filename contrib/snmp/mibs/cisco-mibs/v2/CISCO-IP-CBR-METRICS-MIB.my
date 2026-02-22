@@ -1,0 +1,717 @@
+-- *****************************************************************
+-- CISCO-IP-CBR-METRICS-MIB
+-- Definitions of managed objects describing MDI flow metrics.
+--   
+-- October 2009, Patrick R. Gili
+--   
+-- Copyright (c) 2008-2009 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IP-CBR-METRICS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-IDENTITY,
+    OBJECT-TYPE,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeStamp
+        FROM SNMPv2-TC
+    ReportIntervalCount
+        FROM CISCO-REPORT-INTERVAL-TC-MIB
+    FlowCfgRateType,
+    FlowBitRateUnits,
+    FlowMetricScale,
+    FlowMetricPrecision,
+    FlowMetricValue
+        FROM CISCO-FLOW-MONITOR-TC-MIB
+    cfmFlowMonitorId,
+    cfmFlowId,
+    cfmFlowMetricsIntNumber
+        FROM CISCO-FLOW-MONITOR-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIpCbrMetricsMIB MODULE-IDENTITY
+    LAST-UPDATED    "200906110000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:  170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel:  +1 800 553-NETS
+
+            E-mail:  cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects that describe the a set of
+        metrics used to measure the quality of a IP CBR traffic flow. An
+        IP CBR traffic flow consists of a stream of IP datagrams sent
+        from one application to another with a constant packet rate or
+        bit rate.
+
+        GLOSSARY
+        ============
+
+        CBR - Constant Bit Rate.
+
+        Delay Factor - the maximum observed value of the flow rate
+            imbalance over a measurement interval.
+
+        DF - Delay Factor.
+
+        Flow Monitor - a hardware or software entity that classifies
+            traffic flows, collects flow data, and periodically
+            computes flow metrics.
+
+        Flow Metric - a measurement that reflects the quality of a
+            traffic flow.
+
+        Measurement Interval - the length of time over which a flow
+            monitor collects data related to a traffic flow, after which
+            the flow monitor computes flow metrics using the collected
+            data.
+
+        Media Rate - the effective bit rate of the media content
+            carried by a traffic flow.
+
+        Media Rate Variation - a measure of loss (in bytes):
+
+                         N
+                   RT - sum [Si]
+                        i=1
+            MRV = ---------------
+                         RT
+
+            where R is the nominal media rate, T is the measurement
+            interval, Si is the size of packet[i] received during the
+            measurement interval, and N is the number of media packets
+            received during the measurement interval.
+
+        MR - Media Rate.
+
+        MRV - Media Rate Variation.
+
+        Traffic Flow - a unidirectional stream of packets conforming to
+            a classifier.  For example, packets having a particular 
+            source IP address, destination IP address, protocol type,
+            source port number, and destination port number.
+
+        VB - Virtual Buffer.
+
+        Virtual Buffer - a virtual buffer is a construct used to
+            simulate a real buffer used by a media application for the
+            purpose of storing media packets until the the application
+            can render their content."
+    REVISION        "200906110000Z"
+    DESCRIPTION
+        "The initial version of the MIB module."
+    ::= { ciscoMgmt 697 }
+
+
+-- **********************************************************************
+-- * Top-Level Trees                                                    *
+-- **********************************************************************
+
+ciscoIpCbrMetricsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIpCbrMetricsMIB 0 }
+
+ciscoIpCbrMetricsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoIpCbrMetricsMIB 1 }
+
+ciscoIpCbrMetricsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoIpCbrMetricsMIB 2 }
+
+ciscoIpCbrMetricsMIBIds  OBJECT IDENTIFIER
+    ::= { ciscoIpCbrMetricsMIB 3 }
+
+-- **********************************************************************
+-- * Objects                                                            *
+-- **********************************************************************
+
+cfmIpCbrMetrics  OBJECT IDENTIFIER
+    ::= { ciscoIpCbrMetricsMIBObjects 1 }
+
+
+cfmIpCbrMetricsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmIpCbrMetricsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains aggregate data maintained by a flow
+        monitor for traffic flows for which it is computing IP CBR
+        metrics.
+
+        This table has an sparse dependent relationship on the
+        cfmFlowMetricsTable (defined by the CISCO-FLOW-MONITOR-MIB),
+        containing a row for each row in the cfmFlowMetricsTable having
+        a corresponding instance of cfmFlowMetricsCollected with the
+        'ipCbr' bit set to one."
+    ::= { cfmIpCbrMetrics 1 }
+
+cfmIpCbrMetricsEntry OBJECT-TYPE
+    SYNTAX          CfmIpCbrMetricsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes cumulative and aggregate IP CBR metrics for
+        a single traffic flow.
+
+        The devices creates a row in the cfmIpCbrMetricsTable when a
+        flow monitor starts monitoring a traffic flow and has been
+        configured to compute IP CBR metrics for the same traffic flow.
+        Likewise, the device destroys a row in the
+        cfmIpCbrMetricsMetricsTable when the corresponding flow monitor
+        has ceased monitoring the traffic flow (e.g., when a traffic
+        flow has timed out)."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmIpCbrMetricsTable 1 }
+
+CfmIpCbrMetricsEntry ::= SEQUENCE {
+        cfmIpCbrMetricsCfgRateType     FlowCfgRateType,
+        cfmIpCbrMetricsCfgBitRate      FlowBitRateUnits,
+        cfmIpCbrMetricsCfgRate         Unsigned32,
+        cfmIpCbrMetricsCfgMediaPktSize Unsigned32,
+        cfmIpCbrMetricsValid           BITS,
+        cfmIpCbrMetricsLostPkts        Counter64,
+        cfmIpCbrMetricsMrvScale        FlowMetricScale,
+        cfmIpCbrMetricsMrvPrecision    FlowMetricPrecision,
+        cfmIpCbrMetricsMrv             FlowMetricValue
+}
+
+cfmIpCbrMetricsCfgRateType OBJECT-TYPE
+    SYNTAX          FlowCfgRateType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates how the corresponding flow monitor
+        computes the DF for the traffic flow." 
+    ::= { cfmIpCbrMetricsEntry 1 }
+
+cfmIpCbrMetricsCfgBitRate OBJECT-TYPE
+    SYNTAX          FlowBitRateUnits
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmIpCbrMetricsCfgRate.  The value of this column only has
+        relevance if the corresponding instance of
+        cfmIpCbrMetricsCfgRateType is 'ipBitRate' or 'mediaRate'." 
+    ::= { cfmIpCbrMetricsEntry 2 }
+
+cfmIpCbrMetricsCfgRate OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured bit rate used by the flow
+        monitor to compute the DF for the traffic flow.  The value of
+        this column only has relevance if the corresponding instance of
+        cfmIpCbrMetricsCfgRateType is 'ipBitRate' or 'mediaRate'." 
+    ::= { cfmIpCbrMetricsEntry 3 }
+
+cfmIpCbrMetricsCfgMediaPktSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (64..65535)
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured media packet size used by
+        the flow monitor to compute the DF for the traffic flow.  The
+        value of this column only has relevance if the corresponding
+        instance of cfmIpCbrMetricsCfgRateType is 'mediaRate'." 
+    ::= { cfmIpCbrMetricsEntry 4 }
+
+cfmIpCbrMetricsValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        lostPkts(0),
+                        mediaRateVariation(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which metrics are valid for the traffic
+        flow:
+
+            'lostPkts'
+                If this bit is set to '1', then the corresponding
+                instance of cfmIpCbrMetricsLostPkts is valid.
+
+            'mediaRateVariation'
+                If this bit is set to '1', then the corresponding
+                instances of cfmIpCbrMetricsMlrScale,
+                cfmIpCbrMetricsMlrPrecision, and cfmIpCbrMetricsMlr are
+                valid." 
+    ::= { cfmIpCbrMetricsEntry 5 }
+
+cfmIpCbrMetricsLostPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets lost for the
+        traffic flow.
+
+        The value of this column is valid if and only if the 'lostPkts'
+        bit in the corresponding instance of cfmMdiMetricsValid is set
+        to '1'." 
+    ::= { cfmIpCbrMetricsEntry 6 }
+
+cfmIpCbrMetricsMrvScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scale factor for the corresponding
+        instance of cfmIpCbrMetricsMrv.
+
+        The value of this column is valid if and only if the
+        'mediaRateVariation' bit in the corresponding instance of
+        cfmMdiMetricsValid is set to '1'." 
+    ::= { cfmIpCbrMetricsEntry 7 }
+
+cfmIpCbrMetricsMrvPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmIpCbrMetricsMrv.
+
+        The value of this column is valid if and only if the
+        'mediaRateVariation' bit in the corresponding instance of
+        cfmMdiMetricsValid is set to '1'." 
+    ::= { cfmIpCbrMetricsEntry 8 }
+
+cfmIpCbrMetricsMrv OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the MRV for the traffic flow since the
+        flow monitor started collecting data for the traffic flow.
+
+        The value of this column is valid if and only if the
+        'mediaRateVariation' bit in the corresponding instance of
+        cfmMdiMetricsValid is set to '1'." 
+    ::= { cfmIpCbrMetricsEntry 9 }
+ 
+
+
+cfmIpCbrMetricsTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device created/destroyed a row in the cfmIpCbrMetricsTable." 
+    ::= { cfmIpCbrMetrics 2 }
+
+cfmIpCbrMetricsIntTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmIpCbrMetricsIntEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains historic IP CBR metrics for the traffic
+        flows monitored by each of the flow monitors supported by the
+        device.
+
+        This table has an sparse dependent relationship on the
+        cfmFlowMetricsIntTable (defined by the CISCO-FLOW-MONITOR-MIB),
+        containing a row for each row in the cfmFlowMetricsIntTable
+        having a corresponding instance of cfmFlowMetricsCollected with
+        the 'ipCbr' bit set to one."
+    ::= { cfmIpCbrMetrics 3 }
+
+cfmIpCbrMetricsIntEntry OBJECT-TYPE
+    SYNTAX          CfmIpCbrMetricsIntEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes IP CBR metrics collected for a previous
+        measurement interval for a corresponding traffic flow."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId,
+                        cfmFlowMetricsIntNumber
+                    } 
+    ::= { cfmIpCbrMetricsIntTable 1 }
+
+CfmIpCbrMetricsIntEntry ::= SEQUENCE {
+        cfmIpCbrMetricsIntValid        BITS,
+        cfmIpCbrMetricsIntLostPkts     ReportIntervalCount,
+        cfmIpCbrMetricsIntVbMin        ReportIntervalCount,
+        cfmIpCbrMetricsIntVbMax        ReportIntervalCount,
+        cfmIpCbrMetricsIntMrUnits      FlowBitRateUnits,
+        cfmIpCbrMetricsIntMr           ReportIntervalCount,
+        cfmIpCbrMetricsIntDfScale      FlowMetricScale,
+        cfmIpCbrMetricsIntDfPrecision  FlowMetricPrecision,
+        cfmIpCbrMetricsIntDf           FlowMetricValue,
+        cfmIpCbrMetricsIntMrvScale     FlowMetricScale,
+        cfmIpCbrMetricsIntMrvPrecision FlowMetricPrecision,
+        cfmIpCbrMetricsIntMrv          FlowMetricValue
+}
+
+cfmIpCbrMetricsIntValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        lostPkts(0),
+                        vbMin(1),
+                        vbMax(2),
+                        mediaRate(3),
+                        delayFactor(4),
+                        mediaRateVariation(5)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which metrics are valid for the
+        measurement interval:
+
+            'lostPkts'
+                If this bit is set to '1', then the corresponding
+                instance of cfmIpCbrMetricsIntLostPkts is valid.
+
+            'vbMin'
+                If this bit is set to '1', then the corresponding
+                instance of cfmIpCbrMetricsIntVbMin is valid.
+
+            'vbMax'
+                If this bit is set to '1', then the corresponding
+                instance of cfmIpCbrMetricsIntVbMax is valid.
+
+            'mediaRate'
+                If this bit is set to '1', then the corresponding
+                instances of cfmIpCbrMetricsIntMrUnits and
+                cfmIpCbrMetricsIntMr are valid.
+
+            'delayFactor'
+                If this bit is set to '1', then the corresponding
+                instances of cfmIpCbrMetricsIntDfScale,
+                cfmIpCbrMetricsIntDfPrecision, and cfmIpCbrMetricsIntDf
+                are valid.
+
+            'mediaRateVariation'
+                If this bit is set to '1', then the corresponding
+                instances of cfmIpCbrMetricsIntMrvScale,
+                cfmIpCbrMetricsIntMrvPrecision, and
+                cfmIpCbrMetricsIntMrv are valid." 
+    ::= { cfmIpCbrMetricsIntEntry 1 }
+
+cfmIpCbrMetricsIntLostPkts OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of lost packets for the
+        traffic flow during the measurement interval.
+
+        The value of this column is valid if and only if the 'lostPkts'
+        bit in the corresponding instance of cfmIpCbrMetricsIntValid is
+        set to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 2 }
+
+cfmIpCbrMetricsIntVbMin OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the minimum virtual buffer size computed
+        for the traffic flow over the course of the measurement
+        interval.
+
+        The value of this column is valid if and only if the 'vbMin'
+        bit in the corresponding instance of cfmIpCbrMetricsIntValid is
+        set to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 3 }
+
+cfmIpCbrMetricsIntVbMax OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum virtual buffer size computed
+        for the traffic flow over the course of the measurement
+        interval.
+
+        The value of this column is valid if and only if the 'vbMax' bit
+        in the corresponding instance of cfmIpCbrMetricsIntValid is set
+        to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 4 }
+
+cfmIpCbrMetricsIntMrUnits OBJECT-TYPE
+    SYNTAX          FlowBitRateUnits
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmIpCbrMetricsMr.
+
+        The value of this column is valid if and only if the 'mediaRate'
+        bit in the corresponding instance of cfmIpCbrMetricsIntValid is
+        set to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 5 }
+
+cfmIpCbrMetricsIntMr OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the media rate used by the flow monitor
+        to compute the DF for the traffic flow.  If the corresponding
+        instance of cfmIpCbrMetricsCfgRateType is 'auto', then the value
+        of this column indicates the MR for the traffic flow during the
+        measurement interval. Otherwise, the value  of this column
+        reflects the configured MR.
+
+        The value of this column is valid if and only if the 'mediaRate'
+        bit in the corresponding instance of cfmIpCbrMetricsIntValid is
+        set to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 6 }
+
+cfmIpCbrMetricsIntDfScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmIpCbrMetricsIntDf.
+
+        The value of this column is valid if and only if the
+        'delayFactor' bit in the corresponding instance of
+        cfmIpCbrMetricsIntValid is set to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 7 }
+
+cfmIpCbrMetricsIntDfPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmIpCbrMetricsIntDf.
+
+        The value of this column is valid if and only if the
+        'delayFactor' bit in the corresponding instance of
+        cfmIpCbrMetricsIntValid is set to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 8 }
+
+cfmIpCbrMetricsIntDf OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the DF for the traffic flow during the
+        measurement interval.
+
+        The value of this column is valid if and only if the
+        'delayFactor' bit in the corresponding instance of
+        cfmIpCbrMetricsIntValid is set to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 9 }
+
+cfmIpCbrMetricsIntMrvScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmIpCbrMetricsIntMrv.
+
+        The value of this column is valid if and only if the
+        'mediaRateVariation' bit in the corresponding instance of
+        cfmIpCbrMetricsIntValid is set to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 10 }
+
+cfmIpCbrMetricsIntMrvPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for for the corresponding
+        instance of cfmIpCbrMetricsIntMrv.
+
+        The value of this column is valid if and only if the
+        'mediaRateVariation' bit in the corresponding instance of
+        cfmIpCbrMetricsIntValid is set to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 11 }
+
+cfmIpCbrMetricsIntMrv OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the MRV for the traffic flow during the
+        measurement interval.
+
+        The value of this column is valid if and only if the
+        'mediaRateVariation' bit in the corresponding instance of
+        cfmIpCbrMetricsIntValid is set to '1'." 
+    ::= { cfmIpCbrMetricsIntEntry 12 }
+ 
+
+-- **********************************************************************
+-- * Object Identifiers                                                 *
+-- **********************************************************************
+
+cfmIpCbrMonitoredElements  OBJECT IDENTIFIER
+    ::= { ciscoIpCbrMetricsMIBIds 1 }
+
+
+cfmeIpCbrCumulativeLostPkts OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the cumulative number of lost packets for a traffic
+        flow (cfmIpCbrMetricsLostPkts).  This obect identifier can be
+        used as a value for cfmConditionMonitoredElement."
+    REFERENCE
+        "The cfmConditionMonitoredElement defined in
+        CISCO-FLOW-MONITOR-MIB."
+    ::= { cfmIpCbrMonitoredElements 1 }
+
+
+cfmeIpCbrCumulativeMrv OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the cumulative MRV for a traffic flow
+        (cfmIpCbrMetricsMrv).  This obect identifier can be used as a
+        value for cfmConditionMonitoredElement."
+    REFERENCE
+        "The cfmConditionMonitoredElement defined in
+        CISCO-FLOW-MONITOR-MIB."
+    ::= { cfmIpCbrMonitoredElements 2 }
+
+
+cfmeIpCbrLostPkts OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the number of packets lost for a traffic flow during
+        the last measurement interval (cfmIpCbrMetricsIntLostPkts). 
+        This obect identifier can be used as a value for
+        cfmConditionMonitoredElement."
+    REFERENCE
+        "The cfmConditionMonitoredElement defined in
+        CISCO-FLOW-MONITOR-MIB."
+    ::= { cfmIpCbrMonitoredElements 3 }
+
+
+cfmeIpCbrDf OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the DF for a traffic flow during the last
+        measurement interval (cfmIpCbrMetricsIntDf).  This obect
+        identifier can be used as a value for
+        cfmConditionMonitoredElement."
+    REFERENCE
+        "The cfmConditionMonitoredElement defined in
+        CISCO-FLOW-MONITOR-MIB."
+    ::= { cfmIpCbrMonitoredElements 4 }
+
+
+cfmeIpCbrMrv OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the MRV for a traffic flow during the last
+        measurement interval (cfmIpCbrMetricsIntMrv).  This obect
+        identifier can be used as a value for
+        cfmConditionMonitoredElement."
+    REFERENCE
+        "The cfmConditionMonitoredElement defined in
+        CISCO-FLOW-MONITOR-MIB."
+    ::= { cfmIpCbrMonitoredElements 5 }
+
+-- **********************************************************************
+-- * Conformance                                                        *
+-- **********************************************************************
+
+ciscoIpCbrMetricsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoIpCbrMetricsMIBConform 1 }
+
+ciscoIpCbrMetricsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoIpCbrMetricsMIBConform 2 }
+
+
+ciscoIpCbrMetricsCompliance01 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This compliance statement specifies the minimal requirements an
+        implementation must meet in order to claim full compliance with
+        the definition of the CISCO-IP-CBR-METRICS-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cfmIpCbrMetricsGroup }
+    ::= { ciscoIpCbrMetricsMIBCompliances 1 }
+
+-- **********************************************************************
+-- * Units of Conformance                                               *
+-- **********************************************************************
+
+cfmIpCbrMetricsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmIpCbrMetricsCfgRateType,
+                        cfmIpCbrMetricsCfgBitRate,
+                        cfmIpCbrMetricsCfgRate,
+                        cfmIpCbrMetricsCfgMediaPktSize,
+                        cfmIpCbrMetricsValid,
+                        cfmIpCbrMetricsLostPkts,
+                        cfmIpCbrMetricsMrvScale,
+                        cfmIpCbrMetricsMrvPrecision,
+                        cfmIpCbrMetricsMrv,
+                        cfmIpCbrMetricsTableChanged,
+                        cfmIpCbrMetricsIntValid,
+                        cfmIpCbrMetricsIntLostPkts,
+                        cfmIpCbrMetricsIntVbMin,
+                        cfmIpCbrMetricsIntVbMax,
+                        cfmIpCbrMetricsIntMrUnits,
+                        cfmIpCbrMetricsIntMr,
+                        cfmIpCbrMetricsIntDfScale,
+                        cfmIpCbrMetricsIntDfPrecision,
+                        cfmIpCbrMetricsIntDf,
+                        cfmIpCbrMetricsIntMrvScale,
+                        cfmIpCbrMetricsIntMrvPrecision,
+                        cfmIpCbrMetricsIntMrv
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects that describe IP CBR metrics."
+    ::= { ciscoIpCbrMetricsMIBGroups 1 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

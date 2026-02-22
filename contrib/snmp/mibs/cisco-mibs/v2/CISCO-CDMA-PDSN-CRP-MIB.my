@@ -1,0 +1,495 @@
+-- *****************************************************************
+-- CISCO-CDMA-PDSN-CRP-MIB.my:  CDMA PDSN Closed RP Management MIB
+-- Apr. 2004, Thamilarasu K
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+
+CISCO-CDMA-PDSN-CRP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+         MODULE-IDENTITY,
+         OBJECT-TYPE,
+         Counter32,
+         Gauge32
+                 FROM SNMPv2-SMI
+
+         TruthValue
+              FROM SNMPv2-TC
+
+         MODULE-COMPLIANCE,
+         OBJECT-GROUP
+                 FROM SNMPv2-CONF
+
+         InetAddress,
+         InetAddressType
+                 FROM INET-ADDRESS-MIB
+
+         ciscoMgmt
+                 FROM CISCO-SMI;
+
+ciscoCdmaPdsnCrpMIB MODULE-IDENTITY
+         LAST-UPDATED    "200407270000Z"
+         ORGANIZATION    "Cisco Systems, Inc."
+         CONTACT-INFO
+                 "        Cisco Systems
+                          Customer Service
+
+                 Postal: 170 W Tasman Drive
+                          San Jose, CA  95134
+                          USA
+
+                    Tel: +1 800 553-NETS
+
+                 E-mail: cdma@cisco.com"
+
+         DESCRIPTION
+                 "This MIB is to support the Closed RP feature of CDMA
+                  PDSN that supports wireless data communication 
+                  through 3G CDMA radio access technology.  PDSN acts
+                  as a foreign agent that establishes, maintains and
+                  terminates the link layer to a mobile station.
+
+                  The high level architecture of a third generation 
+                  CDMA2000 network is shown below:
+
+           +========+=+               +=========+          +=========+
+           | RAdio  |P|               |         |   Data   |  Home   |
+           | Network|C|- Closed RP   -|  PDSN   |-  Core  -| Network |
+           |  (RAN) |F|  Interface    |         |  Network |         |
+           +========+=+               +=========+   (DCN)  +=========+
+              /|\                    Foreign Agent         Home Agent
+               |                        (FA)                  (HA)
+               |   Visited Access
+               |  Provider Network               
+               |                                 
+              \|/                                
+           +========+
+           | Mobile |
+           | Station|
+           |  (MS)  |
+           +========+
+
+           The following diagram illustrates protocols usage by the
+           CDMA2000 network elements:
+
+           MS ===== RAN ======== PDSN ======== DCN ====== Home Network
+           |        |  Closed RP |                        |
+           |        +=signaling==+                        |
+           |                     |                        |
+           |                     +...L2TP/L2F tunnelling..+
+           |                     |                        |
+           +======== PPP ========+                        |
+           |                     |                        |
+           |                     +..Mobile IP tunnelling..+
+           |                                              |
+           |                                              |
+           |                                              |
+           +=================Mobile IP====================+
+           |                                              |
+           |                                              |
+           +======================data====================+
+
+
+                  The CDMA PDSN CRP MIB provides operational information
+                  for a Closed RP implementation.  The following areas 
+                  are managed:
+
+                      1) Global PDSN information.  This area contains 
+                         generic information such as the number of 
+                         incoming call requests, incoming call replies 
+                         etc.,
+
+                  Acronyms and terms:
+
+                    CDMA            Code Division Multiple Access
+
+                    DCN             Data Core Network
+
+                    ESN             Electronic Serial Number
+
+                    FA              Foreign Agent
+
+                    HA              Home Agent
+
+                    IMSI            International Mobile Station 
+                                    Identifier
+
+                    IS              In service
+
+                    IRM             International Roaming MIN
+
+                    MC              Mobile Client
+
+                    MIN             Mobile Identifier Number
+
+                    MSID            Mobile Station Identifier
+
+                    MS              Mobile Station
+                    
+                    MN              Mobile Node
+
+                    MoIP            Mobile IP
+
+                    NAI             Network Access Identifier   
+                   
+                    OOS             Out of service
+
+                    PCF             Packet Control Function
+
+                    PDSN            Packet Data Serving Node
+
+                    RAN             Radio Network
+
+                    RP              Radio Packet
+                    
+                    CANID           Current Access Network Identifier
+                    
+                    PANID           Previous Access Network Identifier
+                    
+                    BSID            Base Station Identifier
+                    
+                    CVSE            Customer/Vendor Specific Extension
+                    
+                    SO/So           Service Option.
+                                    The Service Option is a parameter 
+                                    that specifies the air interface 
+                                    between MS and RN for packet 
+                                    data service.
+                                  
+
+                    Mobile Station/ A host or router that changes its 
+                    Mobile Node     point of attachment from one 
+                                    network or subnetwork to another.
+                                    A mobile node may change its 
+                                    location without changing its
+                                    IP address.
+
+                    Mobile IP       Protocol enhancements that allow 
+                                    transparent routing of IP datagrams
+                                    to mobile nodes.  Refer to RFC 2002
+                                    for more details.
+
+                    Mobile Client   A component which can interact with
+                                    MoIP entities such as Foreign Agent
+                                    and Home Agent.
+
+                    Home Agent      A router on a mobile node's home 
+                                    network which tunnels datagrams for 
+                                    delivery to the mobile node when it
+                                    is away from home, and maintains 
+                                    current location information for the
+                                    mobile node.  Refer to RFC 2002 for 
+                                    more details.
+
+                    Foreign Agent   A router on a mobile node's visited
+                                    network which provides routing 
+                                    services to the mobile node while 
+                                    registered.  The foreign agent 
+                                    delivers datagrams to the mobile
+                                    node that were tunneled by the 
+                                    mobile node's home agent.  For 
+                                    datagrams sent by a mobile node, the
+                                    foreign agent may serve as a default
+                                    router for registered mobile nodes.
+                                    Refer to RFC 2002 for more details.
+
+                    Proxy           Mechanism used by PDSN to provide 
+                    Mobile Ip       MoIP services to a MS which does
+                                    not implement a mobile client.  PDSN
+                                    will be the proxy MC for the MS.
+
+                    Simple IP       IP routing used by a MS when MoIP
+                                    services are not needed.
+
+                    PDSN flow       A conversation between one user 
+                                    (identified by an IP address) and 
+                                    a HA using a PDSN session.
+
+                    PDSN session    A PPP connection between a MS and 
+                                    the PDSN.  One session may contain 
+                                    one or multiple PDSN flows.
+
+                    PCF             Physical interface connecting the 
+                                    RAN to a PDSN
+
+                    L2TP            Layer 2 Tunneling Protocol
+                                    
+                    ICRQ            Incoming Call Request
+                    ICRP            Incoming Call Reply
+                    ICCN            Incoming Call Connected
+                    CDN             Call Disconnect."
+         REVISION        "200407270000Z"
+         DESCRIPTION
+                 "Initial revision of this MIB module."
+         ::= { ciscoMgmt 957 }
+
+ccpcMIBObjects  OBJECT IDENTIFIER 
+                            ::= { ciscoCdmaPdsnCrpMIB 1 }
+
+ccpcSystemInfo    OBJECT IDENTIFIER
+                            ::= { ccpcMIBObjects 1 }
+
+ccpcPerfStats     OBJECT IDENTIFIER
+                            ::= { ccpcMIBObjects 2 }
+
+-- ******************************************************************
+-- * CDMA PDSN system information
+-- ******************************************************************
+
+ccpcEnabled  OBJECT-TYPE
+         SYNTAX  TruthValue
+         MAX-ACCESS  read-only
+         STATUS  current
+         DESCRIPTION
+                 "An indication of whether CRP feature
+                  is enabled."
+         ::= { ccpcSystemInfo 1 }
+
+ccpcSessionTotal   OBJECT-TYPE
+         SYNTAX      Gauge32
+         MAX-ACCESS  read-only
+         STATUS      current
+         DESCRIPTION
+                 "The total number of sessions currently established 
+                  with this system." 
+         ::= { ccpcSystemInfo 2 }
+
+-- ******************************************************************
+-- * CDMA PDSN Closed RP Registration Statistics for PDSN 
+-- ******************************************************************
+
+ccpcPcfPerfStatsTable  OBJECT-TYPE
+         SYNTAX      SEQUENCE OF CcpcPcfPerfStatsEntry
+         MAX-ACCESS  not-accessible
+         STATUS      current
+         DESCRIPTION
+                 "PDSN PCF table.  Contains the reference about PCF in 
+                  the RAN currently interacting with the PDSN.  An entry
+                  is created when a L2TP tunnel is established with
+                  PCF.  An entry is deleted when the tunnel is deleted."
+         ::= { ccpcPerfStats 1 }
+  
+ccpcPcfPerfStatsEntry   OBJECT-TYPE
+         SYNTAX      CcpcPcfPerfStatsEntry
+         MAX-ACCESS  not-accessible
+         STATUS      current
+         DESCRIPTION
+                 "A conceptual row in the PCF CRP Stats table."
+         INDEX { ccpcPcfIpAddressType, ccpcPcfIpAddress }
+         ::= { ccpcPcfPerfStatsTable 1 }
+  
+CcpcPcfPerfStatsEntry ::=
+         SEQUENCE {
+             ccpcPcfIpAddressType     InetAddressType,
+             ccpcPcfIpAddress         InetAddress,
+             ccpcPcfRcvdIcrqs         Counter32,
+             ccpcPcfAcptdIcrqs        Counter32,
+             ccpcPcfDroppedIcrqs      Counter32,
+             ccpcPcfSentIcrps         Counter32,
+             ccpcPcfRcvdIccns         Counter32,
+             ccpcPcfAcptdIccns        Counter32,
+             ccpcPcfDroppedIccns      Counter32,
+             ccpcPcfRcvdCdns          Counter32,
+             ccpcPcfSentCdns          Counter32,
+             ccpcPcfDroppedCdns       Counter32,
+             ccpcPcfRcvdZlbs          Counter32,
+             ccpcPcfSentZlbs          Counter32
+         }
+
+ccpcPcfIpAddressType OBJECT-TYPE
+        SYNTAX      InetAddressType
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                 "Represents the type of the address specified by
+                 ccpcPcfIpAddress."
+        ::= { ccpcPcfPerfStatsEntry 1 }
+
+ccpcPcfIpAddress OBJECT-TYPE
+        SYNTAX      InetAddress
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                 "The IP address of the PCF that serves the 
+                  mobile node."
+        ::= { ccpcPcfPerfStatsEntry 2 }
+
+ccpcPcfRcvdIcrqs OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Incoming-Call-Requests received
+                 to establish a L2TP session since the L2TP
+		 tunnel was established with PCF."
+        ::= { ccpcPcfPerfStatsEntry 3 }
+
+ccpcPcfAcptdIcrqs OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Incoming-Call-Requests accepted
+                 since the L2TP tunnel was established with PCF."
+        ::= { ccpcPcfPerfStatsEntry 4 }
+        
+ccpcPcfDroppedIcrqs OBJECT-TYPE        
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Incoming-Call-Requests denied
+                 since the L2TP tunnel was established with PCF."
+        ::= { ccpcPcfPerfStatsEntry 5 }
+
+ccpcPcfSentIcrps OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Incoming-Call-Replies sent 
+                 since the L2TP tunnel was established with PCF."
+        ::= { ccpcPcfPerfStatsEntry 6 }
+
+ccpcPcfRcvdIccns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Incoming-Call-Connected messages
+                 received since the L2TP tunnel was established 
+                 with PCF."
+        ::= { ccpcPcfPerfStatsEntry 7 }
+
+ccpcPcfAcptdIccns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Incoming-Call-Connected messages
+                 accepted since the L2TP tunnel was established 
+                 with PCF."
+        ::= { ccpcPcfPerfStatsEntry 8 }
+
+ccpcPcfDroppedIccns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Incoming-Call-Connected messages
+                 accepted since the L2TP tunnel was established 
+                 with PCF."
+        ::= { ccpcPcfPerfStatsEntry 9 }
+
+ccpcPcfRcvdCdns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Call-Disconnect-Notify messages 
+                 received to tear down L2TP session since the 
+                 L2TP tunnel was established with PCF."
+        ::= { ccpcPcfPerfStatsEntry 10 }
+
+ccpcPcfSentCdns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Call-Disconnect-Notify messages
+                 sent to PCF to tear down L2TP session since the 
+                 L2TP tunnel was established with PCF."
+        ::= { ccpcPcfPerfStatsEntry 11 }
+
+ccpcPcfDroppedCdns OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Call-Disconnect-Notify messages 
+                 dropped since the L2TP tunnel was established 
+                 with PCF."
+        ::= { ccpcPcfPerfStatsEntry 12 }
+
+ccpcPcfRcvdZlbs OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Zero-Length-Buffer messages received
+                 since the L2TP tunnel was established with PCF."
+        ::= { ccpcPcfPerfStatsEntry 13 }
+
+ccpcPcfSentZlbs OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of Zero-Length-Buffer messages sent
+                 since the L2TP tunnel was established with PCF."
+        ::= { ccpcPcfPerfStatsEntry 14 }
+
+-- *************************************************************************
+-- * Conformance
+-- *************************************************************************
+
+ccpcMIBConformance  OBJECT IDENTIFIER ::= 
+                                { ciscoCdmaPdsnCrpMIB 2 }
+ccpcMIBCompliances  OBJECT IDENTIFIER ::= 
+                                { ccpcMIBConformance 1 }
+ccpcMIBGroups       OBJECT IDENTIFIER ::= 
+                                { ccpcMIBConformance 2 }
+
+
+-- *************************************************************************
+-- * Compliance
+-- *************************************************************************
+
+ccpcMIBCompliance  MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+       "The compliance statement for entities which implement
+        the CDMA PDSN Management MIB for R2.0"
+    MODULE  -- this module
+    MANDATORY-GROUPS {
+               ccpcSystemGrp,
+               ccpcPerfGrp
+    } 
+    ::= { ccpcMIBCompliances 1 }
+
+ccpcSystemGrp OBJECT-GROUP
+         OBJECTS {
+             ccpcEnabled,
+             ccpcSessionTotal
+         }
+         STATUS current
+         DESCRIPTION
+                 "A collection of objects needed for PDSN R2.1 network
+                  management."
+         ::= { ccpcMIBGroups 1 }
+
+ccpcPerfGrp OBJECT-GROUP
+         OBJECTS {
+             ccpcPcfRcvdIcrqs,
+             ccpcPcfAcptdIcrqs,
+             ccpcPcfDroppedIcrqs,
+             ccpcPcfSentIcrps,
+             ccpcPcfRcvdIccns,
+             ccpcPcfAcptdIccns,
+             ccpcPcfDroppedIccns,
+             ccpcPcfRcvdCdns,
+             ccpcPcfSentCdns,
+             ccpcPcfDroppedCdns,
+             ccpcPcfRcvdZlbs,
+             ccpcPcfSentZlbs
+             }
+         STATUS current
+         DESCRIPTION
+                 "A collection of objects needed for PDSN R1.2 network
+                  management."
+         ::= { ccpcMIBGroups 2 }
+         
+END

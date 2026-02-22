@@ -1,0 +1,1852 @@
+CAT2600-MIB DEFINITIONS ::= BEGIN
+
+-- Catalyst 2600 TokenRing Switch MIB Release 2.0
+
+-- Copyright 1995, 1996 by Cisco and others.  All rights reserved.
+
+-- This SNMP Management Information Specification embodies
+-- Cisco intellectual property. Cisco retains all rights, title
+-- and ownership in the Specification including any revisions.
+
+-- It is Cisco's intent to encourage the widespread use of
+-- this specification in connection with the management of
+-- Cisco products. Cisco grants vendors, end-users,
+-- and other interested parties a non-exclusive license to
+-- use this specification in connection with the management
+-- of Cisco products.
+
+-- This Specification is supplied "AS IS", Cisco makes no warranty,
+-- either expressed or implied, as to the use, operation, condition,
+-- or performance of the Specification.
+
+
+  IMPORTS
+   TimeTicks, IpAddress, Counter, enterprises
+     FROM RFC1155-SMI
+   OBJECT-TYPE
+     FROM RFC-1212
+   DisplayString
+     FROM RFC1213-MIB;
+
+  -- MAC address
+
+  MacAddr ::= OCTET STRING (SIZE(6))
+
+  -- Bridge ID from RFC1493 for Domain version of STP support
+  -- BridgeId ::= OCTET STRING (SIZE(8))
+
+
+  cisco  OBJECT IDENTIFIER    ::= { enterprises 9}
+
+  catProd OBJECT IDENTIFIER ::= { cisco 1 }
+
+  cat2600 OBJECT IDENTIFIER ::= { catProd 111 }
+
+
+  --Entry for Catalyst TokenRing Switch
+
+  cat2600Ts                OBJECT IDENTIFIER ::= { cat2600 1 }
+
+  cat2600TsObjectID        OBJECT IDENTIFIER ::= { cat2600Ts 1 }
+
+  -- Managed Objects
+
+  cat2600TsObjects         OBJECT IDENTIFIER ::= { cat2600Ts 2 }
+
+  dtrMIBs                  OBJECT IDENTIFIER ::= { cat2600Ts 3 }
+
+  dtrConcMIB               OBJECT IDENTIFIER ::= { dtrMIBs 1 }
+
+  dtrMacMIB                OBJECT IDENTIFIER ::= { dtrMIBs 2 }
+
+  -- Managed Groups in this module
+
+  cat2600TsMain   OBJECT IDENTIFIER ::= { cat2600TsObjects 1 }
+
+  cat2600TsConfig OBJECT IDENTIFIER ::= { cat2600TsMain 1 }
+
+  cat2600TsSys    OBJECT IDENTIFIER ::= { cat2600TsMain 2 }
+
+  cat2600TsPort   OBJECT IDENTIFIER ::= { cat2600TsObjects 2 }
+
+  cat2600TsDmns   OBJECT IDENTIFIER ::= { cat2600TsObjects 3 }
+
+  cat2600TsPipe   OBJECT IDENTIFIER ::= { cat2600TsObjects 4 }
+
+  cat2600TsFilter OBJECT IDENTIFIER ::= { cat2600TsObjects 5 }
+
+  cat2600TsUFC    OBJECT IDENTIFIER ::= { cat2600TsObjects 6 }
+
+
+  -- ==================================================================
+  -- System Object ID
+
+  cat2600TsSysObjectID     OBJECT IDENTIFIER ::= { cat2600TsObjectID 1 }
+
+  --  ======================================================================
+  --  Configuration Group
+
+  cat2600TsFwVer OBJECT-TYPE
+      SYNTAX DisplayString (SIZE (1..64))
+      ACCESS read-only
+      STATUS mandatory
+      DESCRIPTION
+            "The firmware version in the form major.minor. For
+             port microcode (SOLO) version information see the
+             mgmt.mib-2.interfaces.ifTable.ifEntry.ifDescr object."
+   ::= { cat2600TsConfig 1 }
+
+  cat2600TsHwVer OBJECT-TYPE
+      SYNTAX DisplayString (SIZE (1..64))
+      ACCESS read-only
+      STATUS mandatory
+      DESCRIPTION
+            "The hardware version in the form major.minor."
+   ::= { cat2600TsConfig 2 }
+
+  cat2600TsSerialNumber OBJECT-TYPE
+      SYNTAX DisplayString (SIZE (16))
+      ACCESS read-only
+      STATUS mandatory
+      DESCRIPTION
+            "System serial number."
+     ::= { cat2600TsConfig 3 }
+
+  cat2600TsInstallationDate OBJECT-TYPE
+      SYNTAX   DisplayString (SIZE (64))
+      ACCESS   read-write
+      STATUS   mandatory
+      DESCRIPTION
+           "Firmware installation date. This date is initially
+            set by the Network Management station. Each time
+            the NV RAM is cleared through the console this date
+            needs to be set by the management station. This should
+            be in the format YYYY MM DD HH MM SS."
+     ::= { cat2600TsConfig 4 }
+
+
+  cat2600TsFwSize OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+           "Size in bytes of the binary firmware image."
+     ::= { cat2600TsConfig 5 }
+
+  cat2600TsFwCRC OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+           "Firmware binary image CRC value."
+     ::= { cat2600TsConfig 6 }
+
+  cat2600TsFwManufacturer OBJECT-TYPE
+     SYNTAX   DisplayString (SIZE (16))
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+           "Firmware manufacturer."
+     ::= { cat2600TsConfig 7 }
+
+  -- The IP address and network information below relates to the entire
+  -- switch.  Note that each Domain (CRF) also has an address independent
+  -- of those below.
+
+  cat2600TsIpAddr OBJECT-TYPE
+     SYNTAX   IpAddress
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "IP address of the switch. Changes to this object
+          take effect immediately."
+
+     ::= { cat2600TsConfig 8 }
+
+  cat2600TsNetMask OBJECT-TYPE
+     SYNTAX   IpAddress
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "IP subnet mask of the switch. Changes to this object
+          take effect immediately."
+
+     ::= { cat2600TsConfig 9 }
+
+  cat2600TsDefaultGateway OBJECT-TYPE
+     SYNTAX   IpAddress
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+           "IP default gateway used by the switch. Changes to this
+          object take effect immediately."
+
+     ::= { cat2600TsConfig 10 }
+
+  cat2600TsTrapRcvrTable OBJECT-TYPE
+     SYNTAX   SEQUENCE OF Cat2600TsTrapRcvrEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+           "A table of managers to which to send traps.
+            Entries in the table are saved across resets and
+            power cycles."
+     ::= { cat2600TsConfig 14 }
+
+  cat2600TsTrapRcvrEntry OBJECT-TYPE
+     SYNTAX   Cat2600TsTrapRcvrEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+           "Definition of rows in the trap receiver table.
+            The column cat2600TsTrapRcvrStatus is used to create
+            and delete rows in the table.  Creation requires
+            a SET PDU with objects cat2600TsTrapRcvrStatus,
+            cat2600TsTrapRcvrIpAddress, and cat2600TsTrapRcvrComm."
+     INDEX   { cat2600TsTrapRcvrIndex }
+     ::= { cat2600TsTrapRcvrTable 1 }
+
+  Cat2600TsTrapRcvrEntry ::= SEQUENCE {
+     cat2600TsTrapRcvrIndex       INTEGER,
+     cat2600TsTrapRcvrStatus      INTEGER,
+     cat2600TsTrapRcvrIpAddress   IpAddress,
+     cat2600TsTrapRcvrComm        DisplayString,
+     cat2600TsTrapRcvrDmns        OCTET STRING
+     }
+
+  cat2600TsTrapRcvrIndex OBJECT-TYPE
+     SYNTAX   INTEGER (1..65535)
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+           "The index of the row in the table."
+     ::= { cat2600TsTrapRcvrEntry 1 }
+
+  cat2600TsTrapRcvrStatus OBJECT-TYPE
+     SYNTAX   INTEGER {
+        other(1),   -- none of the following
+        valid(2),   -- a valid address
+        invalid(3),   -- an invalid address
+        create(4)   -- create row
+        }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Setting the value of this object to invalid(3)
+          deletes the row from the table.  The value
+          invalid(3) should never be returned on a GET.
+
+          Setting this value to create(4) causes a new row
+          to be created if the row does not already exist.
+          To create a new row set cat2600TsTrapRcvrStatus to
+          create(4) and cat2600TsTrapRcvrIndex to the next
+          available index ( cat2600TsTrapRcvrNext ). After
+          successful creation of the new row, you can then
+          set the desired values for cat2600TsTrapRcvrIpAddress
+          and cat2600TsTrapRcvrComm.
+
+          The value returned on GETs should be valid(2) or
+          other(1), which is used to indicate any other
+          condition."
+
+     ::= { cat2600TsTrapRcvrEntry 2 }
+
+  cat2600TsTrapRcvrIpAddress OBJECT-TYPE
+     SYNTAX   IpAddress
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+           "IP address for an SNMP manager that is to receive the trap."
+     ::= { cat2600TsTrapRcvrEntry 3 }
+
+  cat2600TsTrapRcvrComm OBJECT-TYPE
+     SYNTAX   DisplayString (SIZE (0..32))
+     ACCESS   read-write                    -- ?? WRITE-ONLY ??
+     STATUS   mandatory
+     DESCRIPTION
+        "Community string to use."
+     ::= { cat2600TsTrapRcvrEntry 4 }
+
+  cat2600TsTrapRcvrDmns OBJECT-TYPE
+     SYNTAX   OCTET STRING (SIZE(8))
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Domains on which traps to this target are sent.
+          Each octet within the value of this object
+          specifies a set of eight domains, with the first
+          octet specifying domains 0 through 7, the second
+          octet specifying domains 8 through 15, etc.
+          Within each octet, the most significant bit
+          represents the lowest numbered domain, and the
+          least significant bit represents the highest
+          numbered domain. Thus, each domain is represented by a
+          single bit within the value of this object.
+
+          If that bit has a value of '1' then that domain is
+          included in the set of ports which will receive the trap;
+          the domain is not included if its bit has a value of '0'."
+     ::= { cat2600TsTrapRcvrEntry 5 }
+
+  cat2600TsPingInterval OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+           "This variable specifies the interval in seconds of
+          sending ICMP Echo Requests to the default gateway.
+          No PING packets will be sent if the value is set to 0.
+          The default interval is 10 minutes."
+     DEFVAL   { 600 }
+     ::= { cat2600TsConfig 19 }
+
+  cat2600TsTapPort OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+           "Select the port to monitor traffic."
+     ::= { cat2600TsConfig 20 }
+
+  cat2600TsTapMonitoredPort OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+        "Allows the selection of the port that will be monitored by the
+         port selected by cat2600TsTapPort."
+     ::= { cat2600TsConfig 21 }
+
+  cat2600TsCrcThresholdHi OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Threshold for the switch to change to store and
+          forward mode. A change in mode also generates a trap."
+     ::= { cat2600TsConfig 22 }
+
+ cat2600TsCrcThresholdLow OBJECT-TYPE
+     SYNTAX  INTEGER
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+             "Threshold for the switch to change to store and
+              forward mode. A change in mode also generates a trap."
+     ::= { cat2600TsConfig 23 }
+
+  cat2600TsPortSwitchModeChangeTrapEnable OBJECT-TYPE
+     SYNTAX   INTEGER  { enable (1), disable (2) }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Enable or disable the trap sent out when the switching
+          mode changes from cut-through to store and forward."
+     ::= { cat2600TsConfig 24 }
+
+  cat2600TsTrendThreshold OBJECT-TYPE
+     SYNTAX   INTEGER        --  ??(1..100)??
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Based on trend calculation of the Dynamic Cut State
+          algorithm, when this value is exceeded the port
+          changes from cut-through to store and forward mode.
+          The default value for this object is 8 events. The
+          valid range is 1-100."
+     ::= { cat2600TsConfig 25 }
+
+  cat2600TsSamplingPeriod OBJECT-TYPE
+     SYNTAX   INTEGER  (1 ..120)
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Sampling period in minutes for determining if the
+          error rate of CRC errors has been exceeded.
+          The default value for this object is 10 minutes. The
+          valid range is 1-120."
+     ::= { cat2600TsConfig 26 }
+
+   cat2600TsNumberUFC  OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+          "The number of UFCs installed in the switch.  A value
+           of zero (or an SNMP error of NOSUCH) indicates there are
+           NO UFCs installed in this switch.
+           This value indicates the number of entries in the
+           cat2600TsUFCTable."
+
+    ::= { cat2600TsConfig 27 }
+
+
+  -- ====================================================================
+  -- System Module objects
+
+
+  cat2600TsNumPorts OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+          "The maximum number of physical ports on the switch.  This
+           value includes all base ports plus all ports on any UFC cards.
+           It does not include internally defined Bridge Relay Function
+           ports or the CPU 'interface'."
+     ::= { cat2600TsSys 1 }
+
+  cat2600TsNumStations OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+           "Aggregate number of currently active stations
+            (nodes) on all ports on the switch."
+     ::= { cat2600TsSys 2 }
+
+  cat2600TsMostStations OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+           "Highest aggregate number of stations ever active
+            on all ports at one time, since the last reset or
+            power cycle. This includes the default MAC address
+          entries from each port."
+     ::= { cat2600TsSys 3 }
+
+  cat2600TsMaxStations OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+           "Highest aggregate number of stations which the
+            switch can support simultaneously."
+     ::= { cat2600TsSys 4 }
+
+  cat2600TsReset OBJECT-TYPE
+     SYNTAX   INTEGER {
+        running(1),   -- switch is running
+        hardReset(2),   -- do hard reset of switch
+        softReset(3)   -- do soft reset of switch
+        }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "This object is used to reset the switch.  Writing
+          softReset(3) causes the switch to reset the
+          hardware, run quick diagnostics, clear all
+          counters, start switching, issue a warmstart trap,
+          and then be able to respond to SNMP requests.
+          Writing hardReset(2) causes the switch to run
+          power up diagnostics and then execute a soft
+          reset.
+
+          Note:  all address tables are cleared in both cases.
+          The administrative parameters from nonvolatile memory are
+          used to initialize the operational parameters.
+
+          The value returned on GETs should be running(1)."
+     ::= { cat2600TsSys 5 }
+
+  cat2600TsNumResets OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+           "Number of soft resets the switch has executed
+            since the last hard reset or power cycle.  Soft
+            resets are defined as writing softReset(3) to
+            cat2600TsReset, pressing the front panel reset button,
+            executing a soft reset from the console, or resets
+            induced by the switch firmware."
+     ::= { cat2600TsSys 6 }
+
+  cat2600TsAddrAgingTime OBJECT-TYPE
+     SYNTAX   INTEGER (0..9999)
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of minutes of inactivity before an address
+          entity is aged out.  A value of zero means no
+          aging.   Note:  if an address shows up on another
+          port, the original port to address assignment is
+          automatically deleted.  The value is saved across
+          resets and power cycles. The default value for this
+          object is 5 minutes."
+     ::= { cat2600TsSys 7 }
+
+
+  cat2600TsSysTemperature OBJECT-TYPE
+     SYNTAX   INTEGER { normal (1), toohigh (2) }
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Temperature condition of the system.  A change in this
+         value generates a TRAP."
+     ::= { cat2600TsSys 11 }
+
+  cat2600TsInstalledMemory OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Total amount of CPU memory installed (in megabytes)."
+     ::= { cat2600TsSys 12 }
+
+  cat2600TsSysCurTime OBJECT-TYPE
+     SYNTAX   DisplayString (SIZE (1 .. 128))
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Current time at the switch. To set the time use the
+          format yyyy mm dd hh mm ss.
+          All fields are required."
+     ::= { cat2600TsSys 13 }
+
+
+
+
+  -- =======================================================================
+  -- Port level objects
+
+  -- Catalyst 2600 TokenRing Switch Port table
+
+  cat2600TsPortTable OBJECT-TYPE
+     SYNTAX   SEQUENCE OF Cat2600TsPortEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "A table of information about each port.  The number of rows
+         is given by cat2600TsNumPorts.
+
+         (This value refers to PHYSICAL ports as opposed to internal
+         logical CRF bridge ports.)"
+
+     ::= { cat2600TsPort 1 }
+
+  cat2600TsPortEntry OBJECT-TYPE
+     SYNTAX   Cat2600TsPortEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+         "Definition of rows in the port table.  The number
+          of rows is determined by the hardware and is
+          specified by the value of cat2600TsNumPorts.  Rows can
+          not be created or deleted via SNMP requests."
+     INDEX { cat2600TsPortIndex }
+     ::= { cat2600TsPortTable 1 }
+
+  Cat2600TsPortEntry ::= SEQUENCE {
+     cat2600TsPortIndex              INTEGER,
+     cat2600TsPortRcvLocalFrames     Counter,
+     cat2600TsPortForwardedFrames    Counter,
+     cat2600TsPortMostStations       Counter,
+     cat2600TsPortMaxStations        Counter,
+     cat2600TsPortSWHandledFrames    Counter,
+     cat2600TsPortLocalStations      Counter,
+     cat2600TsPortRemoteStations     Counter,
+     cat2600TsPortUnknownStaFrames   Counter,
+     cat2600TsPortResetStats         INTEGER,
+     cat2600TsPortResetTimer         TimeTicks,
+     cat2600TsPortResetAddrs         INTEGER,
+     cat2600TsPortRcvBcasts          Counter,
+     cat2600TsPortSwitchedFrames     Counter,
+     cat2600TsPortLinkState          INTEGER,
+     cat2600TsPortHashOverflows      Counter,
+     cat2600TsPortAddrAgingTime      INTEGER,
+     cat2600TsPortSwitchMode         INTEGER,
+     cat2600TsPortFixedCfg           INTEGER,
+     cat2600TsPortMode               INTEGER,
+     cat2600TsPortDuplex             INTEGER,
+     cat2600TsPortCfgLoss            INTEGER,
+     cat2600TsPortCfgLossRC          INTEGER,
+     cat2600TsPortCRCCount           Counter,
+     cat2600TsPortHPChannelFrames    Counter,
+     cat2600TsPortLPChannelFrames    Counter,
+     cat2600TsPortHPThreshold        INTEGER,
+     cat2600TsPortCfgRingSpeed       INTEGER,
+     cat2600TsPortCfgRSA             INTEGER,
+     cat2600TsPortDomain             INTEGER,
+     cat2600TsPortCfgLossThreshold   INTEGER,
+     cat2600TsPortCfgLossSamplingPeriod   INTEGER,
+     cat2600TsPortBeaconStationAddress MacAddr,
+     cat2600TsPortBeaconNAUN           MacAddr,
+     --cat2600TsPortBeaconRecoveryStatus INTEGER
+     cat2600TsPortBeaconType         INTEGER
+
+     }
+
+  cat2600TsPortIndex OBJECT-TYPE
+     SYNTAX   INTEGER (1..65535)
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "The ifIndex value corresponding to each port entry. For TR
+          interfaces, the TsPortIndex corresponds to the Port Number
+          or POE Index."
+     ::= { cat2600TsPortEntry 1 }
+
+  cat2600TsPortRcvLocalFrames OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of frames received where the destination is on this port."
+     ::= { cat2600TsPortEntry 2 }
+
+  cat2600TsPortForwardedFrames OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of frames received on this port and forwarded to
+          another port or the system module for processing."
+     ::= { cat2600TsPortEntry 3 }
+
+  cat2600TsPortMostStations OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Highest number of stations ever active at any
+          time since the last reset of the switch as seen by
+          this port. This includes the default MAC address entries
+          for the port."
+     ::= { cat2600TsPortEntry 4 }
+
+  cat2600TsPortMaxStations OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Maximum number of stations which the port can
+         support simultaneously."
+     ::= { cat2600TsPortEntry 5 }
+
+  cat2600TsPortSWHandledFrames OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Number of Frames received on this port and
+        delivered to the system module for processing."
+     ::= { cat2600TsPortEntry 6 }
+
+  cat2600TsPortLocalStations OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Number of stations on this port's address table
+         which belong to the segment attached to this port."
+     ::= { cat2600TsPortEntry 7 }
+
+  cat2600TsPortRemoteStations OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Number of stations on this port's address table
+         which belong to segments attached to other ports."
+     ::= { cat2600TsPortEntry 8 }
+
+  cat2600TsPortUnknownStaFrames OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Number of unicast frames received on this port
+         and forwarded to the system module for processing
+         because the source or destination station address
+         is not in the port's forwarding table."
+     ::= { cat2600TsPortEntry 9 }
+
+  cat2600TsPortResetStats OBJECT-TYPE
+     SYNTAX   INTEGER {
+        other(1),   -- none of the following
+        running(2),   -- port is functioning
+        reset(3)   -- reset port counters
+        }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+        "Setting this object to reset(3) causes all
+         traffic counters for this port to be set to zero.
+         Also the value of cat2600TsPortResetTimer is set to
+         zero."
+
+     ::= { cat2600TsPortEntry 10 }
+
+  cat2600TsPortResetTimer OBJECT-TYPE
+     SYNTAX   TimeTicks
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Time (in 100th second ticks) since the port
+         counters were reset."
+     ::= { cat2600TsPortEntry 11 }
+
+
+  cat2600TsPortResetAddrs OBJECT-TYPE
+     SYNTAX   INTEGER {
+        other(1),     -- none of the following
+        running(2),   -- port is functioning
+        reset(3)      -- clear address table & reset port counters
+        }             --   (state returns to running (2))
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+        "Setting this object to reset(3) clears all
+         address table entries for this port as well as
+         setting all port traffic counters to zero and
+         setting cat2600TsPortResetTimer to zero."
+     ::= { cat2600TsPortEntry 12 }
+
+  cat2600TsPortRcvBcasts OBJECT-TYPE
+     SYNTAX   Counter                   --      ?? RFC1573 bcst frames ??
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of Broadcast Frames received on this port
+          without errors."
+     ::= { cat2600TsPortEntry 13 }
+
+  cat2600TsPortSwitchedFrames OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of frames switched on this port"
+     ::= { cat2600TsPortEntry 14 }
+
+  cat2600TsPortLinkState OBJECT-TYPE
+     SYNTAX   INTEGER { up (1), down (2) }
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Link state of the port."
+     ::= { cat2600TsPortEntry 15 }
+
+  cat2600TsPortHashOverflows OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of times a hash bucket was full when trying to
+          add an entry to the port address table."
+     ::= { cat2600TsPortEntry 16 }
+
+  cat2600TsPortAddrAgingTime OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Port level address aging time."
+     ::= { cat2600TsPortEntry 17 }
+
+  cat2600TsPortSwitchMode OBJECT-TYPE
+     SYNTAX   INTEGER { storeandforward (1), cutthru (2) , auto (3) }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Operational frame switching mode for the port. When
+          in auto mode the port uses the Direct Cut algorithm
+          to place the port in either cut-thru or store-and-
+          forward mode.
+          This object is equivalent to cPortProtocolCharFrameControlOption
+          in the dtrMac MIB.  However, this object defines an
+          additional state -auto- not defined in that standard."
+     ::= { cat2600TsPortEntry 18 }
+
+  cat2600TsPortFixedCfg OBJECT-TYPE
+     SYNTAX   INTEGER { auto-detect (1), fixed (2) }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Use fixed configuration or run auto detection
+          to determine configuration. "
+     ::= { cat2600TsPortEntry 19 }
+
+
+  cat2600TsPortMode OBJECT-TYPE
+     SYNTAX   INTEGER { adapter (1), port (2) }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "When read, this object indicates the Port Mode
+          obtained by the auto-detect function.  It is a
+          valid read object only when TsPortFixedCfg is set
+          to auto-detect(1) and TsPortLinkState indicates up(1).
+
+          Write to this object when defining the Port Mode for
+          a fixed configuration (TsPortFixedCfg set to fixed(2)).
+          This object is equivalent to the dtrMac MIB object
+          cPortProtocolCharOperationOption."
+     ::= { cat2600TsPortEntry 20 }
+
+  cat2600TsPortDuplex OBJECT-TYPE
+     SYNTAX   INTEGER { half-duplex (1), full-duplex (2) }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+   "Version 1 MIB
+
+          When read, this object indicates the Port Duplex state
+          obtained by the auto-detect function.
+          This object is a valid read object any time that
+          TSPortLinkState indicates up(1) or when TsPortFixedCfg
+          indicates fixed(2).
+
+          Write to this object when defining the Port Duplex state
+          for a fixed configuration (TsPortFixedCfg set to fixed(2)).
+
+    Version 2 MIB
+          This object is related to the dtrMac MIB objects
+          cPortProtocolCharCurrentAccessProtocol
+          and cPortProtocolCharAccessProtcolMask
+          as defined in the following table:
+
+          TsPortLinkState | TsPortFixedCfg | TsPortDuplex equivalent to:
+                          |                |
+            down          |    auto        |  CPortProtocolCharAccess
+                          |                |  ProtocolMask = X'0003'
+                          |                |
+            down          |    fixed       |  CPortProtocolCharAccess
+                          |                |  ProtocolMask = X'0001' or
+                          |                |               = X'0002'
+                          |                |
+            up            |    auto        |  cPortProtocolCharCurrent
+                          |                |  AccessProtocol
+                          |                |
+            up            |    fixed       |  cPortProtocolCharCurrent
+                          |                |  AccessProtocol."
+     ::= { cat2600TsPortEntry 21 }
+
+  cat2600TsPortCfgLoss OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of events as described in TsPortCfgLossRC
+          after the port has completed the join process and
+          then lost communication."
+     ::= { cat2600TsPortEntry 22 }
+
+  cat2600TsPortCfgLossRC OBJECT-TYPE
+     SYNTAX   INTEGER {
+                  wire-fault(1),
+                  beacon-auto-removal (2),
+                  force-remove-macaddr (3),
+                  connection-lost (4),
+                  adapter-check (5),
+                  close-srb (6),
+                  fdx-protocol-failure (7)
+                  }
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Reason code describing the cause of configuration loss."
+     ::= { cat2600TsPortEntry 23 }
+
+  cat2600TsPortCRCCount OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of frames received with CRC error.
+          This object is equivalent to dot5StatsLineError and to the
+          dtrMac MIB object txiStatsLineErrorCounter."
+     ::= { cat2600TsPortEntry 24 }
+
+  cat2600TsPortHPChannelFrames OBJECT-TYPE
+     SYNTAX  Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of frames sent to the high priority channel
+          of the particular Token-Ring port."
+     ::= { cat2600TsPortEntry 25 }
+
+  cat2600TsPortLPChannelFrames OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of frames sent to the low priority channel
+          of the particular Token-Ring port."
+     ::= { cat2600TsPortEntry 26 }
+
+  cat2600TsPortHPThreshold OBJECT-TYPE
+     SYNTAX   INTEGER (0..6)
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Priority level at which frames are sent to the High
+          priority channel."
+          DEFVAL { 4 }
+     ::= { cat2600TsPortEntry 27 }
+
+  cat2600TsPortCfgRingSpeed OBJECT-TYPE
+     SYNTAX   INTEGER { speed-16megabit (1), speed-4megabit (2) }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "When read this object indicates the Port Ring Speed
+          obtained by the RSA function.
+
+          Write to this object when defining the Port Ring Speed
+          for a fixed configuration (TsPortCfgRSA set to fixed(2)).
+
+
+          When TsPortCfgRSA indicates fixed(2), this object is
+          equivalent to the dtrMac MIB object
+          cPortProtocolCharMediumRateOption and to dot5RingSpeed.
+
+
+          Note that the syntax of these objects is different.
+          For cPortProtocolCharMediumRateOption 1 indicates 4 Mb/s,
+          while for TsPortCfgRingSpeed 1 indicates 16Mb/s.
+
+          This object is a valid read object any time that
+          TSPortLinkState indicates up(1)or when TsPortCfgRSA
+          indicates fixed(2)."
+     ::= { cat2600TsPortEntry 28 }
+
+  cat2600TsPortCfgRSA OBJECT-TYPE
+     SYNTAX   INTEGER { rsa (1), fixed (2) }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "User configured Ring Speed Adjust or fixed speed."
+     ::= { cat2600TsPortEntry 29 }
+
+  cat2600TsPortDomain OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Domain that the port belongs to."
+     ::= { cat2600TsPortEntry 30 }
+
+  cat2600TsPortCfgLossThreshold OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of configuration loss events (described in
+          TsPortCfgLossRC) during the sample period which, if
+          exceeded, should cause the port to be disabled. If the
+          port is disabled by this function the port must be
+          manually re-enabled."
+     ::= { cat2600TsPortEntry 31 }
+
+  cat2600TsPortCfgLossSamplingPeriod OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "The sampling period, in minutes, for which the port
+          monitors to see if the configuration loss threshold has
+          been exceeeded."
+     ::= { cat2600TsPortEntry 32 }
+
+  -- The information below is intended for the generation of SNMP
+  -- TRAPS and should not be used to determine the health of the
+  -- network or system
+
+cat2600TsPortBeaconStationAddress OBJECT-TYPE
+     SYNTAX  MacAddr
+     ACCESS   not-accessible
+     STATUS  mandatory
+     DESCRIPTION
+         "MAC address of the Station last generating a beacon MAC frame.
+          This information is present for the generation of a trap and
+          should not be used to represent the health of the ring."
+     ::= { cat2600TsPortEntry 33 }
+
+cat2600TsPortBeaconNAUN OBJECT-TYPE
+     SYNTAX  MacAddr
+     ACCESS   not-accessible
+     STATUS  mandatory
+     DESCRIPTION
+         "MAC address of the NAUN station last generating a beacon MAC frame.
+          This information is present for the generation of a trap and
+                should not be used to represent the health of the ring."
+     ::= { cat2600TsPortEntry 34 }
+
+ cat2600TsPortBeaconType OBJECT-TYPE
+    SYNTAX  INTEGER
+    ACCESS   not-accessible
+    STATUS  mandatory
+    DESCRIPTION
+        "The type of Beacon which last occurred. Values are the same
+         as for the Beacon Type subvector and are defined as follows:
+
+          X'0001' Issued by a Dual Ring Station during reconfiguration
+          X'0002' Signal Loss
+          X'0003' Timer TCT expired during claim token; no claim token
+                   frames recieved
+          X'0004' Timer TCT expired during claim token; claim token
+                   frames recieved
+          X'0005' TXI Access Protocol; Heart Beat Protocol Failure "
+
+     ::= { cat2600TsPortEntry 35 }
+
+
+-- cat2600TsPortBeaconRecoveryStatus OBJECT-TYPE
+--      SYNTAX  INTEGER {
+--                        noneLeft(1),
+--                        beaconingStationLeft(2),
+--                        naunStationLeft(3),
+--                        bothStationsLeft(4),
+--                        invalid(5)
+--                      }
+--     ACCESS  read-only
+--     STATUS  mandatory
+--     DESCRIPTION
+--         "This object indicates which station in the beacon fault domain
+--          was removed as part of the automatic recovery process.
+--                  (1) noneLeft
+--                  (2) beaconingStationLeft
+--                  (3) naunStationLeft
+--                  (4) bothStationsLeft.
+--                  (5) invalid.
+--          This information is present for the generation of a trap and
+--          should not be used to represent the health of the ring."
+--     ::= { cat2600TsPortEntry 36 }
+
+
+
+  -- =======================================================================
+  -- TokenRing Switch Port station table
+
+  cat2600TsPortStnTable OBJECT-TYPE
+     SYNTAX   SEQUENCE OF Cat2600TsPortStnEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+         "Port station table."
+     ::= { cat2600TsPort 3 }
+
+  cat2600TsPortStnEntry OBJECT-TYPE
+     SYNTAX   Cat2600TsPortStnEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "Definition of rows in the port table.  The number
+         of rows is determined by the hardware and is
+         specified by the value of cat2600TsNumPorts.  Rows can
+         not be created or deleted via SNMP requests."
+     INDEX { cat2600TsPortStnPortNum, cat2600TsPortStnAddress }
+     ::= { cat2600TsPortStnTable 1 }
+
+  Cat2600TsPortStnEntry ::= SEQUENCE {
+     cat2600TsPortStnPortNum        INTEGER,
+     cat2600TsPortStnAddress        MacAddr,
+     cat2600TsPortStnLocation       INTEGER,
+     cat2600TsPortStnSrcFrames      Counter,
+     cat2600TsPortStnSrcBytes       Counter,
+     cat2600TsPortStnDestnFrames    Counter,
+     cat2600TsPortStnDestnBytes     Counter
+          }
+
+  cat2600TsPortStnPortNum OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Port number corresponding to this entry."
+     ::= { cat2600TsPortStnEntry 1 }
+
+  cat2600TsPortStnAddress OBJECT-TYPE
+     SYNTAX   MacAddr
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Station MAC address. Equivalent to ifPhysAddr for this port."
+     ::= { cat2600TsPortStnEntry 2 }
+
+  cat2600TsPortStnLocation OBJECT-TYPE
+     SYNTAX   INTEGER {local (1), remote (2) }
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Where the station is located."
+     ::= { cat2600TsPortStnEntry 3 }
+
+  cat2600TsPortStnSrcFrames OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of frames with this station as the source."
+     ::= { cat2600TsPortStnEntry 4 }
+
+
+  cat2600TsPortStnSrcBytes OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of Bytes with this station as the source."
+     ::= { cat2600TsPortStnEntry 5 }
+
+  cat2600TsPortStnDestnFrames OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of frames with this station as the destination."
+     ::= { cat2600TsPortStnEntry 6 }
+
+  cat2600TsPortStnDestnBytes OBJECT-TYPE
+     SYNTAX   Counter
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Number of bytes with this station as the destination."
+     ::= { cat2600TsPortStnEntry 7 }
+
+
+
+
+  -- ========================================================================
+  --  "optimized" port station table
+
+  cat2600TsOptPortStaTable OBJECT-TYPE
+     SYNTAX   SEQUENCE OF Cat2600TsOptPortStaEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "A table of station addresses known at an
+        individual port.  This table is designed to reduce
+        the number of SNMP GETNEXT requests.  This is done
+        by packing many values into an octet string.  (The
+        maximum size frame should be used to return the
+        result.) The instance returned for a GETNEXT is
+        the value that identifies the last 'row' in the
+        octet string.  When the table is completely
+        retrieved with one or more GETNEXTs, duplicate
+        entries may be present, and entries may be skipped
+        if the table is changing while being retrieved."
+     ::= { cat2600TsPort 2 }
+
+  cat2600TsOptPortStaEntry OBJECT-TYPE
+     SYNTAX   Cat2600TsOptPortStaEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "Definition of the rows in the optimized port
+        station address table.   Rows can not be created or
+        deleted via SNMP requests."
+     INDEX   { cat2600TsPortIndex,
+          cat2600TsOptPortStaPos }
+     ::= { cat2600TsOptPortStaTable 1 }
+
+  Cat2600TsOptPortStaEntry ::= SEQUENCE {
+     cat2600TsOptPortStaPos      INTEGER,
+     cat2600TsOptPortStaVal      OCTET STRING
+     }
+
+  cat2600TsOptPortStaPos OBJECT-TYPE
+     SYNTAX   INTEGER (0..65535)
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Second index for items in the optimized port
+        station address table."
+     ::= { cat2600TsOptPortStaEntry 1 }
+
+  cat2600TsOptPortStaVal OBJECT-TYPE
+     SYNTAX   OCTET STRING
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "An OCTET STRING containing a multiple number of
+        stations from a port station address table. Each entry
+        is encoded in the following format:
+        Station MAC address - 6 octets
+        Location 1 - local
+                 2 - remote - 1 octet
+        Port of exit Mask   - 4 octets
+             Source Frame Count  - 4 octets (integer in little endian)
+             Destn Frame Count   - 4 octets (integer in little endian)
+             Source Byte Count   - 4 octets (integer in little endian)
+             Destn Byte Count    - 4 octets (integer in little endian)
+
+        The Port of exit mask is encoded in its raw form as stored
+        in the switch.
+                         Octet 1
+                  Bit position  7  6  5  4  3  2  1  0
+             Port Number  31 30 29 28 27 26 25 24
+                         Octet 2
+                  Bit position  7  6  5  4  3  2  1  0
+             Port Number  23 22 21 20 19 18 17 16
+                         Octet 3
+                  Bit position  7  6  5  4  3  2  1  0
+             Port Number  15 14 13 12 11 10  9  8
+                         Octet 4
+                  Bit position  7  6  5  4  3  2  1  0
+             Port Number   7  6  5  4  3  2  1 CPU "
+     ::= { cat2600TsOptPortStaEntry 2 }
+
+
+
+  -- =======================================================================
+  -- Domain configuration objects
+
+  -- The term "Domain" used in the following section should be
+  -- considered to be equivalent to the term "Concetrator Relay
+  -- Function" (CRF) as defined in ISO/IEC 8802-5 Dedicated Token Ring
+  -- Draft Standard 802.5r Annex K.
+
+  -- The configuration information in the following section extends
+  -- the information provided in the CRF configuration values of
+  -- the dtrConc MIB.
+
+  -- Domain table
+
+  cat2600TsDmnTable OBJECT-TYPE
+     SYNTAX   SEQUENCE OF Cat2600TsDmnEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "Currently active domains on the switch."
+     ::= { cat2600TsDmns 1 }
+
+  cat2600TsDmnEntry OBJECT-TYPE
+     SYNTAX   Cat2600TsDmnEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "Definition of each row in the domain Table"
+     INDEX   { cat2600TsDmnIndex }
+     ::= { cat2600TsDmnTable 1 }
+
+  Cat2600TsDmnEntry ::= SEQUENCE {
+     cat2600TsDmnIndex                     INTEGER,
+     cat2600TsDmnPorts                   OCTET STRING,
+     cat2600TsDmnIpState                 INTEGER,
+     cat2600TsDmnIpAddress               IpAddress,
+     cat2600TsDmnIpSubnetMask            IpAddress,
+     cat2600TsDmnIpDefaultGateway        IpAddress,
+     cat2600TsDmnStp                     INTEGER,
+     cat2600TsDmnName                    DisplayString,
+     cat2600TsDmnIfIndex                  INTEGER,
+     cat2600TsDmnBaseBridgeAddr          MacAddr,
+     cat2600TsDmnNumStations             INTEGER,
+     cat2600TsDmnMostStations            INTEGER
+     }
+
+
+  cat2600TsDmnIndex  OBJECT-TYPE
+     SYNTAX   INTEGER (1..32)
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Domain number for each row."
+     ::= { cat2600TsDmnEntry 1 }
+
+  cat2600TsDmnPorts OBJECT-TYPE
+          SYNTAX  OCTET STRING
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+              "The set of ports that belong to this Domain.
+               Each octet within the value of this object specifies
+               a set of eight ports, with the first octet specifying
+               ports 1 through 8, the second octet specifying ports 9
+               through 16, etc.  Within each octet, the most
+               significant bit represents the lowest numbered
+               port, and the least significant bit represents the
+               highest numbered port.  Thus, each port of the
+               TokenRing Switch is represented by a single bit within the
+               value of this object.  If that bit has a value of
+               '1' then that port is included in the set of
+               ports; the port is not included if its bit has a
+               value of '0'. Warning: You will not receive a set-
+               complete message as a set to this object causes the
+               ports to reset."
+          ::= { cat2600TsDmnEntry 2 }
+
+  cat2600TsDmnIpState  OBJECT-TYPE
+     SYNTAX   INTEGER { disabled (1), auto-bootp(2), always-bootp (3) }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "IP configuration method for this domain."
+     ::= { cat2600TsDmnEntry 3 }
+
+  cat2600TsDmnIpAddress  OBJECT-TYPE
+     SYNTAX   IpAddress
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "The IP Address of this Domain. Changes to this
+          object will take effect immediately."
+
+     ::= { cat2600TsDmnEntry 4 }
+
+  cat2600TsDmnIpSubnetMask  OBJECT-TYPE
+     SYNTAX   IpAddress
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "The subnet mask for this domain. Changes to this object
+          will take effect immediately."
+     ::= { cat2600TsDmnEntry 5 }
+
+  cat2600TsDmnIpDefaultGateway  OBJECT-TYPE
+     SYNTAX   IpAddress
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "The IP Address of the default gateway for this Domain.
+          Changes to this object will take effect immediately."
+     ::= { cat2600TsDmnEntry 6 }
+
+  cat2600TsDmnStp OBJECT-TYPE
+     SYNTAX   INTEGER { on (1), off (2) }
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "Turn Spanning tree on or off. Changes to this object will
+          take effect immediately.   The Spanning Tree Objects
+          themselves are in the dtrConc MIB."
+     ::= { cat2600TsDmnEntry 7 }
+
+  cat2600TsDmnName OBJECT-TYPE
+     SYNTAX   DisplayString (SIZE (0..48))
+     ACCESS   read-write
+     STATUS   mandatory
+     DESCRIPTION
+         "User assigned name for each domain."
+     ::= { cat2600TsDmnEntry 8 }
+
+
+  cat2600TsDmnIfIndex  OBJECT-TYPE
+     SYNTAX    INTEGER (1..100)
+     ACCESS    read-only
+     STATUS    mandatory
+     DESCRIPTION
+         "The ifIndex of the interface entry corresponding
+          to each configured domain."
+     ::= { cat2600TsDmnEntry 9 }
+
+  cat2600TsDmnBaseBridgeAddr OBJECT-TYPE
+     SYNTAX    MacAddr
+     ACCESS    read-only
+     STATUS    mandatory
+     DESCRIPTION
+         "Base MAC address of this domain.  Internally equivalent
+          to dtrCRFMacAddress and to ifPhysAddress of the 'Domain' port."
+     ::= { cat2600TsDmnEntry 10 }
+
+  cat2600TsDmnNumStations OBJECT-TYPE
+     SYNTAX    INTEGER
+     ACCESS    read-only
+     STATUS    mandatory
+     DESCRIPTION
+        "Aggregate number of currently active stations
+        (nodes) on all ports in the domain."
+     ::= { cat2600TsDmnEntry 11 }
+
+  cat2600TsDmnMostStations OBJECT-TYPE
+     SYNTAX    INTEGER
+     ACCESS    read-only
+     STATUS    mandatory
+     DESCRIPTION
+        "Highest aggregate number of stations ever active
+        on all ports at one time, since the last reset or
+        power cycle."
+     ::= { cat2600TsDmnEntry 12 }
+
+
+
+
+  -- ======================================================================
+  -- Domains Station Table
+
+  -- Information in the Domains Station Table corresponds to information
+  -- in the dtrConc MIB Filtering Data Base.  Stations learned in each
+  -- Domain are placed into the 'Dynamic' filtering database while
+  -- pre-defined station addresses are in the 'Static' filtering database.
+
+  cat2600TsDmnStationTable OBJECT-TYPE
+     SYNTAX   SEQUENCE OF Cat2600TsDmnStationEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "Stations seen in each domain."
+     ::= { cat2600TsDmns 5 }
+
+  cat2600TsDmnStationEntry OBJECT-TYPE
+     SYNTAX   Cat2600TsDmnStationEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "Definition of each row in the domain specific station table.
+         The object is equivalent to dtrFdbDynamicAddrTable or
+         dtrFdbStaticAddrTable depending if the entry is learned
+         or is a configured filter."
+     INDEX   { cat2600TsDmnIndex, cat2600TsDmnStationAddress }
+     ::= { cat2600TsDmnStationTable 1 }
+
+  Cat2600TsDmnStationEntry ::= SEQUENCE {
+     cat2600TsDmnStationDmnIndex           INTEGER,
+     cat2600TsDmnStationAddress              OCTET STRING,
+     cat2600TsDmnStationPort               INTEGER,
+     cat2600TsDmnStationTraffic              OCTET STRING
+          }
+
+  cat2600TsDmnStationDmnIndex OBJECT-TYPE
+          SYNTAX  INTEGER (0..65535)
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+              "Integer reference to the domain number in the domain table."
+
+          ::= { cat2600TsDmnStationEntry 1 }
+
+  cat2600TsDmnStationAddress OBJECT-TYPE
+          SYNTAX   OCTET STRING (SIZE(6))
+          ACCESS   read-only
+          STATUS   mandatory
+          DESCRIPTION
+                 "The Station's MAC address."
+          ::= { cat2600TsDmnStationEntry 2 }
+
+  cat2600TsDmnStationPort OBJECT-TYPE
+     SYNTAX   INTEGER
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "The source port for the Station.  The dtrConc MIB equivalents
+         are dtrFdbDynamicAddrPortNumber and dtrFdbStaticAddrPortNumber."
+          ::= { cat2600TsDmnStationEntry 3 }
+
+  cat2600TsDmnStationTraffic OBJECT-TYPE
+     SYNTAX   OCTET STRING
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+          "A bit string that identifies the ports that this station
+           has generated traffic to or from.  The bits correspond to ports,
+           with bits and ports numbered from right to left so that
+           bit 0 represents the CPU, bit 1 represents port 1, and so forth.
+           For example, the returned string 01 4D can be expanded to:
+
+                  00000001 01001101  binary representation of object string
+                  xxxxxxx8 7654321C  ports corresponding to bits
+
+           This indicates ports 8, 6, 3, 2 and the CPU.  The size
+           of this string is adjusted to include all ports with traffic."
+
+          ::= { cat2600TsDmnStationEntry 4 }
+
+
+
+  -- An "optimized" version of the domain station table
+
+  cat2600TsOptDmnStaTable OBJECT-TYPE
+     SYNTAX   SEQUENCE OF Cat2600TsOptDmnStaEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "A table of station addresses known at an
+        individual port.  This table is designed to reduce
+        the number of SNMP GETNEXT requests.  This is done
+        by packing many values into an octet string.  (The
+        maximum size frame should be used to return the
+        result.) The instance returned for a GETNEXT is
+        the value that identifies the last 'row' in the
+        octet string.  When the table is completely
+        retrieved with one or more GETNEXTs, duplicate
+        entries may be present, and entries may be skipped
+        if the table is changing while being retrieved."
+     ::= { cat2600TsDmns 6 }
+
+  cat2600TsOptDmnStaEntry OBJECT-TYPE
+     SYNTAX   Cat2600TsOptDmnStaEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "Definition of the rows in the optimized domain
+         station address table.   Rows can not be created or
+         deleted via SNMP requests."
+     INDEX   { cat2600TsDmnStationDmnIndex, cat2600TsOptDmnStaPos }
+
+     ::= { cat2600TsOptDmnStaTable 1 }
+
+  Cat2600TsOptDmnStaEntry ::= SEQUENCE {
+     cat2600TsOptDmnStaPos   INTEGER,
+     cat2600TsOptDmnStaVal   OCTET STRING
+     }
+
+  cat2600TsOptDmnStaPos OBJECT-TYPE
+     SYNTAX   INTEGER (0..65535)
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "Second index for items in the optimized port
+        station address table."
+     ::= { cat2600TsOptDmnStaEntry 1 }
+
+  cat2600TsOptDmnStaVal OBJECT-TYPE
+     SYNTAX   OCTET STRING
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+        "An OCTET STRING containing a multiple number of
+        stations from the domain station address table. Each entry
+        is encoded in the following format:
+        Station MAC address - 6 octets
+        Port of Entry       - 1 octet
+        Traffic Mask        - 4 octets
+
+        The traffic mask is encoded in its raw form as stored
+        in the switch.
+                         Octet 1
+                  Bit position  7  6  5  4  3  2  1  0
+             Port Number  31 30 29 28 27 26 25 24
+                         Octet 2
+                  Bit position  7  6  5  4  3  2  1  0
+             Port Number  23 22 21 20 19 18 17 16
+                         Octet 3
+                  Bit position  7  6  5  4  3  2  1  0
+             Port Number  15 14 13 12 11 10  9  8
+                         Octet 4
+                  Bit position  7  6  5  4  3  2  1  0
+             Port Number   7  6  5  4  3  2  1 CPU "
+     ::= { cat2600TsOptDmnStaEntry 2 }
+
+
+ -- ===================================================================
+ -- TokenPipe Table.
+
+  cat2600TsPipeTable OBJECT-TYPE
+        SYNTAX  SEQUENCE OF Cat2600TsPipeEntry
+        ACCESS  not-accessible
+        STATUS  mandatory
+        DESCRIPTION
+                "The TokenPipe table."
+        ::= { cat2600TsPipe 1 }
+
+  cat2600TsPipeEntry OBJECT-TYPE
+        SYNTAX  Cat2600TsPipeEntry
+        ACCESS  not-accessible
+        STATUS  mandatory
+        DESCRIPTION
+            "Definition of each row in the TokenPipe table."
+        INDEX   { cat2600TsPipeNumber }
+        ::= { cat2600TsPipeTable 1 }
+
+  Cat2600TsPipeEntry ::= SEQUENCE {
+        cat2600TsPipeNumber           INTEGER,
+        cat2600TsPipePorts            OCTET STRING
+        }
+
+  cat2600TsPipeNumber  OBJECT-TYPE
+        SYNTAX  INTEGER (1..8)
+        ACCESS  read-only
+        STATUS  mandatory
+        DESCRIPTION
+                "The TokenPipe number for this row."
+        ::= { cat2600TsPipeEntry 1 }
+
+  cat2600TsPipePorts OBJECT-TYPE
+        SYNTAX  OCTET STRING (SIZE(4))
+        ACCESS  read-write
+        STATUS  mandatory
+        DESCRIPTION
+             "The set of ports in this switch which are active in this
+              Pipe. Each octet within the value of this object
+              specifies a set of eight ports, with the first octet
+              specifying ports 1 through 8, the second octet specifying
+              ports 9 through 16 (if available), etc.  Within each octet,
+              the most significant bit represents the lowest numbered
+              port, and the least significant bit represents the
+              highest numbered port.  Thus, each port of the
+              NWays LAN Switch is represented by a single bit within the
+              value of this object.  If that bit has a value of
+              '1' then that port is included in the set of
+              ports; the port is not included if its bit has a
+              value of '0'."
+        ::= { cat2600TsPipeEntry 2 }
+
+
+  -- =======================================================================
+  -- Catalyst 2600 Filter table
+
+
+  cat2600TsFilterTable OBJECT-TYPE
+     SYNTAX   SEQUENCE OF Cat2600TsFilterEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "Filters set up in the switch."
+     ::= { cat2600TsFilter 1 }
+
+  cat2600TsFilterEntry OBJECT-TYPE
+     SYNTAX   Cat2600TsFilterEntry
+     ACCESS   not-accessible
+     STATUS   mandatory
+     DESCRIPTION
+        "Definition of each row in the filter table."
+     INDEX   {
+                cat2600TsFilterStationAddress,
+                cat2600TsFilterType
+             }
+     ::= { cat2600TsFilterTable 1 }
+
+  Cat2600TsFilterEntry ::= SEQUENCE {
+          cat2600TsFilterStationAddress     MacAddr,
+          cat2600TsFilterType               INTEGER,
+          cat2600TsFilterStatus             INTEGER,
+          cat2600TsFilterPorts              OCTET STRING,
+          cat2600TsFilterMask               OCTET STRING
+          }
+
+  cat2600TsFilterStationAddress OBJECT-TYPE
+          SYNTAX  MacAddr
+          ACCESS  read-only
+          STATUS  mandatory
+          DESCRIPTION
+              "The MAC address in a frame to which
+               this entry's filtering information applies."
+
+          ::= { cat2600TsFilterEntry 1 }
+
+  cat2600TsFilterType OBJECT-TYPE
+      SYNTAX  INTEGER {
+            source-filter (1),
+            destination-filter (2)
+                  }
+      ACCESS  read-only
+      STATUS  mandatory
+      DESCRIPTION
+          "There are two types of filters
+           (i) source filters which act on the source address
+           portion of a packet and
+           (ii) destination filters which act on the destination
+           address portion of a packet."
+      ::= { cat2600TsFilterEntry 2 }
+
+ cat2600TsFilterStatus OBJECT-TYPE
+          SYNTAX  INTEGER {
+                      valid(1),
+                      invalid(2)
+                  }
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+              "This object indicates the status of this entry.
+
+                   valid(1) - this entry is currently in use
+                        and will remain so after the next reset
+                        of the bridge.
+                   invalid(2) - writing this value to the object
+                        removes the corresponding entry."
+
+          ::= { cat2600TsFilterEntry 3 }
+
+
+  cat2600TsFilterPorts OBJECT-TYPE
+          SYNTAX  OCTET STRING
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+                  "The set of ports to which this filter is applied.
+                  Each octet within the value of this object specifies
+                  a set of eight ports, with the first octet specifying
+                  ports 1 through 8, the second octet specifying ports 9
+                  through 16, etc.  Within each octet, the most
+                  significant bit represents the lowest numbered
+                  port, and the least significant bit represents the
+                  highest numbered port.  Thus, each port of the
+                  TokenRing Switch is represented by a single bit within the
+                  value of this object.  If that bit has a value of
+                  '1' then that port is included in the set of
+                  ports; the port is not included if its bit has a
+                  value of '0'.
+                  All frames with destination address equal to the
+                  station address corresponding to this entry and
+                  entering from any of the specified ports will be
+                  dropped.
+                  Setting this object with a MIB instance corresponding
+                  to the dotted decimal MAC address and a filter type,
+                  with the set value equal to the mask of ports you
+                  want to filter will create an entry in the table.
+
+                  Ex. MIB instance: 16.0.90.3.0.36.1
+                    SNMP set value: 7F 00 00 00
+
+                  This would create a filter entry with the following
+                  characteristics:
+
+                   MAC Address: 10 00 5A 03 00 24 (canonical format)
+                   Filter Type: source-filter
+                  Filter Ports: 2 3 4 5 6 7 8"
+
+          ::= { cat2600TsFilterEntry 4 }
+
+  cat2600TsFilterMask OBJECT-TYPE
+          SYNTAX  OCTET STRING (SIZE(4))
+          ACCESS  read-write
+          STATUS  mandatory
+          DESCRIPTION
+              "The filter mask for this station. The semantics of the
+               filter mask depend on the type of filter. For a source
+               filter, the mask gives the ports that are allowed to
+               receive frames from the filtered address. For a destination
+               filter, the mask gives the ports that are forced to receive
+               frames destined to the filtered address.
+               Each octet within the value of this object specifies
+               a set of eight ports, with the first octet specifying
+               ports 1 through 8, the second octet specifying ports 9
+               through 16 (if available), etc.  Within each octet, the most
+               significant bit represents the lowest numbered
+               port, and the least significant bit represents the
+               highest numbered port.  Thus, each port of the
+               switch is represented by a single bit within the
+               value of this object.  If that bit has a value of
+               '1' then that port is included in the set of
+               ports; the port is not included if its bit has a
+               value of '0'."
+          ::= { cat2600TsFilterEntry 5 }
+
+
+  -- -----------------------------------------------------------------
+  -- The Universal Feature Card Information
+  -- -----------------------------------------------------------------
+
+  -- -----------------------------------------------------------------
+  -- The Universal Feature Card Table
+  -- The UFC table entries occur only when UFC cards are installed
+  -- in the switch ie when cat2600TsUFCNumber > 0.
+  -- -----------------------------------------------------------------
+  cat2600TsUFCTable OBJECT-TYPE
+         SYNTAX   SEQUENCE OF Cat2600TsUFCEntry
+         ACCESS   not-accessible
+         STATUS   mandatory
+         DESCRIPTION
+         "A table of the installed UFC cards in the switch.  The number
+          of entries in the table is given by cat2600TsNumberofUFCs."
+
+  ::= { cat2600TsUFC 1 }
+
+  cat2600TsUFCEntry OBJECT-TYPE
+         SYNTAX   Cat2600TsUFCEntry
+         ACCESS   not-accessible
+         STATUS   mandatory
+         DESCRIPTION
+         "The objects contained in the UFC table."
+         INDEX   { cat2600TsUFCSlotNum }
+  ::= { cat2600TsUFCTable 1 }
+
+  Cat2600TsUFCEntry ::= SEQUENCE {
+    cat2600TsUFCSlotNum         INTEGER,
+    cat2600TsUFCNumPhysIfs      INTEGER,
+    cat2600TsUFCManufacturer    DisplayString,
+    cat2600TsUFCType            OCTET STRING,
+    cat2600TsUFCTypeDesc        DisplayString,
+    cat2600TsUFCHwVer           DisplayString,
+    cat2600TsUFCFwVer           DisplayString,
+    cat2600TsUFCStatus          INTEGER,
+    cat2600TsUFCReset           INTEGER
+  }
+
+  cat2600TsUFCSlotNum OBJECT-TYPE
+     SYNTAX   INTEGER (1..32)
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "The number of the slot in which the UFC is installed."
+     ::= { cat2600TsUFCEntry 1 }
+
+  cat2600TsUFCNumPhysIfs OBJECT-TYPE
+     SYNTAX   INTEGER (0..65535)
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "The total number of physical network interfaces on the UFC.
+          This count does not include the interface _OF_ the card or
+          any logical interfaces which be _ON_ the card."
+     ::= { cat2600TsUFCEntry 2 }
+
+  cat2600TsUFCManufacturer  OBJECT-TYPE
+     SYNTAX   DisplayString (SIZE (16))
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "Firmware manufacturer."
+     ::= { cat2600TsUFCEntry 3 }
+
+  cat2600TsUFCType OBJECT-TYPE
+     SYNTAX   OCTET STRING(SIZE(2))
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "The code representing what type of UFC is present.  UFC
+          codes are assigned by Cisco."
+
+      ::= { cat2600TsUFCEntry 4 }
+
+  cat2600TsUFCTypeDesc    OBJECT-TYPE
+     SYNTAX   DisplayString(SIZE(0..127))
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "A text string describing what type of UFC is present."
+     ::= { cat2600TsUFCEntry 5 }
+
+  cat2600TsUFCHwVer OBJECT-TYPE
+     SYNTAX   DisplayString(SIZE(0..64))
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "The hardware version in the form major.minor."
+
+     ::= { cat2600TsUFCEntry 6 }
+
+  cat2600TsUFCFwVer OBJECT-TYPE
+     SYNTAX   DisplayString(SIZE(0..64))
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "The firmware version in the form major.minor."
+
+     ::= { cat2600TsUFCEntry 7 }
+
+  cat2600TsUFCStatus OBJECT-TYPE
+     SYNTAX   INTEGER {
+                        up(1),      -- UFC is operational
+                        down(2),    -- UFC is down or reseting
+                        other(3)    -- UFC is in an unknown state
+                      }
+     ACCESS   read-only
+     STATUS   mandatory
+     DESCRIPTION
+         "The operational status of the UFC."
+
+      ::= { cat2600TsUFCEntry 8 }
+
+  cat2600TsUFCReset OBJECT-TYPE
+     SYNTAX   INTEGER {
+                        running(1),     -- UFC is running
+                        hardReset(2),   -- do hard reset of UFC
+                        softReset(3)    -- do soft reset of UFC
+                      }
+     ACCESS  read-write
+     STATUS  mandatory
+     DESCRIPTION
+         "The object is used to reset a UFC. Writing a softReset(3)
+          causes the switch to reset the hardware, run the minimum
+          number of diagnostics, and clear all counters. Writing
+          hardReset(2) causes the UFC to run power up diagnostics and
+          then execute a softreset."
+      ::= { cat2600TsUFCEntry 9 }
+
+END

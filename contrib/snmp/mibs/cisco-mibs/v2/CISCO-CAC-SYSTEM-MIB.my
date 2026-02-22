@@ -1,0 +1,1097 @@
+-- *****************************************************************
+-- CISCO-CAC-SYSTEM-MIB.my:  Cisco CAC MIB file.
+--
+-- April 2003, Margaret Hsieh
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+
+CISCO-CAC-SYSTEM-MIB DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Counter32,
+        Integer32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TEXTUAL-CONVENTION,
+        TimeInterval,
+        TruthValue
+                FROM SNMPv2-TC
+        ciscoMgmt
+                FROM CISCO-SMI
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        cmgwIndex, cmgwSignalProtocolIndex
+                FROM CISCO-MEDIA-GATEWAY-MIB;
+
+
+ccacSysMIB MODULE-IDENTITY
+           LAST-UPDATED    "200304240000Z"
+           ORGANIZATION    "Cisco Systems, Inc."
+           CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+
+                E-mail: cs-voice@cisco.com"
+           DESCRIPTION
+                 "This MIB module provides provisioning and 
+                  monitoring Call Admission Control (CAC).  "
+           REVISION        "200304240000Z"
+           DESCRIPTION     "Initial version of the MIB."
+
+           ::= { ciscoMgmt 322 }
+
+
+-- TEXTUAL CONVENTIONS
+
+CcacResourceType ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "This textual convention defines the type of resources
+         which are involved in CAC (Call Admission Control) 
+         processing.
+
+         cpu5Sec(1)  - The last 5 seconds utilization of the CPU 
+                       which is involved in the call processing.
+         cpuAvg(2)   - The average utilization of the CPU which is 
+                       used in the call processing.
+                       The average is computed in the following
+                       formula over the period configured in
+                       ccacSysRpInterval seconds.
+                       cpuAvg = exp(- cpu5Sec / ccacSysRpInterval) 
+                                       * (cpuAvg - last cpu5Sec)
+                                       + last cpu5Sec
+         ioMem(3)    - The I/O memory utilization used in the call
+                       processing in every ccacSysRpInterval seconds.
+         procMem(4)  - The processor memory utilization used in
+                       the call processing in every ccacSysRpInterval 
+                       seconds.
+         totMem(5)   - The total memory, (I/O memory + Processor 
+                       memory) utilization used in the call 
+                       processing in every ccacSysRpInterval seconds.
+         totCalls(6) - The total active call, based on the
+                       incoming call legs.
+         staMem(7)   - Static memory utilization used in the call 
+                       processing.
+         dynMem(8)   - Dynamic memory utilization used in the call 
+                       processing.
+         commBuf(9)  - The communication buffers between the 
+                       processes involved in intercards 
+                       communication for call processing. 
+         msgQueue(10)- The message queues between the processes used
+                       for call processing.
+         dspQueue(11)- DSP queues which are shared by all different 
+                       DSP channels used for call processing.
+         svc(12)     - SVCs used in call processing.
+         ds0(13)     - DS0 channels used in call processing.
+         dspChannel(14) - DSP channel used in call processing.
+         h248Mem(15) - H248 memory pools used in call processing.
+
+         Each CAC module can choose the suitable resources for its CAC
+         processing. It can select one or more than one resource types 
+         to monitor. It is not required to support all the resource 
+         types listed in CcacResourceType.
+
+         Some resource types can be monitored for the whole system,
+         some can be monitored per media gateway, some can be 
+         monitored per protocol, and some can be monitored per 
+         interface. It depends on the system implementation. 
+         For those resource types are applied to per media gateway 
+         should have their entries created in GatewayResTable 
+         automatically. For those resource types are applied to 
+         per protocol should have their entries created in 
+         ccacSysProtocolResTable automatically. 
+         For those resource types are applied to per interface 
+         should have their entries created automatically in 
+         ccacSysInterfaceResTable. 
+        "
+     SYNTAX      INTEGER {
+                          cpu5Sec(1),
+                          cpuAvg(2),
+                          ioMem(3),
+                          procMem(4),
+                          totMem(5),
+                          totCalls(6),
+                          staMem(7),
+                          dynMem(8),
+                          commBuf(9),
+                          msgQueue(10),
+                          dspQueue(11),
+                          svc(12),
+                          ds0(13),
+                          dspChannel(14),
+                          h248Mem(15)
+                 }
+
+--
+-- CAC MIB object definitions
+--
+
+ccacSysObjects     OBJECT IDENTIFIER ::= { ccacSysMIB 1 }
+
+--
+-- CSC Configuration objects
+--
+
+ccacSysConfig      OBJECT IDENTIFIER ::= { ccacSysObjects 1 }
+
+--
+-- CAC Threshold Configuration objects
+--
+
+ccacSysResPolicy   OBJECT IDENTIFIER ::= { ccacSysObjects 2 } 
+
+--
+-- CAC Statistic objects
+--
+
+ccacSysStat        OBJECT IDENTIFIER ::= { ccacSysObjects 3 }
+
+
+--
+-- CAC System Configuration Table
+--
+
+ccacSysConfigTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CcacSysConfigEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This table defines the general attributes of CAC 
+         (Call Admission Control) processing.
+        "
+    ::= { ccacSysConfig 1 }
+
+ccacSysConfigEntry OBJECT-TYPE
+    SYNTAX         CcacSysConfigEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "Each entry contains the attributes applied to 
+         CAC processing.
+
+         One entry will be automatically created by the system
+         when it supports CAC processing. "
+    INDEX { cmgwIndex }
+    ::= { ccacSysConfigTable 1 }
+
+CcacSysConfigEntry ::= SEQUENCE {
+        ccacSysCacEnable          TruthValue,
+        ccacSysNotifyEnable       TruthValue,
+        ccacSysTreatment          INTEGER,
+        ccacSysRejectCode         Integer32,
+        ccacSysIsdnRejectCode     Integer32,
+        ccacSysPlayMessageFile    SnmpAdminString,
+        ccacSysSlidingWindowSteps Integer32,
+        ccacSysSlidingWindowSize  Integer32,
+        ccacSysCallSpike          Integer32
+        }
+
+ccacSysCacEnable   OBJECT-TYPE
+    SYNTAX         TruthValue  
+    MAX-ACCESS     read-write
+    STATUS         current
+    DESCRIPTION
+        "This object specifies CAC (Call Admission Control)
+         function is enabled or not."
+    DEFVAL { true }
+    ::= { ccacSysConfigEntry 1 }
+
+ccacSysNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls generation of notifications
+         in the MIB. 
+
+         When this object is 'true(1)', generation of
+         notifications in the MIB is enabled.  When this
+         variable is 'false(2)', generation of notifications 
+         in the MIB is disabled."
+    DEFVAL { true }
+    ::= { ccacSysConfigEntry 2 }
+
+
+ccacSysTreatment OBJECT-TYPE
+    SYNTAX       INTEGER {
+                        hairpin(1),
+                        reject(2),
+                        playMessage(3)
+                 }
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "The type of call treatment to apply on a new call when
+         a call resource threshold is exceeded. This treatment 
+         is applicable if the threshold action (ccacSysRpAction)
+         includes 'treatment(3)' or 'busyoutAndTreatment(4)'.
+
+         hairpin(1) - Connect the call back to the PSTN via 
+                      another telephony port.
+
+         reject(2)  - Reject the call, using cause code specified 
+                      in ccacSysRejectCode
+
+         playMessage(3) - Reject the call and send the specified 
+                          audio message. The audio file used for 
+                          'playMessage(3)' is specified in 
+                          ccacSysPlayMessageFile.
+
+        The 'playMessage(3)' option only applies to Voice over ATM,
+        IP, or FrameRelay calls. For other types of calls, 
+        a value of 'playMessage(3)' is equivalent to 'reject(2)'."
+    DEFVAL { reject }
+    ::= { ccacSysConfigEntry 3 }
+
+
+ccacSysRejectCode OBJECT-TYPE
+    SYNTAX        Integer32 (1..100)
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object specifies the numeric code to be returned to
+         the call control agent (MGC) when a call is rejected as 
+         a result of the call resource thresholds being exceeded.
+
+         This code is used when the signalling protocol supports
+         call rejection cause codes.  This does not apply to
+         channel associated signalling (CAS)."  
+    REFERENCE
+        "ITU-T Recommendation Q.931, 
+         ISDN user-network interface layer 3 specification."
+    DEFVAL { 44 }
+    ::= { ccacSysConfigEntry 4 }
+
+ccacSysIsdnRejectCode OBJECT-TYPE
+    SYNTAX            Integer32 (34..47)
+    MAX-ACCESS        read-write
+    STATUS            current
+    DESCRIPTION
+        "This object is used to reject the calls even when an
+         interface is 'busyout' as the action of call 
+         treatment. "
+    REFERENCE
+        "ITU-T Recommendation Q.931, 
+         ISDN user-network interface layer 3 specification."
+    ::= { ccacSysConfigEntry 5 }
+
+
+ccacSysPlayMessageFile OBJECT-TYPE
+    SYNTAX             SnmpAdminString
+    MAX-ACCESS         read-write
+    STATUS             current
+    DESCRIPTION
+        "The name of the audio file to be played for call
+         rejections if the value of ccacSysTreatment is
+         'playMessage(3)'. 
+
+         The format of the filename is system specific.
+
+         If no file is configured, this object contains a zero
+         length string."
+    ::= { ccacSysConfigEntry 6 }
+
+
+ccacSysSlidingWindowSteps OBJECT-TYPE
+    SYNTAX                Integer32 (3..10)
+    MAX-ACCESS            read-write
+    STATUS                current
+    DESCRIPTION
+        "This object defines the number of steps used for a
+         sliding window of ccacSysCallSpike. "
+    DEFVAL { 5 }
+    ::= { ccacSysConfigEntry 7 }
+
+
+ccacSysSlidingWindowSize OBJECT-TYPE
+    SYNTAX               Integer32 (100..2000)
+    UNITS                "millisecond"
+    MAX-ACCESS           read-write
+    STATUS               current
+    DESCRIPTION
+        "This object defines the time length for each step in a
+         sliding window of ccacSysCallSpike.  "
+    DEFVAL { 200 }
+    ::= { ccacSysConfigEntry 8 }
+
+ccacSysCallSpike    OBJECT-TYPE
+    SYNTAX          Integer32 (0..2147483647)
+    UNITS           "calls"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to define a threshold for
+         incoming call spike.
+
+         The number of incoming calls is counted within a sliding
+         window which is broken into ccacSysSlidingWindowSteps. 
+         Each step has an equally time interval defined in 
+         ccacSysSlidingWindowSize.
+
+         The sliding window size can be calculated from
+         ccacSysSlidingWindowSteps and ccacSysSlidingWindowSize 
+         two objects.
+
+         The 'sliding window' = ccacSysSlidingWindowSteps *
+                                ccacSysSlidingWindowSize
+
+         For example, if ccacSysSlidingWindowSteps is 5  AND
+         ccacSysSlidingWindowSize is 200 (ms), then the 
+         'sliding window' will be 1 second. 
+
+         ccacSysCallSpike sets the maximum number of incoming
+         call in a sliding window.
+
+         Set this object to value '0' will disable call spike 
+         threshold and will reset the value of 
+         ccacSysSlidingWindowSteps and ccacSysSlidingWindowSize 
+         to default value.
+         The value of this object is '0', it indicates the 
+         call spike threshold is disabled."
+   DEFVAL { 0 }
+   ::= { ccacSysConfigEntry 9 }
+
+--
+-- CAC, Gateway Resource Policy Index mapping table 
+--
+ccacSysGatewayResTable OBJECT-TYPE
+    SYNTAX            SEQUENCE OF CcacSysGatewayResEntry
+    MAX-ACCESS        not-accessible
+    STATUS            current
+    DESCRIPTION
+        "This table is a mapping table for the CAC policy with
+         the CAC resources monitored in a media gateway. "
+    ::= { ccacSysResPolicy 1 }
+
+ccacSysGatewayResEntry OBJECT-TYPE
+    SYNTAX             CcacSysGatewayResEntry
+    MAX-ACCESS         not-accessible
+    STATUS             current
+    DESCRIPTION
+        "Each entry represents for the resource type which
+         will be monitored for CAC processing per media gateway.
+
+         Each entry will be automatically created by the system
+         depending on the availability of the combination of 
+         CAC resources and its associated policies."
+    INDEX { cmgwIndex, ccacSysGwResIndex }
+    ::= { ccacSysGatewayResTable 1 }
+
+CcacSysGatewayResEntry ::= SEQUENCE {
+            ccacSysGwResIndex         Integer32,
+            ccacSysGwResType          CcacResourceType,
+            ccacSysGwResPolicyIndex   Integer32
+            }
+
+ccacSysGwResIndex  OBJECT-TYPE
+    SYNTAX      Integer32 (1..50)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object uniquely identifies the CAC resource monitored 
+         in the gateway. "
+    ::= { ccacSysGatewayResEntry 1 }
+
+ccacSysGwResType OBJECT-TYPE
+    SYNTAX       CcacResourceType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The resource type for CAC monitor per media gateway.
+       
+         The value is assigned by the system automatically
+         when the entry is created. "
+    ::= { ccacSysGatewayResEntry 2 }
+
+ccacSysGwResPolicyIndex OBJECT-TYPE
+    SYNTAX              Integer32 (1..1000)
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "This object is the index (value of ccacSysRpIndex) to
+         ccacSysResPolicyTable which defines the policies, 
+         such as high, medium, low threshold, and action 
+         function for CAC. "
+    ::= { ccacSysGatewayResEntry 3 }
+
+
+--
+-- CAC, Protocol Resource Policy Index mapping table 
+--
+ccacSysProtocolResTable OBJECT-TYPE
+    SYNTAX              SEQUENCE OF CcacSysProtocolResEntry
+    MAX-ACCESS          not-accessible
+    STATUS              current
+    DESCRIPTION
+        "This table is a mapping table for the CAC policy with
+         the CAC resources monitored per protocol supported in
+         a media gateway. "
+    ::= { ccacSysResPolicy 2 }
+
+ccacSysProtocolResEntry OBJECT-TYPE
+    SYNTAX              CcacSysProtocolResEntry
+    MAX-ACCESS          not-accessible
+    STATUS              current
+    DESCRIPTION
+        "Each entry represents for the resource type which
+         will be monitored for CAC processing per protocol.
+
+         Each entry will be automatically created by the system
+         depending on the CAC resources monitored per protocol.
+
+         Each system can choose to support the resource types 
+         which are required per protocol. "
+    INDEX { cmgwIndex, cmgwSignalProtocolIndex, ccacSysProResIndex }
+    ::= { ccacSysProtocolResTable 1 }
+
+CcacSysProtocolResEntry ::= SEQUENCE {
+            ccacSysProResIndex         Integer32,
+            ccacSysProResType          CcacResourceType,
+            ccacSysProResPolicyIndex   Integer32
+            }
+
+ccacSysProResIndex  OBJECT-TYPE
+    SYNTAX          Integer32 (1..50)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the CAC resource monitored 
+         in the protocol. "
+    ::= { ccacSysProtocolResEntry 1 }
+
+ccacSysProResType OBJECT-TYPE
+    SYNTAX        CcacResourceType
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The resource type for CAC monitor per protocol.
+       
+         The value is assigned by the system automatically
+         when the entry is created. "
+    ::= { ccacSysProtocolResEntry 2 }
+
+ccacSysProResPolicyIndex OBJECT-TYPE
+    SYNTAX               Integer32 (1..1000)
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+        "This object is the index (value of ccacSysRpIndex) to
+         ccacSysResPolicyTable which defines the policies, 
+         such as high, medium, low threshold, and action 
+         function for CAC.  "
+    ::= { ccacSysProtocolResEntry 3 }
+
+--
+-- CAC, Resource Policies Configuration
+--
+ccacSysResPolicyTable OBJECT-TYPE
+    SYNTAX            SEQUENCE OF CcacSysResPolicyEntry
+    MAX-ACCESS        not-accessible
+    STATUS            current
+    DESCRIPTION
+        "This table defines the thresholds/policies
+         configuration for a CAC resource involved in CAC 
+         processing.
+        "
+    ::= { ccacSysResPolicy 3 }
+
+ccacSysResPolicyEntry OBJECT-TYPE
+    SYNTAX            CcacSysResPolicyEntry
+    MAX-ACCESS        not-accessible
+    STATUS            current
+    DESCRIPTION
+        "Each entry in the table defines High, Medium, Low 
+         threshold, and an action for CAC resource. "
+    INDEX { cmgwIndex, ccacSysRpIndex }
+    ::= { ccacSysResPolicyTable 1 }
+
+CcacSysResPolicyEntry ::= SEQUENCE {
+            ccacSysRpIndex            Integer32,
+            ccacSysRpResType          CcacResourceType,
+            ccacSysRpUserTunable      TruthValue, 
+            ccacSysRpAvgUtilization   TruthValue, 
+            ccacSysRpPercentOrAbsNum  INTEGER,
+            ccacSysRpHighThreshold    Integer32,
+            ccacSysRpMedThreshold     Integer32,
+            ccacSysRpLowThreshold     Integer32,
+            ccacSysRpInterval         Integer32,
+            ccacSysRpAction           INTEGER,
+            ccacSysRpCurReading       Integer32,
+            ccacSysRpAvailable        TruthValue
+            }
+
+ccacSysRpIndex  OBJECT-TYPE
+    SYNTAX      Integer32 (1..1000)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object uniquely identifies the entry in the table."
+    ::= { ccacSysResPolicyEntry 1 }
+
+
+ccacSysRpResType OBJECT-TYPE
+    SYNTAX       CcacResourceType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The type of CAC resource used in CAC processing.
+
+         The value is assigned by the system automatically
+         when the entry is created."
+    ::= { ccacSysResPolicyEntry 2 }
+
+ccacSysRpUserTunable OBJECT-TYPE
+    SYNTAX           TruthValue
+    MAX-ACCESS       read-only
+    STATUS           current
+    DESCRIPTION
+        "This object indicates the CAC resource is user
+         tunable (can modify its thresholds) or not 
+         (Some CAC resources are too complicated for
+         the user to tune, so their thresholds are predefined
+         by the system).
+
+         The value is assigned by the system automatically
+         according to its resource type when the entry is 
+         created.
+
+         If this object is set to 'false', then the following
+         objects can't be modified by user.
+            ccacSysRpHighThreshold,
+            ccacSysRpMedThreshold,
+            ccacSysRpLowThreshold."
+    ::= { ccacSysResPolicyEntry 3 }
+
+ccacSysRpAvgUtilization OBJECT-TYPE
+    SYNTAX              TruthValue
+    MAX-ACCESS          read-only
+    STATUS              current
+    DESCRIPTION
+        "This object indicates the CAC resource is based on 
+         averaged utilization which is calculated by the 
+         average utilization of interval defined in 
+         ccacSysRpInterval.
+
+         The value is assigned by the system automatically
+         according to its resource type when the entry is 
+         created. 
+
+         If this object is set to 'false', then the object,
+         ccacSysRpInterval can't be modified by user. "
+    ::= { ccacSysResPolicyEntry 4 }
+
+ccacSysRpPercentOrAbsNum OBJECT-TYPE
+    SYNTAX               INTEGER {
+                             unitPercent (1),
+                             unitAbsoluteNum (2)
+                         } 
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+        "This object indicates the unit of the utilization 
+         and the unit of the thresholds of this CAC resource 
+         is 'percent' or 'absolute number'.
+
+         This object specifies the unit ('percent' or 'absolute 
+         number' of the following objects:
+             ccacSysRpHighThreshold,
+             ccacSysRpMedThreshold,
+             ccacSysRpLowThreshold,
+             ccacSysRpCurReading
+
+         If it is set to unitPercent(1), the unit of the objects
+         listed above is in range of 0 to 100 'percent'.
+ 
+         If it is set to unitAbsoluteNum(2), the unit of 
+         the objects listed above is in range of 0 to 100000 
+         'number'.
+
+         The value of this object is set by the system according
+         to its resource type. For example, if ccacSysRpResType
+         is cpu5Sec(1), cpuAvg(2), ioMem(3) or procMem(4), 
+         this object will be set to unitPercent(1). 
+         If ccacSysRpResType is totCalls(6), then this object 
+         will be unitAbsoluteNum(2), the unit is the number of 
+         calls."
+    ::= { ccacSysResPolicyEntry 5 }
+
+ccacSysRpHighThreshold OBJECT-TYPE
+    SYNTAX             Integer32 (0..100000)
+    MAX-ACCESS         read-write
+    STATUS             current
+    DESCRIPTION
+        "The maximum utilization in percent or in absolute
+         number allowed for this CAC resource. 
+         When the utilization of the resource reaches this value 
+         of the object, the action specified in ccacSysRpAction 
+         will be taken and the resource will be marked as 
+         unavailable and a trap of threshold exceed will be 
+         triggered if ccacSysNotifyEnable is 'true'.
+
+         If ccacSysRpPercentOrAbsNum is unitPercent(1), the range
+         of this object is from 0 to 100 percent. If it is 
+         unitAbsoluteNum(2), the range of this object is from 
+         0 to 100000.
+
+         The value of this object has to be greater than or equal
+         to the value of ccacSysRpMedThreshold, and greater than
+         the value of ccacSysRpLowThreshold.
+
+         A SNMP SET to this object will be ignored if
+         ccacSysRpUserTunable is set to 'false'.
+        " 
+   ::= { ccacSysResPolicyEntry 6 }
+
+ccacSysRpMedThreshold  OBJECT-TYPE
+    SYNTAX             Integer32 (0..100000)
+    MAX-ACCESS         read-write
+    STATUS             current
+    DESCRIPTION
+        "The utilization in percent or in absolute number of 
+         the resource reaches this value of the object, a trap of 
+         threshold warning will be triggered. 
+
+         If the value of this object is the same as the value of
+         ccacSysRpHighThreshold, it means not to monitor medium 
+         utilization of the resource.
+
+         If ccacSysRpPercentOrAbsNum is unitPercent(1), the range
+         of this object is from 0 to 100 percent. If it is 
+         unitAbsoluteNum(2), the range of this object is from 
+         0 to 100000.
+
+         The value of this object has to be less than or equal to
+         the value of ccacSysRpHighThreshold, but greater than 
+         the value of ccacSysRpLowThreshold.
+
+         A SNMP SET to this object will be ignored if
+         ccacSysRpUserTunable is set to 'false'.
+        " 
+    ::= { ccacSysResPolicyEntry 7 }
+
+ccacSysRpLowThreshold  OBJECT-TYPE
+    SYNTAX             Integer32 (0..100000) 
+    MAX-ACCESS         read-write
+    STATUS             current
+    DESCRIPTION
+        "The utilization in percent or in absolute number of 
+         a currently unavailable resource falls below this 
+         value of the object, the action will be removed, 
+         the resource will be marked as available and a trap 
+         of threshold clear will be triggered if 
+         ccacSysNotifyEnable is set to 'true'.
+
+         If ccacSysRpPercentOrAbsNum is unitPercent(1), the range
+         of this object is from 0 to 100 percent. If it is 
+         unitAbsoluteNum(2), the range of this object is from 
+         0 to 100000.
+
+         The value of this object has to be less than the value
+         of ccacSysRpMedThreshold.
+
+         A SNMP SET to this object will be ignored if
+         ccacSysRpUserTunable is set to 'false'.
+        " 
+    ::= { ccacSysResPolicyEntry 8 }
+ 
+ccacSysRpInterval OBJECT-TYPE
+    SYNTAX        Integer32 (10..300)
+    UNITS         "seconds"
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "This object sets the time interval over which the
+         average utilization is computed for comparison with
+         the ccacSysRpHighThreshold, ccacSysRpMedThreshold
+         and ccacSysRpLowThreshold of the entry which 
+         ccacSysRpResType is cpuAvg(2), ioMem(3), procMem(4) or
+         totMem(5). 
+
+         This object will be ignored if its ccacSysRpAvgUtilization
+         is set to 'false'. 
+
+         The formula is used for computation is defined in TC
+         CcacResourceType.
+
+         The recommended value for this object is 60 seconds. 
+        "
+    DEFVAL { 60 }
+    ::= { ccacSysResPolicyEntry 9 }
+
+ccacSysRpAction OBJECT-TYPE
+    SYNTAX      INTEGER {
+                   none (1),
+                   busyout (2),
+                   treatment (3),
+                   busyoutAndTreatment (4)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The action to be taken when ccacSysRpHighThreshold
+         is exceeded.
+         The action will be reversed when the resource 
+         utilization falls below ccacSysRpLowThreshold.
+
+         For instance, an entry with ccacSysRpHighThreshold 80, 
+         ccacSysRpLowThreshold 70, and ccacSysRpAction busyout.
+         The busyout will be taken when the resource utilization 
+         exceeds 80 and a no busyout will be taken when the 
+         resource utilization below 70.
+ 
+         none(1) - No action is taken. 
+ 
+         busyout(2) - Busyout the telephony ports after rejecting 
+                      the current call
+ 
+         treatment(3) - Apply the call treatment specified in
+                        ccacSysTreatment to the current call
+ 
+         busyoutAndTreatment(4) - Apply the specified treatment
+                                  to the current call and busyout 
+                                  the telephony ports
+       "
+   ::= { ccacSysResPolicyEntry 10 }
+
+
+ccacSysRpCurReading   OBJECT-TYPE
+    SYNTAX            Integer32 (0..100000)
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "The current utilization/number reading of the CAC resource 
+         in percent or in absolute number.
+
+         If ccacSysRpPercentOrAbsNum is unitPercent(1), the range
+         of this object is from 0 to 100. If it is 
+         unitAbsoluteNum(2), the range of this object is from 
+         0 to 100000. " 
+    ::= { ccacSysResPolicyEntry 11 }
+
+ccacSysRpAvailable  OBJECT-TYPE
+    SYNTAX          TruthValue  
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CAC resource is available or not. 
+
+         A currently unavailable resource becomes available 
+         if its utilization is below the ccacSysRpLowThreshold. 
+
+         A currently available resource becomes unavailable if 
+         its utilization is over the ccacSysRpHighThreshold. "
+    ::= { ccacSysResPolicyEntry 12 }
+
+-- ******************************************************************
+-- Statistics
+-- ******************************************************************
+--
+-- CAC Resource Threshold Statistics
+--
+
+ccacSysResStatTable OBJECT-TYPE
+    SYNTAX       SEQUENCE OF CcacSysResStatEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "This table is for CAC resource threshold statistics."
+    ::= { ccacSysStat 1 }
+ 
+ccacSysResStatEntry OBJECT-TYPE
+    SYNTAX          CcacSysResStatEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry in the table contains CAC statistics 
+         and duration for each resource corresponding entry
+         in ccacSysResPolicyTable."
+    INDEX { cmgwIndex, ccacSysRpIndex }
+    ::= { ccacSysResStatTable 1 }
+ 
+CcacSysResStatEntry ::= SEQUENCE {
+            ccacSysRsState            INTEGER,
+            ccacSysRsDuration         TimeInterval,
+            ccacSysRsPrevDuration     TimeInterval,
+            ccacSysRsExceedCount      Counter32,
+            ccacSysRsCallsWhenExceed  Counter32
+        }
+ 
+ccacSysRsState  OBJECT-TYPE
+    SYNTAX      INTEGER {
+                        thresholdClear(1),
+                        thresholdExceed(2),
+                        thresholdWarn(3)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object indicates the current status of CAC resource.
+
+         This object is 'thresholdExceed(2)' if the object
+         ccacSysRpCurReading has exceeded the value of 
+         ccacSysRpHighThreshold and not yet fallen below the 
+         value of ccacSysRpLowThreshold in ccacSysResPolicyTable.
+
+         It is 'thresholdWarn(3)' if the object ccacSysRpCurReading 
+         has exceeded the value of ccacSysRpMedThreshold and not
+         yet greater than the value of ccacSysRpHighThreshold in
+         ccacSysResPolicyTable.
+
+         It is 'thresholdClear(1)' if the object ccacSysRpCurReading
+         has fallen below the value of ccacSysRpLowThreshold in 
+         ccacSysResPolicyTable. "
+    ::= { ccacSysResStatEntry 1 }
+
+ccacSysRsDuration OBJECT-TYPE
+    SYNTAX        TimeInterval
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "This object provides the elapsed time the system has
+         been in its current state as shown in ccacSysRsState."
+    ::= { ccacSysResStatEntry 2 }
+
+ccacSysRsPrevDuration OBJECT-TYPE
+    SYNTAX            TimeInterval
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "This object provides the elapsed time the system was
+         in its previous state prior to the most recent transition
+         of ccacSysRsState.
+ 
+         This value is zero if the ccacSysRsState has not 
+         changed state."
+    ::= { ccacSysResStatEntry 3 }
+
+ccacSysRsExceedCount OBJECT-TYPE
+    SYNTAX           Counter32
+    MAX-ACCESS       read-only
+    STATUS           current
+    DESCRIPTION
+        "This object is the accumulated number of ccacSysRsState 
+         state transitions to 'thresholdExceed(2)' were detected 
+         since system startup."
+    ::= { ccacSysResStatEntry 4 }
+
+ccacSysRsCallsWhenExceed OBJECT-TYPE
+    SYNTAX               Counter32
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+        "This object is the number of times that the new calls 
+         have arrived when the system was in a thresholdExceed(2) 
+         state.
+ 
+         The calls may or may not have been rejected, depending on
+         the value of the ccacSysRpAction. "
+    ::= { ccacSysResStatEntry 5 }
+ 
+
+--
+-- System CAC Statistics Table
+--
+
+ccacSysStatTable   OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CcacSysStatEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "This table defines the CAC statistics in CAC 
+         processing."
+    ::= { ccacSysStat 2 }
+
+ccacSysStatEntry   OBJECT-TYPE
+    SYNTAX         CcacSysStatEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "Each entry in the table contains CAC statistics 
+         applied to CAC processing.
+
+         One entry will be automatically created by the system
+         when it supports CAC processing."
+    AUGMENTS { ccacSysConfigEntry }
+    ::= { ccacSysStatTable 1 }
+
+CcacSysStatEntry ::= SEQUENCE {
+        ccacSysCallRejections     Counter32,
+        ccacSysCallsInSWindow     Counter32
+        }
+
+ccacSysCallRejections OBJECT-TYPE
+    SYNTAX            Counter32
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "Number of calls which have been rejected due to any of
+         the CAC resource thresholds being exceeded since
+         last system re-initialization.
+
+         Multiple CAC resource thresholds may be exceeded per call, 
+         thus this object is not just a sum of the individual 
+         threshold counters (ccacSysRsCallsWhenExceed)."
+    ::= { ccacSysStatEntry 1 }
+
+
+ccacSysCallsInSWindow OBJECT-TYPE
+    SYNTAX            Counter32
+    MAX-ACCESS        read-only
+    STATUS            current
+    DESCRIPTION
+        "This object counts the total incoming calls within a
+         given sliding window.
+
+         This counter will be reset when the configuration (objects
+         ccacSysSlidingWindowSteps and ccacSysSlidingWindowSize) of 
+         the sliding window is changed."
+    ::= { ccacSysStatEntry 2 }
+
+
+-- ******************************************************************
+-- Conformance and Compliance
+-- ******************************************************************
+ccacSysConformance  OBJECT IDENTIFIER ::= { ccacSysMIB 2 }
+ccacSysCompliances  OBJECT IDENTIFIER ::= { ccacSysConformance 1 }
+ccacSysGroups       OBJECT IDENTIFIER ::= { ccacSysConformance 2 }
+ 
+-- compliance statements
+ 
+ccacSysCompliance MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+            "The compliance statement for SNMP entities which
+             implement the ccacSysMIB"
+        MODULE      -- this module
+        MANDATORY-GROUPS {
+              ccacSysConfigGroup,
+              ccacSysResPolicyGroup
+            }
+
+        GROUP ccacSysDialCtrlConfigGroup
+        DESCRIPTION
+              "This group is mandatory for the managed system
+               that supports dial control CAC provisioning feature."
+        GROUP ccacSysStatGroup
+        DESCRIPTION
+              "This group is mandatory for the managed system
+               that supports CAC statistics feature."
+        GROUP ccacSysGatewayResGroup
+        DESCRIPTION
+              "This group is mandatory for the managed system
+               that supports media gateway related CAC 
+               provisioning feature."
+        GROUP ccacSysProtocolResGroup
+        DESCRIPTION
+              "This group is mandatory for the managed system
+               that supports media gateway control protocol 
+               related CAC provisioning feature."
+
+        ::= { ccacSysCompliances 1 } 
+ 
+-- units of conformance
+ 
+ccacSysConfigGroup OBJECT-GROUP
+        OBJECTS {
+              ccacSysCacEnable,
+              ccacSysNotifyEnable
+        }
+        STATUS      current
+        DESCRIPTION
+            "Objects for providing CAC provisioning for 
+             CAC processing."
+        ::= { ccacSysGroups 1 }
+
+ccacSysDialCtrlConfigGroup OBJECT-GROUP
+        OBJECTS {
+              ccacSysTreatment,
+              ccacSysRejectCode,
+              ccacSysIsdnRejectCode,
+              ccacSysPlayMessageFile,
+              ccacSysSlidingWindowSteps,
+              ccacSysSlidingWindowSize,
+              ccacSysCallSpike
+        }
+        STATUS      current
+        DESCRIPTION
+            "Objects for providing CAC provisioning specific to 
+             dial control. "
+        ::= { ccacSysGroups 2 }
+
+
+ccacSysResPolicyGroup OBJECT-GROUP
+        OBJECTS {
+              ccacSysRpResType,
+              ccacSysRpUserTunable, 
+              ccacSysRpAvgUtilization, 
+              ccacSysRpPercentOrAbsNum,
+              ccacSysRpHighThreshold,
+              ccacSysRpMedThreshold,
+              ccacSysRpLowThreshold,
+              ccacSysRpInterval,
+              ccacSysRpAction,
+              ccacSysRpCurReading,
+              ccacSysRpAvailable
+        }
+        STATUS      current
+        DESCRIPTION
+            "Objects for providing CAC resource provisioning."
+        ::= { ccacSysGroups 3 }
+
+
+ccacSysStatGroup OBJECT-GROUP
+        OBJECTS {
+              ccacSysRsState,
+              ccacSysRsDuration,
+              ccacSysRsPrevDuration,
+              ccacSysRsExceedCount,
+              ccacSysRsCallsWhenExceed,
+              ccacSysCallRejections,
+              ccacSysCallsInSWindow
+        }
+        STATUS      current
+        DESCRIPTION
+            "Objects for providing CAC resource statistics. "
+        ::= { ccacSysGroups 4 }
+
+ccacSysGatewayResGroup OBJECT-GROUP
+        OBJECTS {
+              ccacSysGwResType,
+              ccacSysGwResPolicyIndex
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing media gateway 
+             related CAC resource provisioning feature."
+        ::= { ccacSysGroups 5 }
+
+ccacSysProtocolResGroup OBJECT-GROUP
+        OBJECTS {
+              ccacSysProResType,
+              ccacSysProResPolicyIndex
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing media gateway 
+             control protocol related CAC resource provisioning 
+             feature."
+        ::= { ccacSysGroups 6 }
+END
+
+

@@ -1,0 +1,453 @@
+-- *********************************************************************
+-- CISCO-FCC-MIB.my Fibre Channel Congestion Control (FCC) MIB
+--
+-- Jul 2003, Sanjeev Joshi, Dinkar Sitaram
+--
+-- Copyright (c) 2003, 2004 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *********************************************************************
+
+CISCO-FCC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        NOTIFICATION-TYPE,
+        Counter32,Integer32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, OBJECT-GROUP,NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+        TruthValue,TimeStamp, TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+        ciscoMgmt
+                FROM CISCO-SMI
+        ifIndex
+                FROM IF-MIB
+        FcAddressId, VsanIndex
+                FROM CISCO-ST-TC;
+
+ciscoFCCMIB MODULE-IDENTITY
+        LAST-UPDATED        "200407080000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel +1 800 553-NETS
+
+                E-mail cs-san@cisco.com"
+
+        DESCRIPTION
+                "The MIB module for the management of Fibre Channel
+                 Congestion Control(FCC). FCC is a Cisco proprietary
+                 flow control mechanism that alleviates congestion
+                 on Fibre Channel networks. This MIB enables managers
+                 to configure the FCC mechanism on the switch, provides 
+                 statistics of the congestion control packets,
+                 notification of congestion state changes of the 
+                 FC port and monitoring of the congestion state of
+                 the FC port."
+        REVISION  "200407080000Z"
+        DESCRIPTION
+                "Added the following objects to the 'cFCCPortTable' :
+                  - 'cFCCLastCongestionStartTime'  and
+                  - 'cFCCIsRateLimitingApplied'."                    
+        REVISION  "200402250000Z"
+        DESCRIPTION
+                "Changed the cFCCNotificationEnable DEFVAL to 'false'
+                 instead of 1."                 
+        REVISION  "200308060000Z"
+        DESCRIPTION
+                "Changed cFCCCongestionSourceID and 
+                 cFCCCongestionDestinationID to be FC_IDs
+                 instead of WWNs and added 
+                 cFCCCongestionNotifyVSANIndex"
+        REVISION  "200305260000Z"
+        DESCRIPTION
+                "Initial version of this MIB."
+        ::= { ciscoMgmt 365 }
+
+--
+-- FCC-MIB object definitions
+--
+
+ciscoFCCMIBNotifs       OBJECT IDENTIFIER ::=  { ciscoFCCMIB 0 }
+ciscoFCCMIBObjects      OBJECT IDENTIFIER ::=  { ciscoFCCMIB 1 }
+ciscoFCCMIBConformance  OBJECT IDENTIFIER ::=  { ciscoFCCMIB 2 }
+
+cFCCConfig              OBJECT IDENTIFIER ::= { ciscoFCCMIBObjects 1 }
+cFCCPortEntries         OBJECT IDENTIFIER ::= { ciscoFCCMIBObjects 2 }
+cFCCNotifObjects        OBJECT IDENTIFIER ::= { ciscoFCCMIBObjects 3 }
+
+--
+-- Textual Conventions
+--
+
+CiscoFCCCongestionState ::= TEXTUAL-CONVENTION
+        STATUS   current
+        DESCRIPTION
+           "The FCC Congestion state. This is to indicate the severity
+            of the Congestion 
+
+                 noCongestion(1)       - No Congestion
+                 Congested(2)          - Congested
+                 SeverelyCongested(3)  - Severely Congested."
+        SYNTAX         INTEGER {
+                          noCongestion(1),
+                          congested (2),
+                          severelyCongested(3)
+                        }
+  
+--
+-- FCC Configuration
+--
+
+cFCCEnable OBJECT-TYPE
+        SYNTAX         INTEGER {
+                          enable(1),
+                          disable(2)             
+                       }
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION   
+           "To enable/disable FCC on the device."
+        DEFVAL { disable }
+        ::= { cFCCConfig 1 }
+
+cFCCPacketPriority OBJECT-TYPE
+        SYNTAX         Integer32(0..7)
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+           "The traffic Priority for the  FCC packets. The generated
+            FCC quench packets should be granted high, but not
+            highest priority, so that the FCC packet priority
+            is higher than the normal data traffic priority but lower
+            than control and critical traffic priority.  This ensures
+            that the packets of the protocols guaranteeing the
+            proper behavior of the fabric are not disturbed by
+            quench packets.
+
+            0 is the lowest priority and 7 is the highest."
+        DEFVAL { 4 }
+        ::= { cFCCConfig 2 }
+
+cFCCNotificationEnable OBJECT-TYPE
+        SYNTAX         TruthValue
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+                "This object specifies whether the agent should
+                 generate the notifications defined in this MIB
+                 module.
+                 If the value of this object is 'true', then the
+                 notifications are generated. 
+                 If the value of this object is 'false', then the
+                 notifications are not generated."
+        DEFVAL { false }
+        ::= { cFCCConfig 3 }
+
+--
+-- FCC Port Data
+--
+
+cFCCPortTable OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CFCCPortEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+           "A table providing statistics and status for FCC
+            on a per FC Port basis."
+        ::= { cFCCPortEntries 1 }
+ 
+cFCCPortEntry OBJECT-TYPE
+        SYNTAX      CFCCPortEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+           "Each entry contains the FCC statistics and 
+            status for a particular FC port identified
+            by the value of ifIndex."         
+        INDEX { ifIndex
+              }
+        ::= { cFCCPortTable 1 }
+
+CFCCPortEntry::=
+        SEQUENCE {
+           cFCCEdgeQuenchPktsRecd          Counter32,
+           cFCCEdgeQuenchPktsSent          Counter32,
+           cFCCPathQuenchPktsRecd          Counter32,
+           cFCCPathQuenchPktsSent          Counter32,
+           cFCCCurrentCongestionState      CiscoFCCCongestionState,
+           cFCCLastCongestedTime           TimeStamp,
+           cFCCLastCongestionStartTime     TimeStamp,
+           cFCCIsRateLimitingApplied       TruthValue       
+}
+
+cFCCEdgeQuenchPktsRecd OBJECT-TYPE
+        SYNTAX      Counter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "The number of Edge Quench packets received and processed
+            on this Port."
+        ::= { cFCCPortEntry 1 }
+
+cFCCEdgeQuenchPktsSent OBJECT-TYPE
+        SYNTAX         Counter32
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+           "The number of Edge Quench packets generated on this
+            Port as result of congestion."
+        ::= { cFCCPortEntry 2 }
+
+cFCCPathQuenchPktsRecd OBJECT-TYPE
+        SYNTAX         Counter32
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+           "The number of Path Quench packets recieved and processed
+            on this Port."
+        ::= { cFCCPortEntry 3 }
+
+cFCCPathQuenchPktsSent OBJECT-TYPE
+        SYNTAX         Counter32
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+           "The number of Path Quench packets generated on this
+            Port as result of congestion."
+        ::= { cFCCPortEntry 4 }
+
+cFCCCurrentCongestionState OBJECT-TYPE
+        SYNTAX      CiscoFCCCongestionState
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "The current FCC congestion state of this Port indicating the
+            severity of the congestion."
+        ::= { cFCCPortEntry 5 }
+
+cFCCLastCongestedTime OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "The value of sysUpTime at the most recent time the
+            congestion state of the Port changed to noCongestion(1) 
+            from some other value.  0 if the congestion state of
+            the Port has never transitioned to noCongestion(1) 
+            since the last restart of the device."
+        ::= { cFCCPortEntry 6 }
+        
+cFCCLastCongestionStartTime OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+           "The value of sysUpTime at the most recent time the
+            congestion state (value of corresponding instance of
+            'cFCCCurrentCongestionState') of the Port changed from
+            'noCongestion' to some other value. 0 if the congestion
+            state of the Port has never transitioned from 
+            'noCongestion' to  some other value  since the last 
+            restart of the device."
+        ::= { cFCCPortEntry 7 }        
+        
+cFCCIsRateLimitingApplied OBJECT-TYPE
+        SYNTAX         TruthValue
+        MAX-ACCESS     read-only
+        STATUS         current
+        DESCRIPTION
+                "The value of this object indicates if the rate
+                 limiting is currently being applied on this Port.
+                 If the value of this object is 'true', the rate
+                 limiting is currently being applied on this  
+                 Port. If the value of this object is 'false', the 
+                 rate limiting is not being applied currently on 
+                 this Port." 
+        ::= { cFCCPortEntry 8 }
+        
+--
+-- Objects for notification  only
+--
+
+cFCCCongestionSourceID OBJECT-TYPE
+        SYNTAX         FcAddressId
+        MAX-ACCESS     accessible-for-notify
+        STATUS         current
+        DESCRIPTION   
+           "The FC_ID associated with the Source causing
+            the congestion. The value is extracted from 
+            the FCC congestion quench packet."
+        ::= { cFCCNotifObjects 1 }
+
+cFCCCongestionDestinationID OBJECT-TYPE
+        SYNTAX         FcAddressId
+        MAX-ACCESS     accessible-for-notify
+        STATUS         current
+        DESCRIPTION   
+           "The  FC_ID associated with the Destination that
+            is part of Source-Destination Flow causing the 
+            congestion. The value is extracted from the 
+            FCC congestion quench packet."
+        ::= { cFCCNotifObjects 2 }
+
+cFCCCongestionNotifyVSANIndex OBJECT-TYPE
+        SYNTAX         VsanIndex
+        MAX-ACCESS     accessible-for-notify
+        STATUS         current
+        DESCRIPTION   
+           "Id of the VSAN containing the Source-Destination
+           flow causing the congestion. The value is extracted 
+           from the FCC congestion quench packet. This along 
+           with cFCCCongestionSourceID and 
+           cFCCCongestionDestinationID gives the Flow causing 
+           the congestion."
+        ::= { cFCCNotifObjects 3 }
+
+cFCCCongestionState OBJECT-TYPE
+        SYNTAX         CiscoFCCCongestionState
+        MAX-ACCESS     accessible-for-notify
+        STATUS         current
+        DESCRIPTION   
+           "This is to indicate the congestion state of the port."
+        ::= { cFCCNotifObjects 4 }
+
+--
+-- Notifications
+--
+
+ciscoFCCCongestionStateChange NOTIFICATION-TYPE
+        OBJECTS        {ifIndex ,
+                        cFCCCongestionState}
+        STATUS         current
+        DESCRIPTION
+           "Notification to indicate that the congestion state of
+            this port has changed. cFCCCongestionState indicates
+            the new state of the port."
+        ::= { ciscoFCCMIBNotifs 1 }
+
+ciscoFCCCongestionRateLimitStart NOTIFICATION-TYPE
+        OBJECTS        {ifIndex,
+                        cFCCCongestionSourceID,
+                        cFCCCongestionDestinationID,
+                        cFCCCongestionNotifyVSANIndex}
+        STATUS         current
+        DESCRIPTION
+           "Notification to indicate that the rate limiting has
+            begun on this port for a source-destination pair."
+        ::= { ciscoFCCMIBNotifs 2 }
+
+ciscoFCCCongestionRateLimitEnd NOTIFICATION-TYPE
+        OBJECTS        {ifIndex,
+                        cFCCCongestionSourceID,
+                        cFCCCongestionDestinationID,
+                        cFCCCongestionNotifyVSANIndex}
+        STATUS         current
+        DESCRIPTION
+           "Notification to indicate that the rate limiting has
+            been stopped on this port for a source-destination
+            pair."
+        ::= { ciscoFCCMIBNotifs 3 }
+
+--
+-- Conformance
+--
+
+ciscoFCCMIBCompliances OBJECT IDENTIFIER ::= {ciscoFCCMIBConformance 1}
+ciscoFCCMIBGroups      OBJECT IDENTIFIER ::= {ciscoFCCMIBConformance 2}
+
+ciscoFCCMIBCompliance MODULE-COMPLIANCE
+        STATUS         deprecated -- superseded by
+                                  -- ciscoFCCMIBComplianceRev1 
+        DESCRIPTION
+           "The compliance statement for entities which implement the
+           CISCO-FCC-MIB."
+        MODULE
+          MANDATORY-GROUPS {cFCCConfigurationGroup,
+                            cFCCPortEntriesGroup,
+                            cFCCNotificationObjectsGroup,
+                            cFCCNotificationGroup}
+
+          ::= { ciscoFCCMIBCompliances 1 }
+
+ciscoFCCMIBComplianceRev1 MODULE-COMPLIANCE
+        STATUS         current
+        DESCRIPTION
+           "The compliance statement for entities which implement the
+           CISCO-FCC-MIB."
+        MODULE
+          MANDATORY-GROUPS {cFCCConfigurationGroup,
+                            cFCCPortEntriesGroupRev1,
+                            cFCCNotificationObjectsGroup,
+                            cFCCNotificationGroup}
+
+          ::= { ciscoFCCMIBCompliances 2 }          
+         
+--
+-- Units of Conformance
+--
+
+cFCCConfigurationGroup  OBJECT-GROUP
+        OBJECTS        {cFCCEnable,
+                        cFCCPacketPriority,
+                        cFCCNotificationEnable}
+        STATUS         current
+        DESCRIPTION
+           "A collection of objects for FCC configuration."
+        ::= { ciscoFCCMIBGroups 1 }
+
+cFCCPortEntriesGroup  OBJECT-GROUP
+        OBJECTS        {cFCCEdgeQuenchPktsRecd,
+                        cFCCEdgeQuenchPktsSent,
+                        cFCCPathQuenchPktsRecd,
+                        cFCCPathQuenchPktsSent,
+                        cFCCCurrentCongestionState,
+                        cFCCLastCongestedTime}
+        STATUS         deprecated
+        DESCRIPTION
+           "A collection of objects for FCC Statistics and Status."
+        ::= { ciscoFCCMIBGroups 2 }
+
+cFCCNotificationObjectsGroup OBJECT-GROUP
+        OBJECTS        {cFCCCongestionDestinationID,
+                        cFCCCongestionSourceID,
+                        cFCCCongestionNotifyVSANIndex,
+                        cFCCCongestionState}
+        STATUS         current
+        DESCRIPTION
+           "A collection of objects defined for notification only."
+        ::= { ciscoFCCMIBGroups 3 }
+
+cFCCNotificationGroup  NOTIFICATION-GROUP
+        NOTIFICATIONS  {ciscoFCCCongestionStateChange,
+                        ciscoFCCCongestionRateLimitStart,
+                        ciscoFCCCongestionRateLimitEnd}
+        STATUS         current
+        DESCRIPTION
+           "A collection of notifications for Congestion Monitoring."
+        ::= { ciscoFCCMIBGroups 4 }
+
+cFCCPortEntriesGroupRev1  OBJECT-GROUP
+        OBJECTS        {cFCCEdgeQuenchPktsRecd,
+                        cFCCEdgeQuenchPktsSent,
+                        cFCCPathQuenchPktsRecd,
+                        cFCCPathQuenchPktsSent,
+                        cFCCCurrentCongestionState,
+                        cFCCLastCongestedTime,
+                        cFCCLastCongestionStartTime,
+                        cFCCIsRateLimitingApplied}
+        STATUS         current
+        DESCRIPTION
+           "A collection of objects for FCC Statistics and Status."
+        ::= { ciscoFCCMIBGroups 5 }        
+        
+END
+ 

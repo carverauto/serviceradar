@@ -1,0 +1,722 @@
+-- *****************************************************************
+-- DOCS-DIAG-MIB.my:
+--
+-- May 2007 Bo Wu
+--
+-- Initial Version: Apr 2007: Annex Q.1 from CM-SP-OSSIv3.0-I02-070223
+--
+-- Copyright (c) 2007 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+DOCS-DIAG-MIB DEFINITIONS ::= BEGIN 
+IMPORTS
+		NOTIFICATION-TYPE,
+		MODULE-IDENTITY,
+		OBJECT-TYPE,
+		Unsigned32,
+		Gauge32,
+		Counter32
+						FROM SNMPv2-SMI
+		TruthValue,
+		MacAddress,
+		DateAndTime,
+		TEXTUAL-CONVENTION
+						FROM SNMPv2-TC
+		OBJECT-GROUP,
+		MODULE-COMPLIANCE,
+		NOTIFICATION-GROUP
+						FROM SNMPv2-CONF
+		SnmpAdminString
+						FROM SNMP-FRAMEWORK-MIB
+		CmtsCmRegState,
+		docsIf3CmtsCmRegStatusId
+						FROM DOCS-IF3-MIB
+		docsDevEvLevel,
+		docsDevEvId
+						FROM DOCS-CABLE-DEVICE-MIB
+		clabProjDocsis
+						FROM CLAB-DEF-MIB; 
+
+
+docsDiagMib MODULE-IDENTITY
+		LAST-UPDATED "200612070000Z" -- Dec 7, 2006
+		ORGANIZATION "Cable Television Laboratories, Inc."
+		CONTACT-INFO "
+		    Postal:
+		        Cable Television Laboratories 
+		        858 Coal Creek Circle Louisville, CO 80027-9750
+                U.S.A. 
+                Phone: +1 303-661-9100 
+                Fax: +1 303-661-9199 
+                E-mail: mibs@cablelabs.com"
+        DESCRIPTION
+            "This is the MIB Module for the Diagnostic Log for
+            DOCSIS-compliant Cable Modem Termination Systems (CMTS). 
+
+            The purpose of the Diagnostic Log is to prevent service
+            interruptions by early detection of potential problems.
+            It can also be used for fault management and for
+            troubleshooting the cable network.
+
+            The Diagnostic Log contains Cable Modems that show certain
+            potential problematic behaviors, as determined by the CMTS.
+            These detection criteria are defined as diagnostictriggers. 
+
+            The diagnostic trigger is an information filter to avoid
+            inundating a management agent with data which is less
+            meaningful as a function of size. 
+
+            There are 2 diagnostic triggers defined. Each trigger
+            maintains a counter for each Cable Modem that is caught
+            by that trigger. 
+
+            (1) Registration Trigger 
+
+            (2) Ranging Retry Trigger
+
+            Copyright 1999-2007 Cable Television Laboratories, Inc.
+            All rights reserved."
+
+        REVISION "200612070000Z" -- Dec 7, 2006
+        DESCRIPTION 
+            "Initial version, published as part of the CableLabs
+            OSSIv3.0 specification CM-SP-OSSIv3.0-I01-061207"
+        ::= { clabProjDocsis 9 } 
+
+--
+-- Textual Conventions 
+--
+TriggerFlag ::= TEXTUAL-CONVENTION
+        STATUS current 
+        DESCRIPTION 
+            "This type defines the Diagnostic Log Trigger Type.
+            Bit 0 selects the registration trigger.
+            Bit 1 selects the ranging retry trigger."
+        SYNTAX BITS {
+            registration(0),
+            rangingRetry(1)
+        } 
+
+RegistrationDetailFlag ::= TEXTUAL-CONVENTION
+        STATUS current
+        DESCRIPTION 
+            "This type defines a union of CM states or processes for
+            operations related to the registration trigger. 
+
+            'other'
+            any state other than the following 
+
+            'initialRanging'
+            indicates the 'Initial Ranging' state 
+
+            'rangingAutoAdjComplete'
+            indicates the 'Ranging Auto Adjustment Complete' state 
+
+            'startEae'
+            indicates the 'Start EAE' state 
+
+            'startDhcpv4'
+            indicates the 'Start DHCPv4' state 
+
+            'startDhcpv6'
+            indicates the 'Start DHCPv6' state 
+
+            'dhcpv4Complete'
+            indicates the 'DHCPv4 Complete' state 
+
+            'dhcpv6Complete'
+            indicates the 'DHCPv6 Complete' state 
+
+            'startConfigFileDownload'
+            indicates the 'Start Config File Download' state 
+
+            'configFileDownloadComplete'
+            indicates the 'Config File Download Complete' state 
+
+            'startRegistration' 
+            indicates the 'Start Registration' state 
+
+            'registrationComplete'
+            indicates the 'Registration Complete' state 
+
+            'bpiInit'
+            indicates the 'BPI Initialization' state 
+
+            'operational'
+            indicates the 'Operational' state." 
+
+        SYNTAX BITS {
+            other(0),
+            initialRanging(1),
+            rangingAutoAdjComplete(2),
+            startEae(3),
+            startDhcpv4(4),
+            startDhcpv6(5),
+            dhcpv4Complete(6),
+            dhcpv6Complete(7),
+            startConfigFileDownload(8),
+            configFileDownloadComplete(9),
+            startRegistration(10),
+            registrationCmplete(11),
+            bpiInit(12),
+            operational(13)
+
+        } 
+--
+-- Diagnostic Sub-tree Definitions
+--
+docsDiagLogNotifications OBJECT IDENTIFIER ::= { docsDiagMib 0 }
+docsDiagLogMibObjects OBJECT IDENTIFIER ::= { docsDiagMib 1 }
+docsDiagLogGlobal OBJECT IDENTIFIER 
+                            ::= { docsDiagLogMibObjects 1 }
+docsDiagLogTriggersCfg OBJECT IDENTIFIER 
+                            ::= { docsDiagLogMibObjects 2 } 
+--
+-- Diagnostic Log global objects 
+--
+docsDiagLogMaxSize OBJECT-TYPE
+        SYNTAX Unsigned32 (1..4294967295)
+        UNITS "entries"
+        MAX-ACCESS read-write
+        STATUS current
+        DESCRIPTION 
+            "The maximum number of Cable Modem entries that 
+            docsDiagLogTable can report."
+        DEFVAL { 100 }
+        ::= { docsDiagLogGlobal 1 } 
+
+docsDiagLogCurrentSize OBJECT-TYPE
+        SYNTAX Gauge32 (0..4294967295)
+        UNITS "entries" 
+        MAX-ACCESS read-only
+        STATUS current DESCRIPTION 
+            "The total number of Cable Modem entries reported in the
+            docsDiagLogTable.
+            The maximum value possible will be docsDiagLogMaxSize."
+        ::= { docsDiagLogGlobal 2 } 
+
+docsDiagLogNotifyLogSizeHighThrshld OBJECT-TYPE
+        SYNTAX Unsigned32 (1..4294967295)
+        UNITS "entries" MAX-ACCESS read-write
+        STATUS current 
+        DESCRIPTION 
+            "If the number of entries in docsDiagLogTable exceeds
+            this value, CMTS will trigger the appropriate event."
+        DEFVAL { 80 }
+        ::= { docsDiagLogGlobal 3 } 
+
+docsDiagLogNotifyLogSizeLowThrshld OBJECT-TYPE
+        SYNTAX Unsigned32 (1..4294967295)
+        UNITS "entries" 
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "If the number of entries in docsDiagLogTable exceeded
+            docsDiagLogNotifyLogSizeHighThrshld earlier and then drops
+            to this value, CMTS will trigger the appropriate event."
+        DEFVAL { 60 }
+        ::= { docsDiagLogGlobal 4 } 
+
+docsDiagLogAging OBJECT-TYPE
+        SYNTAX Unsigned32 (15..86400)
+        UNITS "minutes" 
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "Aging threshold for the Diagnostic Log. Periodically, a
+            process scans through the Diagnostic log and removes those
+            Cable Modems from docsDiagLogTable and
+            docsDiagLogDetailTable that have no new detections for a
+            time interval longer than this threshold in minutes."
+        DEFVAL { 10080 } -- one week
+        ::= { docsDiagLogGlobal 5 } 
+
+docsDiagLogResetAll OBJECT-TYPE
+        SYNTAX TruthValue 
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "If set to 'true', all counter objects for
+            all entries in docsDiagLogTable and docsDiagLogDetailTable
+            are reset to zero. Reading this object always returns
+            'false'." 
+        ::= { docsDiagLogGlobal 6 } 
+
+docsDiagLogLastResetTime OBJECT-TYPE
+        SYNTAX DateAndTime 
+        MAX-ACCESS read-only
+        STATUS current 
+        DESCRIPTION 
+            "The last time that all the counters in the 
+            docsDiagLogTable and docsDiagLogDetailTable are
+            reset to 0. The special value of all '00'Hs indicates
+            that the Entries in these tables have never been reset." 
+        ::= { docsDiagLogGlobal 7 } 
+
+docsDiagLogClearAll OBJECT-TYPE
+        SYNTAX TruthValue 
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "If set to 'true', all entries from the
+            docsDiagLogTable and docsDiagLogDetailTable are removed.
+            Reading this object always returns 'false'."
+        ::= { docsDiagLogGlobal 8 } 
+
+docsDiagLogLastClearTime OBJECT-TYPE
+        SYNTAX DateAndTime 
+        MAX-ACCESS read-only
+        STATUS current 
+        DESCRIPTION 
+            "The last time that all the entries in the docsDiagLogTable
+            and docsDiagLogDetailTable are destroyed. The special
+            value of all '00'Hs indicates that the 
+            entries in these tables have never been destroyed."
+        ::= { docsDiagLogGlobal 9 } 
+
+docsDiagLogNotifCtrl OBJECT-TYPE
+        SYNTAX BITS {
+            highThresholdReached(0),
+            lowThresholdReached(1),
+            full(2)
+            }
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "Used to enable diagnostic log related notifications.
+
+            Setting bit 0 enables notification for reaching log size
+            high threshold, 
+
+            Setting bit 1 enables notification for returning back to
+            log size low threshold after reaching log size high
+            threshold, 
+
+            Setting bit 2 enables notification for diagnostic log size
+            full." 
+        DEFVAL { ''H }
+        ::= { docsDiagLogGlobal 10 } 
+
+--
+-- Configuration parameters for Diagnostic Triggers 
+--
+docsDiagLogIncludeTriggers OBJECT-TYPE
+        SYNTAX TriggerFlag
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "Turns individual diagnostic triggers on and off.
+            Multiple triggers can be turned on or off at a given time.
+            Setting a particular bit to '1' turns on correspon
+            dingdiagnostic trigger. Setting a particular bit to '0' turns
+            off corresponding diagnostic trigger."
+        DEFVAL { 'C0'H }
+        ::= { docsDiagLogTriggersCfg 1 } 
+
+docsDiagLogEnableAgingTriggers OBJECT-TYPE
+        SYNTAX TriggerFlag
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "Enables and disables the aging of triggers
+            based on the trigger type. Aging out can be enabled or
+            disabled for multiple triggers at a given time. Setting
+            a particular bit to '1' enables the aging out of log
+            entries that are created by corresponding diagnostic
+            trigger. Setting a particular bit to '0' disables the
+            aging out of log entries that are created by corresponding
+            diagnostic trigger."
+        DEFVAL { ''H }
+        ::= { docsDiagLogTriggersCfg 2 } 
+
+docsDiagLogRegTimeInterval OBJECT-TYPE
+        SYNTAX Unsigned32 (60..86400)
+        UNITS "seconds" 
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "Configurable parameter for the Registration trigger.
+            The registration time interval is an empirically derived,
+            worst-case number of seconds which the Cable Modem requires
+            to complete registration. If the Cable Modem has not
+            completed the registration stage within this registration
+            time interval, the Cable Modem will be added to the
+            Diagnostic Log."
+        DEFVAL { 90 }
+        ::= { docsDiagLogTriggersCfg 3 } 
+
+docsDiagLogRegDetail OBJECT-TYPE
+        SYNTAX RegistrationDetailFlag
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "Setting a bit representing a CM registration state will
+            enable counting the number of times the CMTS determines
+            that such CM reaches that state as the last state before 
+            failing to proceed further in the registration process and
+            within the time interval considered for the CM 
+            registration trigger detection.
+        "DEFVAL { ''H }
+        ::= { docsDiagLogTriggersCfg 4 } 
+
+docsDiagLogRangingRetryType OBJECT-TYPE
+        SYNTAX INTEGER {
+            consecutiveMiss(1),
+            missRatio(2)
+        }
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "Configuration parameter for the Ranging Retry Trigger.
+            When a Cable Modem failed to perform ranging when a ranging
+            opportunity is scheduled by CMTS, it is counted as ranging
+            miss. 
+            Ranging retry trigger can be configured to either look at
+            consecutive ranging misses or ranging miss ratio over
+            total number of station maintenance opportunities for a
+            certain time period. 
+
+            If set to '1', this will select consecutive ranging
+            misses as ranging retry trigger criteria. 
+
+            If set to '2', this will select ranging miss ratio
+            as ranging retry trigger criteria."
+        DEFVAL { 1 }
+        ::= { docsDiagLogTriggersCfg 5 } 
+
+docsDiagLogRangingRetryThrhld OBJECT-TYPE
+        SYNTAX Unsigned32 (3..12)
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "Configurable parameter for the Ranging Retry Trigger.
+            When the number of times a Cable Modem does not acknowledge
+            a MAC-layer station maintenance message from a CMTS exceeds
+            this threshold, the Cable Modem will be add to the
+            Diagnostic Log.
+            The value of docsDiagLogRangingRetryType, decides if
+            consecutive ranging miss or ranging miss ratio is used as
+            trigger."
+        DEFVAL { 6 }
+        ::= { docsDiagLogTriggersCfg 6 } 
+
+docsDiagLogRangingRetryStationMaintNum OBJECT-TYPE
+        SYNTAX Unsigned32 (60..65535)
+        MAX-ACCESS read-write 
+        STATUS current 
+        DESCRIPTION 
+            "Number of station maintenance opportunities to monitor for
+            ranging retry trigger. This value implies time intervals
+            in a certain range. DOCSIS requires the CMTS to schedule
+            ranging opportunity to Cable Modem sufficiently smaller
+            than T4. 
+            There is no fixed formula to derive at a fixed time 
+            interval, how many ranging opportunities would be offered
+            to a Cable Modem by the CMTS, hence using the number of
+            station maintenance opportunities provides ratio with the
+            fixed denominators while also taking time factor into
+            consideration." 
+            DEFVAL { 90 }
+            ::= { docsDiagLogTriggersCfg 7 } 
+
+--
+-- Diagnostic Log Table 
+--
+docsDiagLogTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF DocsDiagLogEntry
+        MAX-ACCESS not-accessible 
+        STATUS current 
+        DESCRIPTION 
+            "This table keeps the Diagnostic Log of the Cable Modems,
+            it is indexed by docsIf3CmtsCmRegStatusId."
+        REFERENCE 
+            "DOCSIS 3.0 Operation and Support System Interface
+            Specification CM-SP-OSSIv3.0-I01-061207, Diagnostic LogAnnex." 
+        ::= { docsDiagLogMibObjects 3 } 
+
+docsDiagLogEntry OBJECT-TYPE
+        SYNTAX DocsDiagLogEntry
+        MAX-ACCESS not-accessible 
+        STATUS current 
+        DESCRIPTION 
+            "A conceptual row entry in this table is a per Cable Modem
+            summary of the diagnostic information detected by one or
+            more triggers.
+            There can be only one entry in this for a given Cable
+            Modem." 
+        INDEX { 
+                docsIf3CmtsCmRegStatusId
+              }
+        ::= { docsDiagLogTable 1 } 
+
+DocsDiagLogEntry ::= SEQUENCE { 
+            docsDiagLogCmMacAddr                MacAddress,
+            docsDiagLogLastUpdateTime           DateAndTime,
+            docsDiagLogCreateTime               DateAndTime,
+            docsDiagLogLastRegTime              DateAndTime,
+            docsDiagLogRegCount                 Counter32,
+            docsDiagLogRangingRetryCount        Counter32
+        }
+           
+docsDiagLogCmMacAddr OBJECT-TYPE
+        SYNTAX MacAddress  
+        MAX-ACCESS read-only
+        STATUS  current  
+        DESCRIPTION  
+            "MAC address of the Cable Modem."  
+        ::= { docsDiagLogEntry 1 }  
+
+docsDiagLogLastUpdateTime OBJECT-TYPE
+        SYNTAX DateAndTime 
+        MAX-ACCESS read-only
+        STATUS current 
+        DESCRIPTION 
+            "The time and date value when this entry was last updated.
+            When a Cable Modem is detected by one of the diagnostic
+            trigger, if this table already has an entry for that
+            Cable Modem, the entry will be updated."
+        ::= { docsDiagLogEntry 2 } 
+
+docsDiagLogCreateTime OBJECT-TYPE
+        SYNTAX DateAndTime 
+        MAX-ACCESS read-only
+        STATUS current 
+        DESCRIPTION 
+            "The time and date value that this entry was added to this
+            table. When a Cable Modem is detected by one of the
+            diagnostic triggers, if this table has no entry for that
+            cable mode, a new entry will be created. If an entry is
+            removed and then re-added, there can be a discontinuity in
+            the statistical objects associated with this entry.
+            This timestamp can be used to detect those discontinuities."
+        ::= { docsDiagLogEntry 3 } 
+
+docsDiagLogLastRegTime OBJECT-TYPE
+        SYNTAX DateAndTime 
+        MAX-ACCESS read-only
+        STATUS current 
+        DESCRIPTION 
+            "The last time this Cable Modem registered."
+        ::= { docsDiagLogEntry 4 } 
+
+docsDiagLogRegCount OBJECT-TYPE
+        SYNTAX Counter32 
+        MAX-ACCESS read-only
+        STATUS current 
+        DESCRIPTION 
+            "The number of times the registration trigger condition was
+            detected for this Cable Modem." 
+        ::= { docsDiagLogEntry 5 } 
+
+docsDiagLogRangingRetryCount OBJECT-TYPE
+        SYNTAX Counter32 
+        MAX-ACCESS read-only
+        STATUS current 
+        DESCRIPTION 
+            "The number of times the ranging retry trigger condition was
+            detected for this Cable Modem." 
+        ::= { docsDiagLogEntry 6 } 
+
+--
+-- Detailed Log Table 
+--
+docsDiagLogDetailTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF DocsDiagLogDetailEntry
+        MAX-ACCESS not-accessible 
+        STATUS current 
+        DESCRIPTION 
+            "This table contains detailed diagnostic information
+            for Cable Modems already in docsDiagLogTable."
+        REFERENCE 
+            "DOCSIS 3.0 Operation and Support System Interface
+            Specification CM-SP-OSSIv3.0-I01-061207, Diagnostic Log
+            Annex." 
+        ::= { docsDiagLogMibObjects 4 } 
+
+docsDiagLogDetailEntry OBJECT-TYPE
+        SYNTAX DocsDiagLogDetailEntry
+        MAX-ACCESS not-accessible 
+        STATUS current 
+        DESCRIPTION 
+            "A conceptual row in this table contains one single type of
+            detailed diagnostic information for a Cable Modem. 
+
+            This table shall be instantiated only if at least one
+            detail condition is enabled, via docsDiagLogRegDetail. 
+
+            There can be multiple entries in this table for a given
+            cable modem, if more than one detail condition is enabled."
+        INDEX { 
+                docsIf3CmtsCmRegStatusId,
+                docsDiagLogDetailTypeValue
+              }
+        ::= { docsDiagLogDetailTable 1 } 
+
+DocsDiagLogDetailEntry ::= SEQUENCE { 
+            docsDiagLogDetailTypeValue          CmtsCmRegState,
+            docsDiagLogDetailCount              Counter32,
+            docsDiagLogDetailLastUpdate         DateAndTime,
+            docsDiagLogDetailLastErrorText      SnmpAdminString 
+        } 
+
+docsDiagLogDetailTypeValue OBJECT-TYPE
+        SYNTAX CmtsCmRegState
+        MAX-ACCESS not-accessible  
+        STATUS  current  
+        DESCRIPTION  
+            "The diagnostic detail type this entry represents."
+        ::= { docsDiagLogDetailEntry 1 } 
+
+docsDiagLogDetailCount OBJECT-TYPE
+        SYNTAX Counter32 
+        MAX-ACCESS read-only
+        STATUS current 
+        DESCRIPTION 
+            "The counter value of this Cable Modem that reached 
+            this diagnostic detail state as the last state before
+            it failed to proceed further."
+        ::= { docsDiagLogDetailEntry 2 } 
+
+docsDiagLogDetailLastUpdate OBJECT-TYPE
+        SYNTAX DateAndTime 
+        MAX-ACCESS read-only
+        STATUS current 
+        DESCRIPTION 
+            "Time and date value when this entry was last updated."
+        ::= { docsDiagLogDetailEntry 3 } 
+
+docsDiagLogDetailLastErrorText OBJECT-TYPE
+        SYNTAX SnmpAdminString
+        MAX-ACCESS read-only
+        STATUS current 
+        DESCRIPTION 
+            "Contains the Event ID and Event Text of the event condition 
+            that triggers this entry. The format is: 
+            <Event ID> Event Text" 
+        REFERENCE 
+            "DOCSIS 3.0 Operation and Support System Interface
+            Specification CM-SP-OSSIv3.0-I01-061207, Format and Content
+            for Event, Syslog, and SNMP Notification. Annex."
+        ::= { docsDiagLogDetailEntry 4 } 
+
+--
+-- Notifications 
+--
+docsDiagLogSizeHighThrshldReached NOTIFICATION-TYPE 
+        OBJECTS {
+            docsDevEvLevel,
+            docsDevEvId,
+            docsDiagLogIncludeTriggers,
+            docsDiagLogMaxSize
+            }
+        STATUS current 
+        DESCRIPTION 
+            "This notification indicates that the current size of 
+            Diagnostic Log grows beyond
+            docsDiagLogNotifyLogSizeHighThrshld."
+        ::= { docsDiagLogNotifications 1 } 
+
+docsDiagLogSizeLowThrshldReached NOTIFICATION-TYPE 
+        OBJECTS {
+            docsDevEvLevel,
+            docsDevEvId,
+            docsDiagLogIncludeTriggers,
+            docsDiagLogMaxSize
+            }
+        STATUS current 
+        DESCRIPTION 
+            "This notification indicates that the current size of 
+            Diagnostic Log drops to docsDiagLogNotifyLogSizeLowThrshld
+            after it exceeded docsDiagLogNotifyLogSizeHighThrshld
+            earlier." 
+        ::= { docsDiagLogNotifications 2 } 
+
+docsDiagLogSizeFull NOTIFICATION-TYPE 
+        OBJECTS {
+            docsDevEvLevel,
+            docsDevEvId,
+            docsDiagLogIncludeTriggers,
+            docsDiagLogMaxSize
+            }
+        STATUS current 
+        DESCRIPTION 
+            "This notification indicates that the Diagnostic Log is
+            full." 
+        ::= { docsDiagLogNotifications 3 } 
+
+--
+-- Conformance definitions 
+--
+docsDiagLogConformance OBJECT IDENTIFIER ::= { docsDiagMib 2 }
+docsDiagLogCompliances OBJECT IDENTIFIER 
+                              ::= { docsDiagLogConformance 1 }
+docsDiagLogGroups OBJECT IDENTIFIER 
+                              ::= { docsDiagLogConformance 2 } 
+
+docsDiagLogCompliance MODULE-COMPLIANCE
+        STATUS current 
+        DESCRIPTION 
+            "The compliance statement for the diagnostic log MIB for
+            DOCSIS compliant Cable Modem Termination Systems" 
+
+        MODULE --docsDiagMib 
+
+        GROUP docsDiagLogBaseGroup
+        DESCRIPTION 
+            "Mandatary in all CMTSes" 
+
+        GROUP docsDiagLogNotificationGroup 
+        DESCRIPTION 
+            "Mandatary in all CMTSes" 
+
+        ::= { docsDiagLogCompliances 1 } 
+
+docsDiagLogBaseGroup OBJECT-GROUP
+        OBJECTS {
+            docsDiagLogMaxSize,
+            docsDiagLogCurrentSize,
+            docsDiagLogNotifyLogSizeHighThrshld,
+            docsDiagLogNotifyLogSizeLowThrshld,
+            docsDiagLogAging,
+            docsDiagLogResetAll,
+            docsDiagLogLastResetTime,
+            docsDiagLogClearAll,
+            docsDiagLogLastClearTime,
+            docsDiagLogNotifCtrl, 
+
+            docsDiagLogIncludeTriggers,
+            docsDiagLogEnableAgingTriggers,
+            docsDiagLogRegTimeInterval,
+            docsDiagLogRegDetail,
+            docsDiagLogRangingRetryType,
+            docsDiagLogRangingRetryThrhld,
+            docsDiagLogRangingRetryStationMaintNum,
+ 
+            docsDiagLogCmMacAddr,
+            docsDiagLogLastUpdateTime,
+            docsDiagLogCreateTime,
+            docsDiagLogLastRegTime,
+            docsDiagLogRegCount,
+            docsDiagLogRangingRetryCount, 
+
+            docsDiagLogDetailCount,
+            docsDiagLogDetailLastUpdate,
+            docsDiagLogDetailLastErrorText
+            }
+        STATUS current 
+        DESCRIPTION 
+            "CMTS is required to support objects in this group"
+        ::= { docsDiagLogGroups 1 } 
+
+docsDiagLogNotificationGroup NOTIFICATION-GROUP
+        NOTIFICATIONS {
+            docsDiagLogSizeHighThrshldReached,
+            docsDiagLogSizeLowThrshldReached,
+            docsDiagLogSizeFull
+            }
+        STATUS current 
+        DESCRIPTION 
+            "CMTS is required to support objects in this group"
+        ::= { docsDiagLogGroups 2 }
+END 

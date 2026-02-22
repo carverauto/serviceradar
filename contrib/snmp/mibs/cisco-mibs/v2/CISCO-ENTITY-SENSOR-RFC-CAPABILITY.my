@@ -1,0 +1,91 @@
+-- *****************************************************************
+-- CISCO-ENTITY-SENSOR-RFC-CAPABILITY.my:
+-- Cisco ENTITY-SENSOR-MIB AGENT-CAPABILITIES
+--   
+-- January 2005, Seth Wang
+--   
+-- Copyright (c) 2005, 2006, 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-ENTITY-SENSOR-RFC-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoEntitySensorRfcCapability MODULE-IDENTITY
+    LAST-UPDATED    "200802080000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com,
+            cs-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        ENTITY-SENSOR-MIB."
+    REVISION        "200802080000Z"
+    DESCRIPTION
+        "Added cEntSensorRfcCapc4710aceVA1R70
+        agent capabilities for ACE 4710 Application 
+        Control Engine Appliance."
+    REVISION        "200605310000Z"
+    DESCRIPTION
+        "Added cEntSensorRfcCapACSWV03R000 for
+        Application Control Engine(ACE) Service 
+        Module."
+    REVISION        "200501310000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 430 }
+
+
+
+cEntSensorRfcCapCatOSV08R0501 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.5(1)."
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-SENSOR-MIB capabilities."
+
+    SUPPORTS        ENTITY-SENSOR-MIB
+    INCLUDES        { entitySensorValueGroup }
+    ::= { ciscoEntitySensorRfcCapability 1 }
+
+cEntSensorRfcCapACSWV03R000 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) 3.0
+                    for Application Control Engine(ACE) 
+                    Service Module."
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-SENSOR-MIB capabilities."
+
+    SUPPORTS        ENTITY-SENSOR-MIB
+    INCLUDES        { entitySensorValueGroup }
+    ::= { ciscoEntitySensorRfcCapability 2 }
+
+cEntSensorRfcCapc4710aceVA1R70 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "ACSW (Application Control Software) A1(7)
+                    for ACE 4710 Application Control Engine 
+                    Appliance."
+    STATUS          current
+    DESCRIPTION
+        "ENTITY-SENSOR-MIB capabilities."
+
+    SUPPORTS        ENTITY-SENSOR-MIB
+    INCLUDES        { entitySensorValueGroup }
+    ::= { ciscoEntitySensorRfcCapability 3 }
+
+END

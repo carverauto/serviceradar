@@ -1,0 +1,126 @@
+-- *****************************************************************
+-- CISCO-HSRP-EXT-CAPABILITY.my: CISCO-HSRP-EXT-MIB AGENT-CAPABILITIES
+--
+-- November 2007, Ritesh Sharma
+-- 
+-- Copyright (c) 1998, 2007 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- ****************************************************************
+CISCO-HSRP-EXT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoHsrpExtCapability MODULE-IDENTITY
+    LAST-UPDATED    "200711270000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-hsrp@cisco.com"
+    DESCRIPTION
+                    "Agent capabilities for CISCO-HSRP-EXT-MIB"
+    REVISION        "200711270000Z"
+    DESCRIPTION
+        "Added agent capabilities for IOS-XR 3.6"
+        
+    REVISION        "9808250000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+        
+    
+    ::= { ciscoAgentCapability 10001 }
+
+ciscoHsrpExtCapabilityV1R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS/ENA 1.0"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Hsrp Ext MIB capabilities"
+
+    SUPPORTS        CISCO-HSRP-EXT-MIB
+    INCLUDES        {
+                        cHsrpExtGroup,
+                        cHsrpExtIfBIA
+                    }
+    VARIATION       cHsrpExtIfTrackedPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpExtIfTrackedRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpExtSecAddrRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpExtIfUseBIA
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpExtIfRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    ::= { ciscoHsrpExtCapability 1 }
+    
+ciscoHsrpExtCapabilityV3R6CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS XR 3.6 on CRS-1"
+    STATUS          current
+    DESCRIPTION
+        "Cisco Hsrp Ext MIB capabilities"
+
+    SUPPORTS        CISCO-HSRP-EXT-MIB
+    INCLUDES        {
+                        cHsrpExtGroup,
+                        cHsrpExtIfBIA
+                    }
+    VARIATION       cHsrpExtIfTrackedPriority
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpExtIfTrackedRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpExtSecAddrRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpExtIfUseBIA
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+    VARIATION       cHsrpExtIfRowStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to create or modify"
+
+        ::= { ciscoHsrpExtCapability 2 }
+
+END
+
+

@@ -1,0 +1,226 @@
+-- *****************************************************************
+-- CISCO-ITP-GSP-CAPABILITY.my:  ITP Gateway Signalling Point Agent
+-- capability MIB
+--   
+-- May 2003, John Linton
+--   
+-- Copyright (c) 2003, 2006-2007 by cisco Systems Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-ITP-GSP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoGspCapability MODULE-IDENTITY
+    LAST-UPDATED    "200707160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ss7@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for the CISCO-ITP-GSP-MIB."
+    REVISION        "200707160000Z"
+    DESCRIPTION
+        "Added ciscoGspCapabilityV12R0218IXA and
+        ciscoGspCapabilityV12R0411SW capability statements.
+
+        Corrected all statements to remove support for
+        ciscoGspProfileGroup and removed variation associated
+        with following objects.
+
+          cgspProfileVariant
+          cgspProfileMtp2BundleTimer
+          cgspProfileMtp2SendQueueDepth
+          cgspProfileRowStatus
+          cgspProfileTimerValue    
+          cgspProfileTimerRowStatus"
+    REVISION        "200601060000Z"
+    DESCRIPTION
+        "Added support for new isolation notifcation.
+        Added capability statement 
+        ciscoGspCapabilityV12R0225SW3."
+    REVISION        "200310150000Z"
+    DESCRIPTION
+        "Deprecate cgspLinkSctpAssociation and
+        replace with cgspLinkSctpAssociationId to 
+        allow larger range for association 
+        identifiers."
+    REVISION        "200307170000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 306 }
+
+
+
+ciscoGspCapabilityV12R0204MB10 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(4)MB10"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2(4)MB1 Cisco CISCO-ITP-GSP-MIB.my User
+        Agent MIB capabilities."
+
+    SUPPORTS        CISCO-ITP-GSP-MIB
+    INCLUDES        {
+                        ciscoGspScalarsGroup,
+                        ciscoGspInstanceGroup,
+                        ciscoGspInstTimerGroup,
+                        ciscoGspPointCodeGroup,
+                        ciscoGspLinksetGroup,
+                        ciscoGspLinksetTimerGroup,
+                        ciscoGspLinkGroup,
+                        ciscoGspLinkTimerGroup,
+                        ciscoGspLinkRemoteIpGroup,
+                        ciscoGspLinkUtilGroup,
+                        ciscoGspNotificationsEnableGroup,
+                        ciscoGspNotificationsGroup
+                    }
+    VARIATION       cgspLinksetActPriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported.."
+
+    ::= { ciscoGspCapability 1 }
+
+ciscoGspCapabilityV12R0219SW AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(19)SW"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2(19)SW Cisco CISCO-ITP-GSP-MIB.my User
+        Agent MIB capabilities."
+
+    SUPPORTS        CISCO-ITP-GSP-MIB
+    INCLUDES        {
+                        ciscoGspScalarsGroup,
+                        ciscoGspInstanceGroup,
+                        ciscoGspInstTimerGroup,
+                        ciscoGspPointCodeGroup,
+                        ciscoGspLinksetGroup,
+                        ciscoGspLinksetTimerGroup,
+                        ciscoGspLinkGroupRev1,
+                        ciscoGspLinkTimerGroup,
+                        ciscoGspLinkRemoteIpGroup,
+                        ciscoGspLinkUtilGroup,
+                        ciscoGspNotificationsEnableGroup,
+                        ciscoGspNotificationsGroup
+                    }
+    VARIATION       cgspLinksetActPriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported.."
+
+    ::= { ciscoGspCapability 2 }
+
+ciscoGspCapabilityV12R0225SW3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(25)SW3"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2(25)SW3 Cisco CISCO-ITP-GSP-MIB.my User
+        Agent MIB capabilities."
+
+    SUPPORTS        CISCO-ITP-GSP-MIB
+    INCLUDES        {
+                        ciscoGspScalarsGroup,
+                        ciscoGspInstanceGroup,
+                        ciscoGspInstTimerGroup,
+                        ciscoGspPointCodeGroup,
+                        ciscoGspLinksetGroup,
+                        ciscoGspLinksetTimerGroup,
+                        ciscoGspLinkGroupRev1,
+                        ciscoGspLinkTimerGroup,
+                        ciscoGspLinkRemoteIpGroup,
+                        ciscoGspLinkUtilGroup,
+                        ciscoGspNotificationsEnableGroup,
+                        ciscoGspNotificationsGroup,
+                        ciscoGspNotificationsEnableGroupSup1,
+                        ciscoGspNotificationsGroupSup1
+                    }
+    VARIATION       cgspLinksetActPriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported.."
+
+    ::= { ciscoGspCapability 3 }
+
+ciscoGspCapabilityV12R0218IXA AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(18)IXA"
+    STATUS          current
+    DESCRIPTION
+        "IOS 12.2(18)IXA Cisco CISCO-ITP-GSP-MIB.my User
+        Agent MIB capabilities."
+
+    SUPPORTS        CISCO-ITP-GSP-MIB
+    INCLUDES        {
+                        ciscoGspScalarsGroup,
+                        ciscoGspInstanceGroup,
+                        ciscoGspInstTimerGroup,
+                        ciscoGspPointCodeGroup,
+                        ciscoGspLinksetGroup,
+                        ciscoGspLinksetTimerGroup,
+                        ciscoGspLinkTimerGroup,
+                        ciscoGspLinkRemoteIpGroup,
+                        ciscoGspLinkUtilGroup,
+                        ciscoGspNotificationsEnableGroup,
+                        ciscoGspNotificationsGroup,
+                        ciscoGspLinkGroupRev1,
+                        ciscoGspNotificationsEnableGroupSup1,
+                        ciscoGspNotificationsGroupSup1
+                    }
+    VARIATION       cgspLinksetActPriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported.."
+
+    ::= { ciscoGspCapability 4 }
+
+ciscoGspCapabilityV12R0411SW AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.4(11)SW"
+    STATUS          current
+    DESCRIPTION
+        "Cisco IOS 12.4(11)SW CISCO-ITP-GSP-MIB.my User
+        Agent MIB capabilities."
+
+    SUPPORTS        CISCO-ITP-GSP-MIB
+    INCLUDES        {
+                        ciscoGspScalarsGroup,
+                        ciscoGspInstanceGroup,
+                        ciscoGspInstTimerGroup,
+                        ciscoGspPointCodeGroup,
+                        ciscoGspLinksetGroup,
+                        ciscoGspLinksetTimerGroup,
+                        ciscoGspLinkTimerGroup,
+                        ciscoGspLinkRemoteIpGroup,
+                        ciscoGspLinkUtilGroup,
+                        ciscoGspNotificationsEnableGroup,
+                        ciscoGspNotificationsGroup,
+                        ciscoGspLinkGroupRev1,
+                        ciscoGspNotificationsEnableGroupSup1,
+                        ciscoGspNotificationsGroupSup1
+                    }
+    VARIATION       cgspLinksetActPriority
+    ACCESS          not-implemented
+    DESCRIPTION
+        "This object is not supported.."
+
+    ::= { ciscoGspCapability 5 }
+
+END
+
+
+
+

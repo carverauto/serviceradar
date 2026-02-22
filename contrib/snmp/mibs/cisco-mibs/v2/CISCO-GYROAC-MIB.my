@@ -1,0 +1,78 @@
+-- *****************************************************************
+-- CISCO-GYROAC-MIB.my: Accelerometer and Gyroscope MIB
+--   
+-- Copyright (c) 2005-2006, 2019 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-GYROAC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DisplayString
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoGyroacMIB MODULE-IDENTITY
+    LAST-UPDATED    "201901090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ir800@cisco.com"
+    DESCRIPTION
+        "This MIB module defines management objects for monitoring of
+        Gyroscope andvAccelerometer for IR8x9 routers.
+
+        Gyroscope feature provides information about Gyroscope data
+        shows G-X, Y, Z (3D gyroscope data) in mdps (milli Degrees Per
+        Second) and accelerometer feature provides information        
+        about XL-X, Y, Z (3D accelerator data) in unit
+        mg(milligram).
+
+        Accelerometer and Gyroscope functionality tracks the speed and
+        angular movement of the device.
+
+        *** ABBREVIATIONS, ACRONYMS, AND SYMBOLS ***
+
+        gyro - Gyroscope sensor of IR8x9 routers"
+    REVISION        "201901090000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 859 }
+
+
+ciscoGyroacMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoGyroacMIB 0 }
+
+
+ciscoGyro OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the management information for a particular
+        sensor gyroscope and accelerometer" 
+    ::= { ciscoGyroacMIBObjects 1 }
+
+END
+
+

@@ -1,0 +1,1965 @@
+-- *****************************************************************
+-- CISCO-CUICAPPS-MIB.my
+-- Cisco Unified Intelligence Center Apps MIB file.
+--   
+-- August 2009, Dattatraya Rooyikar
+--   
+-- Copyright (c) 2009-2010 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CUICAPPS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    NOTIFICATION-TYPE,
+    Unsigned32,
+    Gauge32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    DateAndTime,
+    TruthValue,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CiscoURLString
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCuicappsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201001230000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cse-dev-intelsuite@cisco.com"
+    DESCRIPTION
+        "The Cisco Unified Intelligence Center (CUIC) is a scalable
+        robust and secure reporting solution for contact center
+        applications.  
+
+        The CUIC application can be deployed on multiple servers that 
+        form a cluster, where each server hosts a reporting engine.
+
+        The CISCO-CUICAPPS-MIB defines objects that describe
+        instrumentation implemented by the components comprising CUIC.
+
+
+        DEFINITION OF TERMS AND ACRONYMS
+
+        CUIC            Cisco Unified Intelligence Center
+        cluster         A group of CUIC servers deployed and
+        associated
+                    to form high availability model.
+        sub system      A subsystem is a coherent and somewhat       
+                        independent component of a larger system.
+        Service         A functional component of the CUIC application
+        publisher       A server in a CUIC cluster which provides    
+                        administration facility.
+        first node      Publisher node is alternatively referred as 
+                        first node.
+        Connector       A CUIC Tomcat Connector represents an endpoint 
+                        that receives requests and sends responses.  
+                        The Connector handles HTTP/HTTPS requests and 
+                        sends HTTP/HTTPS responses that occur when 
+                        CUIC - related web pages are accessed.
+                data source                Data source is a connection to a database server."
+    REVISION        "201001230000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 718 }
+
+
+
+CuicServiceStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention denotes the run status of a
+        CUIC's service.  The value is the result of 
+        evaluating the current run status of each of the
+        individual elements associated with the service.
+
+        'inService'         The service is up and running optimally.
+
+        'partialService'    Some of the components comprising the    
+                            application are not running; service is in
+                            warning state.
+
+        'notResponding'     The service is either shut down or not
+                            responding.
+
+        'unknown'           The service status is unknown"
+    SYNTAX          INTEGER  {
+                        inService(1),
+                        partialService(2),
+                        notResponding(3),
+                        unknown(4)
+                    }
+
+CuicSubsystemId ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "Sub System ID is five digit unique identifier for a given
+        CUIC server in a cluster.  For example an the value could be
+        like 43009."
+    SYNTAX          Unsigned32 (0..2147483647)
+-- CUIC traps
+
+ciscoCuicappsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCuicappsMIB 0 }
+
+-- CUIC objects.
+
+ciscoCuicappsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCuicappsMIB 1 }
+
+ciscoCuicappsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCuicappsMIB 2 }
+
+-- General information about the CUIC Server.
+
+cuicGeneralInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CuicGeneralInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of CUIC servers"
+    ::= { ciscoCuicappsMIBObjects 1 }
+
+cuicGeneralInfoEntry OBJECT-TYPE
+    SYNTAX          CuicGeneralInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table represents a CUIC server in this
+        cluster.
+
+        A row will be created in this table, whenever a new server
+        is being added to this cluster.  And a row will be deleted when
+        a server is being removed from this cluster."
+    INDEX           { cuicGeneralInfoIndex } 
+    ::= { cuicGeneralInfoTable 1 }
+
+CuicGeneralInfoEntry ::= SEQUENCE {
+        cuicGeneralInfoIndex               CuicSubsystemId,
+        cuicGeneralInfoServerName          SnmpAdminString,
+        cuicGeneralInfoServerDescription   SnmpAdminString,
+        cuicGeneralInfoVersion             SnmpAdminString,
+        cuicGeneralInfoStartTime           DateAndTime,
+        cuicGeneralInfoTimeZoneName        SnmpAdminString,
+        cuicGeneralInfoSystemStatus        CuicServiceStatus,
+        cuicGeneralInfoOpsConsoleURL       CiscoURLString,
+        cuicGeneralInfoEnableNotifications TruthValue
+}
+
+cuicGeneralInfoIndex OBJECT-TYPE
+    SYNTAX          CuicSubsystemId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sub-system identifier assigned to the
+        CUIC reporting component." 
+    ::= { cuicGeneralInfoEntry 1 }
+
+cuicGeneralInfoServerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the host name of a CUIC server." 
+    ::= { cuicGeneralInfoEntry 2 }
+
+cuicGeneralInfoServerDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a textual description of the CUIC
+        application installed on this server.  This information is same
+        as description entered for the application during 
+        installation." 
+    ::= { cuicGeneralInfoEntry 3 }
+
+cuicGeneralInfoVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the version number of the CUIC software
+        installed on the server.  The following illustrates the format 
+        of the value for an instance of this object:
+
+        CUIC_<major>_<minor>_<buildnumber>  
+
+        where,
+
+        <major> is an integer denoting Major revision number.
+        <minor> is an integer denoting minor revision number.
+        <buildnumebr> is an integer denoting the build number." 
+    ::= { cuicGeneralInfoEntry 4 }
+
+cuicGeneralInfoStartTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the CUIC application server starting
+        time." 
+    ::= { cuicGeneralInfoEntry 5 }
+
+cuicGeneralInfoTimeZoneName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time zone where the CUIC server is
+        physically located." 
+    ::= { cuicGeneralInfoEntry 6 }
+
+cuicGeneralInfoSystemStatus OBJECT-TYPE
+    SYNTAX          CuicServiceStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates, last known status of the
+        application." 
+    ::= { cuicGeneralInfoEntry 7 }
+
+cuicGeneralInfoOpsConsoleURL OBJECT-TYPE
+    SYNTAX          CiscoURLString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the URL for CUIC operations Console web
+        server.  The operations console offers a web-based, centralized
+        interface for mapping and summarizing the solution network 
+        configuration, setting and displaying configuration information
+        on a batch or per-Device basis and storing local copies of 
+        those configurations.  Other functions include 
+        troubleshooting, health monitoring and direct administration." 
+    ::= { cuicGeneralInfoEntry 8 }
+
+cuicGeneralInfoEnableNotifications OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the notification status to management
+        station, to disable and alternatively enable outbound
+        notifications on this server."
+    DEFVAL          { true } 
+    ::= { cuicGeneralInfoEntry 9 }
+ 
+
+
+cuicLicenseInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CuicLicenseInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of CUIC servers where license is
+        instaled on.   
+
+        Usually license is installed on a publisher node."
+    ::= { ciscoCuicappsMIBObjects 2 }
+
+cuicLicenseInfoEntry OBJECT-TYPE
+    SYNTAX          CuicLicenseInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table describes a CUIC server's licensing
+        details.
+
+        A row will be created in this table, whenever a CUIC license is
+        installed on a server in this cluster."
+    INDEX           { cuicLicenseInfoIndex } 
+    ::= { cuicLicenseInfoTable 1 }
+
+CuicLicenseInfoEntry ::= SEQUENCE {
+        cuicLicenseInfoIndex          CuicSubsystemId,
+        cuicLicenseInfoType           INTEGER,
+        cuicLicenseInfoStartTime      DateAndTime,
+        cuicLicenseInfoExpirationTime DateAndTime,
+        cuicLicenseInfoHost           SnmpAdminString
+}
+
+cuicLicenseInfoIndex OBJECT-TYPE
+    SYNTAX          CuicSubsystemId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sub-system identifier assigned to the
+        CUIC reporting component." 
+    ::= { cuicLicenseInfoEntry 1 }
+
+cuicLicenseInfoType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        trial(2),
+                        standard(3),
+                        premium(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of license installed.  trial
+        license exipire in 90 days.  standard and premium license
+        supports unlimited number of users but latter supports premium
+        features." 
+    ::= { cuicLicenseInfoEntry 2 }
+
+cuicLicenseInfoStartTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CUIC application license install
+        time." 
+    ::= { cuicLicenseInfoEntry 3 }
+
+cuicLicenseInfoExpirationTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the CUIC application license expiration
+        time." 
+    ::= { cuicLicenseInfoEntry 4 }
+
+cuicLicenseInfoHost OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the host name of the publisher node.
+        CUIC license will be installed on publisher node of the CUIC
+        cluster." 
+    ::= { cuicLicenseInfoEntry 5 }
+ 
+
+
+cuicReportingTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CuicReportingEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of CUIC Reporting Engine.
+
+        CUIC is a reporting software for Cisco Call Center
+        application and reporting engine is a main component of this
+        application."
+    ::= { ciscoCuicappsMIBObjects 3 }
+
+cuicReportingEntry OBJECT-TYPE
+    SYNTAX          CuicReportingEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table describes a CUIC server's report
+        engine statistics.
+
+        A row will be created in this table, whenever a new server
+        is being added to this cluster.  And a row will be deleted when
+        a server is being removed from this cluster."
+    INDEX           { cuicReportingIndex } 
+    ::= { cuicReportingTable 1 }
+
+CuicReportingEntry ::= SEQUENCE {
+        cuicReportingIndex                           CuicSubsystemId,
+        cuicReportingDataSourceCount                 Gauge32,
+        cuicReportingEngineStatus                    CuicServiceStatus,
+        cuicReportingHistoricalReportDefinitionCount Gauge32,
+        cuicReportingRealTimeReportDefinitionCount   Gauge32,
+        cuicReportingHistoricalReportRunning         Gauge32,
+        cuicReportingHistoricalReportWaiting         Gauge32,
+        cuicReportingTotalKickedOffHistoricalReports Counter32,
+        cuicReportingRealTimeReportRunning           Gauge32,
+        cuicReportingTotalKickedOffRealTimeReports   Counter32,
+        cuicReportingRealTimeReportWaiting           Gauge32
+}
+
+cuicReportingIndex OBJECT-TYPE
+    SYNTAX          CuicSubsystemId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sub-system identifier assigned to the
+        CUIC reporting component." 
+    ::= { cuicReportingEntry 1 }
+
+cuicReportingDataSourceCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "data sources"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of data sources configured
+        on the CUIC application.
+
+        CUIC application require data source connection to be setup to a
+        database server.  CUIC reports read data from an associated and
+        data source." 
+    ::= { cuicReportingEntry 2 }
+
+cuicReportingEngineStatus OBJECT-TYPE
+    SYNTAX          CuicServiceStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last known status of the Reporting
+        Engine component.
+
+        The CUIC Reporting Engine component is responsible for fetching
+        data from data source and pass it to a report." 
+    ::= { cuicReportingEntry 3 }
+
+cuicReportingHistoricalReportDefinitionCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "report definitions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of historical report
+        definitions installed on the CUIC application.
+
+        A Report definition is template for a report.  A report has an
+        association with a report definition.
+
+        CUIC application has two types of report definitions: real time
+        and historical." 
+    ::= { cuicReportingEntry 4 }
+
+cuicReportingRealTimeReportDefinitionCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "report definitions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of real time reports
+        installed on the CUIC application.
+
+        A Report definition is template for a report.  A report has an
+        association with a report definition.
+
+        CUIC application has two types of reports: real time
+        and historical." 
+    ::= { cuicReportingEntry 5 }
+
+cuicReportingHistoricalReportRunning OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of historical reports that
+        are currently running." 
+    ::= { cuicReportingEntry 6 }
+
+cuicReportingHistoricalReportWaiting OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of historical reports that
+        are currently waiting to execute." 
+    ::= { cuicReportingEntry 7 }
+
+cuicReportingTotalKickedOffHistoricalReports OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of historical reports
+        that have been launched." 
+    ::= { cuicReportingEntry 8 }
+
+cuicReportingRealTimeReportRunning OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of real time reports that
+        are currently running." 
+    ::= { cuicReportingEntry 9 }
+
+cuicReportingTotalKickedOffRealTimeReports OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of real time reports
+        that have been launched." 
+    ::= { cuicReportingEntry 10 }
+
+cuicReportingRealTimeReportWaiting OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "reports"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of real time reports that
+        are currently waiting to be executed." 
+    ::= { cuicReportingEntry 11 }
+ 
+
+
+cuicSchedulerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CuicSchedulerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of CUIC Scheduler Component.
+
+        The Scheduler is a component that allows users to run
+        reports at some time in the future.  Either once or
+        periodically and have the reports be delivered via email or
+        show in a dashboard."
+    ::= { ciscoCuicappsMIBObjects 4 }
+
+cuicSchedulerEntry OBJECT-TYPE
+    SYNTAX          CuicSchedulerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table describes a CUIC server's scheduler
+        component health and statistics.
+
+        A row will be created in this table, whenever Scheduler
+        Component is enabled on a server in this cluster. Usually
+        Scheduler is enabled on publisher node."
+    INDEX           { cuicSchedulerIndex } 
+    ::= { cuicSchedulerTable 1 }
+
+CuicSchedulerEntry ::= SEQUENCE {
+        cuicSchedulerIndex              CuicSubsystemId,
+        cuicSchedulerStatus             CuicServiceStatus,
+        cuicSchedulerEmailServerStatus  CuicServiceStatus,
+        cuicSchedulerJobsCompletedCount Counter32,
+        cuicSchedulerJobsRunningCount   Gauge32,
+        cuicSchedulerJobsFailedCount    Counter32
+}
+
+cuicSchedulerIndex OBJECT-TYPE
+    SYNTAX          CuicSubsystemId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sub-system identifier assigned to the
+        CUIC reporting component." 
+    ::= { cuicSchedulerEntry 1 }
+
+cuicSchedulerStatus OBJECT-TYPE
+    SYNTAX          CuicServiceStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of the Report Scheduler
+        engine." 
+    ::= { cuicSchedulerEntry 2 }
+
+cuicSchedulerEmailServerStatus OBJECT-TYPE
+    SYNTAX          CuicServiceStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of the emailing server.
+
+        The Report Scheduler allows users to run reports at some time
+        in future.  Either once or periodically and have the report
+        results be delivered via email." 
+    ::= { cuicSchedulerEntry 3 }
+
+cuicSchedulerJobsCompletedCount OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "jobs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of jobs that the scheduler
+        service has completed." 
+    ::= { cuicSchedulerEntry 4 }
+
+cuicSchedulerJobsRunningCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "jobs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of jobs that the scheduler
+        service is currently running." 
+    ::= { cuicSchedulerEntry 5 }
+
+cuicSchedulerJobsFailedCount OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "jobs"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of jobs that the scheduler
+        service has failed to complete successfully." 
+    ::= { cuicSchedulerEntry 6 }
+ 
+
+
+cuicDbInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CuicDbInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list database servers.
+
+        CUIC reporting server uses database to store reports and
+        configurations."
+    ::= { ciscoCuicappsMIBObjects 5 }
+
+cuicDbInfoEntry OBJECT-TYPE
+    SYNTAX          CuicDbInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table describes a CUIC server's database
+        service disk space usage and status.
+
+        A row will be created in this table, whenever a new server
+        is being added to this cluster.  And a row will be deleted when
+        a server is being removed from this cluster."
+    INDEX           { cuicDbInfoIndex } 
+    ::= { cuicDbInfoTable 1 }
+
+CuicDbInfoEntry ::= SEQUENCE {
+        cuicDbInfoIndex             CuicSubsystemId,
+        cuicDbInfoStatus            CuicServiceStatus,
+        cuicDbInfoReplicationStatus CuicServiceStatus,
+        cuicDbInfoTmpSpaceUsed      Gauge32,
+        cuicDbInfoSpaceUsed         Gauge32
+}
+
+cuicDbInfoIndex OBJECT-TYPE
+    SYNTAX          CuicSubsystemId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sub-system identifier assigned to the
+        CUIC reporting component." 
+    ::= { cuicDbInfoEntry 1 }
+
+cuicDbInfoStatus OBJECT-TYPE
+    SYNTAX          CuicServiceStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of the Database Server." 
+    ::= { cuicDbInfoEntry 2 }
+
+cuicDbInfoReplicationStatus OBJECT-TYPE
+    SYNTAX          CuicServiceStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of replication server.
+
+        CUIC replicates a database to other CUIC servers in a cluster." 
+    ::= { cuicDbInfoEntry 3 }
+
+cuicDbInfoTmpSpaceUsed OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the percentage temporary disk space
+        used." 
+    ::= { cuicDbInfoEntry 4 }
+
+cuicDbInfoSpaceUsed OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the percentage database disk space." 
+    ::= { cuicDbInfoEntry 5 }
+ 
+
+
+cuicClusterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CuicClusterEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of cluster information.
+
+        CUIC can consist of multiple servers that form a cluster."
+    ::= { ciscoCuicappsMIBObjects 6 }
+
+cuicClusterEntry OBJECT-TYPE
+    SYNTAX          CuicClusterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table describes a CUIC cluster."
+    INDEX           { cuicClusterIndex } 
+    ::= { cuicClusterTable 1 }
+
+CuicClusterEntry ::= SEQUENCE {
+        cuicClusterIndex         CuicSubsystemId,
+        cuicClusterName          SnmpAdminString,
+        cuicClusterServerCount   Gauge32,
+        cuicClusterFirstNodeName SnmpAdminString
+}
+
+cuicClusterIndex OBJECT-TYPE
+    SYNTAX          CuicSubsystemId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sub-system identifier assigned to the
+        CUIC reporting component." 
+    ::= { cuicClusterEntry 1 }
+
+cuicClusterName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the unique name of cluster.  At
+        any point in time, the cluster name helps in associating a
+        device to any given cluster." 
+    ::= { cuicClusterEntry 2 }
+
+cuicClusterServerCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "servers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of CUIC servers in this
+        cluster." 
+    ::= { cuicClusterEntry 3 }
+
+cuicClusterFirstNodeName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the hostname of the first node server
+        (Publisher node)." 
+    ::= { cuicClusterEntry 4 }
+ 
+
+
+cuicDatasourceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CuicDatasourceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of data sources configured in CUIC
+        server.
+
+        The data for the report has to come from a database server.
+        There will be data sources configured in the CUIC application
+        to connect to a particular database."
+    ::= { ciscoCuicappsMIBObjects 7 }
+
+cuicDatasourceEntry OBJECT-TYPE
+    SYNTAX          CuicDatasourceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table describes a CUIC data source configured
+        on this CUIC server.
+
+        A row will be created in this table, whenever a new data source
+        is being configured on this server.  And a row will be deleted
+        when
+        a configured data source is being removed from this server."
+    INDEX           { cuicDatasourceIndex } 
+    ::= { cuicDatasourceTable 1 }
+
+CuicDatasourceEntry ::= SEQUENCE {
+        cuicDatasourceIndex  Unsigned32,
+        cuicDatasourceName   SnmpAdminString,
+        cuicDatasourceStatus INTEGER,
+        cuicDatasourceHost   SnmpAdminString,
+        cuicDatasourceType   INTEGER
+}
+
+cuicDatasourceIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates a row index which is an integer starting
+        from value one." 
+    ::= { cuicDatasourceEntry 1 }
+
+cuicDatasourceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the data source configured in
+        the CUIC application." 
+    ::= { cuicDatasourceEntry 2 }
+
+cuicDatasourceStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        online(1),
+                        offline(2),
+                        unknown(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the status of the datsource.  The
+        data sources configured in CUIC application can go offline 
+        due to various reasons.  The value can be,
+
+        'online'   The data source is connected and it is online.
+
+        'offline'   The data source is disconnected and it is offline.
+
+        'unknown'   The data source connectivity status is unknown." 
+    ::= { cuicDatasourceEntry 3 }
+
+cuicDatasourceHost OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the host name of database server." 
+    ::= { cuicDatasourceEntry 4 }
+
+cuicDatasourceType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        mssql(2),
+                        informix(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the vendor name.  CUIC can support
+        different vendor data sources like MSSQL,IBM Informix etc." 
+    ::= { cuicDatasourceEntry 5 }
+ 
+
+
+cuicSecurityTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CuicSecurityEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains a list of CUIC server's security
+        information.
+
+        CUIC application is a multiuser system.  There can be many
+        number of users and groups configured.  This table gives
+        information about users and groups."
+    ::= { ciscoCuicappsMIBObjects 8 }
+
+cuicSecurityEntry OBJECT-TYPE
+    SYNTAX          CuicSecurityEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table describes user and group information of
+        a CUIC server in this cluster.
+
+        A row will be created in this table, whenever a new server
+        is being added to this cluster.  And a row will be deleted when
+        a server is being removed from this cluster."
+    INDEX           { cuicSecurityIndex } 
+    ::= { cuicSecurityTable 1 }
+
+CuicSecurityEntry ::= SEQUENCE {
+        cuicSecurityIndex               CuicSubsystemId,
+        cuicSecurityUsersConfigured     Gauge32,
+        cuicSecurityUsersLoggedIn       Gauge32,
+        cuicSecurityLoginFailedAttempts Counter32,
+        cuicSecurityGroupsConfigured    Gauge32
+}
+
+cuicSecurityIndex OBJECT-TYPE
+    SYNTAX          CuicSubsystemId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the sub-system identifier assigned to the
+        CUIC reporting component." 
+    ::= { cuicSecurityEntry 1 }
+
+cuicSecurityUsersConfigured OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "users"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates number of users configured to access CUIC
+        application." 
+    ::= { cuicSecurityEntry 2 }
+
+cuicSecurityUsersLoggedIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "users"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of users currently
+        logged in." 
+    ::= { cuicSecurityEntry 3 }
+
+cuicSecurityLoginFailedAttempts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of rejected login attempts." 
+    ::= { cuicSecurityEntry 4 }
+
+cuicSecurityGroupsConfigured OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "groups"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the overall number of groups configured
+        on this server.
+
+        There can be different groups with various privileges; Like
+        Admin, Restricted, Designer etc.  Each group can share objects
+        like Reports, Report Definition etc." 
+    ::= { cuicSecurityEntry 5 }
+ 
+
+cuicThreadPoolInfo  OBJECT IDENTIFIER
+    ::= { ciscoCuicappsMIBObjects 9 }
+
+cuicEnvInfo  OBJECT IDENTIFIER
+    ::= { ciscoCuicappsMIBObjects 10 }
+
+cuicNotificationInfo  OBJECT IDENTIFIER
+    ::= { ciscoCuicappsMIBObjects 11 }
+
+
+cuicThreadsMaxAvailable OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of threads available
+        to the CUIC web server's thread pool manager." 
+    ::= { cuicThreadPoolInfo 1 }
+
+cuicThreadsRunning OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of threads that are
+        currently running tasks.
+
+        This counter is useful in monitoring performance of the server.
+        If the number of threads is close to maximum available, then
+        next reporting request will have to wait till a thread becomes
+        free." 
+    ::= { cuicThreadPoolInfo 2 }
+
+cuicQueuedTasks OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "tasks"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of queued tasks.  A task is a
+        job, performed by one or more thread." 
+    ::= { cuicThreadPoolInfo 3 }
+
+cuicQueuedTasksMax OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "tasks"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of queued tasks." 
+    ::= { cuicThreadPoolInfo 4 }
+
+cuicWaErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "errors"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of HTTP errors (for
+        example, 401 Unauthorized) encountered by a
+        CUIC-related web application." 
+    ::= { cuicEnvInfo 1 }
+
+cuicWaSessionsActive OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of currently active (in use)
+        sessions the web application currently has" 
+    ::= { cuicEnvInfo 2 }
+
+cuicJvmPercentCPUTime OBJECT-TYPE
+    SYNTAX          Gauge32 (0..100)
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the percentage of CPU utilized by the
+        Tomcat JVM.  This object is for the CUIC Tomcat JVM object." 
+    ::= { cuicEnvInfo 3 }
+
+cuicJvmMemoryFree OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilo bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the amount of free dynamic memory in the
+        CUIC Tomcat Java Virtual Machine." 
+    ::= { cuicEnvInfo 4 }
+
+cuicJvmMemoryTotal OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilo bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Tomcat Java Virtual Machine current
+        total dynamic memory including free and in-use memory." 
+    ::= { cuicEnvInfo 5 }
+
+cuicJvmMemoryMax OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilo bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the CUIC Tomcat Java Virtual Machine
+        maximum dynamic size." 
+    ::= { cuicEnvInfo 6 }
+
+cuicTomcatThreadsBusy OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the CUIC Tomcat Connector's current
+        number of
+        busy/in-use request processing threads." 
+    ::= { cuicEnvInfo 7 }
+
+cuicTomcatThreadsTotal OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the CUIC tomcat Connector's current total
+        number of request processing threads, including available and
+        in-use threads." 
+    ::= { cuicEnvInfo 8 }
+
+cuicTomcatThreadsMax OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Connector maximum number of
+        request processing threads.  Each incoming request on a 
+        CUIC -related web page requires a thread for the duration of 
+        that request.  If more simultaneous requests are received than 
+        can be handled by the currently available request processing 
+        threads, additional threads will be created up to the configured
+        maximum shown in this counter." 
+    ::= { cuicEnvInfo 9 }
+
+cuicEventId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event ID is the unique notification message
+        identifier that is assigned by the CUIC application.
+        This identifier is unique for each different notification but
+        consistent for each instance of the same notification.
+
+        This id can be used to correlate raise and clear notification." 
+    ::= { cuicNotificationInfo 1 }
+
+cuicEventHostName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event host name object specifies the host name or the
+        fully qualified domain name of the CUIC server from which 
+        this event originated." 
+    ::= { cuicNotificationInfo 2 }
+
+cuicEventAppName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event application name object specifies the
+        service-specific name of the functional service that
+        generated this notification." 
+    ::= { cuicNotificationInfo 3 }
+
+cuicEventName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event name object specifies the service-specific
+        name of the CUIC service notification message.  The object value
+        is used to group and correlate similar notifications." 
+    ::= { cuicNotificationInfo 4 }
+
+cuicEventState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        raise(1),
+                        clear(2)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event state object identifies the state (not to be
+        confused with severity) of the notification and potentially
+        the current state of the functional component that generated
+        the notification.  The possible states are:
+
+        'raise':    A raise state identifies a notification received
+                    as a result of a health-impacting condition, such
+                    as a process failure.  A subsequent clear state
+                    notification will follow when the error condition
+                    is resolved.
+
+        'clear':    The clear state indicates that the condition
+                    which generated a previous raise notification has
+                    been resolved." 
+    ::= { cuicNotificationInfo 5 }
+
+cuicEventSeverity OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        emergency(1),
+                        alert(2),
+                        critical(3),
+                        error(4),
+                        warning(5),
+                        notice(6),
+                        informational(7),
+                        debug(8)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event severity object indicates the severity level of
+        this notification.  The severity levels are:
+
+        'emergency':        The notification indicates that a
+                            devastating failure has occurred; the
+                            system or service is unusable.  Immediate
+                            operator intervention is required.  
+
+        'alert':            The notification indicates that a
+                            devastating failure is imminent that will
+                            render the system unusable.  Immediate
+                            operator attention is necessary.
+
+        'critical':         The notification indicates that a
+                            service impacting failure is likely to
+                            occur soon; an error has occurred that
+                            was not appropriately handled by the
+                            system.  Operator attention is needed as
+                            soon as possible.
+
+        'error':            The notification contains important
+                            operational state information and may
+                            indicate that the system has experienced
+                            a temporary impairment or an error that
+                            was appropriately handled by the system.
+                            An operator should review the notification
+                            soon to determine if action is needed.
+
+        'warning':          The notification contains important
+                            operational state information that may be
+                            a precursor to an error occurrence.  An
+                            operator should review the notification
+                            soon to determine if action is needed.
+
+        'notice':           The notification contains health or
+                            operational state information that may be
+                            pertinent to the health of the system but
+                            does not require the attention of the
+                            administrator at this time.
+
+        'informational':    The notification contains interesting
+                            system-level information that is valuable
+                            to an administrator, however, the event
+                            itself does not indicate a failure or
+                            impairment condition.
+
+        'debug':            The notification provides supplemental
+                            information that may be beneficial toward
+                            diagnosing or resolving a problem but does
+                            not in itself provide operational health
+                            status." 
+    ::= { cuicNotificationInfo 6 }
+
+cuicEventTimestamp OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event time stamp object specifies the date and time that
+        the notification was generated on the originating device." 
+    ::= { cuicNotificationInfo 7 }
+
+cuicEventText OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event text is the full text of the notification.  This
+        text includes a description of the event that was generated,
+        component state information and potentially a brief
+        description of administrative action that may be necessary
+        to correct the condition that caused the event to occur." 
+    ::= { cuicNotificationInfo 8 }
+
+-- An event is a notification that is sent by a functional
+-- service of the CUIC application.  Notifications are sent by CUIC
+-- when unusual conditions occur that potentially, can affect the
+-- functioning of a service in CUIC.  Each notification describes
+-- the operation state information of a service when such service
+-- impacting conditions occur.
+
+ciscoCuicappsMIBEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        cuicEventId,
+                        cuicEventHostName,
+                        cuicEventAppName,
+                        cuicEventName,
+                        cuicEventState,
+                        cuicEventSeverity,
+                        cuicEventTimestamp,
+                        cuicEventText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates an unusual condition occur that
+        potentially, can affect the functioning of a service in CUIC.
+        Notification describes the operation state information of a
+        service when such service impacting conditions occur.
+        Notification is sent by a functional service of the CUIC
+        application."
+   ::= { ciscoCuicappsMIBNotifs 1 }
+ciscoCuicappsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCuicappsMIBConform 1 }
+
+
+-- ******************************************************************
+-- Compliance
+-- ******************************************************************
+
+ciscoCuicAppsMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This object is the compliance statement for entities which
+        implement the Cisco CUIC Apps MIB."
+    MODULE          CISCO-CUICAPPS-MIB
+    MANDATORY-GROUPS {
+                        cuicGeneralInfoTableGroup,
+                        cuicLicenseInfoTableGroup,
+                        cuicReportingTableGroup,
+                        cuicReportSchedulerTableGroup,
+                        cuicDbInfoTableGroup,
+                        cuicClusterInfoTableGroup,
+                        cuicDatasourceInfoTableGroup,
+                        cuicSecurityTableGroup,
+                        cuicNotificationInfoGroup,
+                        ciscoCuicappsMIBEventGroup,
+                        cuicThreadPoolInfoGroup,
+                        cuicEnvInfoGroup
+                    }
+    ::= { ciscoCuicappsMIBCompliances 1 }
+ciscoCuicappsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCuicappsMIBConform 2 }
+
+
+cuicGeneralInfoTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicGeneralInfoServerName,
+                        cuicGeneralInfoServerDescription,
+                        cuicGeneralInfoVersion,
+                        cuicGeneralInfoStartTime,
+                        cuicGeneralInfoTimeZoneName,
+                        cuicGeneralInfoSystemStatus,
+                        cuicGeneralInfoOpsConsoleURL,
+                        cuicGeneralInfoEnableNotifications
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The general info group defines the general CUIC objects.  All
+        servers will populate these objects."
+    ::= { ciscoCuicappsMIBGroups 1 }
+
+cuicLicenseInfoTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicLicenseInfoType,
+                        cuicLicenseInfoStartTime,
+                        cuicLicenseInfoExpirationTime,
+                        cuicLicenseInfoHost
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The licensing information group defines the set of objects for
+        the licensing system.  All CUIC servers will populate these
+        objects."
+    ::= { ciscoCuicappsMIBGroups 2 }
+
+cuicReportingTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicReportingDataSourceCount,
+                        cuicReportingEngineStatus,
+                        cuicReportingHistoricalReportDefinitionCount,
+                        cuicReportingRealTimeReportDefinitionCount,
+                        cuicReportingHistoricalReportRunning,
+                        cuicReportingHistoricalReportWaiting,
+                        cuicReportingTotalKickedOffHistoricalReports,
+                        cuicReportingRealTimeReportRunning,
+                        cuicReportingTotalKickedOffRealTimeReports,
+                        cuicReportingRealTimeReportWaiting
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The reporting group defines the set of objects for the
+        reporting service.  All CUIC servers populate these objects."
+    ::= { ciscoCuicappsMIBGroups 3 }
+
+cuicReportSchedulerTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicSchedulerStatus,
+                        cuicSchedulerEmailServerStatus,
+                        cuicSchedulerJobsCompletedCount,
+                        cuicSchedulerJobsRunningCount,
+                        cuicSchedulerJobsFailedCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The reporting scheduler group defines the set of objects for
+        the report scheduler component.  All CUIC servers populate these
+        objects."
+    ::= { ciscoCuicappsMIBGroups 4 }
+
+cuicDbInfoTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicDbInfoStatus,
+                        cuicDbInfoReplicationStatus,
+                        cuicDbInfoTmpSpaceUsed,
+                        cuicDbInfoSpaceUsed
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The db info group defines the set of objects for the database
+        service.  All CUIC servers populate these objects."
+    ::= { ciscoCuicappsMIBGroups 5 }
+
+cuicClusterInfoTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicClusterName,
+                        cuicClusterServerCount,
+                        cuicClusterFirstNodeName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The cluster info group defines the set of objects for the
+        CUIC cluster.  All CUIC servers populate these objects."
+    ::= { ciscoCuicappsMIBGroups 6 }
+
+cuicDatasourceInfoTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicDatasourceName,
+                        cuicDatasourceStatus,
+                        cuicDatasourceHost,
+                        cuicDatasourceType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The data source info group defines the data source related
+        objects.  All CUIC servers populate these objects."
+    ::= { ciscoCuicappsMIBGroups 7 }
+
+cuicSecurityTableGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicSecurityUsersConfigured,
+                        cuicSecurityUsersLoggedIn,
+                        cuicSecurityLoginFailedAttempts,
+                        cuicSecurityGroupsConfigured
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The security group defines the set of objects related to users
+        and groups.  All CUIC servers populate these objects."
+    ::= { ciscoCuicappsMIBGroups 8 }
+
+cuicNotificationInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicEventId,
+                        cuicEventHostName,
+                        cuicEventAppName,
+                        cuicEventName,
+                        cuicEventState,
+                        cuicEventSeverity,
+                        cuicEventTimestamp,
+                        cuicEventText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group defines the set of Notification objects for CUIC."
+    ::= { ciscoCuicappsMIBGroups 9 }
+
+ciscoCuicappsMIBEventGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoCuicappsMIBEvent }
+    STATUS          current
+    DESCRIPTION
+        "This group defines the notification types defined in this MIB."
+    ::= { ciscoCuicappsMIBGroups 10 }
+
+cuicThreadPoolInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicThreadsMaxAvailable,
+                        cuicThreadsRunning,
+                        cuicQueuedTasks,
+                        cuicQueuedTasksMax
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The thread pool information group defines the set of objects
+        for the CUIC reporting engine thread pool.  All servers will
+        populate these objects."
+    ::= { ciscoCuicappsMIBGroups 11 }
+
+cuicEnvInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cuicWaErrors,
+                        cuicWaSessionsActive,
+                        cuicJvmPercentCPUTime,
+                        cuicJvmMemoryFree,
+                        cuicJvmMemoryTotal,
+                        cuicJvmMemoryMax,
+                        cuicTomcatThreadsBusy,
+                        cuicTomcatThreadsTotal,
+                        cuicTomcatThreadsMax
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The EnvInfo group defines the set of objects for the Runtime
+        tomcat info.  All servers will populate these objects."
+    ::= { ciscoCuicappsMIBGroups 12 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

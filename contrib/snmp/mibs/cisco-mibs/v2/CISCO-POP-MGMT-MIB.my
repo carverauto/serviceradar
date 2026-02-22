@@ -1,0 +1,2047 @@
+
+-- *****************************************************************
+-- CISCO-POP-MGMT-MIB.my:  Cisco PoP management MIB file.
+--
+-- Copyright (c) 1997, 1998, 1999, 2000, 2001, 2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-POP-MGMT-MIB DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        IpAddress,
+        Integer32,
+        Gauge32,
+        Counter32,
+        TimeTicks,
+        Unsigned32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP,
+        NOTIFICATION-GROUP
+                FROM SNMPv2-CONF
+        DisplayString,
+        TimeStamp,
+        TruthValue
+                FROM SNMPv2-TC
+        InterfaceIndexOrZero
+                FROM IF-MIB
+        dsx1LineStatus,
+        dsx1LineIndex
+               FROM DS1-MIB
+        ciscoExperiment
+                FROM CISCO-SMI;
+
+ciscoPopMgmtMIB MODULE-IDENTITY
+        LAST-UPDATED    "200512210000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-apm@cisco.com"
+        DESCRIPTION
+                "Cisco Point Of Presence Management MIB to provide DSX1
+                 and DSX0 facilities management and call summaries."
+
+        REVISION        "200512210000Z"
+        DESCRIPTION
+                "Imported dsx1LineIndex from DS1-MIB instead of 
+                 RFC1406-MIB
+                 
+                 Changed SYNTAX of
+                  cpmDS1SlotIndex
+                  cpmDS1PortIndex
+                  cpmChannelIndex
+                  cpmDS1UsageSlotIndex
+                  cpmDS1UsagePortIndex
+                  cpmActiveCallSummaryIndex
+                  cpmCallHistorySummaryIndex
+
+                  cpmActiveModemSlot
+                  cpmActiveModemPort
+                  cpmActiveEntrySlot
+                  cpmActiveEntryPort
+                  cpmActiveEntryChannel
+                 
+                 from Integer32 to Integer32 (0..2147483647)
+
+                 Imported Unsigned32 from SNMPv2-SMI instead of 
+                 CISCO-TC."
+
+        REVISION        "200212260000Z"
+        DESCRIPTION
+                "Added voice(6) to object cpmCallType.
+                 Added Notification Group cpmNotificationGroupRev1"
+
+        REVISION        "200011290000Z"
+        DESCRIPTION
+                "Added cpmCallVolume with objects:
+            cpmCallVolSuccISDNDigital
+            cpmCallVolAnalogCallClearedNormally"
+
+
+        REVISION        "200003030000Z"
+        DESCRIPTION
+                "Extended cpmDs1DS0UsageTable with objects:
+                   cpmDS1TotalAnalogCalls
+                   cpmDS1TotalDigitalCalls
+                   cpmDS1TotalV110Calls
+                   cpmDS1TotalV120Calls
+                   cpmDS1TotalCalls
+                   cpmDS1TotalTimeInUse
+                   cpmDS1CurrentIdle
+                   cpmDS1CurrentOutOfService
+                   cpmDS1CurrentBusyout
+                   cpmDS1InOctets
+                   cpmDS1OutOctets
+                   cpmDS1InPackets
+                   cpmDS1OutPackets
+
+                 Added system level summary objects:
+                   cpmISDNCfgActiveDChannels
+                   cpmISDNCfgBChannelsTimeInUse
+                   cpmISDNCfgBChannelsTimeInUseAnalog
+                   cpmISDNCfgBChannelCalls
+                   cpmISDNCfgBChannelAnalogCalls
+                   cpmTotalISDNSyncPPPCalls 
+
+                 Added DS0StatusTable with objects:
+                   cpmDS0OperStatus
+                   cpmDS0BusyoutAdminStatus
+                   cpmDS0BusyoutAllow
+                   cpmDS0BusyoutStatus
+                   cpmDS0BusyoutSource
+                   cpmDS0BusyoutTime
+                   cpmDS0ConfigFunction
+                   cpmDS0InterfaceIndex
+
+                 Added busyout notification and
+                 notification enable object:
+                   cpmDS0BusyoutNotification
+                   cpmDS0BusyoutNotifyEnable
+                   cpmDS1LoopbackNotifyConfig
+                   cpmDS1LoopbackNotifyEnable
+                   cpmDS1LoopbackNotification
+                "
+    
+
+
+        REVISION        "9802020000Z"
+        DESCRIPTION
+                "Added objects:
+                        cpmISDNCfgBChanInUseForVoice
+                        cpmCASCfgBChanInUseForVoice
+                 Added enumeration-type:
+                        voice"
+
+
+        REVISION        "9710210000Z"
+        DESCRIPTION
+                "Added objects:
+                        cpmDS1DS0UsageTable
+                        cpmActiveDS0sHighWaterMark
+                        cpmSW56CfgBChannelsInUse"
+
+
+        REVISION        "9705010000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+
+        ::= { ciscoExperiment 19 }
+
+
+ciscoPopMgmtMIBObjects  OBJECT IDENTIFIER ::= { ciscoPopMgmtMIB 1 }
+ 
+cpmDS0Usage           OBJECT IDENTIFIER ::= { ciscoPopMgmtMIBObjects 1 }
+cpmCallFailure        OBJECT IDENTIFIER ::= { ciscoPopMgmtMIBObjects 2 }
+cpmActiveCallSummary  OBJECT IDENTIFIER ::= { ciscoPopMgmtMIBObjects 3 }
+cpmCallHistorySummary OBJECT IDENTIFIER ::= { ciscoPopMgmtMIBObjects 4 }
+cpmDS0Status          OBJECT IDENTIFIER ::= { ciscoPopMgmtMIBObjects 5 }
+cpmDS1LoopbackNotifyConfig  OBJECT IDENTIFIER ::= 
+                               { ciscoPopMgmtMIBObjects 6 }
+cpmCallVolume               OBJECT IDENTIFIER ::=
+                               { ciscoPopMgmtMIBObjects 7 }
+
+
+-- cpmDS0Usage
+
+cpmDS0UsageTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpmDS0UsageEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "The DS0 usage table is for hardware and software
+         objects not used as interfaces, and not covered in
+         rfc1213.  These objects include analog calls coming 
+         over ISDN, Channelized T1, and Channelized E1.  This
+         table is created for every DS1 line in the device."
+    ::= { cpmDS0Usage 1 }
+
+cpmDS0UsageEntry OBJECT-TYPE
+    SYNTAX CpmDS0UsageEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "An entry in the DS0 Usage table."
+    INDEX {cpmDS1SlotIndex, cpmDS1PortIndex, cpmChannelIndex }
+    ::= { cpmDS0UsageTable 1 }
+
+CpmDS0UsageEntry ::= SEQUENCE {
+    cpmDS1SlotIndex Integer32,
+    cpmDS1PortIndex Integer32,
+    cpmChannelIndex Integer32,
+    cpmConfiguredType INTEGER,
+    cpmDS0CallType INTEGER,
+    cpmL2Encapsulation INTEGER,
+    cpmCallCount Counter32,
+    cpmTimeInUse TimeTicks,
+    cpmInOctets Counter32,
+    cpmOutOctets Counter32,
+    cpmInPackets Counter32,
+    cpmOutPackets Counter32,
+    cpmAssociatedInterface InterfaceIndexOrZero
+    }
+
+cpmDS1SlotIndex OBJECT-TYPE
+    SYNTAX  Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS current
+    DESCRIPTION
+        "The slot index indicates the slot number on the 
+         device where the DS1 card resides."
+    ::= { cpmDS0UsageEntry 1 }
+
+cpmDS1PortIndex OBJECT-TYPE
+    SYNTAX  Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS current
+    DESCRIPTION
+        "The port index indicates the port number of a
+         specific DS1 on the DS1 card in the slot"
+    ::= { cpmDS0UsageEntry 2 }
+
+cpmChannelIndex OBJECT-TYPE
+    SYNTAX  Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS current
+    DESCRIPTION
+        "The channel index that distinguishes the DS0 timeslot 
+         of the DS1 port.  The range of the channel index is based 
+         on the number of T1/E1 channels: 1-24(T1) and 1-31(E1)."
+    ::= { cpmDS0UsageEntry 3 }
+
+cpmConfiguredType OBJECT-TYPE
+    SYNTAX  INTEGER {
+           unknown(1),
+           isdn(2),
+           ct1(3),
+           ce1(4)
+           }
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The configured technology for the channel: ISDN(2), 
+         Channelized T1 (3) or Channelized E1 (4)."
+    ::= { cpmDS0UsageEntry 4 }
+
+cpmDS0CallType OBJECT-TYPE
+    SYNTAX  INTEGER {
+       idle(1),
+       unknown(2),
+       analog(3),
+       digital(4),
+       v110(5),
+       v120(6),
+       voice(7)
+       }
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The type of the current call carried by this DS0.
+            idle     - This DS0 is currently idle.
+            unknown  - The data type of the call currently
+                       occupying this DS0 is not one of the
+                       types listed here.
+            analog   - The data type of the call currently
+                       occupying this DS0 is analog, i.e. a
+                       modem call.
+            digital  - The data type of the call currently
+                       occupying this DS0 is digital.
+            v110     - The call currently occupying this 
+                       DS0 is a V110 call.
+            v120     - The call currently occupying this
+                       DS0 is a V120 call.
+            voice    - The call currently occupying this
+                       DS0 is a voice call."
+    ::= { cpmDS0UsageEntry 5 }
+
+cpmL2Encapsulation OBJECT-TYPE
+    SYNTAX  INTEGER {
+       idle(1),
+       unknown(2),
+       ppp(3),
+       slip(4),
+       arap(5),
+       hdlc(6),
+       exec(7),
+       voice(8)
+       }
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The data link encapsulation of the call currently
+         occuppying this DS0:
+            idle    - This DS0 is currently idle.
+            unknown - The encapsulation of the currently
+                      active call on this DS0 is not one
+                      of the options following.
+            PPP     - 
+            slip    - 
+            arap    -
+            hdlc    -
+            exec    -
+            voice   - voice encapsulation; IANA type voiceEncap(103)"
+    ::= { cpmDS0UsageEntry 6 }
+
+cpmCallCount OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The number of calls that have occupied this DS0."
+    ::= { cpmDS0UsageEntry 7 }
+
+cpmTimeInUse OBJECT-TYPE
+    SYNTAX TimeTicks
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The amount of time that this DS0 has been in use.
+         This is computed by summing up the call durations 
+         of all past calls that have occupied this DS0."
+    ::= { cpmDS0UsageEntry 8 }
+
+cpmInOctets OBJECT-TYPE
+    SYNTAX  Counter32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+         "The total number of octets received on this DS0 for
+          data calls (cpmDS0CallType has the value  'analog(3)'
+          or 'digital(4)' or 'v110(5)' or 'v120(6)'). All the
+          received 'raw' octets are counted, including any
+          protocol headers which may or may not be present,
+          depending on the service type of data call."
+    ::= { cpmDS0UsageEntry 9 }
+
+cpmOutOctets OBJECT-TYPE
+    SYNTAX  Counter32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+         "The total number of octets transmitted on this DS0 for
+          data calls (cpmDS0CallType has the value  'analog(3)'
+          or 'digital(4)' or 'v110(5)' or 'v120(6)'). All the
+          transmitted 'raw' octets are counted, including any
+          protocol headers which may or may not be present,
+          depending on the service type of data call."
+    ::= { cpmDS0UsageEntry 10 }
+
+cpmInPackets OBJECT-TYPE
+    SYNTAX  Counter32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of packets received on this DS0 for
+         data calls (cpmDS0CallTyp has the value  'analog(3)'
+         or 'digital(4)' or 'v110(5)' or 'v120(6)')."
+    ::= { cpmDS0UsageEntry 11 }
+
+cpmOutPackets OBJECT-TYPE
+    SYNTAX  Counter32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of packets transmitted on this DS0 for
+         data calls (cpmDS0CallTyp has the value  'analog(3)'
+         or 'digital(4)' or 'v110(5)' or 'v120(6)')."
+    ::= { cpmDS0UsageEntry 12 }
+
+cpmAssociatedInterface OBJECT-TYPE
+    SYNTAX  InterfaceIndexOrZero
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "This is the value of ifIndex when the specific channel
+         has an active call with a corresponding interface in the
+         ifTable.  For example, a digital ISDN call has a value
+         pointing to the B-Channel entry in the ifTable.  A 
+         modem call over ISDN or CT1/CE1 has a value pointing
+         to the async interface of the modem assigned to this 
+         call.  If the channel is idle, this value is 0."
+    ::= { cpmDS0UsageEntry 13 }
+
+-- End of cpmDS0UsageTable
+
+
+cpmISDNCfgBChanInUseForAnalog OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of configured ISDN B-Channels that are
+         currently occupied by analog calls."
+    ::= { cpmDS0Usage 2 }
+
+cpmISDNCfgBChannelsInUse OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of configured ISDN B-Channels that are
+         currently occupied by both Digital and Analog calls."
+    ::= { cpmDS0Usage 3 }
+
+cpmActiveDS0s OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of DS0s that are currently in use."
+    ::= { cpmDS0Usage 4 }
+
+cpmPPPCalls OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The current number of active PPP calls received 
+         by the managed device"
+    ::= { cpmDS0Usage 5 }
+
+cpmV120Calls OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The current number of active V.120 calls received 
+         by the managed device"
+    ::= { cpmDS0Usage 6 }
+
+cpmV110Calls OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The current number of active V.110 calls received 
+         by the managed device"
+    ::= { cpmDS0Usage 7 }
+
+cpmActiveDS0sHighWaterMark OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The high water mark for number of DS0s that are active
+         simultaneously"
+    ::= { cpmDS0Usage 8 }
+
+
+--
+-- DS1 Level Statistics Aggregation
+--
+
+cpmDS1DS0UsageTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpmDS1DS0UsageEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "The DS1-DS0-usage table is for hardware and software
+         objects not used as interfaces, and not covered in
+         rfc1213.  These objects provide information on timeslots
+         usage for a particular DS1."
+    ::= { cpmDS0Usage 9 }
+ 
+cpmDS1DS0UsageEntry OBJECT-TYPE
+    SYNTAX CpmDS1DS0UsageEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "An entry in the DS0 Usage table."
+    INDEX {cpmDS1UsageSlotIndex, cpmDS1UsagePortIndex }
+    ::= { cpmDS1DS0UsageTable 1 }
+ 
+CpmDS1DS0UsageEntry ::= SEQUENCE {
+    cpmDS1UsageSlotIndex          Integer32,
+    cpmDS1UsagePortIndex          Integer32,
+    cpmDS1ActiveDS0s              Gauge32,
+    cpmDS1ActiveDS0sHighWaterMark Counter32,
+    cpmDS1TotalAnalogCalls        Counter32,
+    cpmDS1TotalDigitalCalls       Counter32,
+    cpmDS1TotalV110Calls          Counter32,
+    cpmDS1TotalV120Calls          Counter32,
+    cpmDS1TotalCalls              Counter32,
+    cpmDS1TotalTimeInUse          Unsigned32,
+    cpmDS1CurrentIdle             Gauge32,
+    cpmDS1CurrentOutOfService     Gauge32,
+    cpmDS1CurrentBusyout          Gauge32,
+    cpmDS1InOctets                Counter32,
+    cpmDS1OutOctets               Counter32,
+    cpmDS1InPackets               Counter32,
+    cpmDS1OutPackets              Counter32
+    }
+ 
+cpmDS1UsageSlotIndex OBJECT-TYPE
+    SYNTAX  Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS current
+    DESCRIPTION
+        "The slot index indicates the slot number on the
+         device where the DS1 card resides. The slot index of 
+         the first slot is starting from 0 and increment by 1 for
+         the next slot in the device."
+    ::= { cpmDS1DS0UsageEntry 1 }
+ 
+cpmDS1UsagePortIndex OBJECT-TYPE
+    SYNTAX  Integer32 (0..2147483647)
+    MAX-ACCESS  not-accessible
+    STATUS current
+    DESCRIPTION
+        "The port index indicates the port number of a
+         specific DS1 on the DS1 card in the slot. The port index
+         of the first port is starting from 0 and increment by 1
+         for the next port on the DS1 card."
+    ::= { cpmDS1DS0UsageEntry 2 }
+ 
+cpmDS1ActiveDS0s OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of DS0s that are currently in use for a
+         particular DS1."
+    ::= { cpmDS1DS0UsageEntry 3 }
+ 
+cpmDS1ActiveDS0sHighWaterMark OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The highest number of simultaneously actived DS0s on a
+         specified DS1."
+    ::= { cpmDS1DS0UsageEntry 4 }
+
+
+ 
+cpmDS1TotalAnalogCalls OBJECT-TYPE
+    SYNTAX Counter32
+    UNITS  "calls"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The accumulated number of analog data calls
+         (cpmDS0CallType has the value 'analog(3)') on all
+         ds0s within this DS1 since system startup.
+         The object includes active and terminated calls."
+    ::= { cpmDS1DS0UsageEntry 5 }
+ 
+cpmDS1TotalDigitalCalls OBJECT-TYPE
+    SYNTAX Counter32
+    UNITS  "calls"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The accumulated number of digital data calls
+         (cpmDS0CallType has the value 'digital(4)') on all
+         ds0s within this DS1 since system startup.
+         The object includes active and terminated calls."
+    ::= { cpmDS1DS0UsageEntry 6 }
+ 
+cpmDS1TotalV110Calls OBJECT-TYPE
+    SYNTAX Counter32
+    UNITS  "calls"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The accumulated number of v.110 data calls
+         (cpmDS0CallType has the value 'v110(5)') on all
+         ds0s within this DS1 since system startup.
+         The object includes active and terminated calls."
+    ::= { cpmDS1DS0UsageEntry 7 }
+ 
+cpmDS1TotalV120Calls OBJECT-TYPE
+    SYNTAX Counter32
+    UNITS  "calls"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The accumulated number of v.120 data calls
+         (cpmDS0CallType has the value 'v120(6)') on all
+         ds0s within this DS1 since system startup.
+         The object includes active and terminated calls."
+    ::= { cpmDS1DS0UsageEntry 8 }
+ 
+cpmDS1TotalCalls OBJECT-TYPE
+    SYNTAX Counter32
+    UNITS  "calls"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of calls on all the DS0s within
+         this DS1 since last system re-initialization. The
+         object includes active and terminated calls.
+
+         This only includes DS0s configured as bearer channels,
+         not those configured for signaling, such as PRI D-channel."
+    ::= { cpmDS1DS0UsageEntry 9 }
+ 
+cpmDS1TotalTimeInUse OBJECT-TYPE
+    SYNTAX Unsigned32
+    UNITS "seconds"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The total call duration on all the DS0s within
+         this DS1 since last system re-initialization.
+
+         This only includes DS0s configured as bearer channels,
+         not those configured for signaling, such as PRI D-channel."
+    ::= { cpmDS1DS0UsageEntry 10 }
+
+cpmDS1CurrentIdle OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of DS0s currently in idle state within
+         this DS1.
+
+         This only includes DS0s configured as bearer and CAS channels,
+         not those configured for signaling, such as PRI D-channel.
+
+         See cpmDS0OperStatus in the cpmDS0StatusTable for individual
+         DS0s."
+    ::= { cpmDS1DS0UsageEntry 11 }
+ 
+cpmDS1CurrentOutOfService OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of DS0s in this DS1 currently placed
+         out of service.
+
+         This only includes DS0s configured as bearer and CAS channels,
+         not those configured for signaling, such as PRI D-channel.
+
+         See cpmDS0OperStatus in the cpmDS0StatusTable for individual
+         DS0s."
+    ::= { cpmDS1DS0UsageEntry 12 }
+ 
+cpmDS1CurrentBusyout OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of DS0s in this DS1 which currently have
+         been requested to be busied out, but are not yet out of
+         service.
+
+         When an active call on a busied out DS0 terminates,
+         the DS0 will be out of service, this object will be
+         decremented and cpmDS1TotalOutOfService will be
+         incremented.
+
+         This only includes DS0s configured as bearer channels,
+         not those configured for signaling, such as PRI D-channel.
+
+         See cpmDS0AdminStatus in the cpmDS0StatusTable for individual
+         DS0s."
+    ::= { cpmDS1DS0UsageEntry 13 }
+
+cpmDS1InOctets OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS   "octets"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of octets received over all the
+         DS0 bearer channels within this DS1 since last system
+         re-initialization.
+
+         This value is a sum of all the cpmInOctets objects in
+         the cpmDS0UsageTable for this DS1."
+    ::= { cpmDS1DS0UsageEntry 14 }
+
+cpmDS1OutOctets OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS   "octets"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of octets transmitted over all the
+         DS0 bearer channels within this DS1 since last system
+         re-initialization.
+
+         This value is a sum of all the cpmOutOctets objects in
+         the cpmDS0UsageTable for this DS1."
+    ::= { cpmDS1DS0UsageEntry 15 }
+
+cpmDS1InPackets OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS   "packets"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of data packets received over all the
+         DS0 bearer channels within this DS1 since last system
+         re-initialization.
+
+         This value is a sum of all the cpmInPackets objects in
+         the cpmDS0UsageTable for this DS1. It consists of PPP
+         or PCM voice data packets."
+    ::= { cpmDS1DS0UsageEntry 16 }
+
+cpmDS1OutPackets OBJECT-TYPE
+    SYNTAX  Counter32
+    UNITS   "packets"
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of data packets transmitted over all the
+         DS0 bearer channels within this DS1 since last system
+         re-initialization.
+
+         This value is a sum of all the cpmOutPackets objects in
+         the cpmDS0UsageTable for this DS1. It consists of PPP
+         or PCM voice data packets."
+    ::= { cpmDS1DS0UsageEntry 17 }
+
+
+
+-- End of cpmDS1DS0UsageTable
+
+
+--
+-- Additional System Level Statistics
+--
+
+cpmSW56CfgBChannelsInUse OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of configured SW56 B-Channels that are
+         currently occupied by Digital calls."
+    ::= { cpmDS0Usage 10 }
+
+cpmISDNCfgBChanInUseForVoice OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of configured ISDN B-Channels that are
+         currently occupied by Voice calls."
+    ::= { cpmDS0Usage 11 }
+
+cpmCASCfgBChanInUseForVoice OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of configured CAS Channels that are
+         currently occupied by Voice calls."
+    ::= { cpmDS0Usage 12 }
+
+
+
+cpmISDNCfgActiveDChannels OBJECT-TYPE
+    SYNTAX Gauge32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of ISDN signaling channels which are active."
+    ::= { cpmDS0Usage 13 }
+
+cpmISDNCfgBChannelsTimeInUse OBJECT-TYPE
+    SYNTAX Counter32
+    UNITS "seconds"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The total call duration on all the ISDN B-channels
+         since last system re-initialization."
+    ::= { cpmDS0Usage 14 }
+
+cpmISDNCfgBChannelsTimeInUseAnlg OBJECT-TYPE
+    SYNTAX Counter32
+    UNITS "seconds"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The total analog call duration on all the ISDN B-channels
+         since last system re-initialization.
+
+         Analog call type is identified in cpmDS0CallType."
+    ::= { cpmDS0Usage 15 }
+
+cpmISDNCfgBChannelCalls OBJECT-TYPE
+    SYNTAX Counter32
+    UNITS  "calls"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of calls on all the ISDN B-channels
+         since last system re-initialization."
+    ::= { cpmDS0Usage 16 }
+
+cpmISDNCfgBChannelAnalogCalls OBJECT-TYPE
+    SYNTAX Counter32
+    UNITS  "calls"
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of analog calls on all the ISDN B-channels
+         since last system re-initialization.
+
+         Analog call type is identified in cpmDS0CallType."
+    ::= { cpmDS0Usage 17 }
+
+cpmTotalISDNSyncPPPCalls OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The total number of ISDN-sync PPP calls received 
+         by the managed device since last system re-initialization."
+    ::= { cpmDS0Usage 18 }
+
+
+
+--
+-- DS0 Status Group
+--
+
+-- Notification Configuration
+
+cpmDS0BusyoutNotifyEnable OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "This variable controls generation of
+             cpmDS0BusyoutNotification.
+
+             When this variable is 'true(1)', generation of
+             cpmDS0BusyoutNotification is enabled.  When this
+             variable is 'false(2)', generation of
+             cpmDS0BusyoutNotification is disabled.
+
+             The default value is 'false(2)'.
+            "
+        ::= { cpmDS0Status 1 }
+
+
+
+
+cpmDS0StatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpmDS0StatusEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "The DS0 Status Table provides additional DS0 level
+         information and configuration.
+
+         This table is an extension of the cpmDS0UsageTable.
+        "
+    ::= { cpmDS0Status 2 }
+
+
+cpmDS0StatusEntry OBJECT-TYPE
+    SYNTAX CpmDS0StatusEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Status for an individual DS0.
+         This entry AUGMENTS the cpmDS0UsageEntry.
+         An entry exists for each configured DS0 in the system.
+        "
+    AUGMENTS { cpmDS0UsageEntry }
+    ::= { cpmDS0StatusTable 1 }
+
+
+CpmDS0StatusEntry ::= SEQUENCE {
+    cpmDS0OperStatus          INTEGER,
+    cpmDS0BusyoutAdminStatus  INTEGER,
+    cpmDS0BusyoutAllow        TruthValue,
+    cpmDS0BusyoutStatus       INTEGER,
+    cpmDS0BusyoutSource       INTEGER,
+    cpmDS0BusyoutTime         TimeStamp,
+    cpmDS0ConfigFunction      INTEGER,
+    cpmDS0InterfaceIndex      InterfaceIndexOrZero
+    }
+
+
+
+ 
+cpmDS0OperStatus     OBJECT-TYPE
+    SYNTAX INTEGER {
+       unknown(1),
+       down(2),
+       idle(3),
+       setup(4),
+       connected(5),
+       test(6)
+       }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The operational state of the DSO.
+         This object provides more detailed information than
+         the IF-MIB ifOperStatus.
+            unknown   - The DSO is in an unknown state
+            down      - The DS0 is out of service
+            idle      - This DS0 is currently idle
+            setup     - A new connection is in the process
+                        of being established
+            connected - A active connection exists
+            test      - The DSO is undergoing internal testing
+
+        "
+    ::= { cpmDS0StatusEntry 1 }
+
+
+ 
+cpmDS0BusyoutAdminStatus     OBJECT-TYPE
+    SYNTAX INTEGER {
+       noBusyout(1),
+       busyout(2),
+       busyoutImmediate(3)
+       }
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+        "The administratively requested busyout state of the DSO.
+         This object represents the desired busyout state of the DS0,
+         which may or may not be reflected in the operation state,
+         cpmDS0OperStatus.
+
+         This object may be set via SNMP or the system console.
+
+            noBusyout - No administrative busyout has been requested
+            busyout   - The DS0 will be shutdown when it next
+                        transitions to idle(2) cpmDS0OperStatus
+            busyoutImmediate  -
+                        Immediately transition the DS0 to down(2),
+                        terminating any current activity
+
+         The effect of setting this object to busyout or
+         busyoutImmediate is constrained by the value of
+         cpmDS0BusyoutAllowed. If cpmDS0BusyoutAllowed has a value
+         of false, attempting to set this object to busyout or
+         busyoutImmediate will fail.
+
+
+         This object provides more busyout information not available
+         from the IF-MIB ifAdminStatus.
+
+         This object reflects busyout requests configured on the
+         local system as defined for the object cpmDS0BusyoutSource.
+        "
+    ::= { cpmDS0StatusEntry 2 }
+
+
+
+cpmDS0BusyoutAllow   OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The object indicates if busyout requests for this DSO
+         will be allowed.
+
+            true      - Setting cpmDS0BusyoutAdminStatus to busyout(2)
+                        or busyoutImmediate(3) will be accepted
+            false     - Busyout requests for this DS0 are not
+                        allowed
+
+         The default value is true(1).
+
+         If cpmDS0BusyoutAllowed has a value of false(2), attempting
+         to set cpmDS0BusyoutAdminStatus to busyout or
+         busyoutImmediate will fail.
+
+         This object only constrains setting the value of
+         cpmDS0BusyoutAdminStatus when cpmDS0BusyoutAdminStatus is set
+         via SNMP.
+        "
+    ::= { cpmDS0StatusEntry 3 }
+
+
+cpmDS0BusyoutStatus     OBJECT-TYPE
+    SYNTAX INTEGER {
+       noBusyout(1),
+       busyoutPending(2),
+       busiedOut(3)
+       }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The busyout status of the DSO. 
+
+            noBusyout      - The DS0 is not busied out nor has a
+                             busyout pending.
+            busyoutPending - The DS0 has a busyout request pending. It
+                             will shutdown when it next transitions
+                             to idle(2) cpmDS0OperStatus.
+            busiedOut      - The DS0 is out of service due to a busyout
+                             request.
+
+         This object is needed to reflect busyouts initiated other than
+         administrativly, as described in cpmDS0BusyoutSource.
+        "
+    ::= { cpmDS0StatusEntry 4 }
+
+
+cpmDS0BusyoutSource     OBJECT-TYPE
+    SYNTAX INTEGER {
+       none(1),
+       local(2),
+       internal(3),
+       remote(4)
+       }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The source of the busyout request either pending or
+         active for the DSO.
+
+            none     - The DS0 is not busied out nor has a busyout
+                       request pending
+            local    - The DS0 is busied out or has a pending request
+                       due to an adminstrative command issued locally.
+            internal - The DS0 is busied out or has a pending request
+                       due to internal system processing.
+            remote   - The DS0 is busied out or has a pending request
+                       due to a request from the peer switch.
+        "
+    ::= { cpmDS0StatusEntry 5 }
+
+
+cpmDS0BusyoutTime     OBJECT-TYPE
+        SYNTAX TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Value of sysUpTime when the most recent busyout request
+             was issued for this DS0. The value is zero indicates no
+             busyout request has been issued.
+            "
+        ::= { cpmDS0StatusEntry 6 }
+
+
+cpmDS0ConfigFunction   OBJECT-TYPE
+    SYNTAX INTEGER {
+           unknown(1),
+           t1CcsSignallingChan(2),
+           t1CcsBearerChan(3),
+           e1CcsSignallingChan(4),
+           e1CcsBearerChan(5),
+           t1CasChan(6),
+           e1CasChan(7)
+       }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The object indicates the function this DSO is configured
+         to provide.
+
+         This object provides more detail than cpmConfiguredType.
+
+            unknown          - Unknown configuration
+            t1SignallingChan - DS0 is configured as a T1 common channel
+                               signalling (CCS) such as ISDN PRI
+                               D-channel
+            t1CcsBearerChan  - DS0 is configured as a T1 common channel
+                               signalling (CCS) bearer channel
+            e1SignallingChan - DS0 is configured as a E1 common channel
+                               signalling (CCS) such as ISDN PRI
+                               D-channel
+            e1CcsBearerChan  - DS0 is configured as a E1 common channel
+                               signalling (CCS) bearer channel
+            t1CasChan        - DS0 is configured as a T1 channel
+                               associated signalling channel
+            e1CasChan        - DS0 is configured as a E1 channel
+                               associated signalling channel
+
+        "
+    ::= { cpmDS0StatusEntry 7 }
+
+
+cpmDS0InterfaceIndex OBJECT-TYPE
+    SYNTAX  InterfaceIndexOrZero
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "This is the value of ifIndex in the ifTable for this DS0."
+    ::= { cpmDS0StatusEntry 8 }
+
+
+
+
+-- cpmCallFailure
+--
+-- The objects in this section are optimizations so we don't have to
+-- retrieve and count tables.  We have examined existing call
+-- termination conditions from the CISCO-CALL-HISTORY-MIB, and they
+-- do not address the both ISDN and Modem terminations. 
+
+cpmISDNCallsRejected OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of rejected ISDN calls in this managed
+         device." 
+    ::= { cpmCallFailure 1 }
+
+cpmModemCallsRejected OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of rejected modem calls in this managed
+         device."
+    ::= { cpmCallFailure 2 }
+
+cpmISDNCallsClearedAbnormally OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of connected ISDN calls that have been
+         abnormally cleared, that is, they were cleared by some
+         event other than the following:
+         a - The transmission of a normal disconnect message by the 
+             local end.
+         b - The reception of a normal disconnect message from the 
+             remote end."
+    ::= { cpmCallFailure 3 }
+
+cpmModemCallsClearedAbnormally OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of connected modem calls that have been abnormally
+         cleared, that is, they were not cleared with the proper modem
+         protocol handshakes."
+    ::= { cpmCallFailure 4 }
+
+cpmISDNNoResource OBJECT-TYPE
+    SYNTAX Counter32 
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of ISDN calls that have been rejected because
+         there is no B-Channel available to handle the call."        
+    ::= { cpmCallFailure 5 }
+
+cpmModemNoResource OBJECT-TYPE
+    SYNTAX Counter32 
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The number of modem calls that have been rejected because
+         there is no modem available to handle the call."        
+    ::= { cpmCallFailure 6 }
+
+
+-- cpmCallVolume
+--
+-- The objects in this section are optimizations so we don't have 
+-- to retrieve and count tables.
+
+cpmCallVolSuccISDNDigital OBJECT-TYPE
+      SYNTAX Counter32
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of incoming and outgoing successful ISDN 
+           digital data calls (cpmDS0CallType has the value 
+           'digital(4)'), since system startup.  A successful call is 
+           a terminated call that has a disconnect cause of 'normal 
+           call clearing(16)'."
+      ::= { cpmCallVolume 1 }
+  
+  
+cpmCallVolAnalogCallClearedNormally OBJECT-TYPE
+      SYNTAX Counter32
+      MAX-ACCESS read-only
+      STATUS current
+      DESCRIPTION
+          "The number of incoming and outgoing successful
+           analog data calls which use modem resource (cpmDS0CallType 
+           has the value 'analog(3)'), since system startup. A 
+           successful call is a terminated call who is cleared by the
+           proper modem protocol handshake."
+      ::= { cpmCallVolume 2 }
+
+
+-- cpmActiveCallSummary
+
+cpmActiveCallSummaryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpmActiveCallSummaryEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "The active call summary table is needed to track 
+         currently active calls.  This table is needed 
+         because modem calls are not in CALL-HISTORY-MIB,
+         and the DIAL-CONTROL_MIB is not yet available." 
+    ::= { cpmActiveCallSummary 1 }
+
+cpmActiveCallSummaryEntry OBJECT-TYPE
+    SYNTAX CpmActiveCallSummaryEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "An entry in the Call Summary table."
+    INDEX {cpmActiveCallStartTimeIndex, cpmActiveCallSummaryIndex }
+    ::= { cpmActiveCallSummaryTable 1 }
+
+CpmActiveCallSummaryEntry ::= SEQUENCE {
+    cpmActiveCallStartTimeIndex TimeStamp,
+    cpmActiveCallSummaryIndex Integer32,
+    cpmActiveUserID  DisplayString,
+    cpmActiveUserIpAddr IpAddress,
+    cpmActiveCallType INTEGER,
+    cpmActiveModemSlot Integer32,
+    cpmActiveModemPort Integer32,
+    cpmActiveCallDuration TimeTicks,
+    cpmActiveEntrySlot Integer32,
+    cpmActiveEntryPort Integer32,
+    cpmActiveEntryChannel Integer32,
+    cpmActiveRemotePhoneNumber DisplayString,
+    cpmActiveLocalPhoneNumber DisplayString,
+    cpmActiveTTYNumber Integer32
+    }
+
+cpmActiveCallStartTimeIndex OBJECT-TYPE
+    SYNTAX TimeStamp
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "The start time of the current call."
+    ::= { cpmActiveCallSummaryEntry 1 }
+
+cpmActiveCallSummaryIndex OBJECT-TYPE
+    SYNTAX Integer32 (0..2147483647)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Arbitrary small integer to distinguish calls that occured
+         at the same time tick."
+    ::= { cpmActiveCallSummaryEntry 2 }
+
+cpmActiveUserID OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The User login ID or zero length string if unavailable."
+    ::= { cpmActiveCallSummaryEntry 3 }
+
+cpmActiveUserIpAddr OBJECT-TYPE
+    SYNTAX  IpAddress
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The IP address of the call or 0.0.0.0 if unavailable.
+         This object comes directly from IOS."
+    ::= { cpmActiveCallSummaryEntry 4 }
+
+cpmActiveCallType OBJECT-TYPE
+    SYNTAX INTEGER {
+       unknown(1),
+       analog(2),
+       digital(3),
+       v110(4),
+       v120(5),
+       voice(6)
+       }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The call type:
+            unknown  - None of the following 
+            analog   - Modem call
+            digital  - Digital call
+            v110     - V110 Call
+            v120     - V120 Call
+            voice    - Voice Call"
+    ::= { cpmActiveCallSummaryEntry 5 }
+
+cpmActiveModemSlot OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "Identification of modem resource allocated to call.
+         This is the value of cmSlotIndex from CISCO-MODEM-MGMT-MIB.
+         This value along with cpmActiveModemPort uniquely identifies 
+         a modem.  Value is -1 if call does not utilize a modem."
+    ::= { cpmActiveCallSummaryEntry 6 }
+ 
+cpmActiveModemPort OBJECT-TYPE
+    SYNTAX     Integer32 (0..2147483647)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "Identification of modem resource allocated to call.
+         This is the value of cmPortIndex from CISCO-MODEM-MGMT-MIB.
+         This value along with cpmActiveModemSlot uniquely identifies 
+         a modem.  Value is -1 if call does not utilize a modem."
+    ::= { cpmActiveCallSummaryEntry 7 }
+
+cpmActiveCallDuration OBJECT-TYPE
+    SYNTAX TimeTicks
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The duration of the current call."
+    ::= { cpmActiveCallSummaryEntry 8 }
+
+cpmActiveEntrySlot OBJECT-TYPE
+    SYNTAX  Integer32 (0..2147483647)
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The logical slot in which the DS1 line that the user 
+         connected on resides."
+    ::= { cpmActiveCallSummaryEntry 9 }
+
+cpmActiveEntryPort OBJECT-TYPE
+    SYNTAX  Integer32 (0..2147483647)
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The logical port for the DS1 line that the user connected on."
+    ::= { cpmActiveCallSummaryEntry 10 }
+
+cpmActiveEntryChannel OBJECT-TYPE
+    SYNTAX  Integer32 (0..2147483647)
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The channel within the DS1 that is allocated to the call."
+    ::= { cpmActiveCallSummaryEntry 11 }
+
+cpmActiveRemotePhoneNumber OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The remote telephone number.  For a call into the device,
+         this is the originating number.  For a call out of the
+         device, this is the dialed number.  If not available the 
+         string length is zero."
+    ::= { cpmActiveCallSummaryEntry 12 }
+
+cpmActiveLocalPhoneNumber OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The local telephone number.  For a call into the device,
+         this is the dialed number.  For a call out of the
+         device, this is the originating number.  If not available 
+         the string length is zero."
+    ::= { cpmActiveCallSummaryEntry 13 }
+
+
+cpmActiveTTYNumber OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The TTY number associated with this call.  This 
+         information comes from the IOS 'show line' command."
+    ::= { cpmActiveCallSummaryEntry 14 }
+
+
+-- cpmCallHistorySummary
+
+cpmCallHistorySummaryTableMaxLength OBJECT-TYPE
+    SYNTAX          Integer32 (0..500)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The upper limit on the number of entries that the
+         cpmCallHistoryTable may contain.  A value of 0
+         will prevent any history from being retained. When
+         this table is full, the oldest entry will be deleted
+         and the new one will be created."
+        DEFVAL  { 100 }
+        ::= { cpmCallHistorySummary 1 }
+        
+cpmCallHistorySummaryRetainTimer  OBJECT-TYPE
+    SYNTAX  Integer32 (0..500)
+    UNITS   "minutes"
+    MAX-ACCESS      read-write
+    STATUS current
+    DESCRIPTION
+        "The minimum amount of time that an cpmCallHistoryEntry
+         will be maintained before being deleted.  A value of
+         0 will prevent any history from being retained, but
+         will not prevent callCompletion traps being genarated."
+        DEFVAL  { 15 }
+        ::= { cpmCallHistorySummary 2 }
+
+
+cpmCallHistorySummaryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpmCallHistorySummaryEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "The call history summary table is needed to track 
+         ended active calls.  This table is needed 
+         because modem calls are not in CALL-HISTORY-MIB; 
+         the CISCO-ISDN-MIB objects do not contain information 
+         about the active calls; and the DIAL-CONTROL_MIB 
+         is not yet available." 
+    ::= { cpmCallHistorySummary 3 }
+
+cpmCallHistorySummaryEntry OBJECT-TYPE
+    SYNTAX CpmCallHistorySummaryEntry
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "An entry in the Call Summary table."
+    INDEX { cpmCallDisconnectTimeIndex, 
+            cpmCallStartTimeIndex, 
+            cpmCallHistorySummaryIndex }
+    ::= { cpmCallHistorySummaryTable 1 }
+
+CpmCallHistorySummaryEntry ::= SEQUENCE {
+    cpmCallDisconnectTimeIndex TimeStamp,
+    cpmCallStartTimeIndex TimeStamp,
+    cpmCallHistorySummaryIndex Integer32,
+    cpmUserID  DisplayString,
+    cpmUserIpAddr IpAddress,
+    cpmCallType INTEGER,
+    cpmModemSlot Integer32,
+    cpmModemPort Integer32,
+    cpmCallDuration TimeTicks,
+    cpmEntrySlot Integer32,
+    cpmEntryPort Integer32,
+    cpmEntryChannel Integer32,
+    cpmRemotePhoneNumber DisplayString,
+    cpmLocalPhoneNumber DisplayString,
+    cpmTTYNumber Integer32
+    }
+
+cpmCallDisconnectTimeIndex OBJECT-TYPE
+    SYNTAX TimeStamp
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "The disconnect time of the call."
+    ::= { cpmCallHistorySummaryEntry 1 }
+
+cpmCallStartTimeIndex OBJECT-TYPE
+    SYNTAX TimeStamp
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "The start time of the current call."
+    ::= { cpmCallHistorySummaryEntry 2 }
+
+cpmCallHistorySummaryIndex OBJECT-TYPE
+    SYNTAX Integer32 (0..2147483647)
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Arbitrary small integer to distinguish calls that occured
+         at the same time tick."
+    ::= { cpmCallHistorySummaryEntry 3 }
+
+cpmUserID OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The User login ID or zero length string if unavailable.
+         This object comes directly from IOS."
+    ::= { cpmCallHistorySummaryEntry 4 }
+
+cpmUserIpAddr OBJECT-TYPE
+    SYNTAX  IpAddress
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The IP address of the call or 0.0.0.0 if unavailable.
+         This object comes directly from IOS."
+    ::= { cpmCallHistorySummaryEntry 5 }
+
+cpmCallType OBJECT-TYPE
+    SYNTAX INTEGER {
+       unknown(1),
+       analog(2),
+       digital(3),
+       v110(4),
+       v120(5),
+       voice(6)
+       }
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The call type:
+            unknown  - None of the following 
+            analog   - Modem call
+            digital  - Digital call
+            v110     - V110 Call
+            v120     - V120 Call
+            voice    - Voice Call"
+    ::= { cpmCallHistorySummaryEntry 6 }
+
+cpmModemSlot OBJECT-TYPE
+    SYNTAX     Integer32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "Identification of modem resource allocated to call.
+         This is the value of cmSlotIndex from CISCO-MODEM-MGMT-MIB.
+         This value along with cpmModemPort uniquely identifies a modem.
+         Value is -1 if call does not utilize a modem."
+    ::= { cpmCallHistorySummaryEntry 7 }
+ 
+cpmModemPort OBJECT-TYPE
+    SYNTAX     Integer32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "Identification of modem resource allocated to call.
+         This is the value of cmPortIndex from CISCO-MODEM-MGMT-MIB.
+         This value along with cpmModemSlot uniquely identifies a modem.
+         Value is -1 if call does not utilize a modem."
+    ::= { cpmCallHistorySummaryEntry 8 }
+
+cpmCallDuration OBJECT-TYPE
+    SYNTAX TimeTicks
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The duration of the current call."
+    ::= { cpmCallHistorySummaryEntry 9 }
+
+cpmEntrySlot OBJECT-TYPE
+    SYNTAX  Integer32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The physical system slot in which the DS1 line that the user 
+         connected on resides."
+    ::= { cpmCallHistorySummaryEntry 10 }
+
+cpmEntryPort OBJECT-TYPE
+    SYNTAX  Integer32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The logical port for the DS1 line that the user connected on."
+    ::= { cpmCallHistorySummaryEntry 11 }
+
+cpmEntryChannel OBJECT-TYPE
+    SYNTAX  Integer32
+    MAX-ACCESS  read-only
+    STATUS current
+    DESCRIPTION
+        "The channel within the DS1 that is allocated to the call."
+    ::= { cpmCallHistorySummaryEntry 12 }
+
+
+cpmRemotePhoneNumber OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The remote telephone number.  For a call into the device,
+         this is the originating number.  For a call out of the
+         device, this is the dialed number.  If not available 
+         the string length is zero."
+    ::= { cpmCallHistorySummaryEntry 13 }
+
+cpmLocalPhoneNumber OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The local telephone number.  For a call into the device,
+         this is the dialed number.  For a call out of the
+         device, this is the originating number. If not available 
+         the string length is zero."
+    ::= { cpmCallHistorySummaryEntry 14 }
+
+cpmTTYNumber OBJECT-TYPE
+    SYNTAX Integer32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "The TTY number associated with this call.  This 
+         information comes from the IOS 'show line' command."
+    ::= { cpmCallHistorySummaryEntry 15 }
+
+cpmDS1LoopbackNotifyEnable OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS read-write
+    STATUS current
+    DESCRIPTION
+        "This variable controls the generation of
+         cpmDS1LoopbackNotification
+  
+         When this variable is 'true(1)', generation of
+         these notification is enabled. When this
+         variable is 'false(2)', generation is disabled
+
+         The default value is 'false(2)'.
+        "
+    ::= { cpmDS1LoopbackNotifyConfig 1 }
+
+--
+-- Notifications
+--
+cPopMgmtMIBNotificationPrefix  OBJECT IDENTIFIER ::=
+                                 { ciscoPopMgmtMIB 2 }
+
+cpmNotifications               OBJECT IDENTIFIER ::=
+                                 { cPopMgmtMIBNotificationPrefix  0 }
+
+
+cpmDS0BusyoutNotification        NOTIFICATION-TYPE
+        OBJECTS {
+                cpmDS0BusyoutStatus,
+                cpmDS0BusyoutTime,
+                cpmDS0BusyoutSource,
+                cpmDS0InterfaceIndex
+                }
+        STATUS  current
+        DESCRIPTION
+            "This notification is sent when there is a state change
+             in cpmDS0BusyoutStatus object."
+       ::= { cpmNotifications 1 }
+
+cpmDS1LoopbackNotification NOTIFICATION-TYPE
+        OBJECTS {
+                dsx1LineStatus,
+                dsx1LineIndex
+                }
+        STATUS current
+        DESCRIPTION
+            "This notification is sent when there is a state change
+             in dsx1LineStatus object of RFC1406-MIB."
+        ::= { cpmNotifications 2 }
+
+
+-- conformance information
+
+cpmMIBConformance         OBJECT IDENTIFIER ::= { ciscoPopMgmtMIB 3 }
+cpmMIBCompliances         OBJECT IDENTIFIER ::= { cpmMIBConformance 1 }
+cpmMIBGroups              OBJECT IDENTIFIER ::= { cpmMIBConformance 2 }
+
+
+-- compliance statements
+
+cpmMIBCompliance MODULE-COMPLIANCE
+    STATUS      obsolete -- superseded by cpmMIBComplianceRev1 
+    DESCRIPTION
+        "The compliance statement used in a PoPM Stack, 
+         which implement the Cisco PoP Management MIB"
+    MODULE      -- this module
+    MANDATORY-GROUPS { 
+                cpmDS0UsageGroup,
+                cpmCallFailureGroup,
+                cpmActiveCallSummaryGroup,
+                cpmCallHistorySummaryGroup
+             }
+    ::= { cpmMIBCompliances 1 }
+
+cpmMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS      obsolete -- superseded by cpmMIBComplianceRev2
+    DESCRIPTION
+        "The compliance statement used in a PoPM Stack, 
+         which implement the Cisco PoP Management MIB"
+    MODULE      -- this module
+    MANDATORY-GROUPS {
+                cpmDS0UsageGroupRev1,
+                cpmCallFailureGroup,
+                cpmActiveCallSummaryGroup,
+                cpmCallHistorySummaryGroup
+             }
+    ::= { cpmMIBCompliances 2 }
+
+cpmComplianceRev2 MODULE-COMPLIANCE
+    STATUS      obsolete -- superseded by cpmMIBComplianceRev3
+    DESCRIPTION
+        "The compliance statement used in a PoPM Stack, 
+         which implement the Cisco PoP Management MIB"
+    MODULE      -- this module
+    MANDATORY-GROUPS {
+                cpmDS0UsageGroupRev2,
+                cpmCallFailureGroup,
+                cpmActiveCallSummaryGroup,
+                cpmCallHistorySummaryGroup
+             }
+    ::= { cpmMIBCompliances 3 }
+
+cpmMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS      deprecated
+    DESCRIPTION
+        "The compliance statement used in a PoPM Stack, 
+         which implement the Cisco PoP Management MIB"
+    MODULE      -- this module
+    MANDATORY-GROUPS {
+                cpmDS0UsageGroupRev2,
+                cpmCallFailureGroup,
+                cpmActiveCallSummaryGroup,
+                cpmCallHistorySummaryGroup
+             }
+     GROUP cpmDS0StatusGroup
+           DESCRIPTION
+              "This group is optional."
+
+     GROUP cpmDS1UsageGroup
+           DESCRIPTION
+              "This group is optional."
+
+     GROUP cpmSystemGroup
+           DESCRIPTION
+              "This group is optional."
+
+     GROUP cpmNotificationGroup
+           DESCRIPTION
+              "This group is mandatory only for systems supporting
+               generation of notifications."
+
+    ::= { cpmMIBCompliances 4 }
+
+
+cpmMIBComplianceRev4 MODULE-COMPLIANCE
+    STATUS      deprecated 
+    DESCRIPTION
+        "The compliance statement used in a PoPM Stack, 
+         which implement the Cisco PoP Management MIB"
+    MODULE      -- this module
+    MANDATORY-GROUPS {
+                cpmDS0UsageGroupRev2,
+                cpmCallFailureGroup,
+                cpmActiveCallSummaryGroup,
+                cpmCallHistorySummaryGroup,
+        cpmCallVolumeGroup
+             }
+     GROUP cpmDS0StatusGroup
+           DESCRIPTION
+              "This group is optional."
+
+     GROUP cpmDS1UsageGroup
+           DESCRIPTION
+              "This group is optional."
+
+     GROUP cpmSystemGroup
+           DESCRIPTION
+              "This group is optional."
+    ::= { cpmMIBCompliances 5 }
+
+
+cpmMIBComplianceRev5 MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement used in a PoPM Stack,
+         which implement the Cisco PoP Management MIB"
+    MODULE      -- this module
+    MANDATORY-GROUPS {
+                cpmDS0UsageGroupRev2,
+                cpmCallFailureGroup,
+                cpmActiveCallSummaryGroup,
+                cpmCallHistorySummaryGroup,
+        cpmCallVolumeGroup
+             }
+     GROUP cpmDS0StatusGroup
+           DESCRIPTION
+              "This group is optional."
+
+     GROUP cpmDS1UsageGroup
+           DESCRIPTION
+              "This group is optional."
+
+     GROUP cpmSystemGroup
+           DESCRIPTION
+              "This group is optional."
+
+     GROUP cpmDS1LoopbackNotifyConfigGroup
+           DESCRIPTION
+              "This group is optional."
+
+     GROUP cpmNotificationGroupRev1
+           DESCRIPTION
+              "This group is optional."
+    ::= { cpmMIBCompliances 6 }
+
+
+-- units of conformance
+
+cpmDS0UsageGroup OBJECT-GROUP
+    OBJECTS {
+         cpmConfiguredType,
+         cpmDS0CallType,
+         cpmL2Encapsulation,
+         cpmCallCount,
+         cpmTimeInUse,
+         cpmInOctets,
+         cpmOutOctets,
+         cpmInPackets,
+         cpmOutPackets,
+         cpmAssociatedInterface,
+         cpmISDNCfgBChanInUseForAnalog,
+         cpmISDNCfgBChannelsInUse, 
+         cpmActiveDS0s,
+         cpmPPPCalls, 
+         cpmV120Calls, 
+         cpmV110Calls
+        }
+    STATUS obsolete -- superseded by cpmDS0UsageGroupRev1 
+    DESCRIPTION
+        "A collection of objects providing the analog and 
+         digital statistics for a DS1."
+    ::= { cpmMIBGroups 1 }
+ 
+ cpmCallFailureGroup OBJECT-GROUP
+    OBJECTS {
+         cpmISDNCallsRejected,
+         cpmModemCallsRejected,
+         cpmISDNCallsClearedAbnormally,
+         cpmModemCallsClearedAbnormally,
+         cpmISDNNoResource,
+         cpmModemNoResource
+    }
+    STATUS current
+    DESCRIPTION
+            "A collection of objects providing aggregate 
+             totals of call failures"
+    ::= { cpmMIBGroups 2 }
+ 
+cpmActiveCallSummaryGroup OBJECT-GROUP
+    OBJECTS {
+         cpmActiveUserID,
+         cpmActiveCallType,
+         cpmActiveUserIpAddr,
+         cpmActiveModemSlot,
+         cpmActiveModemPort,
+         cpmActiveCallDuration,
+         cpmActiveEntrySlot,
+         cpmActiveEntryPort,
+         cpmActiveEntryChannel,
+         cpmActiveRemotePhoneNumber,
+         cpmActiveLocalPhoneNumber,
+         cpmActiveTTYNumber
+        }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing the summary of the 
+         currently active calls."
+    ::= { cpmMIBGroups 3 }
+ 
+cpmCallHistorySummaryGroup OBJECT-GROUP
+    OBJECTS {
+         cpmCallHistorySummaryTableMaxLength,
+         cpmCallHistorySummaryRetainTimer,
+         cpmUserID,
+         cpmUserIpAddr,
+         cpmCallType,
+         cpmModemSlot,
+         cpmModemPort,
+         cpmCallDuration,
+         cpmEntrySlot,
+         cpmEntryPort,
+         cpmEntryChannel,
+         cpmRemotePhoneNumber,
+         cpmLocalPhoneNumber,
+         cpmTTYNumber
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing the summary of calls
+         that were recently terminated."
+    ::= { cpmMIBGroups 4 }
+ 
+cpmDS0UsageGroupRev1 OBJECT-GROUP
+    OBJECTS {
+         cpmConfiguredType,
+         cpmDS0CallType,
+         cpmL2Encapsulation,
+         cpmCallCount,
+         cpmTimeInUse,
+         cpmInOctets,
+         cpmOutOctets,
+         cpmInPackets,
+         cpmOutPackets,
+         cpmAssociatedInterface,
+         cpmISDNCfgBChanInUseForAnalog,
+         cpmISDNCfgBChannelsInUse,
+         cpmActiveDS0s,
+         cpmPPPCalls,
+         cpmV120Calls,
+         cpmV110Calls,
+         cpmActiveDS0sHighWaterMark,
+         cpmDS1ActiveDS0s,
+         cpmDS1ActiveDS0sHighWaterMark,
+         cpmSW56CfgBChannelsInUse
+        }
+    STATUS obsolete -- superseded by cpmDS0UsageGroupRev2
+    DESCRIPTION
+        "A collection of objects providing the analog and
+         digital statistics for a DS1."
+    ::= { cpmMIBGroups 5 }
+
+cpmDS0UsageGroupRev2 OBJECT-GROUP
+    OBJECTS {
+         cpmConfiguredType,
+         cpmDS0CallType,
+         cpmL2Encapsulation,
+         cpmCallCount,
+         cpmTimeInUse,
+         cpmInOctets,
+         cpmOutOctets,
+         cpmInPackets,
+         cpmOutPackets,
+         cpmAssociatedInterface,
+         cpmISDNCfgBChanInUseForAnalog,
+         cpmISDNCfgBChannelsInUse,
+         cpmActiveDS0s,
+         cpmPPPCalls,
+         cpmV120Calls,
+         cpmV110Calls,
+         cpmActiveDS0sHighWaterMark,
+         cpmDS1ActiveDS0s,
+         cpmDS1ActiveDS0sHighWaterMark,
+         cpmSW56CfgBChannelsInUse,
+         cpmISDNCfgBChanInUseForVoice,
+         cpmCASCfgBChanInUseForVoice
+        }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing the analog and
+         digital statistics for a DS1."
+    ::= { cpmMIBGroups 6 }
+
+cpmDS1UsageGroup OBJECT-GROUP
+    OBJECTS {
+         cpmDS1TotalAnalogCalls,
+         cpmDS1TotalDigitalCalls,
+         cpmDS1TotalV110Calls,
+         cpmDS1TotalV120Calls,
+         cpmDS1TotalCalls,
+         cpmDS1TotalTimeInUse,
+         cpmDS1CurrentIdle,
+         cpmDS1CurrentOutOfService,
+         cpmDS1CurrentBusyout,
+         cpmDS1InOctets,
+         cpmDS1OutOctets,
+         cpmDS1InPackets,
+         cpmDS1OutPackets
+        }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing statistics aggregation
+         across DS0s within a DS1."
+    ::= { cpmMIBGroups 7 }
+
+cpmSystemGroup OBJECT-GROUP
+    OBJECTS {
+         cpmISDNCfgActiveDChannels,
+         cpmISDNCfgBChannelsTimeInUse,
+         cpmISDNCfgBChannelsTimeInUseAnlg,
+         cpmISDNCfgBChannelCalls,
+         cpmISDNCfgBChannelAnalogCalls,
+         cpmTotalISDNSyncPPPCalls
+        }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing statistics aggregation
+         for the entire system."
+    ::= { cpmMIBGroups 8 }
+  
+cpmDS0StatusGroup OBJECT-GROUP
+    OBJECTS {
+         cpmDS0BusyoutNotifyEnable,
+         cpmDS0OperStatus,
+         cpmDS0BusyoutAdminStatus,
+         cpmDS0BusyoutAllow,
+         cpmDS0BusyoutStatus,
+         cpmDS0BusyoutSource,
+         cpmDS0BusyoutTime,
+         cpmDS0ConfigFunction,
+         cpmDS0InterfaceIndex
+        }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects providing the status for a DS0."
+    ::= { cpmMIBGroups 9 }
+
+cpmNotificationGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { cpmDS0BusyoutNotification }
+    STATUS deprecated
+    DESCRIPTION
+        "The collection of notifications
+        "
+    ::= { cpmMIBGroups 10 }
+
+cpmDS1LoopbackNotifyConfigGroup OBJECT-GROUP
+      OBJECTS {
+          cpmDS1LoopbackNotifyEnable
+      }
+      STATUS current
+      DESCRIPTION
+          "A collection of objects providing the
+           notification configuration
+          "
+      ::= { cpmMIBGroups 11 }
+
+
+cpmCallVolumeGroup OBJECT-GROUP
+    OBJECTS {
+    cpmCallVolSuccISDNDigital,
+    cpmCallVolAnalogCallClearedNormally
+    }
+    STATUS current
+    DESCRIPTION
+            "A collection of objects providing aggregate 
+             totals of call successfully completed"
+    ::= { cpmMIBGroups 12 }
+
+cpmNotificationGroupRev1 NOTIFICATION-GROUP
+    NOTIFICATIONS {
+             cpmDS0BusyoutNotification,
+             cpmDS1LoopbackNotification
+             }
+    STATUS current
+    DESCRIPTION
+        "The collection of notifications
+        "
+    ::= { cpmMIBGroups 13 }
+END
+ 
+ 
+ 

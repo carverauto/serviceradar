@@ -1,0 +1,212 @@
+-- ********************************************************************
+-- CISCO-DS0-CROSS-CONNECT-MIB.my
+--
+-- March 2003, Kiet Tran
+--
+-- Copyright (c) 2003 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *********************************************************************
+CISCO-DS0-CROSS-CONNECT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InterfaceIndex         
+        FROM IF-MIB
+    RowStatus
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoDs0CrossConnectMIB    MODULE-IDENTITY
+    LAST-UPDATED  "200303050000Z"
+    ORGANIZATION  "Cisco Systems, Inc."
+    CONTACT-INFO
+		  "Cisco Systems
+                   Customer Service
+
+                   Postal: 170 W. Tasman Drive
+                           San Jose, CA  95134
+                           USA
+
+		   Tel: +1 800 553-NETS
+
+		   E-mail: cs-voice@cisco.com"
+    DESCRIPTION
+        "The MIB for Ds0 cross connection.
+	"
+    REVISION "200303050000Z"
+    DESCRIPTION
+        "Initial version of the MIB module."
+    ::= { ciscoMgmt 9999 }
+
+
+ciscoDs0CrossConnectMIBNotifs      OBJECT IDENTIFIER 
+    ::= { ciscoDs0CrossConnectMIB 0 }
+
+ciscoDs0CrossConnectMIBObjects     OBJECT IDENTIFIER 
+    ::= { ciscoDs0CrossConnectMIB 1 }
+
+ciscoDs0CrossConnectMIBConformance OBJECT IDENTIFIER 
+    ::= { ciscoDs0CrossConnectMIB 2 }
+
+cDs0CrossConnectConfig             OBJECT IDENTIFIER 
+    ::= { ciscoDs0CrossConnectMIBObjects 1 }
+
+
+-- ---------------------------------------------------------------------
+--  cds0CrossConnectConfigTable
+-- ---------------------------------------------------------------------
+
+cds0CrossConnectConfigTable  OBJECT-TYPE
+    SYNTAX           SEQUENCE OF Cds0CrossConnectConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "This table is used to establish a DS0 cross connection.
+         A DS0 cross connect is established by binding a unique
+         DS0 group containing one or more DS0s of a single Ds1 
+         interface to another unique DS0 group containing one or 
+         more DS0s of a single DS1 interface.  
+        "
+	::= { cDs0CrossConnectConfig 1 }
+
+cds0CrossConnectConfigEntry  OBJECT-TYPE
+    SYNTAX           Cds0CrossConnectConfigEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+	"An entry in cds0CrossConnectConfigTable table represents a DS0 
+         cross connection. The two end point of the connection are:
+            end point 1: cds0Endpt1Ds1 cds0Endpt1Ds0Group
+            end point 2: cds0Endpt2Ds1 cds0Endpt2Ds0Group
+
+         The end points of this connection should be entries
+         of ccasGrpCfgTable and 'ccasGrpCfgServiceType' of 
+         of the entries should be 'tdmxconn'. The ccasGrpCfgTable is 
+         defined in CISCO-CAS-IF-MIB.
+        "
+    INDEX {cds0Endpt1Ds1, cds0Endpt1Ds0Group }
+    ::= { cds0CrossConnectConfigTable 1 }
+
+Cds0CrossConnectConfigEntry ::=
+    SEQUENCE {
+              cds0Endpt1Ds1           InterfaceIndex,
+              cds0Endpt1Ds0Group      Unsigned32,
+              cds0Endpt2Ds1           InterfaceIndex,
+              cds0Endpt2Ds0Group      Unsigned32,
+              cds0ConnRowStatus       RowStatus
+             }
+
+cds0Endpt1Ds1        OBJECT-TYPE
+    SYNTAX           InterfaceIndex
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "The value of this object equals to the 'ifIndex' of a
+         Ds1 interface.
+         This Ds1 interface is used as the first end point of the 
+         Ds0 connection.
+        "
+    ::= { cds0CrossConnectConfigEntry 1}
+
+cds0Endpt1Ds0Group   OBJECT-TYPE
+    SYNTAX           Unsigned32 (0..31)
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "The value of this object identifies a Ds0 group which contains 
+         one of more Ds0(s) within the Ds1 interface represented by
+         'cDs0Endpt1Ds1'.
+         This Ds0 group is used as the first end point of the 
+         Ds0 connection.
+        "
+    ::= { cds0CrossConnectConfigEntry 2 }
+
+cds0Endpt2Ds1        OBJECT-TYPE
+    SYNTAX           InterfaceIndex
+    MAX-ACCESS       read-create 
+    STATUS           current
+    DESCRIPTION
+        "The value of this object equals to the 'ifIndex' of a
+         Ds1 interface.
+         This Ds1 interface is used as the second end point of the 
+         Ds0 connection.
+        "
+    ::= { cds0CrossConnectConfigEntry 3}
+
+cds0Endpt2Ds0Group   OBJECT-TYPE
+    SYNTAX           Unsigned32 (0..31)
+    MAX-ACCESS       read-create 
+    STATUS           current
+    DESCRIPTION
+        "The value of this object identifies a Ds0 group which contains 
+         one of more Ds0(s) within the Ds1 interface represented by
+         'cDs0Endpt2Ds1'.
+         This Ds0 group is used as the second end point of the 
+         Ds0 connection. 
+        "
+    ::= { cds0CrossConnectConfigEntry 4 }
+
+cds0ConnRowStatus    OBJECT-TYPE
+    SYNTAX	     RowStatus
+    MAX-ACCESS       read-create
+    STATUS           current
+    DESCRIPTION		
+        "This object is used to create or delete an entry.
+
+         The mandatory objects for creating an entry in this table:
+           'cds0Endpt2Ds1'
+           'cds0Endpt2Ds0Group'
+
+         The following objects are not allowed to be modified after 
+         the entry to be added:
+           'cds0Endpt2Ds1'
+           'cds0Endpt2Ds0Group'
+        "
+    ::= { cds0CrossConnectConfigEntry 5 }
+
+-- *********************************************************************
+-- Conformance and compliance statements
+-- *********************************************************************
+
+ciscoDs0CrossConnectMIBCompliances   OBJECT IDENTIFIER ::= 
+				{ ciscoDs0CrossConnectMIBConformance 1 }
+
+ciscoDs0CrossConnectMIBGroups        OBJECT IDENTIFIER  ::= 
+                                { ciscoDs0CrossConnectMIBConformance 2}
+
+ciscoDs0CrossConnectMIBCompliance MODULE-COMPLIANCE
+
+    STATUS	     current
+    DESCRIPTION
+        "The compliance statement for Cisco agents which implement
+         the CISCO-DSO-CROSS-CONNECT-MIB." 
+    MODULE
+    MANDATORY-GROUPS { cDs0CrossConnectConfigGroup
+	 	     }
+    ::= {ciscoDs0CrossConnectMIBCompliances 1 }
+
+
+-- *********************************************************************
+-- units of conformance
+-- *********************************************************************
+
+cDs0CrossConnectConfigGroup  OBJECT-GROUP
+    OBJECTS {   
+             cds0Endpt2Ds1,           
+             cds0Endpt2Ds0Group,        
+             cds0ConnRowStatus    
+	    }
+
+    STATUS	     current
+    DESCRIPTION
+        "A collection of objects for general configuration of  
+         Ds0 cross connection."
+    ::= { ciscoDs0CrossConnectMIBGroups 1 }
+
+END
+

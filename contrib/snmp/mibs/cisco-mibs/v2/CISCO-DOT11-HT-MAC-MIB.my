@@ -1,0 +1,735 @@
+-- *********************************************************************
+-- CISCO-DOT11-HT-MAC-MIB.my: DOT11 HT MAC MIB
+-- July 2006, Prasanna Viswakumar
+--
+-- Copyright (c) 2006-2007 by Cisco Systems, Inc.
+-- *********************************************************************
+
+CISCO-DOT11-HT-MAC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+        MODULE-IDENTITY, 
+        OBJECT-TYPE
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TruthValue
+                FROM SNMPv2-TC
+        ifIndex
+                FROM IF-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoDot11HtMacMIB MODULE-IDENTITY
+        LAST-UPDATED   "200705160000Z"
+        ORGANIZATION   "Cisco Systems, Inc."
+        CONTACT-INFO  
+               "        Cisco Systems,
+                        Customer Service
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+                   Tel: +1 800 553-NETS
+ 
+                 Email: cs-wnbu-snmp@cisco.com"
+        DESCRIPTION
+                "This MIB is intended to be implemented on Cisco's 
+                WLAN devices that provide the wired uplink to wireless
+                clients through the high-throughput dot11 radios
+                compliant to the 802.11n specification.
+
+                The MIB describes the MAC layer parameters of the 
+                802.11n compliant radio interfaces.
+
+                                   GLOSSARY
+
+                Access Point ( AP )
+
+                An entity that contains an 802.11 medium access
+                control ( MAC ) and physical layer ( PHY ) interface
+                and provides access to the distribution services via
+                the wireless medium for associated clients.
+
+                A-MPDU
+
+                An aggregated format that consists of several MAC
+                Protocol Data Units being aggregated and transmitted
+                in one PHY Service Data Unit.
+
+                A-MSDU
+
+                An aggregated format that consists of several MAC
+                Service Data Units being aggregated and transmitted
+                in one MAC Protocol Data Unit.
+
+                Block-Ack
+
+                This refers to the acknowledgement done for all the
+                MPDUs in an A-MDPU.
+
+                Basic Service Set ( BSS )
+
+                The IEEE 802.11 BSS of an AP comprises of the
+                stations directly associating with the AP.
+
+
+                Dual CTS 
+
+                Clear-To-Send control frame is sent by the receiver
+                in response to the Request-To-Send (RTS) control
+                frame from the sender to virtually reserve the
+                wireless medium for data transfer.
+
+                Dual CTS mechanism is used by the AP to reserve the
+                wireless medium for wireless devices that do not
+                support STBC. 
+
+                Green Field
+
+                A mode of operation where high-throughput 802.11n
+                frames are transmitted without a legacy compatible
+                part.
+
+                Mobile Node ( MN )
+
+                A roaming 802.11 wireless device in a wireless
+                network associated with an access point. Mobile Node
+                and client are used interchangeably.
+               
+                Modulation and Coding Scheme ( MCS )
+
+                This is a value that determines the modulation, coding and
+                number of spatial channels.  Each scheme specifies the       
+                modulation technique, coding rate , number of spatial
+                streams  etc and the corresponding data rate.
+
+                Multiple Input Multiple Output ( MIMO )
+
+                This technique advocates sending and receiving data
+                communication signals through multiple antennas.  MIMO
+                uses the multiple streams to transmit more information
+                and recombine the signal at the receiving end.  This
+                brings more reliability and significant gain over the
+                traditional antenna systems. 
+               
+                Power Save Multi-Poll ( PSMP )
+
+                A MAC control frame that schedules the transmissions
+                and receptions of PSMP-enabled devices.  
+ 
+                Phased Coexistence Operation ( PCO )
+
+                A BSS mode with alternating 20MHz and 40MHz phases of
+                operation controlled by a PCO AP.
+
+                Space-Time Block Coding ( STBC )
+
+                By this technique, a wireless device transmits several
+                copies of a data stream across a series of antennas
+                so that the receiver can use the various received
+                portions of the data signal to improve reliability of
+                data transfer.
+               
+                Reduced Inter-Frame Space ( RIFS )
+
+                A time interval between multiple transmissions of a
+                single transmitter used to reduce overhead and
+                increase network efficiency.
+
+                TU
+
+                A measurement of time equal to 1024 microseconds.
+
+                REFERENCE
+ 
+                [1] Part 11. Wireless LAN Medium Access Control ( MAC )
+                and Physical Layer ( PHY ) Specifications: Enhancements
+                for Higher Throughput             
+  
+                [2] Enhanced Wireless Consortium MAC Specification,
+                v1.24
+
+                [3] Enhanced Wireless Consortium PHY Specification,
+                v1.27 " 
+        
+        REVISION      "200705160000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoMgmt 626 }
+
+ciscoDot11HtMacMIBNotifs OBJECT IDENTIFIER  ::= { ciscoDot11HtMacMIB 0 }
+ciscoDot11HtMacMIBObjects OBJECT IDENTIFIER ::= { ciscoDot11HtMacMIB 1 }
+ciscoDot11HtMacMIBConform OBJECT IDENTIFIER ::= { ciscoDot11HtMacMIB 2 }
+
+cD11HtMacStationConfig OBJECT IDENTIFIER 
+        ::= { ciscoDot11HtMacMIBObjects 1 }
+
+cD11HtMacOperations OBJECT IDENTIFIER    
+        ::= { ciscoDot11HtMacMIBObjects 2 } 
+
+-- ********************************************************************
+-- WLAN configuration
+-- ********************************************************************
+
+cD11HtMacStationConfigTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CD11HtMacStationConfigEntry
+        MAX-ACCESS not-accessible 
+        STATUS     current 
+        DESCRIPTION 
+                "This table represents the MAC configuration
+                parameters of 802.11n interfaces.
+                
+                There exists in this table, an entry corresponding
+                to each entry in dot11PhyOperationTable where
+                dot11PHYType equals 'ht'(7). "
+        REFERENCE
+                "dot11PhyOperationTable, IEEE802dot11-MIB. " 
+        ::= { cD11HtMacStationConfig 1 } 
+
+cD11HtMacStationConfigEntry OBJECT-TYPE
+        SYNTAX     CD11HtMacStationConfigEntry
+        MAX-ACCESS not-accessible 
+        STATUS     current
+        DESCRIPTION
+                "Each Entry represents a conceptual row in
+                ccD11HtMacStationConfigTable and corresponds to
+                the MAC configuration parameters of an 802.11n
+                interface. "
+        INDEX { ifIndex }
+        ::= { cD11HtMacStationConfigTable 1 }
+
+CD11HtMacStationConfigEntry ::= 
+        SEQUENCE { 
+                cD11HtMacOperationalMCSSet           OCTET STRING,
+                cD11HtMacMIMOPowerSave               INTEGER, 
+                cD11HtMacNDelayedBlockAckImplemented TruthValue, 
+                cD11HtMacMaxAMSDULength              INTEGER,
+                cD11HtMacPSMPImplemented             TruthValue, 
+                cD11HtMacSTBCControlFrameImplemented TruthValue,
+                cD11HtMacLsigTxOpProtectImplemented  TruthValue,
+                cD11HtMacMaxRxAMPDUFactor            INTEGER,
+                cD11HtMacMPDUDensity                 INTEGER, 
+                cD11HtMacPCOImplemented              TruthValue,
+                cD11HtMacTransitionTime              INTEGER, 
+                cD11HtMacMCSFeedbackImplemented      INTEGER,
+                cD11HtMacAMSDUEnable                 TruthValue,
+                cD11HtMacAMPDUEnable                 TruthValue
+       }
+
+cD11HtMacOperationalMCSSet OBJECT-TYPE
+        SYNTAX     OCTET STRING (SIZE(1..16))
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object represents the set of MCS at which the
+                station may transmit data.  Each bit represents an 
+                MCS index and corresponds to a particular data rate. 
+                Each MCS shall be within the range from 0 to 127, and
+                shall be supported for receiving data.
+
+                This value is reported in transmitted Beacon, Probe
+                Request, Probe Response, Association Request, 
+                Association Response, Reassociation Request and
+                Reassociation Response frames and is used to 
+                indicate which MCS values shall be supported by all the
+                devices in the BSS.  When this object is zeroed, it
+                indicates that the other stations in the BSS shall use
+                legacy data rates. "
+        REFERENCE
+                "Part 11: Wireless LAN Medium Access Control (MAC)
+                and Physical Layer (PHY) Specifications 
+                Section 7.2.3, Management Frames. "
+        ::= { cD11HtMacStationConfigEntry 1 }
+
+cD11HtMacMIMOPowerSave OBJECT-TYPE
+        SYNTAX     INTEGER { 
+                           static(1),
+                           dynamic(2),
+                           mimo(3) 
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION 
+                "This object represents the operational power save
+                state of MIMO.  The semantics are defined as follows.
+
+                'static' - The dot11 interface is operating in static
+                MIMO Power Save mode and hence, other stations
+                should not send MIMO packets destined to this dot11
+                interface.
+ 
+                'dynamic'-  The interface switches out of the MIMO
+                Power Save mode to enable multiple receive chains
+                when an RTS is received and switches back to the
+                single receive-chain mode once the unicast
+                transmission of the MPDU is complete.
+
+                'mimo' - The dot11 interface always has multiple
+                receive-chains enabled and hence MIMO packets can 
+                always be sent to this interface. "
+        ::= { cD11HtMacStationConfigEntry 2 }
+
+cD11HtMacNDelayedBlockAckImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when 'true', indicates that the
+                dot11 interface supports the No-Ack option of the
+                Delayed Block Acknowledgement. "
+        DEFVAL  { false }
+        ::= { cD11HtMacStationConfigEntry 3 } 
+
+cD11HtMacMaxAMSDULength OBJECT-TYPE
+        SYNTAX     INTEGER { 
+                           amsduSize3839(3839), 
+                           amsduSize7935(7935) 
+                   }
+        MAX-ACCESS read-only
+        STATUS     current 
+        DESCRIPTION
+                "This object represents the supported maximum size of
+                A-MSDU.
+
+                'amsduSize3839' - This indicates a maximum size of
+                3839 octets.
+
+                'amsduSize7935' - This indicates a maximum size of
+                7935 octets. "
+        DEFVAL  { amsduSize3839 }
+        ::= { cD11HtMacStationConfigEntry 4 }
+
+cD11HtMacPSMPImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when 'true', indicates that the dot11
+                interface is capable of supporting PSMP. "
+        DEFVAL  { false }
+        ::= { cD11HtMacStationConfigEntry 5 } 
+
+cD11HtMacSTBCControlFrameImplemented OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when 'true', indicates that the dot11
+                interface is capable of processing the received STBC
+                control frames. "
+        DEFVAL { false }
+        ::= { cD11HtMacStationConfigEntry 6 }
+
+cD11HtMacLsigTxOpProtectImplemented OBJECT-TYPE 
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when 'true', indicates that the dot11
+                interface is capable of supporting L-SIG TXOP
+                Protection option. "
+        DEFVAL  { false }
+        ::= { cD11HtMacStationConfigEntry 7 }
+
+cD11HtMacMaxRxAMPDUFactor OBJECT-TYPE
+        SYNTAX     INTEGER (0..3)
+        MAX-ACCESS read-only
+        STATUS     current 
+        DESCRIPTION
+                "This object is used to compute the maximum length
+                of the A-MPDU the STA can receive, as follows.
+                
+                maximum length of A-MPDU in octets = 
+                    2 ^ ( 13 + cD11HtMacMaxRxAMPDUFactor ) -1. "
+        DEFVAL  { 0 }
+        ::= { cD11HtMacStationConfigEntry 8 }
+
+cD11HtMacMPDUDensity OBJECT-TYPE 
+        SYNTAX     INTEGER {
+                           noTimeRestriction(1),
+                           oneEighth(2),
+                           oneFourth(3),
+                           half(4),
+                           one(5),
+                           two(6),
+                           four(7),
+                           eight(8)
+                   }
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object represents the minimum time between the
+                start of adjacent MPDUs within an A-MPDU. This time
+                is measured at the PHY service access-point; the 
+                number of bytes between the start of two consecutive
+                MPDUs in A-MPDU shall be equal or greater than
+                (MPDU-density*PHY-bit-rate)/8. The encoding of the 
+                minimum time to this object is as follows.
+
+                'noTimeRestriction'  - no time restriction between the 
+                start of adjacent MPDUs.
+
+                'oneEighth'  - 1/8 microseconds
+                'oneFourth'  - 1/4 microseconds
+                'half'       - 1/2 microseconds
+                'one'        - 1 microsecond
+                'two'        - 2 microseconds
+                'four'       - 4 microseconds
+                'eight'      - 8 microseconds. "
+        DEFVAL  { one } 
+        ::= { cD11HtMacStationConfigEntry 9 }
+
+cD11HtMacPCOImplemented OBJECT-TYPE 
+        SYNTAX     TruthValue
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object, when 'true', indicates that the dot11
+                interface is capable of supporting Phased coexistence
+                operation. "
+        DEFVAL  { false }
+        ::= { cD11HtMacStationConfigEntry 10 } 
+
+
+cD11HtMacTransitionTime OBJECT-TYPE
+        SYNTAX     INTEGER {
+                          fourHundred(400),
+                          oneThousandFiveHundred(1500),
+                          fiveThousand(5000)
+                   }
+        UNITS      "microseconds"
+        MAX-ACCESS read-only
+        STATUS     current 
+        DESCRIPTION
+                "This object indicates that the minimum transition
+                time within which the STA can switch between 20 MHz
+                channel width and 40 MHz channel width with a high 
+                probability. "
+        DEFVAL  { fiveThousand }
+        ::= { cD11HtMacStationConfigEntry 11 }
+
+cD11HtMacMCSFeedbackImplemented OBJECT-TYPE
+        SYNTAX     INTEGER {
+                           none(1),
+                           unsolicited (2), 
+                           both (3) 
+                   } 
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object indicates the MCS feedback
+                capability supported on this 802.11n interface.
+                The semantics are as follows.
+  
+                'none' - The station does not provide MCS feedback
+                through this interface.
+
+                'unsolicited' - The station provides only
+                unsolicited MCS feedback.
+
+                'both'  - The station provides both solicited as
+                well as unsolicited MCS feedback. "
+        ::= { cD11HtMacStationConfigEntry 12 }
+
+cD11HtMacAMSDUEnable OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object represents whether this 802.11n radio
+                can transmit / receive A-MSDUs. "
+        DEFVAL { false }
+        ::= { cD11HtMacStationConfigEntry 13 }
+
+cD11HtMacAMPDUEnable OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object represents whether this 802.11n radio
+                can transmit / receive A-MPDUs. "
+        DEFVAL { false }
+        ::= { cD11HtMacStationConfigEntry 14 }
+
+cD11HtMacOperationTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CD11HtMacOperationEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table represents the operational parameters
+                of 802.11n interfaces.
+
+                Entries in this table are created automatically
+                by the agent corresponding to each 802.11n
+                interface.
+
+                There exists in this table, an entry corresponding
+                to each entry in dot11PhyOperationTable where
+                dot11PHYType equals 'ht'(7). "
+        REFERENCE
+                "dot11PhyOperationTable, IEEE802dot11-MIB. " 
+        ::= { cD11HtMacOperations 1 }
+                
+cD11HtMacOperationEntry OBJECT-TYPE
+        SYNTAX     CD11HtMacOperationEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "A conceptual row in cD11HtMacOperationTable and 
+                represents the operational parameters of an 802.11n
+                interface. "
+        INDEX   { ifIndex }
+        ::= { cD11HtMacOperationTable 1 }
+
+CD11HtMacOperationEntry ::= 
+        SEQUENCE {
+                cD11HtMacOperatingMode                 INTEGER, 
+                cD11HtMacRIFSMode                      TruthValue, 
+                cD11HtMacPSMPControlledAccess          TruthValue, 
+                cD11HtMacServiceIntervalGranularity    INTEGER, 
+                cD11HtMacDualCTSProtection             TruthValue, 
+                cD11HtMacLSigTxOpFullProtectionEnabled TruthValue, 
+                cD11HtMacNonGFEntitiesPresent          TruthValue,
+                cD11HtMacPCOActivated                  TruthValue,
+                cD11HtMacPCO40MaxDuration              INTEGER,
+                cD11HtMacPCO20MaxDuration              INTEGER,
+                cD11HtMacPCO40MinDuration              INTEGER,
+                cD11HtMacPCO20MinDuration              INTEGER
+        }
+
+cD11HtMacOperatingMode OBJECT-TYPE
+        SYNTAX     INTEGER { 
+                           pureHt (1), 
+                           optionalProtection (2), 
+                           mandatoryFortyProtection (3), 
+                           mandatoryAllProtection (4) 
+                   } 
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION 
+                "This object represents the level of protection to be
+                provided to the data transmissions of 802.11n radios.
+                The semantics are as follows.
+
+                'pureHt' - No protection will be provided to the
+                high throughput tranmissions in the BSS started on
+                this interface.  This indicates that there will
+                only be those high-throughput devices associated to
+                the AP in the respective BSS.
+
+                'optionalProtection' - Protection is optional
+                considering that there could be legacy devices in the
+                control and extension channels.
+
+                'mandatoryFortyProtection' - Protection is mandatory
+                for all the 40MHz channel transmissions.
+
+                'mandatoryAllProtection' - There are legacy devices
+                in the BSS and hence all high throughput transmissions
+                are mandatorily protected. "                
+        DEFVAL  { pureHt } 
+        ::= { cD11HtMacOperationEntry 1 }
+
+cD11HtMacRIFSMode OBJECT-TYPE
+        SYNTAX     TruthValue 
+        MAX-ACCESS read-write
+        STATUS     current 
+        DESCRIPTION
+                "This object, when set to 'true', indicates that RIFS mode 
+                is allowed in the BSS. "
+        DEFVAL  { false }
+        ::= { cD11HtMacOperationEntry 2 } 
+
+cD11HtMacPSMPControlledAccess OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the AP
+                accepts associations only from PSMP-enabled clients. "
+        DEFVAL  { false }
+        ::= { cD11HtMacOperationEntry 3 }
+
+cD11HtMacServiceIntervalGranularity OBJECT-TYPE
+        SYNTAX     INTEGER (0..7)
+        UNITS       "milliseconds"
+        MAX-ACCESS read-write
+        STATUS     current 
+        DESCRIPTION
+                "This object represents the service interval
+                granularity to be used for scheduled PSMP. The value
+                of the granularity is given by 
+                (cD11HtMacServiceIntervalGranularity+1)*5 
+                milliseconds. "
+        DEFVAL  { 0 }
+       ::= { cD11HtMacOperationEntry 4 } 
+
+cD11HtMacDualCTSProtection OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the AP
+                uses dual CTS protection to protect the regular and the
+                STBC transmissions. "
+        DEFVAL  { false }
+        ::= { cD11HtMacOperationEntry 5 } 
+
+cD11HtMacLSigTxOpFullProtectionEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the
+                LSIG-TXOP Protection is currently enabled on the
+                AP. "
+        DEFVAL  { false }
+        ::= { cD11HtMacOperationEntry 6 }
+
+cD11HtMacNonGFEntitiesPresent OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION 
+                "This object, when set to 'true', indicates that 
+                Non-GreenField clients are present in the BSS. "
+        DEFVAL  { false }
+        ::= { cD11HtMacOperationEntry 7 }
+
+cD11HtMacPCOActivated OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object, when set to 'true', indicates that the
+                PCO is activated. "
+        DEFVAL  { false }
+        ::= { cD11HtMacOperationEntry 8 }
+
+cD11HtMacPCO20MaxDuration OBJECT-TYPE
+        SYNTAX     INTEGER (1..65535)
+        UNITS      "TU"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION  
+                "This object represents the maximum duration of
+                20 MHz phase in TU under PCO operation.  The value of
+                this object shall be equal to or larger than 
+                cD11HtMacPCO20MinDuration. "
+        DEFVAL  { 60 }
+        ::= { cD11HtMacOperationEntry 9 }
+
+cD11HtMacPCO40MaxDuration OBJECT-TYPE
+        SYNTAX     INTEGER (1..65535)
+        UNITS      "TU"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object represents the maximum duration
+                of 40 MHz phase in TU under PCO operation.  The
+                value of this object shall be equal to or larger
+                than cD11HtMacPCO40MinDuration. "
+        DEFVAL  { 60 } 
+        ::= { cD11HtMacOperationEntry 10 }
+ 
+cD11HtMacPCO20MinDuration OBJECT-TYPE
+        SYNTAX     INTEGER (1..65535)
+        UNITS      "TU"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object represents the minimum duration of
+                20 MHz phase in TU under PCO operation. "
+        DEFVAL  { 40 }
+        ::= { cD11HtMacOperationEntry 11 }
+
+cD11HtMacPCO40MinDuration OBJECT-TYPE
+        SYNTAX     INTEGER (1..65535)
+        UNITS      "TU"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This object represents the minimum duration of
+                40 MHz phase in TU under PCO operation. "
+        DEFVAL  { 40 }
+        ::= { cD11HtMacOperationEntry 12 }
+
+
+--********************************************************************
+--*    Compliance statements  
+--********************************************************************
+
+ciscoDot11HtMacMIBCompliances OBJECT IDENTIFIER
+        ::= { ciscoDot11HtMacMIBConform 1 }
+
+ciscoDot11HtMacMIBGroups OBJECT IDENTIFIER
+        ::= { ciscoDot11HtMacMIBConform 2 }
+
+cD11HtMacCompliance MODULE-COMPLIANCE
+        STATUS current
+        DESCRIPTION
+                "The compliance statement for the SNMP entities that
+                implement the ciscoDot11HtMacMIB module. "
+        MODULE  MANDATORY-GROUPS {
+                ciscoDot11HtMacStationConfigGroup,
+                ciscoDot11HtMacOperationsGroup
+        }
+        ::= { ciscoDot11HtMacMIBCompliances 1 }
+
+--********************************************************************
+--*    Units of conformance  
+--********************************************************************
+
+ciscoDot11HtMacStationConfigGroup OBJECT-GROUP
+        OBJECTS {
+                cD11HtMacOperationalMCSSet,
+                cD11HtMacMIMOPowerSave,
+                cD11HtMacNDelayedBlockAckImplemented, 
+                cD11HtMacMaxAMSDULength,
+                cD11HtMacPSMPImplemented,
+                cD11HtMacSTBCControlFrameImplemented,
+                cD11HtMacLsigTxOpProtectImplemented,
+                cD11HtMacMaxRxAMPDUFactor,
+                cD11HtMacMPDUDensity,
+                cD11HtMacPCOImplemented,
+                cD11HtMacTransitionTime,
+                cD11HtMacMCSFeedbackImplemented,
+                cD11HtMacAMSDUEnable,
+                cD11HtMacAMPDUEnable
+        }
+        STATUS current
+        DESCRIPTION
+                "This collection of objects represent the MAC
+                configuration parameters of 802.11n radio
+                interfaces. "
+        ::= { ciscoDot11HtMacMIBGroups 1 }
+
+ciscoDot11HtMacOperationsGroup OBJECT-GROUP
+        OBJECTS {
+                cD11HtMacOperatingMode,
+                cD11HtMacRIFSMode,
+                cD11HtMacPSMPControlledAccess,
+                cD11HtMacServiceIntervalGranularity,
+                cD11HtMacDualCTSProtection,
+                cD11HtMacLSigTxOpFullProtectionEnabled,
+                cD11HtMacNonGFEntitiesPresent,
+                cD11HtMacPCOActivated,
+                cD11HtMacPCO40MaxDuration,
+                cD11HtMacPCO20MaxDuration,
+                cD11HtMacPCO40MinDuration,
+                cD11HtMacPCO20MinDuration
+        }
+        STATUS current
+        DESCRIPTION
+                "This collection of objects represent the MAC
+                operational parameters of 802.11n radio
+                interfaces. "
+        ::= { ciscoDot11HtMacMIBGroups 2 } 
+
+--********************************************************************
+--*   End of units of conformance  
+--********************************************************************
+
+END
+

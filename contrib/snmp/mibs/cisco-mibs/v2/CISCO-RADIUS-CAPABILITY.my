@@ -1,0 +1,311 @@
+-- *****************************************************************
+-- CISCO-RADIUS-CAPABILITY.my:
+-- Cisco CISCO-RADIUS-MIB AGENT-CAPABILITIES
+--   
+-- June 2004, Binh P Le
+--   
+-- Copyright (c) 2004, 2007-2008 by Cisco Systems Inc.
+--   
+-- All rights reserved.
+-- ***************************************************************
+
+CISCO-RADIUS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoRadiusCapability MODULE-IDENTITY
+    LAST-UPDATED    "200805210000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-RADIUS-MIB."
+    REVISION        "200805210000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoRadiusCapCatOSV08R0701."
+    REVISION        "200701170000Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoRadiusCapCatOSV08R0601.
+
+        Removed the VARIATION crRadiusServerType from
+        ciscoRadiusCapCatOSV08R0401."
+    REVISION        "200406090000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 399 }
+
+
+
+ciscoRadiusCapCatOSV08R0401 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.4(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-RADIUS-MIB capabilities."
+
+    SUPPORTS        CISCO-RADIUS-MIB
+    INCLUDES        {
+                        crmConfigurationGroup,
+                        crmAttributesGroup,
+                        crmVlanConfigGroup
+                    }
+    VARIATION       crRadiusAuthKey
+    DESCRIPTION
+        "Only support keys which are in plain text
+        format on CatOS."
+
+    VARIATION       crRadiusTimeout
+    DEFVAL          { 5 }
+    DESCRIPTION
+        "CatOS uses a different default timeout
+        for retransmission."
+
+    VARIATION       crRadiusRetransmits
+    SYNTAX          Unsigned32 (1..100 )
+    DESCRIPTION
+        "Unable to set to zero on CatOS."
+
+    VARIATION       crRadiusAccountingLogMaxSize
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this on CatOS."
+
+    VARIATION       crRadiusAccountingMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this on CatOS."
+
+    VARIATION       crRadiusServerAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1),
+                        dns(16)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       crRadiusServerKey
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this on CatOS."
+
+    VARIATION       crRadiusServerMode
+    SYNTAX          INTEGER  {
+                        authAndAcct(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       crRadiusServerRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    ::= { ciscoRadiusCapability 1 }
+
+ciscoRadiusCapCatOSV08R0601 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-RADIUS-MIB capabilities."
+
+    SUPPORTS        CISCO-RADIUS-MIB
+    INCLUDES        {
+                        crmConfigurationGroup,
+                        crmAttributesGroup,
+                        crmAttributesGroup2,
+                        crmVlanConfigGroup,
+                        crmKeepAliveGroup,
+                        crmAutoInitializeConfigGroup
+                    }
+    VARIATION       crRadiusAuthKey
+    DESCRIPTION
+        "Only support keys which are in plain text
+        format on CatOS."
+
+    VARIATION       crRadiusTimeout
+    DEFVAL          { 5 }
+    DESCRIPTION
+        "CatOS uses a different default timeout
+        for retransmission."
+
+    VARIATION       crRadiusRetransmits
+    SYNTAX          Unsigned32 (1..100 )
+    DESCRIPTION
+        "Unable to set to zero on CatOS."
+
+    VARIATION       crRadiusAccountingLogMaxSize
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this on CatOS."
+
+    VARIATION       crRadiusAccountingMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this on CatOS."
+
+    VARIATION       crRadiusServerAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1),
+                        dns(16)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       crRadiusServerKey
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this on CatOS."
+
+    VARIATION       crRadiusServerMode
+    SYNTAX          INTEGER  {
+                        authAndAcct(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       crRadiusServerRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       crRadiusFramedMtu
+    SYNTAX          Unsigned32 (60..1500 )
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       crRadiusKeepAliveInterval
+    SYNTAX          Unsigned32 (1..6000 )
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    ::= { ciscoRadiusCapability 2 }
+
+ciscoRadiusCapCatOSV08R0701 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.7(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-RADIUS-MIB capabilities."
+
+    SUPPORTS        CISCO-RADIUS-MIB
+    INCLUDES        {
+                        crmConfigurationGroup,
+                        crmAttributesGroup,
+                        crmAttributesGroup2,
+                        crmVlanConfigGroup,
+                        crmKeepAliveGroup,
+                        crmAutoInitializeConfigGroup,
+                        crmRadiusKeepAliveUserGroup
+                    }
+    VARIATION       crRadiusAuthKey
+    DESCRIPTION
+        "Only support keys which are in plain text
+        format on CatOS."
+
+    VARIATION       crRadiusTimeout
+    DEFVAL          { 5 }
+    DESCRIPTION
+        "CatOS uses a different default timeout
+        for retransmission."
+
+    VARIATION       crRadiusRetransmits
+    SYNTAX          Unsigned32 (1..100 )
+    DESCRIPTION
+        "Unable to set to zero on CatOS."
+
+    VARIATION       crRadiusAccountingLogMaxSize
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this on CatOS."
+
+    VARIATION       crRadiusAccountingMethod
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this on CatOS."
+
+    VARIATION       crRadiusServerAddrType
+    SYNTAX          InetAddressType {
+                        ipv4(1),
+                        dns(16)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       crRadiusServerKey
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this on CatOS."
+
+    VARIATION       crRadiusServerMode
+    SYNTAX          INTEGER  {
+                        authAndAcct(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       crRadiusServerRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       crRadiusFramedMtu
+    SYNTAX          Unsigned32 (60..1500 )
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       crRadiusKeepAliveUserName
+    SYNTAX          SnmpAdminString (SIZE (1..128))
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       crRadiusKeepAliveInterval
+    SYNTAX          Unsigned32 (1..6000 )
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    ::= { ciscoRadiusCapability 3 }
+
+END
+

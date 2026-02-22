@@ -1,0 +1,4609 @@
+-- ******************************************************************
+-- CISCO-MMODAL-CONTACT-APPS-MIB.my:
+-- Cisco Multi-Modal Contact Apps MIB file.
+--   
+-- July 2008, Prasad Velagaleti
+--   
+-- Copyright (c) 2007-2008 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-MMODAL-CONTACT-APPS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Gauge32,
+    Unsigned32,
+    Counter64,
+    Counter32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    CounterBasedGauge64
+        FROM HCNUM-TC
+    TEXTUAL-CONVENTION,
+    DateAndTime,
+    TruthValue
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddressDNS,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CiscoURLString
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoMmodalContactAppsMIB MODULE-IDENTITY
+    LAST-UPDATED    "200807070000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems Customer Service
+
+            Postal: 
+            170 W Tasman Drive
+            San Jose, CA  95134 USA
+            Tel: +1 800 553-NETS
+            E-mail: cs-cuea@cisco.com"
+    DESCRIPTION
+        "The Cisco Unified Multi-Modal Contact Applications (MMCA) platform is
+        a highly scalable, modular, extensible, open and secure platform for 
+        providing contact center applications. The Cisco Unified Expert Advisor
+        (CUEA) is implemented on this platform.
+              The Cisco Unified Expert Advisor application is deployed on 
+        multiple devices that form a cluster, where each device could be 
+        classified as 'Runtime' or 'Reporting'. Each device hosts a set of  
+        services and each service performs a specific task. Not all services 
+        will be running on every device. 
+              The CISCO-MMODAL-CONTACT-APPS-MIB  defines the instrumentation of 
+        the services present in the Cisco Unified Expert Advisor. The MIB 
+        mainly consists of the run-time statistics of each service and also 
+        defines a Notification format. It also defines various groups of 
+        objects that are not specific to a service.
+
+        DEFINITION OF TERMS AND ACRONYMS
+
+        ACD        Automatic Call Distributor
+        ACMI       Advanced Contact Management Interface.  The interface
+                   used by the ICM to talk to generic peripherals. Also
+                   known as GED-188
+        Agent      An Agent, also known as Expert Advisor, is a person in the 
+                   enterprise who is capable of handling calls from CUEA
+        AQ         Assignment Queue
+        Assignment 
+        Queue      Assignment Queues allow Cisco Unified ICM to route call 
+                   requests to groups of expert advisors. Various experts may 
+                   qualify for various assignment queues based on the 
+                   assignment queue membership rules, and they then log in 
+                   or out of, as well as change their availability with respect 
+                   to those assignment queues. An expert advisor who is 
+                   available on a given assignment queue is able 
+                   to be considered by the Work Assigner to receive calls 
+                   according to the assignment queue's selection strategy.
+        Attribute
+        Definition Attributes Definitions are used by assignment queues and 
+                   expert advisors. Attributes are defined by CUEA 
+                   administrators and assigned to assignment queues and 
+                   expert advisors. Expert advisors are routed call 
+                   requests if the expert advisor's skills and attributes 
+                   match those of the Assignment Queue.          
+        B2BUA      Back to back user agent
+        CM         Contact Manager       
+        Contact    A Contact is the internal object that represents an internal
+                   call.  The Contact is created when the call arrives at 
+                   CUEA, and does not terminate until the caller disconnects                            
+        CTI        Computer Telephony Integration        
+        CTI-OS     Computer Telephony Integration - Object Server 
+        CUEA       Cisco Unified Expert Advisor
+        CUCM       Cisco Unified Communications manager
+        CUPS       Cisco Unified Presence server
+        CVP        Customer Voice Portal
+        DNIS       Dialed Number Identification service
+        ERS        Enterprise Routing Services.  The ERS Peripheral Gateway is a 
+                   generic interface for the ICM to connect to an ACD. 
+                   It exposes the ACMI protocol  
+        GED188     The ICM CTI Server/Client interface
+                   specification
+        ICM        Intelligent Contact Management
+        ICMGW      Intelligent Contact Management Gateway
+        ICMPG      ICM Peripheral Gateway
+        IM         Instant Messaging
+        JVM        Java Virtual Machine
+        MMCA       Multi Modal Contact Applications
+        MPA        Media Platform adapter
+        MPI        Media Platform Interface
+        PG         Peripheral Gateway. The Peripheral Gateway is how the
+                   ICM talks to any ACD.
+        PIM        Peripheral Information Manager. The PIM is a  
+                   component of the ICM Peripheral Gateway that handles 
+                   the ACD specific communication.
+        RA         Reporting Adapter
+        RDA        Resource Desktop adapter
+        RDI        Resource desktop interface 
+        RM         Resource Manager
+        RS         Reporting subsystem
+        Selection 
+        Strategy   The strategy by which the Work Assigner should assign 
+                   Expert Advisors to contacts.         
+        SIP        Session Initiation Protocol
+        Skills     Skills are classifications for expert advisor 
+                   abilities, general knowledge, and expertise.  Skills may 
+                   be defined by Expert Advisor administrators, and then 
+                   assigned to individual experts.  An expert may have 
+                   multiple skills, and a competency level from 1 to 100 
+                   in each.         
+        SIMPLE     SIP for Instant Messaging and Presence
+                   Leveraging Extensions
+        WA         Work Assigner."
+    REVISION        "200807070000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 664 }
+
+
+
+-- *******************************************************************
+-- Textual Conventions
+-- *******************************************************************
+
+CmmcaIndex ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary value which uniquely identifies a service.
+        The value should be a small positive integer; index values for
+        different services are not necessarily contiguous."
+    SYNTAX          Unsigned32 (1..4294967295)
+
+CmmcaServiceType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is used to identify the type of service.
+        The Cisco Unified Expert Advisor includes one or but probably 
+        multiple, of the following services. 
+
+        'cm':       Contact Manager:  The Contact manager    
+                    service is responsible for the handling of call
+                    requests and maintaining contact state. CM uses     
+                    BRE to help direct call flow decision making.  
+                    The major services that the CM interfaces with are
+                    the Work Assigner (WA), Media Platform Interface 
+                    (MPA), Knowledge Broker (KB), the ICM Gateway (GW),
+                    and Business Rules Execution Engine (BRE).
+        'rm':       Resource Manager: The Resource Manager (RM) is 
+                    responsible for maintaining the state of assignable
+                    resources, e.g. agents. The RM interfaces to the 
+                    Work Assigner, Media Platform Interface, Resource 
+                    Desktop Adapter and Business Rules Engine.
+        'wa':       Work assigner: The Work Asssigner is responsible 
+                    for matching Contacts that need Resources with 
+                    Resources that need Contacts. 
+        'mpa':      Media Platform Adapter: The Media Platform 
+                    Adapter is a generic interface to various switching
+                    and call control platforms. Removes inconsistencies
+                    and normalizes messages before sending them. It is
+                    an SIP Back to Back user Agent, providing basic third
+                    party call control and end point functions to its
+                    clients(RM,CM,RDA).
+        'bre':      Business Rules Engine: The BRE allows        
+                    customers to define how the system will behave and 
+                    then execute scripts or business rules at runtime.      
+        'icmgw':    ICM Gateway : The ICM Gateway talks to the 
+                    ERS PG of ICM over the GED-188 (ACMI) protocol. It 
+                    sends agent state information to the ICM so that 
+                    the ICM knows whether or not to route calls.
+        'rda':      Resource Desktop Adapter: This service is used by  
+                    RM to communicate to the user interface of the 
+                    Resource(Agent). It provides a normalized interface
+                    (RDI) to the RM that removes differences between 
+                    communicating to different types of desktops or 
+                    Resources viz;CTI-OS, Presence, WebBased desktops or
+                    Traditional/occasional agents.
+        'ra':       Reporting Adapter: RAs listen to event streams 
+                    that are produced by runtime components. They then 
+                    take those events, convert them as appropriate (for
+                    example, converting them to a particular version of
+                    a schema or applying a security policy of what data
+                    can be sent to the reporting database) and then 
+                    send a new message to the Cisco MMCA Reporting 
+                    Subsystem.
+        'rs':       Reporting Subsystem: The RS is responsible for 
+                    writing data into the reporting database. It 
+                    receives messages from various Reporting Adapters 
+                    and converts them into db writes."
+    SYNTAX          INTEGER  {
+                        cm(1), -- Contact Manager
+                        rm(2), -- Resource Manager
+                        wa(3), -- Work Assigner
+                        mpa(4), -- Media Platform Adapter
+                        bre(5), -- Business Rule Engine
+                        icmgw(6), -- ICMGW
+                        rda(7), -- Resource Desktop Adapter
+                        ra(8), -- Reporting Adapter
+                        rs(9) -- Reporting Subsystem                        
+                    }
+
+CmmcaServiceStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is used to identify the run status of a Cisco
+        Unified Expert Advisor service. The value shown is the result of 
+        evaluating the current run status of each of the individual elements 
+        associated with the service.
+
+        'disabled'          The service has not yet begun to start
+                            up.
+
+        'starting'          The service is in initialization
+                            procedure, configuring and licensing, not
+                            accepting connections yet.
+
+        'inService'         The service is up and running optimally,
+                            accepting connections at full QoS (if
+                            applicable).
+
+        'inServiceWarning'  The service is running sub-optimally,
+                            possibly due to poor QoS or a threshold
+                            reached; see transition reason for
+                            explanation.
+
+        'inServiceCritical' The service is running but very near to
+                            failure, similar to 'inServiceWarning'
+                            but much more dire.
+
+        'partialService'    The service is no longer accepting new
+                            calls but finishes processing active calls
+                            (may be due to a loss of a dependency/
+                            connectivity, or a shutdown request).
+
+        'outOfService'      The service is no longer accepting new calls  
+                            and is down for some reason. It can still be
+                            brought in service.
+
+        'stopping'          The service no longer accepts new
+                            connections, lets current connections
+                            terminate gracefully.
+
+        'stopped'           The service has shut down and is not
+                            processing any more calls.  The process
+                            itself is terminating (doing memory
+                            cleanup, saving settings, shutting down
+                            threads, etc.).
+
+        'unknown'           The status of the mmca service is unknown
+                            to the SNMP agent either because the link
+                            between the agent and the application has
+                            been broken or the agent is in the midst
+                            of refreshing service status.  (A refresh
+                            typically occurs after an agent restart
+                            due to configuration changes)."
+    SYNTAX          INTEGER  {
+                        disabled(1),
+                        starting(2),
+                        inService(3),
+                        inServiceWarning(4),
+                        inServiceCritical(5),
+                        partialService(6),
+                        outOfService(7),
+                        stopping(8),
+                        stopped(9),
+                        unknown(10)
+                    }
+
+CmmcaNextNodeStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is used to identify the link status of a
+        neighbouring node with a CUEA Device.
+
+        'unknown'           The status of the link is unknown
+                            to the SNMP agent either because the link
+                            between the agent and the application has
+                            been broken or the agent is in the midst
+                            of refreshing link status.  (A refresh
+                            typically occurs after an agent restart
+                            due to configuration changes.)
+
+        'available'         The connection between the neighbouring node
+                            and CUEA device is up and available.
+
+        'unavailable'       The connection between the neighbouring node
+                            and CUEA device is down and unavailable."
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        available(2),
+                        unavailable(3)
+                    }
+
+CmmcaConditionStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is used to specify the severity of a specific
+        system condition raised by CUEA or services in it.
+        CUEA can run with certain system conditions raised. 
+        The overall system condition status of the application is 
+        specified by CmmcaSystemConditionStatus.
+
+        conditionWarn(1)    : This severity level indicates a warning that
+                              something is not right, however the application 
+                              is still functioning, but the condition may be 
+                              indicative of problem that may become more 
+                              serious later.
+
+        conditionCritical(2): This serverity indicates a condition 
+                              where the application is not functioning 
+                              properly."
+    SYNTAX          INTEGER  {
+                        conditionWarn(1),
+                        conditionCritical(2)
+                    }
+
+CmmcaSystemConditionStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is used to specify the overall System Condition
+        status of CUEA application. CUEA application can run with
+        certain conditions raised with severity specified by 
+        CmmcaConditionStatus.
+
+        statusNormal(1) :  No Conditions have been raised, everything 
+                           is working as intended. This condition can be
+                           considered as 'Green' status, where everything
+                           is working as normal.
+        statusWarning(2):  The application is currently operating, however at
+                           least one condition with CmmcaConditionStatus : 
+                           conditionWarn(1) severity has been raised but no 
+                           condition with CmmcaConditionStatus : 
+                           conditionCritical(2) severity has been raised. 
+                           This status can be considered 'Yellow' where the 
+                           application or service is operating, however some 
+                           condition has been detected that could  become more 
+                           serious later (low memory, disk space a problem, 
+                           can't connect to other members of a cluster, etc.)
+        statusCritical(3): The application or service is not functioning as 
+                           intended. One or more conditions with 
+                           CmmcaConditionStatus : conditionCritical(2) severity 
+                           have been raised. This status can be considered 'Red' 
+                           where the application or service is not functioning 
+                           as designed. There is some problem  such as not being
+                           able to connect to ICM or CUPS or the message bus."
+    SYNTAX          INTEGER  {
+                        statusNormal(1),
+                        statusWarning(2),
+                        statusCritical(3)
+                    }
+
+CmmcaSeverityLevel ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention is used to specify the severity level
+        of an event. The severity levels are
+
+        'emergency':        This severity level event indicates that a
+                            devastating failure has occurred; the
+                            system or service is unusable.  Immediate
+                            operator intervention is required.  
+
+        'alert':            This severity level event indicates that a
+                            devastating failure is imminent that will
+                            render the system unusable.  Immediate
+                            operator attention is necessary.
+
+        'critical':         This severity level event indicates that a
+                            service impacting failure is likely to
+                            occur soon; an error has occurred that
+                            was not appropriately handled by the
+                            system.  Operator attention is needed as
+                            soon as possible.
+
+        'error':            This severity level event indicates that the system 
+                            has experienced a temporary impairment or an error 
+                            that was appropriately handled by the system.                            
+
+        'warning':          This severity level event may be a precursor to an 
+                            error occurrence.  An operator should review the 
+                            event soon to determine if action is needed.
+
+        'notice':           This severity level event contains health or
+                            operational state information that may be
+                            pertinent to the health of the system but
+                            does not require the attention of the
+                            administrator at this time.
+
+        'informational':    This severity level event contains interesting
+                            system-level information that is valuable
+                            to an administrator, however, the event
+                            itself does not indicate a failure or
+                            impairment condition.
+
+        'debug':            This severity level event provides supplemental
+                            information that may be beneficial toward
+                            diagnosing or resolving a problem but does
+                            not in itself provide operational health
+                            status."
+    SYNTAX          INTEGER  {
+                        emergency(1),
+                        alert(2),
+                        critical(3),
+                        error(4),
+                        warning(5),
+                        notice(6),
+                        informational(7),
+                        debug(8)
+                    }
+-- *******************************************************************
+-- MIB Objects
+-- *******************************************************************
+
+ciscoMmodalContactAppsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIB 0 }
+
+ciscoMmodalContactAppsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIB 1 }
+
+ciscoMmodalContactAppsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIB 2 }
+
+cmmcaGeneralInfo  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIBObjects 1 }
+
+cmmcaLicenseInfo  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIBObjects 2 }
+
+cmmcaThreadPool  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIBObjects 3 }
+
+cmmcaRuntimeInfo  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIBObjects 4 }
+
+cmmcaServices  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIBObjects 5 }
+
+cmmcaServiceInfo  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIBObjects 6 }
+
+cmmcaNotificationInfo  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIBObjects 7 }
+
+
+-- ******************************************************************
+-- cmmcaNotificationInfo group
+-- ******************************************************************
+
+cmmcaEventMessageId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event message ID is the unique notification message
+        identifier that was assigned by the CUEA application.
+        This identifier is unique for each different notification but
+        consistent for each instance of the same notification." 
+    ::= { cmmcaNotificationInfo 1 }
+
+cmmcaEventHostName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event host name object specifies the host name or the
+        fully qualified domain name of the CUEA server from which 
+        this event originated." 
+    ::= { cmmcaNotificationInfo 2 }
+
+cmmcaEventAppName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event application name object specifies the
+        service-specific name of the functional service that
+        generated this notification. This name will vary, both in
+        content and in format, based on the service that generated the
+        notification.  For example, the name for the first CM service may 
+        be CUEA_CM1 while the third MPA service name may be CUEA_MPA3.  By
+        convention, the application version number shall appear 
+        in the application name as well, thus the second CM service application
+        name for Cisco Unified Expert Advisor version 1.0 will be CUEA_1_0_CM2." 
+    ::= { cmmcaNotificationInfo 3 }
+
+cmmcaEventMessageName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event message name object specifies the service-specific
+        name of the Expert Advisor service notification message.  This name will
+        vary, both in content and in format, based on the event itself. 
+        The object value is used to group and correlate similar
+        notifications." 
+    ::= { cmmcaNotificationInfo 4 }
+
+cmmcaEventState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        raise(1),
+                        clear(2)
+                    }
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event state object identifies the state (not to be
+        confused with severity) of the notification and potentially
+        the current state of the functional component that generated
+        the notification.  The possible states are:
+
+        'raise':    A raise state identifies a notification received
+                    as a result of a health-impacting condition, such
+                    as a process failure.  A subsequent clear state
+                    notification will follow when the error condition
+                    is resolved.
+
+        'clear':    The clear state indicates that the condition
+                    which generated a previous raise notification has
+                    been resolved." 
+    ::= { cmmcaNotificationInfo 5 }
+
+cmmcaEventSeverity OBJECT-TYPE
+    SYNTAX          CmmcaSeverityLevel
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event severity object indicates the severity level of
+        this notification.  The severity levels are:
+
+        'emergency':        The notification indicates that a
+                            devastating failure has occurred; the
+                            system or service is unusable.  Immediate
+                            operator intervention is required.  
+
+        'alert':            The notification indicates that a
+                            devastating failure is imminent that will
+                            render the system unusable.  Immediate
+                            operator attention is necessary.
+
+        'critical':         The notification indicates that a
+                            service impacting failure is likely to
+                            occur soon; an error has occurred that
+                            was not appropriately handled by the
+                            system.  Operator attention is needed as
+                            soon as possible.
+
+        'error':            The notification contains important
+                            operational state information and may
+                            indicate that the system has experienced
+                            a temporary impairment or an error that
+                            was appropriately handled by the system.
+                            An operator should review the notification
+                            soon to determine if action is needed.
+
+        'warning':          The notification contains important
+                            operational state information that may be
+                            a precursor to an error occurrence.  An
+                            operator should review the notification
+                            soon to determine if action is needed.
+
+        'notice':           The notification contains health or
+                            operational state information that may be
+                            pertinent to the health of the system but
+                            does not require the attention of the
+                            administrator at this time.
+
+        'informational':    The notification contains interesting
+                            system-level information that is valuable
+                            to an administrator, however, the event
+                            itself does not indicate a failure or
+                            impairment condition.
+
+        'debug':            The notification provides supplemental
+                            information that may be beneficial toward
+                            diagnosing or resolving a problem but does
+                            not in itself provide operational health
+                            status." 
+    ::= { cmmcaNotificationInfo 6 }
+
+cmmcaEventTimestamp OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event time stamp object specifies the date and time that
+        the notification was generated on the originating device." 
+    ::= { cmmcaNotificationInfo 7 }
+
+cmmcaEventText OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "The event text is the full text of the notification.  This
+        text includes a description of the event that was generated,
+        component state information and potentially a brief
+        description of administrative action that may be necessary
+        to correct the condition that caused the event to occur." 
+    ::= { cmmcaNotificationInfo 8 }
+-- ******************************************************************
+-- Cisco Rm Table
+-- ******************************************************************
+
+cmmcaRmTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaRmEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the Resource Manager (RM) Service
+        instances configured on this Device. The Resource Manager (RM) is
+        responsible for maintaining the state of assignable resources,
+        e.g. agents. The RM interfaces to the Work Assigner, Media
+        Platform Interface, Resource Desktop Adapter and Business Rules
+        Engine.  Resource state is a function of information obtained
+        from the actual resource and a rule set. Each RM only
+        participates with in a single routing domain, and therefore only
+        talks to a single Work Assigner.  Each RM is also tied to a
+        single MPA, and one or more RDAs that are dedicated to the RM. 
+        The BRE can be shared with other components (other RMs, and
+        other CMs) 
+                  This  table has a sparse dependent relationship with
+        the cmmcaServiceTable and hence uses the index of that table."
+    ::= { cmmcaServiceInfo 1 }
+
+cmmcaRmEntry OBJECT-TYPE
+    SYNTAX          CmmcaRmEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a configured RM service on the
+        Device. The index in cmmcaServiceTable indexes each entry."
+    INDEX           { cmmcaServiceIndex } 
+    ::= { cmmcaRmTable 1 }
+
+CmmcaRmEntry ::= SEQUENCE {
+        cmmcaRmRtAgentsLoggedIn     Gauge32,
+        cmmcaRmRtAgentsOnCalls      Gauge32,
+        cmmcaRmRtAgentsReserved     Gauge32,
+        cmmcaRmRtAgentsWrapUp       Gauge32,
+        cmmcaRmRtAgentsReady        Gauge32,
+        cmmcaRmRtAgentsNoQueue      Gauge32,
+        cmmcaRmAggNumOffersAccept   Counter64,
+        cmmcaRmIntNumOffersAccept   Gauge32,
+        cmmcaRmAggNumOffersReject   Counter64,
+        cmmcaRmIntNumOffersReject   Gauge32,
+        cmmcaRmAggNumOffersTimedOut Counter64,
+        cmmcaRmIntNumOffersTimedOut Gauge32
+}
+
+cmmcaRmRtAgentsLoggedIn OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Real Time indicator of the number of agents currently
+        logged in." 
+    ::= { cmmcaRmEntry 1 }
+
+cmmcaRmRtAgentsOnCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real Time indicator of the number of agents currently on
+        calls." 
+    ::= { cmmcaRmEntry 2 }
+
+cmmcaRmRtAgentsReserved OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real Time indicator of the number of agents currently in
+        the reserved state." 
+    ::= { cmmcaRmEntry 3 }
+
+cmmcaRmRtAgentsWrapUp OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real Time indicator of the number of agents currently
+        wrapping up a call." 
+    ::= { cmmcaRmEntry 4 }
+
+cmmcaRmRtAgentsReady OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real Time indicator of the number of agents currently in
+        the ready state." 
+    ::= { cmmcaRmEntry 5 }
+
+cmmcaRmRtAgentsNoQueue OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real Time indicator of the number of agents currently
+        unallocated in any queue (most likely a configuration error)." 
+    ::= { cmmcaRmEntry 6 }
+
+cmmcaRmAggNumOffersAccept OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "offers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of offers accepted since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaRmEntry 7 }
+
+cmmcaRmIntNumOffersAccept OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "offers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of offers accepted over the last interval specified by the
+        corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRmEntry 8 }
+
+cmmcaRmAggNumOffersReject OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "offers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of offers rejected since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaRmEntry 9 }
+
+cmmcaRmIntNumOffersReject OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "offers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of offers rejected over the last interval specified by the
+        corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRmEntry 10 }
+
+cmmcaRmAggNumOffersTimedOut OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "offers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of offers that timed out since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaRmEntry 11 }
+
+cmmcaRmIntNumOffersTimedOut OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "offers"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of offers that timed out over the last interval specified
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRmEntry 12 }
+ 
+
+-- ******************************************************************
+-- Cisco Cm Table
+-- ******************************************************************
+
+cmmcaCmTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaCmEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes CM instances configured on this Device. The
+        Contact Manager (CM) service is responsible for the handling of
+        call requests and maintaining contact state. Instances may load
+        share as well as support different types of contacts. This
+        service is a critical funnel point to the rest of the system. CM
+        uses BRE to help direct call flow decision making. The CM must
+        be able to transparently scale and provide for fault tolerance.
+        This is best modeled as the CM receiving work from a virtual
+        queue. 
+            The CM only participates within a single routing domain, and
+        therefore only talks to a single Work Assigner.  Each CM is also
+        tied to a single MPA.  The BRE used by the CM can be shared
+        among components (both CMs and RMs).
+             This table has a sparse dependent relationship with the
+        cmmcaServiceTable and hence uses its index."
+    ::= { cmmcaServiceInfo 2 }
+
+cmmcaCmEntry OBJECT-TYPE
+    SYNTAX          CmmcaCmEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a configured CM service.
+        The index in cmmcaServiceTable indexes each entry."
+    INDEX           { cmmcaServiceIndex } 
+    ::= { cmmcaCmTable 1 }
+
+CmmcaCmEntry ::= SEQUENCE {
+        cmmcaCmRtNumActiveCalls         Gauge32,
+        cmmcaCmRtNumCallTrying          Gauge32,
+        cmmcaCmRtNumCallRingBack        Gauge32,
+        cmmcaCmRtNumCallConnecting      Gauge32,
+        cmmcaCmRtNumCallConnected       Gauge32,
+        cmmcaCmRtNumCallInitial         Gauge32,
+        cmmcaCmAggNumCallArrivals       Counter64,
+        cmmcaCmIntNumCallArrivals       Gauge32,
+        cmmcaCmRtNumCallRejecting       Gauge32,
+        cmmcaCmRtNumCallTransferring    Gauge32,
+        cmmcaCmRtNumCallTerminating     Gauge32,
+        cmmcaCmAggAvgCallDurationTime   Gauge32,
+        cmmcaCmIntAvgCallDurationTime   Gauge32,
+        cmmcaCmAggMaxCallDurationTime   Integer32,
+        cmmcaCmIntMaxCallDurationTime   Integer32,
+        cmmcaCmAggMaxCallDurationTimeDt DateAndTime,
+        cmmcaCmIntMaxCallDurationTimeDt DateAndTime,
+        cmmcaCmAggAvgCallInQueueTime    Gauge32,
+        cmmcaCmIntAvgCallInQueueTime    Gauge32,
+        cmmcaCmAggMaxCallInQueueTime    Integer32,
+        cmmcaCmIntMaxCallInQueueTime    Integer32,
+        cmmcaCmAggMaxCallInQueueTimeDt  DateAndTime,
+        cmmcaCmIntMaxCallInQueueTimeDt  DateAndTime,
+        cmmcaCmAggAvgCallArrivalRate    Gauge32,
+        cmmcaCmAggMaxCallArrivalRate    Integer32,
+        cmmcaCmAggMaxCallArrivalRateDt  DateAndTime,
+        cmmcaCmIntAvgCallArrivalRate    Gauge32
+}
+
+cmmcaCmRtNumActiveCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time indicator of the number of active calls." 
+    ::= { cmmcaCmEntry 1 }
+
+cmmcaCmRtNumCallTrying OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time indicator of the number of calls where a contact
+        is created; BRE script is started." 
+    ::= { cmmcaCmEntry 2 }
+
+cmmcaCmRtNumCallRingBack OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time indicator of the number of calls which are
+        currently receiving ringback." 
+    ::= { cmmcaCmEntry 3 }
+
+cmmcaCmRtNumCallConnecting OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time indicator of the number of calls where a resource
+        has been identified selected and the call is in the process of
+        being connected." 
+    ::= { cmmcaCmEntry 4 }
+
+cmmcaCmRtNumCallConnected OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time indicator of the number of calls in which a
+        contact is connected to one or more participant (e.g.,
+        self-service, agents, conference)." 
+    ::= { cmmcaCmEntry 5 }
+
+cmmcaCmRtNumCallInitial OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time indicator of the number of calls in which a
+        contact is in initial state." 
+    ::= { cmmcaCmEntry 6 }
+
+cmmcaCmAggNumCallArrivals OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of new calls which arrived at the Contact Manager since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaCmEntry 7 }
+
+cmmcaCmIntNumCallArrivals OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of new calls which arrived at the Contact Manager over
+        the last interval specified by the corresponding cmmcaServiceIntPeriod 
+        in cmmcaServiceTable." 
+    ::= { cmmcaCmEntry 8 }
+
+cmmcaCmRtNumCallRejecting OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time indicator of the number of calls which could not
+        be accepted and processed (e.g. due to invalid call, lack of
+        system resources or licenses, or no agent available) and are
+        currently in the process of being rejected." 
+    ::= { cmmcaCmEntry 9 }
+
+cmmcaCmRtNumCallTransferring OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time indicator of the number of calls in which
+        participant changes are currently in progress (e.g.,participant
+        adds/removes like conferencing, redirecting or transferring)." 
+    ::= { cmmcaCmEntry 10 }
+
+cmmcaCmRtNumCallTerminating OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time indicator of the number of calls which are
+        currently terminating because all parties but one have
+        disconnected." 
+    ::= { cmmcaCmEntry 11 }
+
+cmmcaCmAggAvgCallDurationTime OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average call handling time since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaCmEntry 12 }
+
+cmmcaCmIntAvgCallDurationTime OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average call handling time over the last interval specified
+        by the corresponding cmmcaServiceIntPeriod in
+        cmmcaServiceTable." 
+    ::= { cmmcaCmEntry 13 }
+
+cmmcaCmAggMaxCallDurationTime OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum call handling time since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaCmEntry 14 }
+
+cmmcaCmIntMaxCallDurationTime OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum call handling time over the last interval specified
+        by the corresponding cmmcaServiceIntPeriod in
+        cmmcaServiceTable." 
+    ::= { cmmcaCmEntry 15 }
+
+cmmcaCmAggMaxCallDurationTimeDt OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp when the maximum call duration time since
+        application start time, cmmcaStartTime, has occurred." 
+    ::= { cmmcaCmEntry 16 }
+
+cmmcaCmIntMaxCallDurationTimeDt OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp of when the maximum call duration time over the
+        last interval, specified by the corresponding cmmcaServiceIntPeriod in 
+        cmmcaServiceTable, occurred." 
+    ::= { cmmcaCmEntry 17 }
+
+cmmcaCmAggAvgCallInQueueTime OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average call time in queue since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaCmEntry 18 }
+
+cmmcaCmIntAvgCallInQueueTime OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average call time in queue over the last interval specified
+        by the corresponding cmmcaServiceIntPeriod in
+        cmmcaServiceTable." 
+    ::= { cmmcaCmEntry 19 }
+
+cmmcaCmAggMaxCallInQueueTime OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum call time in queue since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaCmEntry 20 }
+
+cmmcaCmIntMaxCallInQueueTime OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum call time in queue over the last interval specified
+        by the corresponding cmmcaServiceIntPeriod in
+        cmmcaServiceTable." 
+    ::= { cmmcaCmEntry 21 }
+
+cmmcaCmAggMaxCallInQueueTimeDt OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp of when the maximum call time in queue since
+        application start(cmmcaStartTime), occurred." 
+    ::= { cmmcaCmEntry 22 }
+
+cmmcaCmIntMaxCallInQueueTimeDt OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp of when the maximum call time in queue over the
+        last interval, specified by the corresponding cmmcaServiceIntPeriod in 
+        cmmcaServiceTable, occurred." 
+    ::= { cmmcaCmEntry 23 }
+
+cmmcaCmAggAvgCallArrivalRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls per minute"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average call arrival rate since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaCmEntry 24 }
+
+cmmcaCmAggMaxCallArrivalRate OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "calls per minute"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum of interval average call arrival rate, displayed by
+        cmmcaCmIntAvgCallArrivalRate, since application start time, 
+        specified by cmmcaStartTime." 
+    ::= { cmmcaCmEntry 25 }
+
+cmmcaCmAggMaxCallArrivalRateDt OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp of when the maximum call arrival rate since application
+        start (cmmcaStartTime), occurred." 
+    ::= { cmmcaCmEntry 26 }
+
+cmmcaCmIntAvgCallArrivalRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls per minute"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average rate of calls over the last interval specified
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaCmEntry 27 }
+ 
+
+-- ******************************************************************
+-- Cisco Rda Table
+-- ******************************************************************
+
+cmmcaRdaTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaRdaEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists all Resource Desktop Adapter services
+        configured on this Device.  The Resource Desktop Adapter (RDA) is
+        used by the RM to communicate to the user interface of the
+        Resource (or Agent).  This component provides a normalized
+        interface (RDI-Resource desktop interface) to the Resource
+        Manager that removes the differences between communicating to
+        different types of desktops (such as CTIOS, Presence, Web Based,
+        etc) or Resources (such as occasional or traditional agents). 
+        This type of communication typically includes requests like:
+
+        -  Log In or Log Out a resource from the desktop
+        -  Set the presence state of the desktop to a particular
+           state
+        -  Show a precall message to the resource
+        -  Offer a task to the resource and get a response
+
+        Each RDA is tied to a single Resource Manager, but each
+        Resource Manager may talk to many RDAs.
+
+           This table has a sparse dependent relationship with
+        cmmcaServiceTable and hence uses its index."
+    ::= { cmmcaServiceInfo 3 }
+
+cmmcaRdaEntry OBJECT-TYPE
+    SYNTAX          CmmcaRdaEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a configured RDA service. The cmmcaServiceTable
+        index is used to index each entry in this table."
+    INDEX           { cmmcaServiceIndex } 
+    ::= { cmmcaRdaTable 1 }
+
+CmmcaRdaEntry ::= SEQUENCE {
+        cmmcaRdaAggNumMsgProc                        Counter64,
+        cmmcaRdaIntNumMsgProc                        CounterBasedGauge64,
+        cmmcaRdaAggNumSuccessPresenceNotifications   Counter64,
+        cmmcaRdaIntNumSuccessPresenceNotifications   CounterBasedGauge64,
+        cmmcaRdaRtNumActiveClients                   Gauge32,
+        cmmcaRdaRtNumOutStandingOfferTasks           Gauge32,
+        cmmcaRdaAggNumUnSuccessPresenceNotifications Counter64,
+        cmmcaRdaIntNumUnSuccessPresenceNotifications CounterBasedGauge64,
+        cmmcaRdaRtNumInactiveClients                 Gauge32
+}
+
+cmmcaRdaAggNumMsgProc OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of messages processed since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaRdaEntry 1 }
+
+cmmcaRdaIntNumMsgProc OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of messages processed over the last interval specified
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRdaEntry 2 }
+
+cmmcaRdaAggNumSuccessPresenceNotifications OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of successful presence notifications since application start
+        time specified by cmmcaStartTime." 
+    ::= { cmmcaRdaEntry 3 }
+
+cmmcaRdaIntNumSuccessPresenceNotifications OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of successful presence notifications over the last
+        interval specified by the corresponding cmmcaServiceIntPeriod in 
+        cmmcaServiceTable." 
+    ::= { cmmcaRdaEntry 4 }
+
+cmmcaRdaRtNumActiveClients OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "clients"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of active end-user devices that have
+        capability to perform instant message operation." 
+    ::= { cmmcaRdaEntry 5 }
+
+cmmcaRdaRtNumOutStandingOfferTasks OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "tasks"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of outstanding offertasks to be processed." 
+    ::= { cmmcaRdaEntry 6 }
+
+cmmcaRdaAggNumUnSuccessPresenceNotifications OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of unsuccessful presence notifications since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaRdaEntry 7 }
+
+cmmcaRdaIntNumUnSuccessPresenceNotifications OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "notifications"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of unsucessful presence notifications over the last
+        interval specified by the corresponding cmmcaServiceIntPeriod in 
+        cmmcaServiceTable." 
+    ::= { cmmcaRdaEntry 8 }
+
+cmmcaRdaRtNumInactiveClients OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "clients"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of inactive clients." 
+    ::= { cmmcaRdaEntry 9 }
+ 
+
+-- ******************************************************************
+-- Cisco Bre Table
+-- ******************************************************************
+
+cmmcaBreTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaBreEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the Business Rules Engine (BRE) services
+        configured on this Device. The Business Rules Engine in MMCA
+        allows customers to define how the system will behave and then
+        execute scripts or business rules at runtime.
+
+        In Cisco Unified Expert Advisor application, a very limited Business 
+        Rules Engine will be needed. 
+        It will be required only to run pre-configured basic agent
+        scripts and contact scripts (queue to a given skill group and
+        then connect the call).  
+
+        The following features are required of the BRE:
+        -   Start a script
+        -   Select a single AQ for a contact to be queued to, or a
+            multiple AQs for a resource to be made available.
+        -   Request Resource
+        -   Direct Call Control Requests to Client (CM)
+        -   Receive and Handle Call Events (leg terminated, etc.)
+        -   Receive and change individual agent availability
+
+               This table has a sparse dependent relationship with
+        Service Table and hence uses its index."
+    ::= { cmmcaServiceInfo 4 }
+
+cmmcaBreEntry OBJECT-TYPE
+    SYNTAX          CmmcaBreEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a configured BRE service. The cmmcaServiceTable
+        index indexes this table."
+    INDEX           { cmmcaServiceIndex } 
+    ::= { cmmcaBreTable 1 }
+
+CmmcaBreEntry ::= SEQUENCE {
+        cmmcaBreAggLoadedScripts                     Counter32,
+        cmmcaBreAggDistinctScripts                   Counter32,
+        cmmcaBreRtActiveScripts                      Gauge32,
+        cmmcaBreRtCurrentInstances                   Gauge32,
+        cmmcaBreAggMaxConcurrentInstances            Counter32,
+        cmmcaBreIntMaxConcurrentInstances            Gauge32,
+        cmmcaBreAggMaxConcurrentInstancesDt          DateAndTime,
+        cmmcaBreIntMaxConcurrentInstancesDt          DateAndTime,
+        cmmcaBreAggAvgConcurrentInstances            Gauge32,
+        cmmcaBreIntAvgConcurrentInstances            Gauge32,
+        cmmcaBreAggTotalInstanceInitiations          Counter64,
+        cmmcaBreIntTotalInstanceInitiations          CounterBasedGauge64,
+        cmmcaBreAggTotalContactInstanceInitiations   Counter64,
+        cmmcaBreIntTotalContactInstanceInitiations   CounterBasedGauge64,
+        cmmcaBreAggTotalResourceInstanceInitiations  Counter64,
+        cmmcaBreIntTotalResourceInstanceInitiations  CounterBasedGauge64,
+        cmmcaBreAggTotalInstanceTerminations         Counter64,
+        cmmcaBreIntTotalInstanceTerminations         CounterBasedGauge64,
+        cmmcaBreAggTotalContactInstanceTerminations  Counter64,
+        cmmcaBreIntTotalContactInstanceTerminations  CounterBasedGauge64,
+        cmmcaBreAggTotalResourceInstanceTerminations Counter64,
+        cmmcaBreIntTotalResourceInstanceTerminations CounterBasedGauge64,
+        cmmcaBreAggTotalAbnormalEndings              Counter64,
+        cmmcaBreIntTotalAbnormalEndings              CounterBasedGauge64,
+        cmmcaBreAggTotalAbnormalContactEndings       Counter64,
+        cmmcaBreIntTotalAbnormalContactEndings       CounterBasedGauge64,
+        cmmcaBreAggTotalAbnormalResourceEndings      Counter64,
+        cmmcaBreIntTotalAbnormalResourceEndings      CounterBasedGauge64
+}
+
+cmmcaBreAggLoadedScripts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "scripts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of scripts loaded by the BRE." 
+    ::= { cmmcaBreEntry 1 }
+
+cmmcaBreAggDistinctScripts OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "scripts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of distinct scripts loaded by the BRE (not
+        including different versions of the same script)." 
+    ::= { cmmcaBreEntry 2 }
+
+cmmcaBreRtActiveScripts OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "scripts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of loaded BRE scripts that are active." 
+    ::= { cmmcaBreEntry 3 }
+
+cmmcaBreRtCurrentInstances OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "instances"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current number of script instances existing at this moment
+        in time." 
+    ::= { cmmcaBreEntry 4 }
+
+cmmcaBreAggMaxConcurrentInstances OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "instances"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of script instances that existed since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaBreEntry 5 }
+
+cmmcaBreIntMaxConcurrentInstances OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "instances"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum number of script instances that existed  over the
+        last interval specified by the corresponding cmmcaServiceIntPeriod in 
+        cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 6 }
+
+cmmcaBreAggMaxConcurrentInstancesDt OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp of when the maximum concurrent instances, specified by
+        cmmcaBreAggMaxConcurrentInstances, since application start time 
+            (cmmcaStartTime) has occurred." 
+    ::= { cmmcaBreEntry 7 }
+
+cmmcaBreIntMaxConcurrentInstancesDt OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp of when the maximum concurrent instances over the
+        last interval, specified by the corresponding cmmcaServiceIntPeriod in 
+        cmmcaServiceTable, has occurred." 
+    ::= { cmmcaBreEntry 8 }
+
+cmmcaBreAggAvgConcurrentInstances OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "instances"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average number of instances being worked on by the BRE
+        since application start time specified by cmmcaStartTime." 
+    ::= { cmmcaBreEntry 9 }
+
+cmmcaBreIntAvgConcurrentInstances OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "instances"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average number of instances being worked on by the BRE over
+        the last interval specified by the corresponding cmmcaServiceIntPeriod 
+        in cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 10 }
+
+cmmcaBreAggTotalInstanceInitiations OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "initiations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of script instances created since application start
+        time specified by cmmcaStartTime." 
+    ::= { cmmcaBreEntry 11 }
+
+cmmcaBreIntTotalInstanceInitiations OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "initiations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of script instances created over the last
+        interval specified by the corresponding cmmcaServiceIntPeriod in 
+        cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 12 }
+
+cmmcaBreAggTotalContactInstanceInitiations OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "initiations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact script instances created since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaBreEntry 13 }
+
+cmmcaBreIntTotalContactInstanceInitiations OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "initiations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact script instances created over the
+        last interval specified by the corresponding cmmcaServiceIntPeriod in 
+        cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 14 }
+
+cmmcaBreAggTotalResourceInstanceInitiations OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "initiations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of resource script instances created since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaBreEntry 15 }
+
+cmmcaBreIntTotalResourceInstanceInitiations OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "initiations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of resource script instances created over the
+        last interval specified by the corresponding cmmcaServiceIntPeriod in 
+        cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 16 }
+
+cmmcaBreAggTotalInstanceTerminations OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "terminations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of script instances terminated since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaBreEntry 17 }
+
+cmmcaBreIntTotalInstanceTerminations OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "terminations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of script instances terminated over the last
+        interval specified by the corresponding cmmcaServiceIntPeriod in 
+        cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 18 }
+
+cmmcaBreAggTotalContactInstanceTerminations OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "terminations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact script instances terminated since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaBreEntry 19 }
+
+cmmcaBreIntTotalContactInstanceTerminations OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "terminations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact script instances terminated over
+        the last interval specified by the corresponding cmmcaServiceIntPeriod 
+        in cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 20 }
+
+cmmcaBreAggTotalResourceInstanceTerminations OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "terminations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of resource script instances terminated since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaBreEntry 21 }
+
+cmmcaBreIntTotalResourceInstanceTerminations OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "terminations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of resource script instances terminated over
+        the last interval specified by the corresponding cmmcaServiceIntPeriod 
+        in cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 22 }
+
+cmmcaBreAggTotalAbnormalEndings OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "endings"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of script instances that ended abnormally
+        since application start time specified by cmmcaStartTime." 
+    ::= { cmmcaBreEntry 23 }
+
+cmmcaBreIntTotalAbnormalEndings OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "endings"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of script instances that ended abnormally over
+        the last interval specified by the corresponding cmmcaServiceIntPeriod 
+        in cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 24 }
+
+cmmcaBreAggTotalAbnormalContactEndings OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "endings"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact script instances that ended
+        abnormally since application start time specified by cmmcaStartTime." 
+    ::= { cmmcaBreEntry 25 }
+
+cmmcaBreIntTotalAbnormalContactEndings OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "endings"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact script instances that ended
+        abnormally over the last interval specified 
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 26 }
+
+cmmcaBreAggTotalAbnormalResourceEndings OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "endings"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of resource script instances that ended
+        abnormally since application start time specified by 
+                cmmcaStartTime." 
+    ::= { cmmcaBreEntry 27 }
+
+cmmcaBreIntTotalAbnormalResourceEndings OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "endings"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of resource script instances that ended
+        abnormally over the last interval specified by the corresponding 
+        cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaBreEntry 28 }
+ 
+
+-- ******************************************************************
+-- Cisco Wa Table
+-- ******************************************************************
+
+cmmcaWaTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaWaEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the Work Assigner(WA) Service instances
+        configured on this Device. The Work Assigner is responsible for 
+        matching Contacts that need Resources with Resources that 
+        need Contacts.
+                          The scope of a single work assigner defines a
+        Routing Domain.  A Routing Domain is a set of Contacts and a set
+        of Resources that can be assigned to each other.  This means
+        that the size of a routing domain is constrained by how scalable
+        a Work Assigner can be.  Because of this, the Work Assigner
+        tries to be as streamlined as possible and delegate all logic
+        that deals with the scope of an individual resource or
+        individual contact to the RM or the CM.
+           Work Assigner is not the only interface that is used to
+        communicate between the RM and the CM, it merely provides the
+        initial assignment between the two , much in the same manner as
+        a SIP connects two endpoints, and then gets out of the call.
+          The Work Assigner also includes the logic to execute advanced
+        routing features (such as resume routing, spatial routing,
+        etc).
+             This table has a sparse dependent relationship with
+        cmmcaServiceTable and hence is indexed by cmmcaServiceIndex."
+    ::= { cmmcaServiceInfo 5 }
+
+cmmcaWaEntry OBJECT-TYPE
+    SYNTAX          CmmcaWaEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a configured WA service. The index in
+        cmmcaServiceTable is used to index this table too."
+    INDEX           { cmmcaServiceIndex } 
+    ::= { cmmcaWaTable 1 }
+
+CmmcaWaEntry ::= SEQUENCE {
+        cmmcaWaRtAssignmentQueCount              Gauge32,
+        cmmcaWaRtAttributeDefCount               Gauge32,
+        cmmcaWaRtSelectionStrategyCount          Gauge32,
+        cmmcaWaRtSkillCount                      Gauge32,
+        cmmcaWaAggTotalConfigErrors              Counter64,
+        cmmcaWaAggCancelResourceRequestReceived  Counter64,
+        cmmcaWaAggResourceRequestReceived        Counter64,
+        cmmcaWaAggResourceResponseSent           Counter64,
+        cmmcaWaAggCancelWorkRequestReceived      Counter64,
+        cmmcaWaAggOfferTaskAcceptedSent          Counter64,
+        cmmcaWaAggOfferTaskCancelledSent         Counter64,
+        cmmcaWaAggOfferTaskResponseReceived      Counter64,
+        cmmcaWaAggOfferTaskSent                  Counter64,
+        cmmcaWaAggResyncResourceResponseAckSent  Counter64,
+        cmmcaWaAggResyncResourceResponseReceived Counter64,
+        cmmcaWaAggResyncResourceSent             Counter64,
+        cmmcaWaAggWorkRequestReceived            Counter64,
+        cmmcaWaAggQueueEventSent                 Counter64,
+        cmmcaWaAggWorkRequestCanceledSent        Counter64,
+        cmmcaWaAggWRIFailureResponseSent         Counter64,
+        cmmcaWaAggRRIFailureResponseSent         Counter64,
+        cmmcaWaAggResourceResponseCanceledSent   Counter64,
+        cmmcaWaAggCancelQueueEventSent           Counter64,
+        cmmcaWaAggMessageSentError               Counter64,
+        cmmcaWaRtResourceCriteriaCount           Gauge32,
+        cmmcaWaRtSelectionStrategyAttrCount      Gauge32,
+        cmmcaWaRtAttributeCriteriaCount          Gauge32,
+        cmmcaWaRtResourceCount                   Gauge32,
+        cmmcaWaRtAttributeValueCount             Gauge32,
+        cmmcaWaRtSkillCompetencyCount            Gauge32,
+        cmmcaWaRtResourceMemberCount             Gauge32,
+        cmmcaWaRtTotalResourceCount              Gauge32,
+        cmmcaWaRtTotalContactCount               Gauge32,
+        cmmcaWaRtTotalResourceManagerCount       Gauge32,
+        cmmcaWaRtTotalContactManagerCount        Gauge32
+}
+
+cmmcaWaRtAssignmentQueCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "none"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of Assignment Queues configured." 
+    ::= { cmmcaWaEntry 1 }
+
+cmmcaWaRtAttributeDefCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "none"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of Attribute definitions configured." 
+    ::= { cmmcaWaEntry 2 }
+
+cmmcaWaRtSelectionStrategyCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "none"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of selection strategies configured." 
+    ::= { cmmcaWaEntry 3 }
+
+cmmcaWaRtSkillCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "none"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of skills configured." 
+    ::= { cmmcaWaEntry 4 }
+
+cmmcaWaAggTotalConfigErrors OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "none"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of errors processing config messages." 
+    ::= { cmmcaWaEntry 5 }
+
+cmmcaWaAggCancelResourceRequestReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of CancelResourceRequest messages received since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 6 }
+
+cmmcaWaAggResourceRequestReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of ResourceRequest messages received since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 7 }
+
+cmmcaWaAggResourceResponseSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of ResourceResponse messages sent since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 8 }
+
+cmmcaWaAggCancelWorkRequestReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of CancelWorkRequest messages received since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 9 }
+
+cmmcaWaAggOfferTaskAcceptedSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total mumber of OfferTaskAccept messages sent since application
+        start time  specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 10 }
+
+cmmcaWaAggOfferTaskCancelledSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of OfferTaskCancelled messages sent since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 11 }
+
+cmmcaWaAggOfferTaskResponseReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of OfferTaskResponse messages received since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 12 }
+
+cmmcaWaAggOfferTaskSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of OfferTask messages sent since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 13 }
+
+cmmcaWaAggResyncResourceResponseAckSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of ResyncResourceResponseAcknowledgement messages
+        sent since application start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 14 }
+
+cmmcaWaAggResyncResourceResponseReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of ResyncResourceResponse received since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 15 }
+
+cmmcaWaAggResyncResourceSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of ResyncResource messages sent since
+        application start time  specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 16 }
+
+cmmcaWaAggWorkRequestReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of WorkRequest messages Received since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 17 }
+
+cmmcaWaAggQueueEventSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of QueueEvent messages sent since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 18 }
+
+cmmcaWaAggWorkRequestCanceledSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of WorkRequestCanceled messages sent
+        since application start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 19 }
+
+cmmcaWaAggWRIFailureResponseSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of WRIFailureResponse messages sent since application
+        start time  specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 20 }
+
+cmmcaWaAggRRIFailureResponseSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of RRIFailureResponseSent messages sent
+        since application         start time specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 21 }
+
+cmmcaWaAggResourceResponseCanceledSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of ResourceResponseCanceled messages sent since boot
+        time." 
+    ::= { cmmcaWaEntry 22 }
+
+cmmcaWaAggCancelQueueEventSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of CancelQueueEvent messages sent since application
+        start time  specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 23 }
+
+cmmcaWaAggMessageSentError OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of times messages could not be sent since application
+        start time  specified by cmmcaStartTime." 
+    ::= { cmmcaWaEntry 24 }
+
+cmmcaWaRtResourceCriteriaCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "criteria"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of resource criteria configured." 
+    ::= { cmmcaWaEntry 25 }
+
+cmmcaWaRtSelectionStrategyAttrCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "attributes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of selection strategy attributes configured." 
+    ::= { cmmcaWaEntry 26 }
+
+cmmcaWaRtAttributeCriteriaCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "criteria"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of attribute criteria configured." 
+    ::= { cmmcaWaEntry 27 }
+
+cmmcaWaRtResourceCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "resources"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of resources configured." 
+    ::= { cmmcaWaEntry 28 }
+
+cmmcaWaRtAttributeValueCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "values"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of attribute values configured." 
+    ::= { cmmcaWaEntry 29 }
+
+cmmcaWaRtSkillCompetencyCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "competencies"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of skill competencies configured." 
+    ::= { cmmcaWaEntry 30 }
+
+cmmcaWaRtResourceMemberCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "members"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of resource members configured." 
+    ::= { cmmcaWaEntry 31 }
+
+cmmcaWaRtTotalResourceCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "resources"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of known total resources." 
+    ::= { cmmcaWaEntry 32 }
+
+cmmcaWaRtTotalContactCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "contacts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of total known total contacts." 
+    ::= { cmmcaWaEntry 33 }
+
+cmmcaWaRtTotalResourceManagerCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "services"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of known resource manager services." 
+    ::= { cmmcaWaEntry 34 }
+
+cmmcaWaRtTotalContactManagerCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "services"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of known contact manager services." 
+    ::= { cmmcaWaEntry 35 }
+ 
+
+-- ******************************************************************
+-- Cisco Mpa Table
+-- ******************************************************************
+
+cmmcaMpaTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaMpaEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes MPA services configured on this Device. The Media
+        Platform Adapter is a media platform for SIP calls:
+
+        -   SIP Back to Back User Agent (B2BUA), providing basic 3rd
+        party call control and endpoint functions to its clients (RM,
+        CM, RDA).
+        -   Used by both RM and CM for handling calls.
+
+        A single Media Platform Interface(MPI) can support multiple
+        clients (such as a RM, a CM and a RDA), SIP based MPIs will
+        always be co-located with its clients.  
+
+        This table has a sparse dependent relationship with 
+        cmmcaServiceTable and hence uses its index."
+    ::= { cmmcaServiceInfo 6 }
+
+cmmcaMpaEntry OBJECT-TYPE
+    SYNTAX          CmmcaMpaEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a configured MPA service. Each entry is indexed
+        by the index in cmmcaServiceTable."
+    INDEX           { cmmcaServiceIndex } 
+    ::= { cmmcaMpaTable 1 }
+
+CmmcaMpaEntry ::= SEQUENCE {
+        cmmcaMpaAggNewCalls                                  Counter64,
+        cmmcaMpaAggConnectsRcv                               Counter64,
+        cmmcaMpaAggAvgLatency                                Gauge32,
+        cmmcaMpaAggFailedInvites                             Counter64,
+        cmmcaMpaAggFailedReinvites                           Counter64,
+        cmmcaMpaAggTotalCalls                                Counter64,
+        cmmcaMpaRtIncomingCalls                              Gauge32,
+        cmmcaMpaRtOutgoingCalls                              Gauge32,
+        cmmcaMpaRtActiveClientSessions                       Gauge32,
+        cmmcaMpaAggTotalClientsRegistered                    Counter64,
+        cmmcaMpaAggInstantMessagesSent                       Counter64,
+        cmmcaMpaAggInstantMessagesReceived                   Counter64,
+        cmmcaMpaAggPresenceUpdatesReceived                   Counter64,
+        cmmcaMpaAggPresenceUpdatesBytesRcv                   Counter64,
+        cmmcaMpaRtActiveRegisteredSipAddresses               Gauge32,
+        cmmcaMpaRtActiveSipControlAddresses                  Gauge32,
+        cmmcaMpaRtActiveIMAddresses                          Gauge32,
+        cmmcaMpaRtActiveMonitoredPresenceAddresses           Gauge32,
+        cmmcaMpaAggTotalRegisteredSipAddresses               Counter64,
+        cmmcaMpaAggTotalSipControlAddressesRegistered        Counter64,
+        cmmcaMpaAggTotalIMAddressesRegistered                Counter64,
+        cmmcaMpaAggTotalMonitoredPresenceAddressesRegistered Counter64,
+        cmmcaMpaRtActiveInteractions                         Gauge32,
+        cmmcaMpaRtActivePublishAddresses                     Gauge32,
+        cmmcaMpaRtTotalPublishAddressesRegistered            Gauge32
+}
+
+cmmcaMpaAggNewCalls OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of new calls requests received since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 1 }
+
+cmmcaMpaAggConnectsRcv OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "connects"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of connect attempts since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 2 }
+
+cmmcaMpaAggAvgLatency OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The average time in milliseconds required to complete a connection." 
+    ::= { cmmcaMpaEntry 3 }
+
+cmmcaMpaAggFailedInvites OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "invitations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failed invitation attempts since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 4 }
+
+cmmcaMpaAggFailedReinvites OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "invitations"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of failed re-invitation attempts since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 5 }
+
+cmmcaMpaAggTotalCalls OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current number of calls into and originating from the MPA." 
+    ::= { cmmcaMpaEntry 6 }
+
+cmmcaMpaRtIncomingCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current number of Incoming calls." 
+    ::= { cmmcaMpaEntry 7 }
+
+cmmcaMpaRtOutgoingCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current number of calls originating from the MPA." 
+    ::= { cmmcaMpaEntry 8 }
+
+cmmcaMpaRtActiveClientSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of currently registered Client Sessions." 
+    ::= { cmmcaMpaEntry 9 }
+
+cmmcaMpaAggTotalClientsRegistered OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of client sessions opened(Including disconnected
+        clients), since application start time specified by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 10 }
+
+cmmcaMpaAggInstantMessagesSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of instant messages sent since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 11 }
+
+cmmcaMpaAggInstantMessagesReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of instant messages received since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 12 }
+
+cmmcaMpaAggPresenceUpdatesReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "updates"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of presence documents received since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 13 }
+
+cmmcaMpaAggPresenceUpdatesBytesRcv OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of bytes received in presence updates, since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 14 }
+
+cmmcaMpaRtActiveRegisteredSipAddresses OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of SIP current registrations to SIP Registrar." 
+    ::= { cmmcaMpaEntry 15 }
+
+cmmcaMpaRtActiveSipControlAddresses OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of SIP addresses currently registered." 
+    ::= { cmmcaMpaEntry 16 }
+
+cmmcaMpaRtActiveIMAddresses OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of IM addresses currently registered." 
+    ::= { cmmcaMpaEntry 17 }
+
+cmmcaMpaRtActiveMonitoredPresenceAddresses OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number active presence addresses currently being
+        monitored." 
+    ::= { cmmcaMpaEntry 18 }
+
+cmmcaMpaAggTotalRegisteredSipAddresses OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of SIP Registrations to SIP Registrar
+        (Including
+        deregistered ones) since application start time specified 
+        by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 19 }
+
+cmmcaMpaAggTotalSipControlAddressesRegistered OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of SIP addresses registered(Including
+        deregistered ones) since application start time specified 
+        by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 20 }
+
+cmmcaMpaAggTotalIMAddressesRegistered OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of IM addresses registered(Including
+        deregistered ones) since application start time specified 
+        by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 21 }
+
+cmmcaMpaAggTotalMonitoredPresenceAddressesRegistered OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Presentities registered with presence
+        server(Including deregistered ones) since application start 
+        time specified by cmmcaStartTime." 
+    ::= { cmmcaMpaEntry 22 }
+
+cmmcaMpaRtActiveInteractions OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "interactions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of Interactions that currently exist." 
+    ::= { cmmcaMpaEntry 23 }
+
+cmmcaMpaRtActivePublishAddresses OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of Publishers currently registered with
+        presence server." 
+    ::= { cmmcaMpaEntry 24 }
+
+cmmcaMpaRtTotalPublishAddressesRegistered OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "addresses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of Publishers registered with presence
+        server(Including deregistered ones)." 
+    ::= { cmmcaMpaEntry 25 }
+ 
+
+-- ******************************************************************
+-- Cisco Ra Table
+-- ******************************************************************
+
+cmmcaRaTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaRaEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes Reporting Adapter (RA) services configured
+        on this Device. Reporting adapters listen to event stream that are
+        produced by runtime components.  They then take those events,
+        convert them as appropriate (for example, converting them to a
+        particular version of a schema or applying a security policy of
+        what data can be sent to the reporting database) and then send a
+        new message to the Reporting Subsystem service.  This
+        message is sent using durability and persistence to ensure that
+        the message will get to the Reporting Subsystem (RS).
+
+                Reporting Adapters run on the same Device as the runtime
+        components that they are monitoring.  This is because the events
+        that are being produced are delivered on a best-effort basis,
+        and being on the same Device (and in the same JVM) ensures that
+        the adapter will receive the event.
+
+         This table has a sparse dependent relationship with cmmcaServiceTable
+         and hence uses its index."
+    ::= { cmmcaServiceInfo 7 }
+
+cmmcaRaEntry OBJECT-TYPE
+    SYNTAX          CmmcaRaEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a configured RA service. Each entry is indexed
+        by the index in cmmcaServiceTable."
+    INDEX           { cmmcaServiceIndex } 
+    ::= { cmmcaRaTable 1 }
+
+CmmcaRaEntry ::= SEQUENCE {
+        cmmcaRaAggMsgReceived                        Counter64,
+        cmmcaRaAggMsgSent                            Counter64,
+        cmmcaRaAggContactDetailMesgReceived          Counter64,
+        cmmcaRaAggContactDetailMesgDispatched        Counter64,
+        cmmcaRaAggContactDetailAttribMsgDispatched   Counter64,
+        cmmcaRaAggContactSegDetailMsgReceived        Counter64,
+        cmmcaRaAggContactSegDetailMesgDispatched     Counter64,
+        cmmcaRaAggContactSegMediaDetailMsgDispatched Counter64,
+        cmmcaRaAggResourceTaskDetailMsgReceived      Counter64,
+        cmmcaRaAggResourceTaskDetailMsgDispatched    Counter64,
+        cmmcaRaAggTaskStateChangeMsgReceived         Counter64,
+        cmmcaRaAggResourceStateChngMesgReceived      Counter64,
+        cmmcaRaAggResourceStateChngMsgDispatched     Counter64,
+        cmmcaRaAggVersionResponseRecieved            Counter64,
+        cmmcaRaAggVersionRequestDispatched           Counter64,
+        cmmcaRaAggNodeSyncDispatched                 Counter64
+}
+
+cmmcaRaAggMsgReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of messages received since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 1 }
+
+cmmcaRaAggMsgSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of messages dispatched since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 2 }
+
+cmmcaRaAggContactDetailMesgReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact detail messages received since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 3 }
+
+cmmcaRaAggContactDetailMesgDispatched OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact detail messages dispatched since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 4 }
+
+cmmcaRaAggContactDetailAttribMsgDispatched OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact detail attributes messages dispatched
+        since application start time specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 5 }
+
+cmmcaRaAggContactSegDetailMsgReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact segment detail messages received since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 6 }
+
+cmmcaRaAggContactSegDetailMesgDispatched OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact segment detail messages dispatched since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 7 }
+
+cmmcaRaAggContactSegMediaDetailMsgDispatched OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of contact segment media detail messages dispatched
+        since application start time specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 8 }
+
+cmmcaRaAggResourceTaskDetailMsgReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of resource task detail messages received since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 9 }
+
+cmmcaRaAggResourceTaskDetailMsgDispatched OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of resource task detail messages dispatched since
+        application start time  specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 10 }
+
+cmmcaRaAggTaskStateChangeMsgReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of task state change messages received since
+        application start time  specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 11 }
+
+cmmcaRaAggResourceStateChngMesgReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of resource state change messages received since
+        application start time  specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 12 }
+
+cmmcaRaAggResourceStateChngMsgDispatched OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of resource state change messages dispatched since
+        application         start time specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 13 }
+
+cmmcaRaAggVersionResponseRecieved OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of version response messages received since
+        application start time  specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 14 }
+
+cmmcaRaAggVersionRequestDispatched OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of version request messages dispatched since
+        application start time  specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 15 }
+
+cmmcaRaAggNodeSyncDispatched OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of node synchronization messages dispatched since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaRaEntry 16 }
+ 
+
+-- ******************************************************************
+-- Cisco Rs Table
+-- ******************************************************************
+
+cmmcaRsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaRsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes Reporting Subsystem(RS) services
+        configured on this Device.  Reporting Subsystem (RS) receives
+        reporting messages from Reporting Adapter(s) (RA(s)) and writes
+        historical data into the database.  Configuration data will be
+        replicated from run-time Devices to Reporting Database.  End users
+        are provided with a set of report templates to generate
+        historical reports which consist of both historical data and
+        configuration data.
+           This table has a sparse dependent relationship with 
+        cmmcaServiceTable and hence uses its index."
+    ::= { cmmcaServiceInfo 8 }
+
+cmmcaRsEntry OBJECT-TYPE
+    SYNTAX          CmmcaRsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a configured RS service. Each entry is indexed
+        by the index of cmmcaServiceTable."
+    INDEX           { cmmcaServiceIndex } 
+    ::= { cmmcaRsTable 1 }
+
+CmmcaRsEntry ::= SEQUENCE {
+        cmmcaRsAggTotalContactDetailRecords             Counter64,
+        cmmcaRsAggTotalContactDetailAttributeRecords    Counter64,
+        cmmcaRsAggTotalContactSegmentDetailRecords      Counter64,
+        cmmcaRsAggTotalResourceTaskDetailRecords        Counter64,
+        cmmcaRsAggTotalResourceEventDetailRecords       Counter64,
+        cmmcaRsAggTotalAssignmentQueDetailRecords       Counter64,
+        cmmcaRsAggTotalAssignmentQueAttribRecords       Counter64,
+        cmmcaRsAggTotalContactSegmentMediaDetailRecords Counter64,
+        cmmcaRsAggTotalDBWrites                         Counter64,
+        cmmcaRsIntContactDetailRecords                  Gauge32,
+        cmmcaRsIntContactDetailAttribRecords            Gauge32,
+        cmmcaRsIntContactSegmentDetailRecords           Gauge32,
+        cmmcaRsIntResourceTaskDetailRecords             Gauge32,
+        cmmcaRsIntResourceEventDetailRecords            Gauge32,
+        cmmcaRsIntAssignmentQueDetailRecords            Gauge32,
+        cmmcaRsIntAssignmentQueAttribRecords            Gauge32,
+        cmmcaRsIntContactSegmentMediaDetailRecords      Gauge32,
+        cmmcaRsIntDBWrites                              Gauge32,
+        cmmcaRsRtDBStatus                               SnmpAdminString,
+        cmmcaRsRtNumberActiveDBUserSessions             Gauge32,
+        cmmcaRsDBSizeAllocated                          CounterBasedGauge64,
+        cmmcaRsRtDBSpaceUsed                            CounterBasedGauge64,
+        cmmcaRsRtDBSpaceFree                            CounterBasedGauge64,
+        cmmcaRsRtDBPercentUsed                          Gauge32,
+        cmmcaRsRtDBPercentFree                          Gauge32,
+        cmmcaRsRtTransactionLogSize                     CounterBasedGauge64
+}
+
+cmmcaRsAggTotalContactDetailRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of Contact Detail Records written to the database
+        since since application start time specified by cmmcaStartTime. For each
+        ContactDetail Record written this metric will be incremented by
+        one." 
+    ::= { cmmcaRsEntry 1 }
+
+cmmcaRsAggTotalContactDetailAttributeRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of ContactDetailAttribute Records written to the
+        database since application start time specified by cmmcaStartTime. 
+        For each ContactDetailAttribute record written this metric will be
+        incremented by one." 
+    ::= { cmmcaRsEntry 2 }
+
+cmmcaRsAggTotalContactSegmentDetailRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of Contact Segment Detail Records written to the
+        database since application start time specified by cmmcaStartTime. 
+        For each ContactSegmentDetail Record written this metric will be
+        incremented by one." 
+    ::= { cmmcaRsEntry 3 }
+
+cmmcaRsAggTotalResourceTaskDetailRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of ResourceTaskDetail Records written to the
+        database since application start time specified by cmmcaStartTime. 
+        For each ResourceTaskDetail Record written this metric will be
+        incremented by one." 
+    ::= { cmmcaRsEntry 4 }
+
+cmmcaRsAggTotalResourceEventDetailRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of ResourceEventDetail Records written to the
+        database since application start time specified by cmmcaStartTime. 
+        For each ResourceEventDetail Record written this metric will be
+        incremented by one." 
+    ::= { cmmcaRsEntry 5 }
+
+cmmcaRsAggTotalAssignmentQueDetailRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of AssignmentQueueDetail Records written to the
+        database since application start time specified by cmmcaStartTime. 
+        For each AssignmentQueueDetail Record written this metric will be
+        incremented by one." 
+    ::= { cmmcaRsEntry 6 }
+
+cmmcaRsAggTotalAssignmentQueAttribRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of AssignmentQueueAttribute Records written to the
+        database since application start time specified by cmmcaStartTime. 
+        For each AssignmentQueueAttribute written received, this metric will be
+        incremented by one." 
+    ::= { cmmcaRsEntry 7 }
+
+cmmcaRsAggTotalContactSegmentMediaDetailRecords OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of Contact Segment Media Detail Records written to the
+        database since application start time specified by cmmcaStartTime. 
+        For each ContactSegment media Detail Record written this metric will be
+        incremented by one." 
+    ::= { cmmcaRsEntry 8 }
+
+cmmcaRsAggTotalDBWrites OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "writes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of writes to the database by the Reporting Server
+        since application start time specified by cmmcaStartTime. For each 
+        write to the database by the Reporting Server, this metric will be 
+        increased by one." 
+    ::= { cmmcaRsEntry 9 }
+
+cmmcaRsIntContactDetailRecords OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of ContactDetailRecords written to the database by
+        the Reporting Server during the last interval specified 
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRsEntry 10 }
+
+cmmcaRsIntContactDetailAttribRecords OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of ContactDetailAttribute Records written to the
+        database by the Reporting Server during the last interval specified 
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRsEntry 11 }
+
+cmmcaRsIntContactSegmentDetailRecords OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of ContactSegmentDetail Records written to the
+        database by the Reporting Server during the last interval specified 
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRsEntry 12 }
+
+cmmcaRsIntResourceTaskDetailRecords OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of ResourceTaskDetail Records written to the
+        database by the Reporting Server during the last interval specified 
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRsEntry 13 }
+
+cmmcaRsIntResourceEventDetailRecords OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of ResourceEventDetail Records written to the
+        database by the Reporting Server during the last interval specified 
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRsEntry 14 }
+
+cmmcaRsIntAssignmentQueDetailRecords OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of AssignmentQueueDetail Records written to the
+        database by the Reporting Server during the last interval specified 
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRsEntry 15 }
+
+cmmcaRsIntAssignmentQueAttribRecords OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of AddignmentQueueAttribute Records written to the
+        database by the Reporting Server during the last interval specified 
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRsEntry 16 }
+
+cmmcaRsIntContactSegmentMediaDetailRecords OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "records"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of Contact Segment Media Detail Records written to
+        the database by the Reporting Server during the last interval specified 
+        by the corresponding cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRsEntry 17 }
+
+cmmcaRsIntDBWrites OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "writes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "IntervalDBWrites is an interval metric indicating the total
+        number of writes to the database made by the Reporting Server
+        during the last interval specified by the corresponding 
+        cmmcaServiceIntPeriod in cmmcaServiceTable." 
+    ::= { cmmcaRsEntry 18 }
+
+cmmcaRsRtDBStatus OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A descriptive text used to indicate the current status associated
+        with the Reporting database Server." 
+    ::= { cmmcaRsEntry 19 }
+
+cmmcaRsRtNumberActiveDBUserSessions OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "sessions"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Current number of active Reporting database User sessions." 
+    ::= { cmmcaRsEntry 20 }
+
+cmmcaRsDBSizeAllocated OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time allocated size (bytes) of the Reporting Server
+        database." 
+    ::= { cmmcaRsEntry 21 }
+
+cmmcaRsRtDBSpaceUsed OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of bytes of used database space." 
+    ::= { cmmcaRsEntry 22 }
+
+cmmcaRsRtDBSpaceFree OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of bytes of free database space." 
+    ::= { cmmcaRsEntry 23 }
+
+cmmcaRsRtDBPercentUsed OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "percentage"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time percentage of used database space." 
+    ::= { cmmcaRsEntry 24 }
+
+cmmcaRsRtDBPercentFree OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "percentage"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time percentage of free database space." 
+    ::= { cmmcaRsEntry 25 }
+
+cmmcaRsRtTransactionLogSize OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time size of the transaction log in Reporting Server
+        database." 
+    ::= { cmmcaRsEntry 26 }
+ 
+
+-- ******************************************************************
+-- Cisco ICMGW Table
+-- ******************************************************************
+
+cmmcaIcmgwTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaIcmgwEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes ICM Gateway(ICMGW) services configured on
+        this Device. The ICM Gateway talks to the ERS PG of ICM over
+        the GED-188 (ACMI) protocol. It sends agent state information to
+        the ICM so that the ICM knows whether or not to route calls to
+        Cisco Unified Expert Advisor and if so to which skill groups, i.e. 
+        assignment queues. Another critical function is to allow translation
+        routing of calls from ICM and getting call context information
+        from those calls into CUEA.
+               Unlike a conventional ACD, the ICM Gateway doesnt track
+        individual calls and generate every call event to the PIM.
+        Instead, it relays agent status events to the ERS PG, and the
+        PG is then able to fabricate real-time agent/skill-group
+        reports and sends to the ICM Central Controller. The ICM Gateway also
+        forwards call termination details to the PG and based on those
+        the modified OPC at the PG can create half-hour reports.
+               This table has a sparse dependent relationship with
+        cmmcaServiceTable and hence uses its index."
+    ::= { cmmcaServiceInfo 9 }
+
+cmmcaIcmgwEntry OBJECT-TYPE
+    SYNTAX          CmmcaIcmgwEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each Entry represents a configured ICMGateway (ICMGW). Each entry is
+        indexed by the index of cmmcaServiceTable."
+    INDEX           { cmmcaServiceIndex } 
+    ::= { cmmcaIcmgwTable 1 }
+
+CmmcaIcmgwEntry ::= SEQUENCE {
+        cmmcaIcmgwAggSocketConnects             Counter64,
+        cmmcaIcmgwAggSocketDisconnects          Counter64,
+        cmmcaIcmgwAggACMIBytesSent              Counter64,
+        cmmcaIcmgwAggACMIBytesRcvd              Counter64,
+        cmmcaIcmgwAggACMIMsgsSent               Counter64,
+        cmmcaIcmgwAggACMIMsgsRcvd               Counter64,
+        cmmcaIcmgwRtACMIOutQueueDepth           Gauge32,
+        cmmcaIcmgwRtACMIOutQueueWait            Gauge32,
+        cmmcaIcmgwRtAgentsMonitored             Gauge32,
+        cmmcaIcmgwRtAqsMonitored                Gauge32,
+        cmmcaIcmgwRtRoutesMonitored             Gauge32,
+        cmmcaIcmgwRtPendingQueryAgentStateDlgs  Gauge32,
+        cmmcaIcmgwRtPendingGetContactDetailDlgs Gauge32,
+        cmmcaIcmgwAggQueryAgentStateTimeouts    Counter64,
+        cmmcaIcmgwAggGetContactDetailTimeouts   Counter64,
+        cmmcaIcmgwRtQueryAgentStateDelay        Gauge32,
+        cmmcaIcmgwRtGetContactDetailDelay       Gauge32,
+        cmmcaIcmgwRtPendingCallTermEvents       Gauge32
+}
+
+cmmcaIcmgwAggSocketConnects OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "sockets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of socket connections since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaIcmgwEntry 1 }
+
+cmmcaIcmgwAggSocketDisconnects OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "sockets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of socket disconnections since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaIcmgwEntry 2 }
+
+cmmcaIcmgwAggACMIBytesSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of bytes sent to the PIM since application start time
+        specified by cmmcaStartTime." 
+    ::= { cmmcaIcmgwEntry 3 }
+
+cmmcaIcmgwAggACMIBytesRcvd OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of bytes received from the PIM since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaIcmgwEntry 4 }
+
+cmmcaIcmgwAggACMIMsgsSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of messages sent to the PIM since application
+        start time specified by cmmcaStartTime." 
+    ::= { cmmcaIcmgwEntry 5 }
+
+cmmcaIcmgwAggACMIMsgsRcvd OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of messages received from the PIM since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaIcmgwEntry 6 }
+
+cmmcaIcmgwRtACMIOutQueueDepth OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current ACMI output queue depth." 
+    ::= { cmmcaIcmgwEntry 7 }
+
+cmmcaIcmgwRtACMIOutQueueWait OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time Queuing time of the message in the ACMI output queue in
+        milliseconds." 
+    ::= { cmmcaIcmgwEntry 8 }
+
+cmmcaIcmgwRtAgentsMonitored OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of agents being monitored." 
+    ::= { cmmcaIcmgwEntry 9 }
+
+cmmcaIcmgwRtAqsMonitored OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "queues"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of Assignment Queues being monitored." 
+    ::= { cmmcaIcmgwEntry 10 }
+
+cmmcaIcmgwRtRoutesMonitored OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "routes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of DNIS being monitored." 
+    ::= { cmmcaIcmgwEntry 11 }
+
+cmmcaIcmgwRtPendingQueryAgentStateDlgs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "dialogues"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of pending QueryAgentState dialogues." 
+    ::= { cmmcaIcmgwEntry 12 }
+
+cmmcaIcmgwRtPendingGetContactDetailDlgs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "dialogues"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of pending GetContactDetail dialogues." 
+    ::= { cmmcaIcmgwEntry 13 }
+
+cmmcaIcmgwAggQueryAgentStateTimeouts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "timeouts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of QueryAgentState timeouts since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaIcmgwEntry 14 }
+
+cmmcaIcmgwAggGetContactDetailTimeouts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "timeouts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total Number of GetContactDetail timeouts since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaIcmgwEntry 15 }
+
+cmmcaIcmgwRtQueryAgentStateDelay OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time QueryAgentState response delay." 
+    ::= { cmmcaIcmgwEntry 16 }
+
+cmmcaIcmgwRtGetContactDetailDelay OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time GetContactDetail response delay." 
+    ::= { cmmcaIcmgwEntry 17 }
+
+cmmcaIcmgwRtPendingCallTermEvents OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real time number of pending CallTerminationEvent messages." 
+    ::= { cmmcaIcmgwEntry 18 }
+ 
+
+-- ******************************************************************
+-- Cisco Services Table
+-- ******************************************************************
+
+cmmcaServiceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaServiceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists all functional services that make up Cisco Unified
+        Expert Advisor (CUEA) application. Each service performs a specific 
+        task. The various services are Contact Manager(CM), Resource Manager 
+        (RM), Work Assigner (WA), Media Platform Adapter (MPA), 
+        Business Rules Engine (BRE), ICMGateway (ICMGW), Resource Desktop 
+        Adapter (RDA), Reporting Adapter(RA) and Reporting Subsystem (RS). 
+        Note that, not all services will be found on all Devices. 
+        There could be potentially multiple instances of each service 
+        (identified by CmmcaServiceType) running on the same Cisco Unified 
+        Expert Advisor Device. 
+                  Each service is given a unique service index by the
+        SNMP agent upon startup and this same index is used in other sparsely 
+        dependent tables, specifically cmmcaServiceInfo tables (viz; 
+        cmmcaRmTable, cmmcaCmTable, cmmcaRdaTable, cmmcaBreTable, cmmcaWaTable,
+        cmmcaMpaTable, cmmcaRaTable, cmmcaRsTable and cmmcaIcmgwTable) based on 
+        cmmcaServiceType. For eg:  All service entries with cmmcaServiceType 
+        'cm' will have entries in cmmcaCmTable, and all service entries with 
+        cmmcaServiceType 'rm' will have entries in cmmcaRmTable and so on.
+                This table is read-only for an NMS and is populated by
+        SNMP agent upon startup. It cannot be modified during runtime."
+    ::= { cmmcaServices 1 }
+
+cmmcaServiceEntry OBJECT-TYPE
+    SYNTAX          CmmcaServiceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This entry defines a row in the cmmcaServiceTable. Each Service
+        Entry has an arbitrarily assigned index,ie; cmmcaServiceIndex, 
+        a service type,ie; cmmcaServiceType (which is an enumerated list of 
+        services present on this managed device) and a list of other entries. 
+        The cmmcaServiceIndex is used in other tables having a sparse 
+        dependent relationship with cmmcaServiceTable."
+    INDEX           { cmmcaServiceIndex } 
+    ::= { cmmcaServiceTable 1 }
+
+CmmcaServiceEntry ::= SEQUENCE {
+        cmmcaServiceIndex        CmmcaIndex,
+        cmmcaServiceType         CmmcaServiceType,
+        cmmcaServiceName         SnmpAdminString,
+        cmmcaServiceStatus       CmmcaServiceStatus,
+        cmmcaServiceIntPeriod    Gauge32,
+        cmmcaRtRoutingDomain     SnmpAdminString,
+        cmmcaRtLogLevel          CmmcaSeverityLevel,
+        cmmcaRtTraceMask         SnmpAdminString,
+        cmmcaRtMessageThroughput Gauge32,
+        cmmcaRtUptime            Counter64,
+        cmmcaRtMsgReceived       Counter64,
+        cmmcaMaxThreadsAvailable Unsigned32,
+        cmmcaRtThreadsInUse      Gauge32
+}
+
+cmmcaServiceIndex OBJECT-TYPE
+    SYNTAX          CmmcaIndex (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The service index is a value that uniquely identifies an entry
+        in the service table.  The value is arbitrarily assigned by the
+        SNMP agent." 
+    ::= { cmmcaServiceEntry 1 }
+
+cmmcaServiceType OBJECT-TYPE
+    SYNTAX          CmmcaServiceType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The service type object identifies the type of Cisco Unified Expert
+        Advisor functional service, see CmmcaServiceType Textual convention for
+        more information." 
+    ::= { cmmcaServiceEntry 2 }
+
+cmmcaServiceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The service name object is a user-intuitive textual name for
+        the application service." 
+    ::= { cmmcaServiceEntry 3 }
+
+cmmcaServiceStatus OBJECT-TYPE
+    SYNTAX          CmmcaServiceStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The service status object is the last known status of the application
+        service." 
+    ::= { cmmcaServiceEntry 4 }
+
+cmmcaServiceIntPeriod OBJECT-TYPE
+    SYNTAX          Gauge32 (1..1440)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object defines the interval window over which values of certain
+        MIB objects of the corresponding service are calculated. Each service
+        entry defined in cmmcaServiceTable has corresponding entries in a 
+        related table in cmmcaServiceInfo that are identified by the same index
+        and hence have sparse dependent relationship.
+               For eg: if cmmcaServiceIntPeriod is 30 min for a service of type 
+        Reporting Subsystem(rs), then cmmcaRsIntResourceEventDetailRecords 
+        interval object in cmmcaRsTable for this service, reports the number of 
+        ResourceEventDetailRecords written into the database in the last 30 
+        min interval." 
+    ::= { cmmcaServiceEntry 5 }
+
+cmmcaRtRoutingDomain OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The routing domain, a descriptive text, that specifies the
+        service is in." 
+    ::= { cmmcaServiceEntry 6 }
+
+cmmcaRtLogLevel OBJECT-TYPE
+    SYNTAX          CmmcaSeverityLevel
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current log level of the service. A log level acts as
+        a filter to decide which events will be logged. Hence a log level 
+        has the same values as defined in CmmcaSeverityLevel. A log level 
+        will enable the service to log events that have atleast the designated 
+        severity. For eg: a log level set to warning(5) will only log events 
+        that have a level of atleast warning(5) severity; ie;
+        All emergency(1), alert(2), critical(3), error(4), warning(5) events 
+        will be logged. 
+
+        'emergency':        This log level indicates that only events of such
+                            severity will be logged.                             .  
+
+        'alert':            This log level indicates that all emergency and
+                            alert events will be logged.
+
+        'critical':         This log level indicates that all emergency,
+                            alert and critical events will be logged.
+
+        'error':            This log level indicates that all emergency,
+                            alert, critical and error level events will be 
+                            logged.
+
+        'warning':          This log level indicates that all emergency,
+                            alert, critical, error and warning events will be 
+                            logged.
+
+        'notice':           This log level indicates that all emergency,
+                            alert, critical, error, warning and notice level
+                            events will be logged.
+
+        'informational':    This log level indicates that all emergency,
+                            alert, critical, error, warning, notice and 
+                            informational events will be logged.
+
+        'debug':            This log level indicates that all emergency,
+                            alert, critical, error, warning, notice and debug 
+                            level events will be logged." 
+    ::= { cmmcaServiceEntry 7 }
+
+cmmcaRtTraceMask OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current trace mask for debugging for the service." 
+    ::= { cmmcaServiceEntry 8 }
+
+cmmcaRtMessageThroughput OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "messages per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Average message throughput in messages/sec per service." 
+    ::= { cmmcaServiceEntry 9 }
+
+cmmcaRtUptime OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of seconds the service has been up." 
+    ::= { cmmcaServiceEntry 10 }
+
+cmmcaRtMsgReceived OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of messages received by the service since
+        application start time specified by cmmcaStartTime." 
+    ::= { cmmcaServiceEntry 11 }
+
+cmmcaMaxThreadsAvailable OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Maximum number of threads available for this Service." 
+    ::= { cmmcaServiceEntry 12 }
+
+cmmcaRtThreadsInUse OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of threads currently running for this Service." 
+    ::= { cmmcaServiceEntry 13 }
+ 
+
+
+-- ******************************************************************
+-- Cisco Runtime Information Objects
+-- ******************************************************************
+
+cmmcaEnvRtMaxMemUsed OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time maximum memory used object is a real-time
+        snapshot metric indicating the peak memory usage by the
+        application within the runtime environment since startup.  The
+        object value is expressed as a count of bytes and indicates the
+        high water mark of memory used simultaneously within the
+        environment." 
+    ::= { cmmcaRuntimeInfo 1 }
+
+cmmcaEnvRtCurrMemUsed OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time current memory used object is a real-time
+        snapshot metric indicating the current memory usage by the
+        runtime environment.   The object value is expressed as a count
+        of bytes and indicates the current amount of memory used by this
+        runtime environment." 
+    ::= { cmmcaRuntimeInfo 2 }
+
+cmmcaEnvRtMaxMemAvail OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time maximum memory available object is a real-time
+        snapshot metric indicating the amount of memory available to the
+        runtime environment.  The object value is expresses as a count
+        of bytes and indicates the amount of system memory available for
+        use by the runtime environment." 
+    ::= { cmmcaRuntimeInfo 3 }
+
+cmmcaEnvRtCurrMemAvail OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time current memory available object is a real-time
+        snapshot metric indicating the amount of available memory in the
+        runtime environment.  The object value is expressed as a count
+        of bytes and indicates the amount of current system memory
+        claimed by the runtime environment that is not currently being
+        used." 
+    ::= { cmmcaRuntimeInfo 4 }
+
+cmmcaEnvRtCurrThreadsInUse OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time current threads in use object is a real-time
+        snapshot metric indicating a count of threads that are in use in
+        the runtime environment.  The number of threads in use by the
+        runtime environment include all of the Cisco MMCA standalone and
+        thread pool threads as well as those threads created by the web
+        application server running within the same runtime environment." 
+    ::= { cmmcaRuntimeInfo 5 }
+
+cmmcaEnvMaxThreadsUsed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time maximum threads used object is a real-time
+        snapshot metric indicating the peak amount of threads used
+        simultaneously in the runtime environment since startup.  The
+        maximum number of threads used by the  runtime environment
+        includes all Cisco MMCA standalone and thread pool threads as
+        well as threads created by the web application server running 
+        within the same runtime  environment." 
+    ::= { cmmcaRuntimeInfo 6 }
+
+cmmcaEnvRtUpTime OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time up time object is a real-time snapshot metric
+        indicating how long the CUEA application has been running.  
+        The  object value is expressed as a count of milliseconds that
+        have
+        elapsed since the application began executing." 
+    ::= { cmmcaRuntimeInfo 7 }
+
+cmmcaRtMsgQMemPercentUsage OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "percentage"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The percentage of available message bus memory in use. All services
+        in CUEA communicate using a message bus." 
+    ::= { cmmcaRuntimeInfo 8 }
+
+cmmcaMaxMsgQMemAvail OBJECT-TYPE
+    SYNTAX          CounterBasedGauge64
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The actual amount of available message bus memory for use. All
+        services in CUEA communicate using a message bus." 
+    ::= { cmmcaRuntimeInfo 9 }
+
+cmmcaRtCongested OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An object indicating whether or not the device is congested as
+        determined by an internal heuristic." 
+    ::= { cmmcaRuntimeInfo 10 }
+
+-- ******************************************************************
+-- Cisco Thread Pool Objects
+-- ******************************************************************
+
+cmmcaTPoolRtIdleThreads OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time idle threads object is a real-time snapshot
+        metric indicating the number of idle threads in the pool waiting
+        for work.  The thread pool is a cache of threads used (by application
+        components only) for the processing of relatively short tasks. 
+        Using a thread pool eliminates the waste of resources
+        encountered when rapidly creating and destroying threads for
+        these types of tasks." 
+    ::= { cmmcaThreadPool 1 }
+
+cmmcaTPoolRtRunningThreads OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time running threads object is a real-time snapshot
+        metric indicating the number of running threads in the pool
+        currently processing work.  The thread pool is a cache of
+        threads used (by application components only) for the processing of
+        relatively short tasks.  Using a thread pool eliminates the
+        waste of  resources encountered when rapidly creating and
+        destroying threads for these types of  tasks." 
+    ::= { cmmcaThreadPool 2 }
+
+cmmcaTPoolRtCoreThreads OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time core threads object is a real-time snapshot
+        metric indicating the number of threads in the pool that will
+        never be destroyed no matter how long they remain idle.  The
+        thread pool is a cache of threads used (by application components
+        only) for the processing of relatively short tasks.  Using a 
+        thread pool eliminates the waste of resources encountered when
+        rapidly creating and destroying threads for these types of
+        tasks." 
+    ::= { cmmcaThreadPool 3 }
+
+cmmcaTPoolRtMaxThreadsAvail OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time maximum threads available object is a real-time
+        snapshot metric indicating the maximum number of threads in the
+        pool that can exist simultaneously.  The thread pool is a cache
+        of threads used (by application services only) for the
+        processing
+        of relatively short tasks.  Using a thread pool eliminates the
+        waste of resources encountered when rapidly creating and
+        destroying threads for these types of tasks." 
+    ::= { cmmcaThreadPool 4 }
+
+cmmcaTPoolRtMaxThreadsUsed OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "threads"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time maximum threads used object is a real-time
+        snapshot metric indicating the peak number of threads in the
+        pool that are simultaneously tasked with work to process.  The
+        thread pool is a cache of threads used (by application
+        components
+        only) for the processing of relatively short tasks.  Using a
+        thread pool eliminates the waste of resources encountered when
+        rapidly creating and destroying threads for these types of
+        tasks." 
+    ::= { cmmcaThreadPool 5 }
+
+-- ******************************************************************
+-- Cisco License Information Objects
+-- ******************************************************************
+
+cmmcaRtLicensesAvailable OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The real-time number of Expert advisor agent licenses available
+        on this Device." 
+    ::= { cmmcaLicenseInfo 1 }
+
+cmmcaTotalLicensesConfigured OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "agents"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of Expert Agent licenses configured on this
+        Device." 
+    ::= { cmmcaLicenseInfo 2 }
+
+-- ******************************************************************
+-- Cisco General Information Objects
+-- ******************************************************************
+
+cmmcaServerName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The server name object is the fully-qualified domain name of
+        the the server." 
+    ::= { cmmcaGeneralInfo 1 }
+
+cmmcaDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The description object holds a textual description of the
+        software installed on this server.  This is typically the 
+        full name of the application." 
+    ::= { cmmcaGeneralInfo 2 }
+
+cmmcaVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The version object identifies the version number of the
+        Cisco Unified Expert Advisor software installed on this server." 
+    ::= { cmmcaGeneralInfo 3 }
+
+cmmcaStartTime OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The start time object is the date and time that the CUEA
+        application was started on this server." 
+    ::= { cmmcaGeneralInfo 4 }
+
+cmmcaTimeZoneName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time zone name object specifies the name of the time zone
+        where the server is physically located." 
+    ::= { cmmcaGeneralInfo 5 }
+
+cmmcaTimeZoneOffsetHours OBJECT-TYPE
+    SYNTAX          Integer32 (-12..12)
+    UNITS           "hours"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time zone offset hours object represents the number of
+        hours that the local time, in the time zone where the server is 
+        physically located, differs from Greenwich Mean Time (GMT)." 
+    ::= { cmmcaGeneralInfo 6 }
+
+cmmcaTimeZoneOffsetMinutes OBJECT-TYPE
+    SYNTAX          Integer32 (-59..59)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The time zone offset minutes object represents the number of
+        minutes that the local time, in the time zone where the
+        CUEA server is physically located, differs
+        from Greenwich Mean Time (GMT).  This object is combined with
+        cmmcaTimeZoneOffsetHours object to represent the local time
+        zone's total offset from GMT." 
+    ::= { cmmcaGeneralInfo 7 }
+
+cmmcaOpsConsoleURL OBJECT-TYPE
+    SYNTAX          CiscoURLString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object holds the URL for the CUEA operations Console web
+        server.  The operations console offers a web-based, centralized 
+        interface for mapping and summarizing the solution network 
+        configuration, setting and displaying configuration information 
+        on a batch or per-Device basis and storing local copies of 
+        those configurations.  Other functions include  troubleshooting, 
+        health monitoring and direct administration.  This object 
+        offers a web navigation point from the management station 
+        (assuming a web interface) to quickly access the Operations 
+        Console web server." 
+    ::= { cmmcaGeneralInfo 8 }
+
+cmmcaLocalDeviceType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        runtime(1),
+                        reporting(2),
+                        other(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Object defines the type of device. Expert Advisor devices
+        are typically classified into runtime or reporting.
+        runtime   : A runtime device typically has multiple services of types
+                    such as ContactManager(cm), ResourceManager(rm), 
+                    WorkAssigner(wa), ICM Gateway(icmgw), Resource Desktop 
+                    Adapter(rda), Reporting Adapter(ra) to process incoming 
+                    calls and communicate the information to reporting device
+                    over a message bus.         
+        reporting : A reporting device typically has Reporting Subsystem(rs) 
+                    services. It communicates with runtime device over a message
+                    bus, receives call processing information and stores them
+                    in a database.
+        other     : This device is neither runtime or reporting." 
+    ::= { cmmcaGeneralInfo 9 }
+
+cmmcaEnableNotifications OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows the management station to disable and alternatively
+        enable outbound notifications.  By default, notifications are enabled."
+    DEFVAL          { true } 
+    ::= { cmmcaGeneralInfo 10 }
+
+cmmcaSystemConditionStatus OBJECT-TYPE
+    SYNTAX          CmmcaSystemConditionStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides an overall summary of the System
+        Conditions. It specifies if health of the application is statusNormal
+        (green), statusWarn (yellow) or statusCritical(red). A
+        management station can use this status along with specific
+        conditions raised, that are in the cmmcaSystemConditionTable to
+        learn about the health of application." 
+    ::= { cmmcaGeneralInfo 11 }
+
+cmmcaSystemStatus OBJECT-TYPE
+    SYNTAX          CmmcaServiceStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The SystemStatus object is the last known status of the application.
+        It summarizes the overall status of the application. 
+        It can have the following values
+
+        'inService'         The service is up and running optimally,
+                            accepting connections at full QoS (if
+                            applicable).
+
+        'partialService'    The service is no longer accepting new
+                            calls but finishes processing active calls
+                            (may be due to a loss of a dependency/
+                            connectivity, or a shutdown request).
+
+        'stopped'           The service has shut down and is not
+                            processing any more calls.  The process
+                            itself is terminating (doing memory
+                            cleanup, saving settings, shutting down
+                            threads, etc.)." 
+    ::= { cmmcaGeneralInfo 12 }
+-- ******************************************************************
+-- Cisco ClusterInfo Table in General Information
+-- ******************************************************************
+
+cmmcaClusterInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaClusterInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "CUEA can consist of multiple devices that form a cluster.
+        This table gives the information related to the CUEA Cluster.
+        Each entry denotes a Device within the Cluster."
+    ::= { cmmcaGeneralInfo 13 }
+
+cmmcaClusterInfoEntry OBJECT-TYPE
+    SYNTAX          CmmcaClusterInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This Entry represents a row in the cluster Table. Every
+        row has information related to a Device such as hostname, IP
+        address etc.
+        An entry is created when a device is added  to the CUEA cluster 
+        during installation and this information is subsequently picked 
+        up by the Expert Advisor SNMP Agent."
+    INDEX           { cmmcaDeviceIndex } 
+    ::= { cmmcaClusterInfoTable 1 }
+
+CmmcaClusterInfoEntry ::= SEQUENCE {
+        cmmcaDeviceIndex           Integer32,
+        cmmcaDeviceName            SnmpAdminString,
+        cmmcaDeviceDescription     SnmpAdminString,
+        cmmcaDeviceType            INTEGER,
+        cmmcaDeviceStatus          INTEGER,
+        cmmcaDeviceInetAddressType InetAddressType,
+        cmmcaDeviceInetAddress     InetAddress,
+        cmmcaClusterId             SnmpAdminString
+}
+
+cmmcaDeviceIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary integer, selected by the local Device, which
+        uniquely identifies a Device within the cluster." 
+    ::= { cmmcaClusterInfoEntry 1 }
+
+cmmcaDeviceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Host name of the Device in the Cluster." 
+    ::= { cmmcaClusterInfoEntry 2 }
+
+cmmcaDeviceDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The description for the device which can include additional
+        information regarding the device." 
+    ::= { cmmcaClusterInfoEntry 3 }
+
+cmmcaDeviceType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        runtime(1),
+                        reporting(2),
+                        unknown(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Device type.
+        runtime(1)  : The device is a runtime device. 
+        reporting(2): The device is a reporting server device. 
+        unknown(3)  : The type of the remote device is not known." 
+    ::= { cmmcaClusterInfoEntry 4 }
+
+cmmcaDeviceStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        local(2),
+                        remoteup(3),
+                        remotedown(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current status of the remote Device as viewed by this
+        device. A remote device is up if the local device can 
+        communicate with it.  
+        unknown(1)    :  Current status of the remote device is Unknown, 
+        local (2)     :  This is the local device in the table,
+        remote-up(3)  :  The local device is running and is able to
+                         communicate with the remote device. 
+        remote-down(4):  The local device is running but it is unable to 
+                         communicate with the remote Device." 
+    ::= { cmmcaClusterInfoEntry 5 }
+
+cmmcaDeviceInetAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the IP address type of the remote device." 
+    ::= { cmmcaClusterInfoEntry 6 }
+
+cmmcaDeviceInetAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies ip address of the remote device. The
+        type of address for this is identified by InetAddressType." 
+    ::= { cmmcaClusterInfoEntry 7 }
+
+cmmcaClusterId OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The unique ID of the Cluster to which this device
+        belongs.
+                At any point in time, the Cluster Id helps in associating a
+        device to any given Cluster." 
+    ::= { cmmcaClusterInfoEntry 8 }
+ 
+
+-- ******************************************************************
+-- Cisco NextNodeTable in General Information
+-- ******************************************************************
+
+cmmcaNextNodeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaNextNodeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table gives the information related to the neighbouring
+        nodes that are connected to the device. Each entry
+        denotes a node connected to the device."
+    ::= { cmmcaGeneralInfo 14 }
+
+cmmcaNextNodeEntry OBJECT-TYPE
+    SYNTAX          CmmcaNextNodeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This Entry represents a row in the next node Table.
+        Every row has information related to a neighbouring device such
+        as host name, IP address, device type etc.
+        An entry is created when neighbouring devices such as CUPS
+        or ICMGW are configured with the CUEA devices by the Expert
+        Advisor administrators using the Operations Console located at  
+        cmmcaOpsConsoleURL."
+    INDEX           { cmmcaNextNodeIndex } 
+    ::= { cmmcaNextNodeTable 1 }
+
+CmmcaNextNodeEntry ::= SEQUENCE {
+        cmmcaNextNodeIndex      Integer32,
+        cmmcaNextNodeName       SnmpAdminString,
+        cmmcaNextNodeType       SnmpAdminString,
+        cmmcaNextNodeIpAddrType InetAddressType,
+        cmmcaNextNodeIpAddr     InetAddress,
+        cmmcaNextNodeStatus     CmmcaNextNodeStatus
+}
+
+cmmcaNextNodeIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary integer, selected by the local device used to
+        identify the neighbouring node." 
+    ::= { cmmcaNextNodeEntry 1 }
+
+cmmcaNextNodeName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The name of the node that is connected to the device." 
+    ::= { cmmcaNextNodeEntry 2 }
+
+cmmcaNextNodeType OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A string describing the type of node that is connected to the
+        device. This can be Unknown, ICM(PG), CUPS." 
+    ::= { cmmcaNextNodeEntry 3 }
+
+cmmcaNextNodeIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the IP address type of the neighbouring
+        node connected to the device." 
+    ::= { cmmcaNextNodeEntry 4 }
+
+cmmcaNextNodeIpAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object identifies ip address of the neighbouring node
+        connected to the device. The type of address for
+        this is identified by cmmcaNextNodeIpAddrType." 
+    ::= { cmmcaNextNodeEntry 5 }
+
+cmmcaNextNodeStatus OBJECT-TYPE
+    SYNTAX          CmmcaNextNodeStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current status of the neighbouring node connected to the device as
+        viewed by this Device. 
+
+        unknown(1)     :  Current status of the node is Unknown, 
+        available (2)  :  The connection is up and available
+        unavailable(3) :  The connection is down and not available." 
+    ::= { cmmcaNextNodeEntry 6 }
+ 
+
+-- ******************************************************************
+-- Cisco SystemConditionTable in General Information
+-- ******************************************************************
+
+cmmcaSystemConditionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmmcaSystemConditionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists all the Raised System Conditions in the application.
+        A service can be inService ,but could raise
+        certain important System Conditions, which provide more
+        information about the health of service."
+    ::= { cmmcaGeneralInfo 15 }
+
+cmmcaSystemConditionEntry OBJECT-TYPE
+    SYNTAX          CmmcaSystemConditionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cmmcaSystemConditionTable.
+        Each row specifies information about a System condition,  which
+        has an Id, severity level, description of the raised condition, 
+        the timestamp of when the condition was raised and a message of
+        the event which resulted in the raised condition."
+    INDEX           { cmmcaSystemConditionIndex } 
+    ::= { cmmcaSystemConditionTable 1 }
+
+CmmcaSystemConditionEntry ::= SEQUENCE {
+        cmmcaSystemConditionIndex       Integer32,
+        cmmcaSystemConditionId          Integer32,
+        cmmcaSystemConditionSeverity    CmmcaConditionStatus,
+        cmmcaSystemConditionDescription SnmpAdminString,
+        cmmcaSystemConditionTimeStamp   DateAndTime,
+        cmmcaSystemConditionMessage     SnmpAdminString
+}
+
+cmmcaSystemConditionIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary integer, selected by the local device used to
+        identify the System Condition." 
+    ::= { cmmcaSystemConditionEntry 1 }
+
+cmmcaSystemConditionId OBJECT-TYPE
+    SYNTAX          Integer32 (1..2147483647)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An unique Id of the System Condition used to
+        identify a specific System Condition." 
+    ::= { cmmcaSystemConditionEntry 2 }
+
+cmmcaSystemConditionSeverity OBJECT-TYPE
+    SYNTAX          CmmcaConditionStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the severity level of the raised
+        condition." 
+    ::= { cmmcaSystemConditionEntry 3 }
+
+cmmcaSystemConditionDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides a breif description of the raised System
+        Condition." 
+    ::= { cmmcaSystemConditionEntry 4 }
+
+cmmcaSystemConditionTimeStamp OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The timestamp of when the Condition was raised." 
+    ::= { cmmcaSystemConditionEntry 5 }
+
+cmmcaSystemConditionMessage OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides a message about the event which resulted
+        in the System Condition being raised." 
+    ::= { cmmcaSystemConditionEntry 6 }
+ 
+
+
+-- ******************************************************************
+-- Notification Type(s)
+-- ******************************************************************
+
+cmmcaMIBEvent NOTIFICATION-TYPE
+    OBJECTS         {
+                        cmmcaEventMessageId,
+                        cmmcaEventHostName,
+                        cmmcaEventAppName,
+                        cmmcaEventMessageName,
+                        cmmcaEventState,
+                        cmmcaEventSeverity,
+                        cmmcaEventTimestamp,
+                        cmmcaEventText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "An event is a notification that is sent by a functional
+        service of the CUEA application. Notifications are sent by CUEA
+        when unusual conditions occur that potentially, can affect the 
+        functioning of a service in CUEA. Each Notification describes
+        the operation state information of a service when such service 
+        impacting conditions occur."
+   ::= { ciscoMmodalContactAppsMIBNotifs 1 }
+-- *******************************************************************
+-- Conformance
+-- *******************************************************************
+
+ciscoMmodalContactAppsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIBConform 1 }
+
+ciscoMmodalContactAppsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoMmodalContactAppsMIBConform 2 }
+
+
+-- ******************************************************************
+-- Compliance
+-- ******************************************************************
+
+ciscoMmodalContactAppsMIBComplianceRev MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This object is the compliance statement for entities which
+        implement the Cisco MultiModal Contact Apps MIB."
+    MODULE          CISCO-MMODAL-CONTACT-APPS-MIB
+    MANDATORY-GROUPS {
+                        cmmcaGeneralInfoGroup,
+                        cmmcaLicenseInfoGroup,
+                        cmmcaThreadPoolGroup,
+                        cmmcaRuntimeInfoGroup,
+                        cmmcaServiceGroup,
+                        cmmcaRmGroup,
+                        cmmcaCmGroup,
+                        cmmcaRdaGroup,
+                        cmmcaBreGroup,
+                        cmmcaWaGroup,
+                        cmmcaMpaGroup,
+                        cmmcaRaGroup,
+                        cmmcaRsGroup,
+                        cmmcaNotificationInfoGroup,
+                        cmmcaEventsGroup
+                    }
+    ::= { ciscoMmodalContactAppsMIBCompliances 1 }
+
+-- ******************************************************************
+-- Conformance groups
+-- ******************************************************************
+
+cmmcaGeneralInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaServerName,
+                        cmmcaDescription,
+                        cmmcaVersion,
+                        cmmcaStartTime,
+                        cmmcaTimeZoneName,
+                        cmmcaTimeZoneOffsetHours,
+                        cmmcaTimeZoneOffsetMinutes,
+                        cmmcaOpsConsoleURL,
+                        cmmcaLocalDeviceType,
+                        cmmcaEnableNotifications,
+                        cmmcaDeviceName,
+                        cmmcaDeviceDescription,
+                        cmmcaDeviceType,
+                        cmmcaDeviceStatus,
+                        cmmcaDeviceInetAddressType,
+                        cmmcaDeviceInetAddress,
+                        cmmcaClusterId,
+                        cmmcaNextNodeName,
+                        cmmcaNextNodeType,
+                        cmmcaNextNodeIpAddr,
+                        cmmcaNextNodeIpAddrType,
+                        cmmcaNextNodeStatus,
+                        cmmcaSystemConditionStatus,
+                        cmmcaSystemStatus,
+                        cmmcaSystemConditionId,
+                        cmmcaSystemConditionSeverity,
+                        cmmcaSystemConditionDescription,
+                        cmmcaSystemConditionTimeStamp,
+                        cmmcaSystemConditionMessage
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The general info group defines the general CUEA objects.
+        All servers will populate these objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 1 }
+
+cmmcaLicenseInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaRtLicensesAvailable,
+                        cmmcaTotalLicensesConfigured
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The licensing information group defines the set of objects for
+        the licensing system. All runtime servers will
+        populate these objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 2 }
+
+cmmcaThreadPoolGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaTPoolRtIdleThreads,
+                        cmmcaTPoolRtRunningThreads,
+                        cmmcaTPoolRtCoreThreads,
+                        cmmcaTPoolRtMaxThreadsAvail,
+                        cmmcaTPoolRtMaxThreadsUsed
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The thread pool information group defines the set of objects
+        for the thread pools. All servers will populate these
+        objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 3 }
+
+cmmcaRuntimeInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaEnvRtMaxMemUsed,
+                        cmmcaEnvRtCurrMemUsed,
+                        cmmcaEnvRtMaxMemAvail,
+                        cmmcaEnvRtCurrMemAvail,
+                        cmmcaEnvRtCurrThreadsInUse,
+                        cmmcaEnvMaxThreadsUsed,
+                        cmmcaEnvRtUpTime,
+                        cmmcaRtMsgQMemPercentUsage,
+                        cmmcaMaxMsgQMemAvail,
+                        cmmcaRtCongested
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The RuntimeInfo group defines the set of objects
+        for the Runtime info. All servers will
+        populate these objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 4 }
+
+cmmcaServiceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaServiceType,
+                        cmmcaServiceName,
+                        cmmcaServiceStatus,
+                        cmmcaServiceIntPeriod,
+                        cmmcaRtRoutingDomain,
+                        cmmcaRtLogLevel,
+                        cmmcaRtTraceMask,
+                        cmmcaRtMessageThroughput,
+                        cmmcaRtUptime,
+                        cmmcaRtMsgReceived,
+                        cmmcaMaxThreadsAvailable,
+                        cmmcaRtThreadsInUse
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Service group defines the set of objects
+        for the various applicationServices. All servers will populate
+        these
+        objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 5 }
+
+cmmcaRmGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaRmRtAgentsLoggedIn,
+                        cmmcaRmRtAgentsOnCalls,
+                        cmmcaRmRtAgentsReserved,
+                        cmmcaRmRtAgentsWrapUp,
+                        cmmcaRmRtAgentsReady,
+                        cmmcaRmRtAgentsNoQueue,
+                        cmmcaRmAggNumOffersAccept,
+                        cmmcaRmIntNumOffersAccept,
+                        cmmcaRmAggNumOffersReject,
+                        cmmcaRmIntNumOffersReject,
+                        cmmcaRmAggNumOffersTimedOut,
+                        cmmcaRmIntNumOffersTimedOut
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Rm group defines the set of objects
+        for the resource manager service. All runtime servers will
+        populate 
+        these objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 6 }
+
+cmmcaCmGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaCmRtNumActiveCalls,
+                        cmmcaCmRtNumCallTrying,
+                        cmmcaCmRtNumCallRingBack,
+                        cmmcaCmRtNumCallConnecting,
+                        cmmcaCmRtNumCallConnected,
+                        cmmcaCmAggNumCallArrivals,
+                        cmmcaCmIntNumCallArrivals,
+                        cmmcaCmRtNumCallRejecting,
+                        cmmcaCmRtNumCallTransferring,
+                        cmmcaCmRtNumCallTerminating,
+                        cmmcaCmAggAvgCallDurationTime,
+                        cmmcaCmIntAvgCallDurationTime,
+                        cmmcaCmAggMaxCallDurationTime,
+                        cmmcaCmIntMaxCallDurationTime,
+                        cmmcaCmAggMaxCallDurationTimeDt,
+                        cmmcaCmIntMaxCallDurationTimeDt,
+                        cmmcaCmAggAvgCallInQueueTime,
+                        cmmcaCmIntAvgCallInQueueTime,
+                        cmmcaCmAggMaxCallInQueueTime,
+                        cmmcaCmIntMaxCallInQueueTime,
+                        cmmcaCmAggMaxCallInQueueTimeDt,
+                        cmmcaCmIntMaxCallInQueueTimeDt,
+                        cmmcaCmAggAvgCallArrivalRate,
+                        cmmcaCmAggMaxCallArrivalRate,
+                        cmmcaCmAggMaxCallArrivalRateDt,
+                        cmmcaCmRtNumCallInitial,
+                        cmmcaCmIntAvgCallArrivalRate
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Cm group defines the set of objects
+        for the Contact Manager service. All runtime servers will 
+        populate these objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 7 }
+
+cmmcaRdaGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaRdaAggNumMsgProc,
+                        cmmcaRdaIntNumMsgProc,
+                        cmmcaRdaAggNumSuccessPresenceNotifications,
+                        cmmcaRdaIntNumSuccessPresenceNotifications,
+                        cmmcaRdaRtNumActiveClients,
+                        cmmcaRdaRtNumOutStandingOfferTasks,
+                        cmmcaRdaAggNumUnSuccessPresenceNotifications,
+                        cmmcaRdaIntNumUnSuccessPresenceNotifications,
+                        cmmcaRdaRtNumInactiveClients
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Rda group defines the set of objects
+        for the Resource desktop Adapter service. All
+        runtime servers will populate these
+        objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 8 }
+
+cmmcaBreGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaBreAggLoadedScripts,
+                        cmmcaBreAggDistinctScripts,
+                        cmmcaBreRtActiveScripts,
+                        cmmcaBreRtCurrentInstances,
+                        cmmcaBreAggMaxConcurrentInstances,
+                        cmmcaBreIntMaxConcurrentInstances,
+                        cmmcaBreAggMaxConcurrentInstancesDt,
+                        cmmcaBreIntMaxConcurrentInstancesDt,
+                        cmmcaBreAggAvgConcurrentInstances,
+                        cmmcaBreIntAvgConcurrentInstances,
+                        cmmcaBreAggTotalInstanceInitiations,
+                        cmmcaBreIntTotalInstanceInitiations,
+                        cmmcaBreAggTotalContactInstanceInitiations,
+                        cmmcaBreIntTotalContactInstanceInitiations,
+                        cmmcaBreAggTotalResourceInstanceInitiations,
+                        cmmcaBreIntTotalResourceInstanceInitiations,
+                        cmmcaBreAggTotalInstanceTerminations,
+                        cmmcaBreIntTotalInstanceTerminations,
+                        cmmcaBreAggTotalContactInstanceTerminations,
+                        cmmcaBreIntTotalContactInstanceTerminations,
+                        cmmcaBreAggTotalResourceInstanceTerminations,
+                        cmmcaBreIntTotalResourceInstanceTerminations,
+                        cmmcaBreAggTotalAbnormalEndings,
+                        cmmcaBreIntTotalAbnormalEndings,
+                        cmmcaBreAggTotalAbnormalContactEndings,
+                        cmmcaBreIntTotalAbnormalContactEndings,
+                        cmmcaBreAggTotalAbnormalResourceEndings,
+                        cmmcaBreIntTotalAbnormalResourceEndings
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Bre group defines the set of objects for the Business Rule
+        Engine service. All runtime servers will populate these
+        objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 9 }
+
+cmmcaWaGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaWaRtAssignmentQueCount,
+                        cmmcaWaRtAttributeDefCount,
+                        cmmcaWaRtSelectionStrategyCount,
+                        cmmcaWaRtSkillCount,
+                        cmmcaWaAggTotalConfigErrors,
+                        cmmcaWaAggCancelResourceRequestReceived,
+                        cmmcaWaAggResourceRequestReceived,
+                        cmmcaWaAggResourceResponseSent,
+                        cmmcaWaAggCancelWorkRequestReceived,
+                        cmmcaWaAggOfferTaskAcceptedSent,
+                        cmmcaWaAggOfferTaskCancelledSent,
+                        cmmcaWaAggOfferTaskResponseReceived,
+                        cmmcaWaAggOfferTaskSent,
+                        cmmcaWaAggResyncResourceResponseAckSent,
+                        cmmcaWaAggResyncResourceResponseReceived,
+                        cmmcaWaAggResyncResourceSent,
+                        cmmcaWaAggWorkRequestReceived,
+                        cmmcaWaAggQueueEventSent,
+                        cmmcaWaAggWorkRequestCanceledSent,
+                        cmmcaWaAggWRIFailureResponseSent,
+                        cmmcaWaAggRRIFailureResponseSent,
+                        cmmcaWaAggResourceResponseCanceledSent,
+                        cmmcaWaAggCancelQueueEventSent,
+                        cmmcaWaAggMessageSentError,
+                        cmmcaWaRtResourceCriteriaCount,
+                        cmmcaWaRtSelectionStrategyAttrCount,
+                        cmmcaWaRtAttributeCriteriaCount,
+                        cmmcaWaRtResourceCount,
+                        cmmcaWaRtAttributeValueCount,
+                        cmmcaWaRtSkillCompetencyCount,
+                        cmmcaWaRtResourceMemberCount,
+                        cmmcaWaRtTotalResourceCount,
+                        cmmcaWaRtTotalContactCount,
+                        cmmcaWaRtTotalResourceManagerCount,
+                        cmmcaWaRtTotalContactManagerCount
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Wa group defines the set of objects
+        for the Work Assigner service. All runtime servers will populate
+        these objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 10 }
+
+cmmcaMpaGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaMpaAggNewCalls,
+                        cmmcaMpaAggConnectsRcv,
+                        cmmcaMpaAggAvgLatency,
+                        cmmcaMpaAggFailedInvites,
+                        cmmcaMpaAggFailedReinvites,
+                        cmmcaMpaAggTotalCalls,
+                        cmmcaMpaRtIncomingCalls,
+                        cmmcaMpaRtOutgoingCalls,
+                        cmmcaMpaRtActiveClientSessions,
+                        cmmcaMpaAggTotalClientsRegistered,
+                        cmmcaMpaAggInstantMessagesSent,
+                        cmmcaMpaAggInstantMessagesReceived,
+                        cmmcaMpaAggPresenceUpdatesReceived,
+                        cmmcaMpaAggPresenceUpdatesBytesRcv,
+                        cmmcaMpaRtActiveRegisteredSipAddresses,
+                        cmmcaMpaRtActiveSipControlAddresses,
+                        cmmcaMpaRtActiveIMAddresses,
+                        cmmcaMpaRtActiveMonitoredPresenceAddresses,
+                        cmmcaMpaAggTotalRegisteredSipAddresses,
+                        cmmcaMpaAggTotalSipControlAddressesRegistered,
+                        cmmcaMpaAggTotalIMAddressesRegistered,
+                        cmmcaMpaAggTotalMonitoredPresenceAddressesRegistered,
+                        cmmcaMpaRtActiveInteractions,
+                        cmmcaMpaRtActivePublishAddresses,
+                        cmmcaMpaRtTotalPublishAddressesRegistered
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Mpa group defines the set of objects
+        for the Media Platform adapter service. All runtime servers will
+        populate these objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 11 }
+
+cmmcaRaGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaRaAggMsgReceived,
+                        cmmcaRaAggMsgSent,
+                        cmmcaRaAggContactDetailMesgReceived,
+                        cmmcaRaAggContactDetailMesgDispatched,
+                        cmmcaRaAggContactDetailAttribMsgDispatched,
+                        cmmcaRaAggContactSegDetailMsgReceived,
+                        cmmcaRaAggContactSegDetailMesgDispatched,
+                        cmmcaRaAggContactSegMediaDetailMsgDispatched,
+                        cmmcaRaAggResourceTaskDetailMsgReceived,
+                        cmmcaRaAggResourceTaskDetailMsgDispatched,
+                        cmmcaRaAggTaskStateChangeMsgReceived,
+                        cmmcaRaAggResourceStateChngMesgReceived,
+                        cmmcaRaAggResourceStateChngMsgDispatched,
+                        cmmcaRaAggVersionResponseRecieved,
+                        cmmcaRaAggVersionRequestDispatched,
+                        cmmcaRaAggNodeSyncDispatched
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Ra group defines the set of objects
+        for the Reporting Adapter service. All runtime servers will
+        populate these objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 12 }
+
+cmmcaRsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaRsAggTotalContactDetailRecords,
+                        cmmcaRsAggTotalContactDetailAttributeRecords,
+                        cmmcaRsAggTotalContactSegmentDetailRecords,
+                        cmmcaRsAggTotalResourceTaskDetailRecords,
+                        cmmcaRsAggTotalResourceEventDetailRecords,
+                        cmmcaRsAggTotalAssignmentQueDetailRecords,
+                        cmmcaRsAggTotalAssignmentQueAttribRecords,
+                        cmmcaRsAggTotalContactSegmentMediaDetailRecords,
+                        cmmcaRsAggTotalDBWrites,
+                        cmmcaRsIntContactDetailRecords,
+                        cmmcaRsIntContactDetailAttribRecords,
+                        cmmcaRsIntContactSegmentDetailRecords,
+                        cmmcaRsIntResourceTaskDetailRecords,
+                        cmmcaRsIntResourceEventDetailRecords,
+                        cmmcaRsIntAssignmentQueDetailRecords,
+                        cmmcaRsIntAssignmentQueAttribRecords,
+                        cmmcaRsIntContactSegmentMediaDetailRecords,
+                        cmmcaRsIntDBWrites,
+                        cmmcaRsRtDBStatus,
+                        cmmcaRsRtNumberActiveDBUserSessions,
+                        cmmcaRsDBSizeAllocated,
+                        cmmcaRsRtDBSpaceUsed,
+                        cmmcaRsRtDBSpaceFree,
+                        cmmcaRsRtDBPercentUsed,
+                        cmmcaRsRtDBPercentFree,
+                        cmmcaRsRtTransactionLogSize
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Rs group defines the set of objects
+        for the Reporting Subsystem service. All reporting servers will
+        populate these  objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 13 }
+
+cmmcaIcmgwGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaIcmgwAggSocketConnects,
+                        cmmcaIcmgwAggSocketDisconnects,
+                        cmmcaIcmgwAggACMIBytesSent,
+                        cmmcaIcmgwAggACMIBytesRcvd,
+                        cmmcaIcmgwAggACMIMsgsSent,
+                        cmmcaIcmgwAggACMIMsgsRcvd,
+                        cmmcaIcmgwRtACMIOutQueueDepth,
+                        cmmcaIcmgwRtACMIOutQueueWait,
+                        cmmcaIcmgwRtAgentsMonitored,
+                        cmmcaIcmgwRtAqsMonitored,
+                        cmmcaIcmgwRtRoutesMonitored,
+                        cmmcaIcmgwRtPendingQueryAgentStateDlgs,
+                        cmmcaIcmgwRtPendingGetContactDetailDlgs,
+                        cmmcaIcmgwAggQueryAgentStateTimeouts,
+                        cmmcaIcmgwAggGetContactDetailTimeouts,
+                        cmmcaIcmgwRtQueryAgentStateDelay,
+                        cmmcaIcmgwRtGetContactDetailDelay,
+                        cmmcaIcmgwRtPendingCallTermEvents
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The Icmgw group defines the set of objects
+        for the ICMGW service. All runtime servers will
+        populate these objects."
+    ::= { ciscoMmodalContactAppsMIBGroups 14 }
+
+cmmcaNotificationInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmmcaEventMessageId,
+                        cmmcaEventHostName,
+                        cmmcaEventAppName,
+                        cmmcaEventMessageName,
+                        cmmcaEventState,
+                        cmmcaEventSeverity,
+                        cmmcaEventTimestamp,
+                        cmmcaEventText
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group defines the set of Notification objects for CUEA."
+    ::= { ciscoMmodalContactAppsMIBGroups 15 }
+
+cmmcaEventsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { cmmcaMIBEvent }
+    STATUS          current
+    DESCRIPTION
+        "This group defines the notification types defined in this MIB."
+    ::= { ciscoMmodalContactAppsMIBGroups 16 }
+
+END
+
+
+

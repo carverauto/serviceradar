@@ -1,0 +1,673 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-OS-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- OS management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-OS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApHostagAction,
+    CfprApHostagAgentType,
+    CfprApHostagEvent,
+    CfprApOsBootingUpType,
+    CfprApOsControllerBootMode,
+    CfprApOsControllerFormatDisk,
+    CfprApOsDeployState,
+    CfprApOsInitState,
+    CfprApOsOsMode,
+    CfprApOsOsType,
+    CfprApOsUpgradeReturnCode,
+    CfprApOsUpgradeState
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApOsObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        OS management information model package"
+    ::= { ciscoFirepowerApMIBObjects 59 }
+
+cfprApOsAgentTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApOsAgentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower os:Agent managed object table"
+    ::= { cfprApOsObjects 1 }
+
+cfprApOsAgentEntry OBJECT-TYPE
+    SYNTAX           CfprApOsAgentEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApOsAgentTable table."
+    INDEX { cfprApOsAgentInstanceId }
+    ::= { cfprApOsAgentTable 1 }
+
+CfprApOsAgentEntry ::= SEQUENCE {
+    cfprApOsAgentInstanceId                                          CfprApManagedObjectId,
+    cfprApOsAgentDn                                                  CfprApManagedObjectDn,
+    cfprApOsAgentRn                                                  SnmpAdminString,
+    cfprApOsAgentLastCmd                                             CfprApHostagAction,
+    cfprApOsAgentLastEvt                                             CfprApHostagEvent,
+    cfprApOsAgentLastEvtTs                                           DateAndTime,
+    cfprApOsAgentPrevCmd                                             CfprApHostagAction,
+    cfprApOsAgentPrevEvt                                             CfprApHostagEvent,
+    cfprApOsAgentType                                                CfprApHostagAgentType,
+    cfprApOsAgentVendor                                              SnmpAdminString,
+    cfprApOsAgentVersion                                             SnmpAdminString
+}
+
+cfprApOsAgentInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApOsAgentEntry 1 }
+
+cfprApOsAgentDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Agent:dn managed object property"
+    ::= { cfprApOsAgentEntry 2 }
+
+cfprApOsAgentRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Agent:rn managed object property"
+    ::= { cfprApOsAgentEntry 3 }
+
+cfprApOsAgentLastCmd OBJECT-TYPE
+    SYNTAX       CfprApHostagAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Agent:lastCmd managed object property"
+    ::= { cfprApOsAgentEntry 4 }
+
+cfprApOsAgentLastEvt OBJECT-TYPE
+    SYNTAX       CfprApHostagEvent
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Agent:lastEvt managed object property"
+    ::= { cfprApOsAgentEntry 5 }
+
+cfprApOsAgentLastEvtTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Agent:lastEvtTs managed object property"
+    ::= { cfprApOsAgentEntry 6 }
+
+cfprApOsAgentPrevCmd OBJECT-TYPE
+    SYNTAX       CfprApHostagAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Agent:prevCmd managed object property"
+    ::= { cfprApOsAgentEntry 7 }
+
+cfprApOsAgentPrevEvt OBJECT-TYPE
+    SYNTAX       CfprApHostagEvent
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Agent:prevEvt managed object property"
+    ::= { cfprApOsAgentEntry 8 }
+
+cfprApOsAgentType OBJECT-TYPE
+    SYNTAX       CfprApHostagAgentType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Agent:type managed object property"
+    ::= { cfprApOsAgentEntry 9 }
+
+cfprApOsAgentVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Agent:vendor managed object property"
+    ::= { cfprApOsAgentEntry 10 }
+
+cfprApOsAgentVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Agent:version managed object property"
+    ::= { cfprApOsAgentEntry 11 }
+
+cfprApOsControllerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApOsControllerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower os:Controller managed object table"
+    ::= { cfprApOsObjects 2 }
+
+cfprApOsControllerEntry OBJECT-TYPE
+    SYNTAX           CfprApOsControllerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApOsControllerTable table."
+    INDEX { cfprApOsControllerInstanceId }
+    ::= { cfprApOsControllerTable 1 }
+
+CfprApOsControllerEntry ::= SEQUENCE {
+    cfprApOsControllerInstanceId                                     CfprApManagedObjectId,
+    cfprApOsControllerDn                                             CfprApManagedObjectDn,
+    cfprApOsControllerRn                                             SnmpAdminString,
+    cfprApOsControllerBootMode                                       CfprApOsControllerBootMode,
+    cfprApOsControllerChassisId                                      Gauge32,
+    cfprApOsControllerDeployState                                    CfprApOsDeployState,
+    cfprApOsControllerDmaSize                                        SnmpAdminString,
+    cfprApOsControllerEnableDeployOS                                 TruthValue,
+    cfprApOsControllerFormatDisk                                     CfprApOsControllerFormatDisk,
+    cfprApOsControllerHeapSize                                       SnmpAdminString,
+    cfprApOsControllerHostname                                       SnmpAdminString,
+    cfprApOsControllerHugePageSize                                   SnmpAdminString,
+    cfprApOsControllerImageName                                      SnmpAdminString,
+    cfprApOsControllerImageSize                                      Gauge32,
+    cfprApOsControllerInitState                                      CfprApOsInitState,
+    cfprApOsControllerMaxNumDeployFailureRecovery                    Gauge32,
+    cfprApOsControllerMaxNumberVersionMismatched                     Gauge32,
+    cfprApOsControllerModel                                          SnmpAdminString,
+    cfprApOsControllerName                                           SnmpAdminString,
+    cfprApOsControllerNumDeployFailureRecovery                       Gauge32,
+    cfprApOsControllerNumHugePages                                   SnmpAdminString,
+    cfprApOsControllerNumberVersionMismatched                        Gauge32,
+    cfprApOsControllerPnDn                                           SnmpAdminString,
+    cfprApOsControllerRevision                                       SnmpAdminString,
+    cfprApOsControllerRommonBuildDate                                SnmpAdminString,
+    cfprApOsControllerRommonVersion                                  SnmpAdminString,
+    cfprApOsControllerSerial                                         SnmpAdminString,
+    cfprApOsControllerServiceStatus                                  CfprApOsBootingUpType,
+    cfprApOsControllerSlotId                                         Gauge32,
+    cfprApOsControllerSsposMode                                      CfprApOsOsMode,
+    cfprApOsControllerSupportTftpboot                                TruthValue,
+    cfprApOsControllerType                                           CfprApOsOsType,
+    cfprApOsControllerUpgradeState                                   CfprApOsUpgradeState,
+    cfprApOsControllerVendor                                         SnmpAdminString,
+    cfprApOsControllerVersion                                        SnmpAdminString
+}
+
+cfprApOsControllerInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApOsControllerEntry 1 }
+
+cfprApOsControllerDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:dn managed object property"
+    ::= { cfprApOsControllerEntry 2 }
+
+cfprApOsControllerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:rn managed object property"
+    ::= { cfprApOsControllerEntry 3 }
+
+cfprApOsControllerBootMode OBJECT-TYPE
+    SYNTAX       CfprApOsControllerBootMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:bootMode managed object property"
+    ::= { cfprApOsControllerEntry 4 }
+
+cfprApOsControllerChassisId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:chassisId managed object property"
+    ::= { cfprApOsControllerEntry 5 }
+
+cfprApOsControllerDeployState OBJECT-TYPE
+    SYNTAX       CfprApOsDeployState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:deployState managed
+        object property"
+    ::= { cfprApOsControllerEntry 6 }
+
+cfprApOsControllerDmaSize OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:dmaSize managed object property"
+    ::= { cfprApOsControllerEntry 7 }
+
+cfprApOsControllerEnableDeployOS OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:enableDeployOS managed
+        object property"
+    ::= { cfprApOsControllerEntry 8 }
+
+cfprApOsControllerFormatDisk OBJECT-TYPE
+    SYNTAX       CfprApOsControllerFormatDisk
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:formatDisk managed object property"
+    ::= { cfprApOsControllerEntry 9 }
+
+cfprApOsControllerHeapSize OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:heapSize managed object property"
+    ::= { cfprApOsControllerEntry 10 }
+
+cfprApOsControllerHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:hostname managed object property"
+    ::= { cfprApOsControllerEntry 11 }
+
+cfprApOsControllerHugePageSize OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:hugePageSize managed
+        object property"
+    ::= { cfprApOsControllerEntry 12 }
+
+cfprApOsControllerImageName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:imageName managed object property"
+    ::= { cfprApOsControllerEntry 13 }
+
+cfprApOsControllerImageSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:imageSize managed object property"
+    ::= { cfprApOsControllerEntry 14 }
+
+cfprApOsControllerInitState OBJECT-TYPE
+    SYNTAX       CfprApOsInitState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:initState managed object property"
+    ::= { cfprApOsControllerEntry 15 }
+
+cfprApOsControllerMaxNumDeployFailureRecovery OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:maxNumDeployFailureRecovery
+        managed object property"
+    ::= { cfprApOsControllerEntry 16 }
+
+cfprApOsControllerMaxNumberVersionMismatched OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:maxNumberVersionMismatched
+        managed object property"
+    ::= { cfprApOsControllerEntry 17 }
+
+cfprApOsControllerModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:model managed object property"
+    ::= { cfprApOsControllerEntry 18 }
+
+cfprApOsControllerName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:name managed object property"
+    ::= { cfprApOsControllerEntry 19 }
+
+cfprApOsControllerNumDeployFailureRecovery OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:numDeployFailureRecovery
+        managed object property"
+    ::= { cfprApOsControllerEntry 20 }
+
+cfprApOsControllerNumHugePages OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:numHugePages managed
+        object property"
+    ::= { cfprApOsControllerEntry 21 }
+
+cfprApOsControllerNumberVersionMismatched OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:numberVersionMismatched
+        managed object property"
+    ::= { cfprApOsControllerEntry 22 }
+
+cfprApOsControllerPnDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:pnDn managed object property"
+    ::= { cfprApOsControllerEntry 23 }
+
+cfprApOsControllerRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:revision managed object property"
+    ::= { cfprApOsControllerEntry 24 }
+
+cfprApOsControllerRommonBuildDate OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:rommonBuildDate
+        managed object property"
+    ::= { cfprApOsControllerEntry 25 }
+
+cfprApOsControllerRommonVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:rommonVersion managed
+        object property"
+    ::= { cfprApOsControllerEntry 26 }
+
+cfprApOsControllerSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:serial managed object property"
+    ::= { cfprApOsControllerEntry 27 }
+
+cfprApOsControllerServiceStatus OBJECT-TYPE
+    SYNTAX       CfprApOsBootingUpType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:serviceStatus managed
+        object property"
+    ::= { cfprApOsControllerEntry 28 }
+
+cfprApOsControllerSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:slotId managed object property"
+    ::= { cfprApOsControllerEntry 29 }
+
+cfprApOsControllerSsposMode OBJECT-TYPE
+    SYNTAX       CfprApOsOsMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:ssposMode managed object property"
+    ::= { cfprApOsControllerEntry 30 }
+
+cfprApOsControllerSupportTftpboot OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:supportTftpboot
+        managed object property"
+    ::= { cfprApOsControllerEntry 31 }
+
+cfprApOsControllerType OBJECT-TYPE
+    SYNTAX       CfprApOsOsType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:type managed object property"
+    ::= { cfprApOsControllerEntry 32 }
+
+cfprApOsControllerUpgradeState OBJECT-TYPE
+    SYNTAX       CfprApOsUpgradeState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:upgradeState managed
+        object property"
+    ::= { cfprApOsControllerEntry 33 }
+
+cfprApOsControllerVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:vendor managed object property"
+    ::= { cfprApOsControllerEntry 34 }
+
+cfprApOsControllerVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Controller:version managed object property"
+    ::= { cfprApOsControllerEntry 35 }
+
+cfprApOsInstanceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApOsInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower os:Instance managed object table"
+    ::= { cfprApOsObjects 3 }
+
+cfprApOsInstanceEntry OBJECT-TYPE
+    SYNTAX           CfprApOsInstanceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApOsInstanceTable table."
+    INDEX { cfprApOsInstanceInstanceId }
+    ::= { cfprApOsInstanceTable 1 }
+
+CfprApOsInstanceEntry ::= SEQUENCE {
+    cfprApOsInstanceInstanceId                                       CfprApManagedObjectId,
+    cfprApOsInstanceDn                                               CfprApManagedObjectDn,
+    cfprApOsInstanceRn                                               SnmpAdminString,
+    cfprApOsInstanceHostname                                         SnmpAdminString,
+    cfprApOsInstanceKernelName                                       SnmpAdminString,
+    cfprApOsInstanceKernelRelease                                    SnmpAdminString,
+    cfprApOsInstanceKernelVersion                                    SnmpAdminString,
+    cfprApOsInstanceName                                             SnmpAdminString,
+    cfprApOsInstanceType                                             CfprApOsOsType,
+    cfprApOsInstanceUpgradeProgress                                  Gauge32,
+    cfprApOsInstanceUpgradeReturnCode                                CfprApOsUpgradeReturnCode
+}
+
+cfprApOsInstanceInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApOsInstanceEntry 1 }
+
+cfprApOsInstanceDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Instance:dn managed object property"
+    ::= { cfprApOsInstanceEntry 2 }
+
+cfprApOsInstanceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Instance:rn managed object property"
+    ::= { cfprApOsInstanceEntry 3 }
+
+cfprApOsInstanceHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Instance:hostname managed object property"
+    ::= { cfprApOsInstanceEntry 4 }
+
+cfprApOsInstanceKernelName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Instance:kernelName managed object property"
+    ::= { cfprApOsInstanceEntry 5 }
+
+cfprApOsInstanceKernelRelease OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Instance:kernelRelease managed
+        object property"
+    ::= { cfprApOsInstanceEntry 6 }
+
+cfprApOsInstanceKernelVersion OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Instance:kernelVersion managed
+        object property"
+    ::= { cfprApOsInstanceEntry 7 }
+
+cfprApOsInstanceName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Instance:name managed object property"
+    ::= { cfprApOsInstanceEntry 8 }
+
+cfprApOsInstanceType OBJECT-TYPE
+    SYNTAX       CfprApOsOsType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Instance:type managed object property"
+    ::= { cfprApOsInstanceEntry 9 }
+
+cfprApOsInstanceUpgradeProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Instance:upgradeProgress managed
+        object property"
+    ::= { cfprApOsInstanceEntry 10 }
+
+cfprApOsInstanceUpgradeReturnCode OBJECT-TYPE
+    SYNTAX       CfprApOsUpgradeReturnCode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower os:Instance:upgradeReturnCode
+        managed object property"
+    ::= { cfprApOsInstanceEntry 11 }
+
+END

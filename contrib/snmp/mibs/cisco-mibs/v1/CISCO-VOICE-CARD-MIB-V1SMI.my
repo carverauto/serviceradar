@@ -1,0 +1,157 @@
+-- MIB file created 03-May-2010 11:34:34, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VOICE-CARD-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VOICE-CARD-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVoiceCard OBJECT IDENTIFIER ::= { ciscoMgmt 300576 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200202150000Z
+--  OrgName
+--    Cisco Systems, Inc
+--  ContactInfo
+--           Cisco Systems 
+--            Customer Service 
+--    
+--    
+--    Postal: 170 W. Tasman Drive 
+--            San Jose, CA  95134 
+--            USA 
+--    
+--    
+--    Tel: +1 800 553-NETS 
+--    
+--    
+--    E-mail: cs-voice@cisco.com
+--  Descr
+--    The MIB module to configure voice-card specific  
+--     parameters  such as  codec complexity in voice- 
+--     enabled cisco routers.
+--  RevDate
+--    200202150000Z
+--  RevDescr
+--    Initial version
+
+ciscoVoiceCardNotifications OBJECT IDENTIFIER ::= { ciscoVoiceCard 0 }
+ciscoVoiceCardObjects OBJECT IDENTIFIER ::= { ciscoVoiceCard 1 }
+ciscoVoiceCardConformance OBJECT IDENTIFIER ::= { ciscoVoiceCard 2 }
+ciscoVoiceCardMIBCompliances OBJECT IDENTIFIER ::= { ciscoVoiceCardConformance 1 }
+ciscoVoiceCardMIBGroups OBJECT IDENTIFIER ::= { ciscoVoiceCardConformance 2 }
+
+cVoiceCardTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CVoiceCardEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of voice card entries.  The number of entries 
+         is the number of slots in the router."
+    ::= { ciscoVoiceCardObjects 1 }
+
+cVoiceCardEntry OBJECT-TYPE
+    SYNTAX CVoiceCardEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing management information applicable 
+         to a particular  voice card. The number of entries is 
+         the same  as the number of  slots in the router. This  
+         is a constant for a given router."
+    INDEX { cVoiceCardIndex }
+    ::= { cVoiceCardTable 1 }
+
+CVoiceCardEntry ::= SEQUENCE {
+    cVoiceCardIndex Gauge,
+    cVoiceCardSlotNumber Gauge,
+    cVoiceCardCodecComplexity INTEGER,
+    cVoiceCardAdminStatus INTEGER
+    }
+
+cVoiceCardIndex OBJECT-TYPE
+    SYNTAX Gauge(1..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, used to index the 
+         cVoiceCardTable."
+    ::= { cVoiceCardEntry 1 }
+
+cVoiceCardSlotNumber OBJECT-TYPE
+    SYNTAX Gauge(0..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The slot number of the slot containing this voice  
+         card."
+    ::= { cVoiceCardEntry 2 }
+
+cVoiceCardCodecComplexity OBJECT-TYPE
+    SYNTAX INTEGER {
+        hc(2),
+        mc(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Determines whether the voice ports in  the card can 
+         support   all  codecs  or not.   Medium  complexity  
+         configuration  can  not support  all  codecs, while   
+         High Complexity configuration supports  all codecs. 
+         The card  may support  all types of  codecs listed,  
+         but the NMS  setting  a value  will force  the card 
+         only to use the codecs limited by the Codec  
+         Complexity configured."
+    ::= { cVoiceCardEntry 3 }
+
+cVoiceCardAdminStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Administrative  status of the  voice  card.  The voice 
+         card is  administratively down  if all voice ports are 
+         shut. The agent changes the status whenever the status 
+         of  the voice  card changes in  the router.  The voice  
+         card  changes state  immediately when  the NMS changes 
+         the state of this object."
+    ::= { cVoiceCardEntry 4 }
+
+ciscoVoiceCardGroup OBJECT IDENTIFIER ::= { ciscoVoiceCardMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing voice card specific 
+--     functionality.
+--  objects
+--    cVoiceCardSlotNumber, cVoiceCardCodecComplexity, 
+--    cVoiceCardAdminStatus
+
+ciscoVoiceCardMIBCompliance OBJECT IDENTIFIER ::= { ciscoVoiceCardMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Describes the requirements for conformance to the 
+--     Cisco Voice Card MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVoiceCardGroup
+
+
+END
+

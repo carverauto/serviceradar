@@ -1,0 +1,1721 @@
+-- CISCO-FEATURE-CONTROL-MIB.my: Feature Control MIB
+--   
+-- November 2003, Sanjeev C Joshi
+--   
+-- Copyright (c) 2003-2021 by Cisco Systems, Inc.
+--   
+
+--   
+-- All rights reserved.
+--   
+-- ******************************************************************
+
+CISCO-FEATURE-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoFeatureCtrlMIB MODULE-IDENTITY
+    LAST-UPDATED    "202109210000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail:  cs-san@cisco.com"
+    DESCRIPTION
+        "There are two types of features in the system:
+
+        - Regular features
+        - Optional features
+
+        The Regular features may or may not need to support
+        the user triggerd control (enabling/disabling). In
+        case the regular features need to  support such 
+        control, they need to be instrumented in their 
+        respective MIBs.
+
+        The Optional features can be controlled (enabled/
+        disabled) by the user via CLI/SNMP. The optional
+        features are generally disabled by default. As part
+        of the enabling of such optional feature, the first
+        mandatory step is to explicitly enable the feature
+        using the CLI/SNMP. Following this mandatory step, 
+        a feature may require additional feature specific
+        enabling steps similar to the regular features.
+        In addition to the user triggered control, other 
+        system specific conditions like licensing may
+        influence the operating state of such optional 
+        feature. 
+
+        This MIB module is to facilitate the global level 
+        control (enabling/disabling) over the optional 
+        features in the system. The disabling of such 
+        optional feature using this MIB module would make
+        the feature disabled and the entire feature specific
+        mib objects also unavailable.
+
+        Glossary of the terms used in this MIB:
+
+        VSAN - Virtual Storage Area Network, similar to 
+               a VLAN.
+
+        WWN  - World Wide Name. Mechanism of identifying
+               devices in Fibre Channel Networks. It is
+               8 bytes long.
+
+        AAA - Authentication, Authorization and Accounting
+
+        FLOGI - Fibre Channel fabric login
+
+        MDS -  Multilayer Director Switch"
+    REVISION        "202109210000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        the 'fpm' feature(226)."
+    REVISION        "202003170000Z"
+    DESCRIPTION
+        " Updated 'CiscoOptionalFeature' TC for
+        following features:
+        containerTracker(175),mka(176),
+        nxsdkMgr(177),bench(211),pnp(212)
+        ,telemetry(262),netconf(215),restconf(216),grpc(217),
+        slaTwamp(218),mldx(219),lispms(220),srv6(221),
+        tem(225),hwTelemetry(265).
+        Note:Feature-id 178-199 and 201-210 is reserved for
+        nxsdk apps they would be custom apps developed by customer,
+        they are not needed to be added to MIB."
+    REVISION        "201611160000Z"
+    DESCRIPTION
+        "Replacing the following values in CiscoOptionalFeature TC as below: 
+        xos_feature_test(146) to xosFeatureTest(146), 
+        xos_MI_feature_test(147) to xosMIFeatureTest(147), 
+        mpls_Static(149) to mplsStatic(149)."
+    REVISION        "201610250000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        following features:
+        xos_feature_test(146),xos_MI_feature_test(147),
+        nxschema(148),ngoam(155),mld(156),evpn(157),smartChannel(158),
+        openFlow(159),mplsSegmentRouting(160),analytics(161),ipp(162),
+        licenseSmart(163),pmn(164),dpt(165),ngmvpn(166),
+        dciTunnelInterop(167),fabricTelemetry(168),plb(169),
+        vmis(170),ldbmgr(171),icam(172),catena(173),
+        licensePlr(174),sflow(264),elo(9875).
+        Added new CiscoFeatureStatus enabled(not-running) to display feature
+        enabled but operational status is not-running."
+    REVISION        "201603110000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeatureSet' TC for following featureset:
+        fcoenpv(8)."
+    REVISION        "201510090000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for following features:
+        ngoam(155), mld(156), evpn(157), smartChannel(158)."
+    REVISION        "201412240000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for following features:
+        evc(151),ptp(152), bashShell(153), and nxdb(154)"
+    REVISION        "201404090000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        following features:
+        vff, sol, mplsStatic, nxapi, itd, vmTracker.
+        Updated 'CiscoOptionalFeatureSet' TC for 
+        feature-set Fabric"
+    REVISION        "201307290000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        following features: 
+        fabricAccess"
+    REVISION        "201305280000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        following features:
+         vTracker, fdmi, cmm, ntp, fabricMgr, 
+         nat, vlanVnSeg, bulkStat, bbu, vnSegment,
+         evb, ngMvpn, hmm, vxlan, mvrp, evmed, 
+         nSegMgr, poap"
+    REVISION        "201203220000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        following features:
+          fex, pong, rtp, ldap, privilege, oim,
+          mplsMgr, ulib, scp, sftp, l3vpn,
+          meshSecurity, mvpn, ipPool, uufb,
+          umfb, ethernetNpv, wccpClient,
+          scadaGw, poe, flexLink, niv,
+          vem, ewise, onep, slaS, slaR,
+          rise, pppManager, itronmcastagent,
+         vsmaggregation, segmentation, vrrpv3"
+    REVISION        "201106090000Z"
+    DESCRIPTION
+        "Added CiscoOptionalFeatureSet TC;
+        Modified CiscoFeatureAction TC to include enum values 
+            of install(4), uninstall(5), allow(6), disallow(7); 
+        Modified CiscoFeatureStatus TC to include enum values 
+            of installed(4), uninstalled(5); 
+        Added cfcFeatureSetGroup,
+            cfcFeatureSetNotificationCtrlGroup, 
+            and cfcFeatureSetNotificationGroup."
+    REVISION        "200908110000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        following features:
+         telnetServer, sshServer, httpServer, wccp, siaSve,
+         xcvrFreq, assocMgr, lldp, rsvp, ldp, te, mplsOam,
+         l2vpn, drap, bfd, bfdApp, fex"
+    REVISION        "200812050000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        following features:
+         evfp, vtp, splitter, sfm, ioa"
+    REVISION        "200806270000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        the 'siaServiceBroker' feature."
+    REVISION        "200806120000Z"
+    DESCRIPTION
+        "Synced up the mib and feature-ids used
+        in different branches.
+
+        Reordered following features in
+        'CiscoOptionalFeature' TC:
+
+        lacp, amt, dot1x, l2nac.
+
+        Renamed following features in
+        'CiscoOptionalFeature' TC:
+
+        fcNportMux to npv
+
+        Deleted following features in
+        'CiscoOptionalFeature' TC:
+
+        fc
+
+        Added following features in
+        'CiscoOptionalFeature' TC:
+
+        cluster, glbp, dhcpSnooping, hsrp, svi,
+        vmm, pvlan, tunnelManager, ethPortSec,
+        lisp, trustSec, copp, udld, mcecm, pbr,
+        nfm, isapi, vrrp, netSift, isisL2,
+        cimServer, otv, sanTap, nasb, dmm,
+        u2rib, isisOtv, orib, fcoe."
+    REVISION        "200803130000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        the 'fc' feature."
+    REVISION        "200705040000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        the 'fcNportMux' feature."
+    REVISION        "200701220000Z"
+    DESCRIPTION
+        "Added new table cfcFeatureCtrl2Table which deprecates
+        cfcFeatureCtrlTable to provide multiple feature 
+        instance support. Updated the CiscoOptionalFeature TC.   
+        Added the new notification ciscoFeatOpStatusChange.   
+        Added the new Module Compliance 
+        ciscoFeatureCtrlMIBComplianceRev and new conformance 
+        groups cfcFeatureGroupRev and cfcNotificationGroupRev."
+    REVISION        "200512270000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        the 'cloudDiscovery' feature."
+    REVISION        "200412280000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for
+        the 'extendedCredit' feature."
+    REVISION        "200407060000Z"
+    DESCRIPTION
+        "Updated 'CiscoOptionalFeature' TC for the following
+        new optional features:
+                  - ike
+                  - isns
+                  - ipSec
+                  - portTracker
+                  - scheduler
+                  - npiv
+                  - sanExtTuner
+                  - dpvm"
+    REVISION        "200311220000Z"
+    DESCRIPTION
+        "Initial version of this MIB."
+    ::= { ciscoMgmt 377 }
+
+
+-- Feature Control MIB object definitions
+
+ciscoFeatureCtrlMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoFeatureCtrlMIB 0 }
+
+ciscoFeatureCtrlMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoFeatureCtrlMIB 1 }
+
+ciscoFeatureCtrlMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoFeatureCtrlMIB 2 }
+
+cfcFeature  OBJECT IDENTIFIER
+    ::= { ciscoFeatureCtrlMIBObjects 1 }
+
+cfcNotifControl  OBJECT IDENTIFIER
+    ::= { ciscoFeatureCtrlMIBObjects 2 }
+
+
+-- Textual Conventions
+
+CiscoOptionalFeature ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The optional features in the sytem.
+
+        ivr(1)            - Inter VSAN Routing
+
+        fcip(2)           - Fibre Channel over IP Protocol
+
+        fcsp(3)           - Fibre Channel Security Protocol
+
+        ficon(4)          - Fibre Connectivity interface
+
+        iscsi(5)          - iSCSI (Internet Small Computer 
+                            System Interface) protocol
+
+        tacacs(6)         - Tacacs+ AAA protocol
+
+        qosManager(7)     - Quality Of Service
+
+        portSecurity(8)   - Port Security
+
+        fabricBinding(9)  - Fabric Binding
+
+        iscsiInterfaceVsanMembership(10) - iSCSI-Interface-VSAN
+                                           membership
+
+        ike(11)           - Internet Key Exchange feature. This
+                            is used to negotiate cryptographic
+                            keys for IPsec traffic
+
+        isns(12)          - iSNS (Internet Storage Name Service)
+                            server. This provides name service,
+                            access control and state change 
+                            notifications for iSCSI devices
+
+        ipsec(13)         - IPSec security services on the device
+
+        portTracker(14)   - Port Tracker. This allows ports to be
+                            brought down and up based on changes
+                            in the port states of certain 
+                            configured (tracked) ports
+
+        scheduler(15)     - Scheduler feature provides jobs to be 
+                            scheduled at a specified time. A Job is
+                            a collection of configuration commands
+                            in the device.
+
+        npiv(16)          - Nx_Port ID Virtualization. This is a 
+                            mechanism by which a N_Port can get more
+                            than one Nx_Port_Id from the fibre 
+                            channel (FC) fabric
+
+        sanExtTuner(17)   - SAN Extension Tuner. This is a tool 
+                            used to generate and analyze SCSI 
+                            workloads across the FCIP tunnels. 
+                            This can be used to tune the FCIP
+                            tunnels for desired throughput.
+
+        dpvm(18)          - Dynamic Port Vsan Membership. This 
+                            manages allocation of VSAN to a port 
+                            based on the device WWN at the time of
+                            device FLOGI
+
+        extenedCredit(19) - Extended Credit feature. This provides
+                            a way to increase the receive buffer
+                            to buffer credits on physical FC Ports
+
+        cloudDiscovery(20)- This feature provides grouping 
+                            functionality of all the IP networks 
+                            connected to the various gigabit 
+                            ethernet interfaces in a 'Fabric'
+
+        isis(21)          - IS-IS Unicast Routing Protocol
+
+        ospf(22)          - Open Shortest Path First Unicast Routing
+                            Protocol
+
+        ospfV3(23)        - Open Shortest Path First Version 3 Unicast
+                            Routing Protocol
+
+        rip(24)           - Routing Information Protocol
+
+        bgp(25)           - Border Gateway Protocol
+
+        pim(26)           - Protocol Independent Multicast
+
+        igmp(27)          - Internet Group Management Protocol
+
+        msdp(28)          - Multicast Source Discovery Protocol
+
+        pim6(29)          - Protocol Independent Multicast (PIM) for
+                            IPv6
+
+        eigrp(30)         - Enhanced Interior Gateway Routing Protocol
+
+        sdv(31)           - SAN Device-Virtualization Manager
+
+        cluster(32)       - This feature provides a common
+                            infrastructure for distributed applications
+                            running on multiple switches.  It provides
+                            consistency and replication of application
+                            metadata. It also handles membership and
+                            quorum service.
+
+        sme(33)           - SME Daemon
+
+        lacp(34)          - Link Aggregation Control Protocol
+
+        amt(35)           - Auto-Multicast Tunneling
+
+        dot1x(36)         - DOT1X Daemon
+
+
+        npv(37)           - FC N_port Multiplexer allows multiple
+                            end-devices on a switch which does not
+                            require a domain_ID to login to a
+                            NPIV-capable switch and thereby
+                            communicate with other devices in the 
+                            fabric.
+
+        l2nac(38)         - L2NAC Daemon
+
+        glbp(39)          - Gateway Load Balancing Protocol. This
+                            protocol provides support for gateway
+                            redundancy and in load balancing traffic.
+
+
+        dhcpSnooping(40)  - Handles dhcp snooping, IP source guard
+                            and Dynamic ARP Inspection (DAI)
+                            functionality.
+
+        hsrp(41)          - The Hot Standby Router Protocol, HSRP,
+                            provides a mechanism which is designed
+                            to support non-disruptive failover of
+                            IP traffic in certain circumstances.
+                            In particular, the protocol protects
+                            against the failure of the first hop
+                            router when the source host cannot
+                            learn the IP address of the first hop
+                            router dynamically.
+
+
+        svi(42)           - Switch Virtual Interface Manager
+
+        vmm(43)           - Virtual Module Manager
+
+        pvlan(44)         - Private Vlan Manager
+
+        tunnelManager(45) - Tunnel manager manages tunnel interfaces
+                            which includes creation, configuration
+                            and deletion of a tunnel interface.
+
+        ethPortSec(46)    - Ethernet Port Security provides a MAC
+                            based security feature for L2 ports.
+
+        lisp(47)          - Locator ID Separation Protocol
+
+        trustSec(48)      - Cisco TrustSec. Provides authentication,
+                            authorization, encryption and SGACLs 
+                            (Security Group Access Control Lists).
+
+        copp(49)          - Control Plane Policing.
+
+        udld(50)          - Unidirectional link-detection to ensure
+                            ethernet link is working properly
+
+        mcecm(51)         - Multi-Chassis Ether-Channel Manager
+
+        pbr(52)           - PBR uses route-maps to provide policy
+                            based routing functionality. 
+
+        nfm(53)           - NetFlow provides a key set of services for
+                            IP applications, including network traffic
+                            accounting, usage-based network billing,
+                            network planning, security, Denial of
+                            Service monitoring capabilities, and
+                            network monitoring. NetFlow provides
+                            valuable information about network users
+                            and applications, peak usage times, and
+                            traffic routing.
+
+        isapi(54)         - This service is a conditional service and
+                            enables the various storage applications
+                            running on the ISAPI (Intelligent Switch
+                            API).
+
+        vrrp(55)          - The Virtual Router Redundancy Protocol,
+                            VRRP, provides a mechanism to eliminate
+                            the single point of failure as present
+                            in default static routed environments.
+                            Redundancy is provided in using any of the
+                            virtual router's IP addresses as the 
+                            default first hop router by hosts 
+                            in the LAN.
+
+        netSift(56)       - Enable Netsift features of DPI (Deep Packet
+                            Inspection) and measurements.
+
+        isisL2(57)        - This feature implements the control
+                            plane for DCE (Data Center Ethernet). It
+                            provides both unicast and multicast routes
+                            to the RIBs (Routing Information Bases) for
+                            forwarding DCE frames. 
+
+        cimServer(58)     - CISCO's Web Based Enterprise Management 
+                            (WBEM) Services daemon process.
+
+        otv(59)           - This feature is provides control plane
+                            functionality for OTV (Overlay Transport
+                            Virtualization).
+
+        sanTap(60)        - SanTap is a fibre channel switch based
+                            capability that provides a reliable copy
+                            of the data flowing between a set of one
+                            or more initiators and a set of one or
+                            more targets connected to the fabric.
+
+        nasb(61)          - The TPC (Third-party Copy) or NASB (Network
+                            Accelerated Serverless Backup) feature
+                            exposes a disk target with Logical Unit
+                            Number(LUN) 0 that is capable of processing
+                            the SCSI Extended Copy Command (XCOPY) to
+                            transfer data from a specified source to a
+                            specified destination.
+
+        dmm(62)           - DMM (Data Migration Manager) facilitates
+                            migration of data from one storage 
+                            subsystem to another.
+
+        u2rib(63)         - Layer 2 unicast Routing Information Base
+                            component.
+
+        isisOtv(64)       - IS-IS protocol for OTV (Overlay Transport
+                            Virtualization)
+
+        orib(65)          - OTV (Overlay Transport Virtualization)
+                            Routing Information Base
+
+        fcoe(66)          - Fiber Channel over Ethernet.
+
+        siaServiceBroker(67) - Nexus Service Insertion Architecture.
+
+        evfp(68)          - Trunking F_Ports and F_Port-Channels.
+
+        vtp(69)           - Vlan Trunking Protocol
+
+        splitter(70)      - FCoE (Fiber Channel over Ethernet) traffic
+                            splitter
+
+        sfm(71)           - SCSI (Small Computer serial interface) flow
+                            manager used for enabling Fibre Channel
+                            Write Acceleration on SSM (Storage Services
+                            Module) cards
+
+        ioa(72)           - This feature allows more flexible I/O
+                            acceleration services such as write
+                            acceleration or tape acceleration
+
+        telnetServer(73)  - Telnet Server
+
+        sshServer(74)     - SSH Server
+
+        httpServer(75)    - HTTP Server
+
+        wccp(76)          - Web Cache Communication Protocol for
+        Nexus7k
+
+        siaSve(77)        - SIA Services Virtualization Endpoint
+
+        xcvrFreq (78)     - X2 Transceiver Frequency configuration
+
+        assocMgr(79)      - The feature enables VLAN <--> VSAN 
+                            translation and acts as a bridge between 
+                            LAN and SAN world. It manages the mappings 
+                            of VLANs with associated VSANs and 
+                            vice versa
+
+        lldp(80)          - Link Layer Discovery Protocol
+
+        rsvp(81)          - Implements the RSVP protocol that is 
+                            used to make resource reservations for 
+                            an application for example MPLS/TE
+
+        ldp(82)            - MPLS Label Distribution Protocol
+
+        te(83)             - MPLS Traffic Engineering
+
+        mplsOam(84)        - MPLS Operations and Management
+
+        l2vpn(85)          - Layer2 VPN
+
+        drap(86)           - DRAP
+
+        bfd(87)            - BFD
+
+        bfdApp(88)         - BFD_APP
+
+        fex(89)            - FEX
+
+        pong(90)           - Layer 2 connectivity and latency 
+                             measurement tool based on 1588 
+                             constructs
+
+        rtp(91)            - Real-time Transport Protocol 
+
+        ldap(92)           - Lightweight Directory Access Protocol
+
+        privilege(93)      - Enable IOS like privilege support 
+                             for authorization
+
+        oim(94)            - The interface manager for advanced 
+                             features like OTV, TE, mVPN etc
+
+        mplsMgr(95)       - Manages general MPLS related functionality
+
+        ulib(96)           - Unified label information base 
+                             responsible for the storage of 
+                             MPLS label forwarding information
+
+        scp(97)            - scp protocal
+
+        sftp(98)           - sftp protocal
+
+        l3vpn(99)          - Layer 3 Virtual Private Networks
+
+        mvpn(101)          - Provides multicast service if customer 
+                             sites are partitioned
+
+        ipPool(102)       - Creates and manages the IP Address
+
+        uufb(103)          - Unknown Unicast Flood Blocking
+
+        umfb(104)          - Unknown Multicast Flood Blocking
+
+        ethernetNpv(105)  - An enhanced form of FIP snooping over 
+                            an ethernet bridge connecting FCoE 
+                            hosts to FCoE FCF  
+
+        wccpClient(106)   - Web Cache Communication Protocol Client
+        Side
+
+        scadaGw(107)      - scada protocol translations
+
+        poe(108)           - Power over Ethernet
+
+        flexlink(109)      - Manager process for switchport 
+                             backup feature
+
+        niv(110)           - Network Interface Virtualization 
+
+        vem(111)           - Virtual Ethernet Module
+
+        ewise(112)         - Energywise for N7K
+
+        onep(113)          - Allows third parties to create 
+                             network applications
+
+        slaS(114)         - SLA sender
+
+        slaR(115)         - SLA receiver
+
+        rise(116)         - rise feature enables tighter
+                            integration with the Nexus 7000 
+                            for attached Cisco appliances that 
+                            support Remote Integrated Service 
+                            Extenders (RISE) functionality
+
+        pppManager(117)   - Point-to-point protocol manager 
+                            creates and manages of Point-to-Point 
+                            protocol instances
+
+        itronMcastAgent(118) - This is a process listens for multicast 
+                               traffic and implement the itron specify 
+                               reliability protocol over smart grid RF 
+                               networks
+
+        vsmAggregation(119) - VSM aggregation feature on Cisco 
+                              Nexus 1000v enables multiple N1K 
+                              control planes to be combined to 
+                              manage a single DVS (distributed 
+                              virtual switch)
+
+        segmentation(120)   - Vxlan feature on Cisco Nexus 
+                              1000v enables scalable cloud 
+                              architecture with replicated 
+                              server pods in different subnets.
+                              It provides a means to stretch 
+                              a layer 2 network by using a 
+                              layer 2 overlay scheme over 
+                              a layer 3 network
+
+        vrrpv3(121)         - The Virtual Router Redundancy 
+                              Protocol version 3, dynamically 
+                              assign responsibility for routing 
+                              to one of a group of routers 
+                              participating in the protocol. 
+                              VRRPv3 supports both IPv4 and IPv6
+
+        vTracker(122)       - vTracker feature allows network-admin to view 
+                              and monitor the virtualized environment in a data-center network. 
+                              It also enables the network-admin to get the attributes
+                              of servers and virtual machines from the hypervisor 
+                              management framework such as Vcenter for VMware. 
+
+        fdmi(123)           - FDMI feature allows network-admin to view and monitor 
+                              Fabric devices like Host Bus Adaptors in a data center network.
+
+        cmm(124)            - Cable Management Manager feature on allows auto detection 
+                              of cabling errors in clos and non-clos network designs. 
+
+        ntp(125)            - Network Time Protocol feature allows clock
+                              synchronization of router to other servers and 
+                              clients.
+
+        fabricAccess(126)   - Single point of Access feature for the Fabric Network.  
+
+        nat(127)            - IP Network Address Translation Manager
+
+        vlanVnSeg(128)      - Vlan based vn-segment is a simplified multi-tenancy
+                              solution in Vinci. This allows Vinci to support more 
+                              than 4k tenants for the whole network but with limit(<4k)
+                              for each leaf node.
+
+        bulkStat(129)       - Bulk Stats Collection and Export feature 
+                              is a solution to collect bulk/stats and export 
+                              to NMS. This feature uses CM services to collect 
+                              data and transfers raw and processed date to NMS.
+
+        bbu(130)            - BBU is a Battery Backup Unit support feature on Smart 
+                              Grid platforms.
+
+        vnSegment(131)      - Multi-Tenancy and Virtual Network Segment(VN-Segment) 
+                              allows the creation of virtual network segments to 
+                              facilitate the creation and operation of virtual data 
+                              centers. 
+
+        evb(132)            - Edge Virtual Bridge feature is based on 802.1Qbg and 
+                              defines the interaction between virtual switching environments
+                              in a hypervisor and the first-layer in a switching environment.
+
+        ngMvpn(134)         - Next Generation MVPN features. 
+
+        hmm(135)            - Host Mobility Manager maintains local and 'remote interest'
+                              host database, detects and tracks host/VM movement. 
+
+        vxlan(136)          - Virtual Extensible LAN feature is an encapsulation protocol for
+                              running an overlay network on existing Layer 3 infrastructure.
+
+        mvrp(137)           - MVRP feature is an industry standard vlan-pruning
+                              protocol. It helps in filtering unrequited traffic
+                              downstream. 
+
+        evmed(138)          - EVMED feature allows network-admin
+                              to use EEM to monitor Application, Interface 
+                              Statistics and TImer based events and schedule
+                              actions on occurance of those events
+
+        nSegMgr(139)        - Manage bridge domains as objects,
+                              exposing them by providing APIs to external virtualization
+                              servers such as VMware vCloud Director, Virtual Machine Manager
+                              Openstack Quantum and Horizon.
+
+        vff(140)            - Dynamic Forwarding Automation
+
+        sol(141)            - Serial over LAN provides a mechanism which enables the serial controller
+                              of a managed system to be redirected over an IPMI session using LAN packets.
+
+        nxapi(143)          - nxapi feature exposes CLIs that traditionally run on the switch to the outside 
+                              of the switch through HTTP/HTTPs.
+
+        itd(144)            - With Intelligent Traffic Director(ITD), customer can deploy service appliances from any vendors
+                              with no Network/Topology change.
+
+        vmTracker(145)      - vmTracker tracks all the virtual machines in a given system.
+
+        xosFeatureTest(146)              - To test single instance feature.
+
+        xosMIFeatureTest(147)            - To test multi instance feature.
+
+        nxschema(148)                    - Provide schema documentation for any XMLised command.
+
+        mplsStatic(149)                  - Static LSP support for IPv4 and IPv6 next hops.
+
+        imp(150)                         - IMP feature is used in OSPFv3 for IPSEC security.
+
+        evc(151)                         - Ethernet Virtual Connection.
+
+        ptp(152)                         - Precision Time protocol.
+
+        bashShell(153)                   - Access Bourne-Again Shell.
+
+        nxdb(154)                        - Native XML Database.
+
+        ngoam(155)                       - Next generation OAM functionality.
+
+        mld(156)                         - Multicast listener discovery protocol.
+
+        evpn(157)                        - For the evpn feature. That box is evpn capable.
+
+        smartChannel(158)                - smartChannel is a layer 2 traffic redirection.
+
+        openFlow(159)                    - OpenFlow is a SDN protocol that enables the SDN Controller to interact with the forwarding plane.
+
+        mplsSegmentRouting(160)          - This feature enables segment-routing over mpls.
+
+        analytics(161)                   - Feature to support analytics module that facilitates Tetration analytics.
+
+        ipp(162)                         - Interconnect Policy Provisioning feature to automate configuration of DCI switch via policy modeling objects notification.
+
+        licenseSmart(163)                - Smart Licensing is a way of licensing that simplifies the licensing experience across the enterprise and adds flexibility.
+
+        pmn(164)                         - On the leaf, this feature manages the uplink bandwidth to spine for multiple multicast traffic streams so that no link is over-subscribed while sending traffic to or receiving traffic from the spine.
+
+        dpt(165)                         - Programmatic way to configure packet tracing for a particular flow on a given switch.
+
+        ngmvpn(166)                      - Next generation MVPN.
+
+        dciTunnelInterop(167)            - This feature enables interop between various tunnels.
+
+        fabricTelemetry(168)             - Feature for collecting analytics for TCP/CPU/IO.
+
+        plb(169)                         - This feature provides the capability to do server and appliance load-balancing across a Programmable Fabric built with the Nexus Switches.
+
+        vmis(170)                        - This would facilitate the identification of the virtual machines running on the host, which can be used for VM statistics collection, VM monitoring, Slow drain.
+
+        ldbmgr(171)                      - To keep track of adjacency found in CDP, LLDP etc for higher level consumption.
+
+        icam(172)                        - ICAM is a TCAM Analytics Feature, which gets all the information about the TCAM.
+
+        catena(173)                      - Catena is a feature which aids in chaining of network appliances so that packets are redirected through multiple set of devices.
+
+        licensePlr(174)                  - Permanent License Reservation is a set of capabilities that have been designed for highly secure environments where communications with outside environments is difficult to impossible.
+
+        containerTracker(175)            - To track containers from device which can be kubernetes, Docker etc.
+
+        mka(176)                         - Feature mka enables support for the Macsec Key Agreement protocol which allows the device to discover MACsec peers, negotiates the keys used for MACsec.
+
+        nxsdkMgr(177)                    - NXSDK Manager to manage third party services needing to interact with NXOS infra.
+
+        poap(200)                        - Power-On Auto Provisioning.
+
+        bench(211)                       - Benchmarking Tools.
+
+        pnp(212)                         - Plug and Play.
+
+        netconf(215)                     - Netconf Agent.
+
+        restconf(216)                    - Restconf Agent.
+
+        grpc(217)                        - gRPC Agent.
+
+        slaTwamp(218)                    - Feature SLA TWAMP.
+
+        mldx(219)                        - Feature MLD is used by IPv6 routers for discovering multicast listeners on a directly attached link.
+
+        lispMs(220)                      - Locator/ID seperation protocol mapping system.
+
+        srv6(221)                        - Feature Segment Routing over IPv6 dataplane.
+
+        tem(225)                         - Feature Tunnel Encryption Manager.
+
+        fpm(226)                         - Feature Fabric Performance Manager.
+
+        telemetry(262)                   - Feature telemetry.
+
+        sflow(264)                       - Feature SFLOW.
+
+        hwTelemetry(265)                 - Feature Hardware Telemetry.               
+
+        elo(9875)                        - Feature ELO.    
+        ."
+    SYNTAX          INTEGER  {
+                        ivr(1),
+                        fcip(2),
+                        fcsp(3),
+                        ficon(4),
+                        iscsi(5),
+                        tacacs(6),
+                        qosManager(7),
+                        portSecurity(8),
+                        fabricBinding(9),
+                        iscsiInterfaceVsanMembership(10),
+                        ike(11),
+                        isns(12),
+                        ipSec(13),
+                        portTracker(14),
+                        scheduler(15),
+                        npiv(16),
+                        sanExtTuner(17),
+                        dpvm(18),
+                        extenedCredit(19),
+                        cloudDiscovery(20),
+                        isis(21),
+                        ospf(22),
+                        ospfV3(23),
+                        rip(24),
+                        bgp(25),
+                        pim(26),
+                        igmp(27),
+                        msdp(28),
+                        pim6(29),
+                        eigrp(30),
+                        sdv(31),
+                        cluster(32),
+                        sme(33),
+                        lacp(34),
+                        amt(35),
+                        dot1x(36),
+                        npv(37),
+                        l2nac(38),
+                        glbp(39),
+                        dhcpSnooping(40),
+                        hsrp(41),
+                        svi(42),
+                        vmm(43),
+                        pvlan(44),
+                        tunnelManager(45),
+                        ethPortSec(46),
+                        lisp(47),
+                        trustSec(48),
+                        copp(49),
+                        udld(50),
+                        mcecm(51),
+                        pbr(52),
+                        nfm(53),
+                        isapi(54),
+                        vrrp(55),
+                        netSift(56),
+                        isisL2(57),
+                        cimServer(58),
+                        otv(59),
+                        sanTap(60),
+                        nasb(61),
+                        dmm(62),
+                        u2rib(63),
+                        isisOtv(64),
+                        orib(65),
+                        fcoe(66),
+                        siaServiceBroker(67),
+                        evfp(68),
+                        vtp(69),
+                        splitter(70),
+                        sfm(71),
+                        ioa(72),
+                        telnetServer(73),
+                        sshServer(74),
+                        httpServer(75),
+                        wccp(76),
+                        siaSve(77),
+                        xcvrFreq(78),
+                        assocMgr(79),
+                        lldp(80),
+                        rsvp(81),
+                        ldp(82),
+                        te(83),
+                        mplsOam(84),
+                        l2vpn(85),
+                        drap(86),
+                        bfd(87),
+                        bfdApp(88),
+                        fex(89),
+                        pong(90),
+                        rtp(91),
+                        ldap(92),
+                        privilege(93),
+                        oim(94),
+                        mplsMgr(95),
+                        ulib(96),
+                        scp(97),
+                        sftp(98),
+                        l3vpn(99),
+                        mvpn(101),
+                        ipPool(102),
+                        uufb(103),
+                        umfb(104),
+                        ethernetNpv(105),
+                        wccpClient(106),
+                        scadaGw(107),
+                        poe(108),
+                        flexlink(109),
+                        niv(110),
+                        vem(111),
+                        ewise(112),
+                        onep(113),
+                        slaS(114),
+                        slaR(115),
+                        rise(116),
+                        pppManager(117),
+                        itronMcastAgent(118),
+                        vsmAggregation(119),
+                        segmentation(120),
+                        vrrpv3(121),
+                        vTracker(122),
+                        fdmi(123),
+                        cmm(124),
+                        ntp(125),
+                        fabricAccess(126),
+                        nat(127),
+                        vlanVnSeg(128),
+                        bulkStat(129),
+                        bbu(130),
+                        vnSegment(131),
+                        evb(132),
+                        ngMvpn(134),
+                        hmm(135),
+                        vxlan(136),
+                        mvrp(137),
+                        evmed(138),
+                        nSegMgr(139),
+                        vff(140),
+                        sol(141),
+                        nxapi(143),
+                        itd(144),
+                        vmTracker(145),
+                        xosFeatureTest(146),
+                        xosMIFeatureTest(147),
+                        nxschema(148),
+                        mplsStatic(149),
+                        imp(150),
+                        evc(151),
+                        ptp(152),
+                        bashShell(153),
+                        nxdb(154),
+                        ngoam(155),
+                        mld(156),
+                        evpn(157),
+                        smartChannel(158),
+                        openFlow(159),
+                        mplsSegmentRouting(160),
+                        analytics(161),
+                        ipp(162),
+                        licenseSmart(163),
+                        pmn(164),
+                        dpt(165),
+                        ngmvpn(166),
+                        dciTunnelInterop(167),
+                        fabricTelemetry(168),
+                        plb(169),
+                        vmis(170),
+                        ldbmgr(171),
+                        icam(172),
+                        catena(173),
+                        licensePlr(174),
+                        containerTracker(175),
+                        mka(176),
+                        nxsdkMgr(177),
+                        poap(200),
+                        bench(211),
+                        pnp(212),
+                        netconf(215),
+                        restconf(216),
+                        grpc(217),
+                        slaTwamp(218),
+                        mldx(219),
+                        lispMs(220),
+                        srv6(221),
+                        tem(225),
+                        fpm(226),
+                        telemetry(262),
+                        sflow(264),
+                        hwTelemetry(265),
+                        elo(9875)
+                    }
+
+CiscoOptionalFeatureSet ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "The optional feature Set in the sytem.
+
+        fcoe(1)         - Fabric Channel over Ethernet
+        l2mp(2)         - Layer 2 Multipathing
+        fex(3)          - Fabric Extender
+        mpls(4)         - Multiprotocol Label Switching
+        fabric(7)       - Fabric Feature-set 
+        fcoenpv(8)     - FCoE NPV feature-set
+        ."
+    SYNTAX          INTEGER  {
+                        fcoe(1),
+                        l2mp(2),
+                        fex(3),
+                        mpls(4),
+                        fabric(7),
+                        fcoenpv(8)
+                    }
+
+CiscoFeatureAction ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Action trigger for the feature.
+
+        noOp(1)      - No operation           
+        enable(2)    - Enable the feature or feature set
+        disable(3)   - Disable the feature or feature set
+        install(4)   - Install the feature or feature set
+        uninstall(5) - Uninstall the feature or feature set
+        allow(6)     - Allow the feature or feature set to be enabled
+        disallow(7)  - Do not allow the feature or feature set to be
+        enabled
+
+        ."
+    SYNTAX          INTEGER  {
+                        noOp(1),
+                        enable(2),
+                        disable(3),
+                        install(4),
+                        uninstall(5),
+                        allow(6),
+                        disallow(7)
+                    }
+
+CiscoFeatureStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Status of the feature or feature set.
+
+        unknown(1)     - Unknown status
+        enabled(2)     - Feature or feature set is operational 
+                         and available
+        disabled(3)    - Feature or feature set is disabled 
+                         and not available
+        installed(4)   - Feature or feature set is installed
+        uninstalled(5) - Feature or feature set is uninstalled
+        enabledNotRunning(6) - Feature enabled but operational status is not running.
+        ."
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        enabled(2),
+                        disabled(3),
+                        installed(4),
+                        uninstalled(5),
+                        enabledNotRunning(6)
+                    }
+
+CiscoFeatureActionResult ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Result of the feature or feature set action.
+
+        none(1)               - No action triggered           
+        actionSuccess(2)      - Execution of the action triggered 
+                                is completed Successfully
+        actionFailed(3)       - Execution of the action failed 
+        actionInProgress(4)   - Execution of the action  triggered
+                                is in progress
+        ."
+    SYNTAX          INTEGER  {
+                        none(1),
+                        actionSuccess(2),
+                        actionFailed(3),
+                        actionInProgress(4)
+                    }
+-- Feature Control Table - cfcFeatureCtrlTable
+
+cfcFeatureCtrlTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfcFeatureCtrlEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A table consisting of entries for all the features that can
+        be optionally enabled/disabled in the system. This table 
+        provides administrative control and current operating state
+        information of the feature.
+        cfcFeatureCtrlTable object is superseded 
+        by cfcFeatureCtrl2Table."
+    ::= { cfcFeature 1 }
+
+cfcFeatureCtrlEntry OBJECT-TYPE
+    SYNTAX          CfcFeatureCtrlEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "An entry (conceptual row) in the 'cfcFeatureCtrlTable'.
+        Each row represents an optional feature in the system.
+        cfcFeatureCtrlEntry object is superseded 
+        by cfcFeatureCtrl2Entry."
+    INDEX           { cfcFeatureCtrlIndex } 
+    ::= { cfcFeatureCtrlTable 1 }
+
+CfcFeatureCtrlEntry ::= SEQUENCE {
+        cfcFeatureCtrlIndex             CiscoOptionalFeature,
+        cfcFeatureCtrlName              SnmpAdminString,
+        cfcFeatureCtrlAction            CiscoFeatureAction,
+        cfcFeatureCtrlLastAction        CiscoFeatureAction,
+        cfcFeatureCtrlLastActionResult  CiscoFeatureActionResult,
+        cfcFeatureCtrlLastFailureReason SnmpAdminString,
+        cfcFeatureCtrlOpStatus          CiscoFeatureStatus,
+        cfcFeatureCtrlOpStatusReason    SnmpAdminString
+}
+
+cfcFeatureCtrlIndex OBJECT-TYPE
+    SYNTAX          CiscoOptionalFeature
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A unique index representing the feature in this entry.
+        cfcFeatureCtrlIndex object is superseded by 
+        cfcFeatureCtrlIndex2." 
+    ::= { cfcFeatureCtrlEntry 1 }
+
+cfcFeatureCtrlName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "A human readable unique string representing the name of
+        this feature.
+        cfcFeatureCtrlName object is superseded by 
+        cfcFeatureCtrlName2." 
+    ::= { cfcFeatureCtrlEntry 2 }
+
+cfcFeatureCtrlAction OBJECT-TYPE
+    SYNTAX          CiscoFeatureAction
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "The action to be triggered for the feature. Setting the
+        value of this object to  a value other than 'enable' or 
+        'disable'  does not trigger any action for the feature
+        and hence does not affect the value of corresponding
+        instance of 'cfcFeatureCtrlLastAction'. Retrieving the
+        value of this object via SNMP will always return 'noOp'.
+        cfcFeatureCtrlAction object is superseded by 
+        cfcFeatureCtrlAction2." 
+    ::= { cfcFeatureCtrlEntry 3 }
+
+cfcFeatureCtrlLastAction OBJECT-TYPE
+    SYNTAX          CiscoFeatureAction
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The last action triggered for the feature. If no action
+        has been triggered for the feature since the last reboot
+        of the sytem, then retrieving the value of this object 
+        via SNMP will return 'noOp'.
+        cfcFeatureCtrlLastAction object is superseded by
+        cfcFeatureCtrlLastAction2." 
+    ::= { cfcFeatureCtrlEntry 4 }
+
+cfcFeatureCtrlLastActionResult OBJECT-TYPE
+    SYNTAX          CiscoFeatureActionResult
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The result of execution of last action (represented by
+        value of 'cfcFeatureCtrlLastAction') for the feature. When 
+        the value of this object is 'actionInProgress', the value
+        of the corresponding instance of 'cfcFeatureCtrlAction' 
+        can not be modified.
+        cfcFeatureCtrlLastActionResult object is superseded by
+        cfcFeatureCtrlLastActionResult2." 
+    ::= { cfcFeatureCtrlEntry 5 }
+
+cfcFeatureCtrlLastFailureReason OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The failure reason description for the failed execution
+        of last action triggered for the feature. 
+        If the corresponding instance of 
+        'cfcFeatureCtrlLastActionResult' has the value
+        'actionFailed', then this object contains the reason
+         as to why it failed.  Otherwise, the value of this
+         object is the zero-length string.
+        cfcFeatureCtrlLastFailureReason object is superseded by
+        cfcFeatureCtrlLastFailureReason2." 
+    ::= { cfcFeatureCtrlEntry 6 }
+
+cfcFeatureCtrlOpStatus OBJECT-TYPE
+    SYNTAX          CiscoFeatureStatus
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The current operating status of the feature.
+        cfcFeatureCtrlOpStatus object is superseded by
+        cfcFeatureCtrlOpStatus2." 
+    ::= { cfcFeatureCtrlEntry 7 }
+
+cfcFeatureCtrlOpStatusReason OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The reason description for the current operating status
+        (represented by the  value of corresponding instance of
+        'cfcFeatureCtrlOpStatus') of the feature.
+        The reason for the current operating status of the feature
+        could be other than explicit user triggered action on the 
+        feature.
+        cfcFeatureCtrlOpStatusReason object is superseded by
+        cfcFeatureCtrlOpStatusReason2." 
+    ::= { cfcFeatureCtrlEntry 8 }
+ 
+
+-- Feature Instance Control Table - cfcFeatureCtrl2Table
+
+cfcFeatureCtrl2Table OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfcFeatureCtrl2Entry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table consisting of entries for all the features that can
+        be optionally enabled/disabled in the system. This table 
+        provides administrative control and current operating state
+        information of the feature. This table deprecates 
+        cfcFeatureCtrlTable"
+    ::= { cfcFeature 2 }
+
+cfcFeatureCtrl2Entry OBJECT-TYPE
+    SYNTAX          CfcFeatureCtrl2Entry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the 'cfcFeatureCtrl2Table'.
+        Each row represents an optional feature in the system."
+    INDEX           {
+                        cfcFeatureCtrlIndex2,
+                        cfcFeatureCtrlInstanceNum2
+                    } 
+    ::= { cfcFeatureCtrl2Table 1 }
+
+CfcFeatureCtrl2Entry ::= SEQUENCE {
+        cfcFeatureCtrlIndex2             CiscoOptionalFeature,
+        cfcFeatureCtrlInstanceNum2       Unsigned32,
+        cfcFeatureCtrlName2              SnmpAdminString,
+        cfcFeatureCtrlAction2            CiscoFeatureAction,
+        cfcFeatureCtrlLastAction2        CiscoFeatureAction,
+        cfcFeatureCtrlLastActionResult2  CiscoFeatureActionResult,
+        cfcFeatureCtrlLastFailureReason2 SnmpAdminString,
+        cfcFeatureCtrlOpStatus2          CiscoFeatureStatus,
+        cfcFeatureCtrlOpStatusReason2    SnmpAdminString,
+        cfcFeatureCtrlTag2               SnmpAdminString
+}
+
+cfcFeatureCtrlIndex2 OBJECT-TYPE
+    SYNTAX          CiscoOptionalFeature
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique index representing the base feature id in this
+        entry." 
+    ::= { cfcFeatureCtrl2Entry 1 }
+
+cfcFeatureCtrlInstanceNum2 OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An index representing the feature instance number in this
+        entry." 
+    ::= { cfcFeatureCtrl2Entry 2 }
+
+cfcFeatureCtrlName2 OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A human readable unique string representing the name of
+        this feature." 
+    ::= { cfcFeatureCtrl2Entry 3 }
+
+cfcFeatureCtrlAction2 OBJECT-TYPE
+    SYNTAX          CiscoFeatureAction
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The action to be triggered for the feature. Setting the
+        value of this object to  a value other than 'enable' or 
+        'disable'  does not trigger any action for the feature
+        and hence does not affect the value of corresponding
+        instance of 'cfcFeatureCtrlLastAction2'. Retrieving the
+        value of this object via SNMP will always return 'noOp'." 
+    ::= { cfcFeatureCtrl2Entry 4 }
+
+cfcFeatureCtrlLastAction2 OBJECT-TYPE
+    SYNTAX          CiscoFeatureAction
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The last action triggered for the feature. If no action
+        has been triggered for the feature since the last reboot
+        of the sytem, then retrieving the value of this object 
+        via SNMP will return 'noOp'." 
+    ::= { cfcFeatureCtrl2Entry 5 }
+
+cfcFeatureCtrlLastActionResult2 OBJECT-TYPE
+    SYNTAX          CiscoFeatureActionResult
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The result of execution of last action (represented by
+        value of 'cfcFeatureCtrlLastAction2') for the feature. When 
+        the value of this object is 'actionInProgress', the value
+        of the corresponding instance of 'cfcFeatureCtrlAction2' 
+        can not be modified." 
+    ::= { cfcFeatureCtrl2Entry 6 }
+
+cfcFeatureCtrlLastFailureReason2 OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The failure reason description for the failed execution
+        of last action triggered for the feature. 
+        If the corresponding instance of 
+        'cfcFeatureCtrlLastActionResult2' has the value
+        'actionFailed', then this object contains the reason
+         as to why it failed.  Otherwise, the value of this
+         object is the zero-length string." 
+    ::= { cfcFeatureCtrl2Entry 7 }
+
+cfcFeatureCtrlOpStatus2 OBJECT-TYPE
+    SYNTAX          CiscoFeatureStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current operating status of the feature." 
+    ::= { cfcFeatureCtrl2Entry 8 }
+
+cfcFeatureCtrlOpStatusReason2 OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The reason description for the current operating status
+        (represented by the  value of corresponding instance of
+        'cfcFeatureCtrlOpStatus2') of the feature.
+        The reason for the current operating status of the feature
+        could be other than explicit user triggered action on the 
+        feature." 
+    ::= { cfcFeatureCtrl2Entry 9 }
+
+cfcFeatureCtrlTag2 OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "A human readable unique string identifying a given instance of
+        a multiple instance feature." 
+    ::= { cfcFeatureCtrl2Entry 10 }
+ 
+
+-- Feature Set Control Table
+
+cfcFeatureSetTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfcFeatureSetEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists all of feature sets that are supported
+        by the system.  The number of feature sets supported is 
+        determined by the system.  The system creates a row in
+        the cfcFeatureSetTable when it detects a feature set
+        that supports the type of global control described by
+        this MIB module."
+    ::= { cfcFeature 3 }
+
+cfcFeatureSetEntry OBJECT-TYPE
+    SYNTAX          CfcFeatureSetEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information for a feature set."
+    INDEX           { cfcFeatureSetIndex } 
+    ::= { cfcFeatureSetTable 1 }
+
+CfcFeatureSetEntry ::= SEQUENCE {
+        cfcFeatureSetIndex             CiscoOptionalFeatureSet,
+        cfcFeatureSetName              SnmpAdminString,
+        cfcFeatureSetAction            CiscoFeatureAction,
+        cfcFeatureSetLastAction        CiscoFeatureAction,
+        cfcFeatureSetLastActionResult  CiscoFeatureActionResult,
+        cfcFeatureSetLastFailureReason SnmpAdminString,
+        cfcFeatureSetOpStatus          CiscoFeatureStatus,
+        cfcFeatureSetOpStatusReason    SnmpAdminString
+}
+
+cfcFeatureSetIndex OBJECT-TYPE
+    SYNTAX          CiscoOptionalFeatureSet
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique index representing the feature set in this entry." 
+    ::= { cfcFeatureSetEntry 1 }
+
+cfcFeatureSetName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of a feature set such as fcoe
+        and fex." 
+    ::= { cfcFeatureSetEntry 2 }
+
+cfcFeatureSetAction OBJECT-TYPE
+    SYNTAX          CiscoFeatureAction
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an action for the system to
+        execute against the corresponding feature set." 
+    ::= { cfcFeatureSetEntry 3 }
+
+cfcFeatureSetLastAction OBJECT-TYPE
+    SYNTAX          CiscoFeatureAction
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the last action triggered for the
+        feature set. If no action has been triggered for the feature 
+        set since the last reboot of the sytem, then retrieving the 
+        value of this object via SNMP will return 'noOp'." 
+    ::= { cfcFeatureSetEntry 4 }
+
+cfcFeatureSetLastActionResult OBJECT-TYPE
+    SYNTAX          CiscoFeatureActionResult
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the result of the last action
+        that was applied to the feature set." 
+    ::= { cfcFeatureSetEntry 5 }
+
+cfcFeatureSetLastFailureReason OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the failure code of the
+        last action that was applied to the feature set." 
+    ::= { cfcFeatureSetEntry 6 }
+
+cfcFeatureSetOpStatus OBJECT-TYPE
+    SYNTAX          CiscoFeatureStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current status of the feature set." 
+    ::= { cfcFeatureSetEntry 7 }
+
+cfcFeatureSetOpStatusReason OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the reason of the current
+        status of the feature set." 
+    ::= { cfcFeatureSetEntry 8 }
+ 
+
+
+-- Notifications
+
+cfcFeatureSetNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether a notification is generated
+        when a feature set status changes."
+    DEFVAL          { false } 
+    ::= { cfcNotifControl 1 }
+
+ciscoFeatureOpStatusChange NOTIFICATION-TYPE
+    OBJECTS         { cfcFeatureCtrlOpStatus }
+    STATUS          deprecated
+    DESCRIPTION
+        "Notification to indicate that the operational state of
+        this feature has changed. The 'cfcFeatureCtrlOpStatus'
+        indicates the new state of the feature. 
+        ciscoFeatureOpStatusChange object is superseded by
+        ciscoFeatOpStatusChange."
+   ::= { ciscoFeatureCtrlMIBNotifs 1 }
+
+ciscoFeatOpStatusChange NOTIFICATION-TYPE
+    OBJECTS         { cfcFeatureCtrlOpStatus2 }
+    STATUS          current
+    DESCRIPTION
+        "Notification to indicate that the operational state of
+        this feature has changed. The 'cfcFeatureCtrlOpStatus2'
+        indicates the new state of the feature. This notification
+        deprecates ciscoFeatureOpStatusChange."
+   ::= { ciscoFeatureCtrlMIBNotifs 2 }
+
+ciscoFeatureSetOpStatusChange NOTIFICATION-TYPE
+    OBJECTS         { cfcFeatureSetOpStatus }
+    STATUS          current
+    DESCRIPTION
+        "This notification indicates that the state of
+        this feature set has changed. The 'cfcFeatureSetOpStatus'
+        indicates the new state of the feature set."
+   ::= { ciscoFeatureCtrlMIBNotifs 3 }
+-- Conformance
+
+ciscoFeatureCtrlMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoFeatureCtrlMIBConformance 1 }
+
+ciscoFeatureCtrlMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoFeatureCtrlMIBConformance 2 }
+
+
+ciscoFeatureCtrlMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement the
+        CISCO-FEATURE-CONTROL-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cfcFeatureGroup,
+                        cfcNotificationGroup
+                    }
+    ::= { ciscoFeatureCtrlMIBCompliances 1 }
+
+ciscoFeatureCtrlMIBComplianceRev MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement the
+        CISCO-FEATURE-CONTROL-MIB. This compliance deprecates
+        ciscoFeatureCtrlMIBCompliance."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cfcFeatureGroupRev,
+                        cfcNotificationGroupRev
+                    }
+    ::= { ciscoFeatureCtrlMIBCompliances 2 }
+
+ciscoFeatureSetCtrlMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO-FEATURE-CONTROL-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cfcFeatureSetGroup,
+                        cfcFeatureSetNotificationCtrlGroup,
+                        cfcFeatureSetNotificationGroup,
+                        cfcFeatureGroupRev,
+                        cfcNotificationGroupRev
+                    }
+    ::= { ciscoFeatureCtrlMIBCompliances 3 }
+
+-- Units of Conformance
+
+cfcFeatureGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfcFeatureCtrlName,
+                        cfcFeatureCtrlAction,
+                        cfcFeatureCtrlLastAction,
+                        cfcFeatureCtrlLastActionResult,
+                        cfcFeatureCtrlLastFailureReason,
+                        cfcFeatureCtrlOpStatus,
+                        cfcFeatureCtrlOpStatusReason
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects for controlling the features in
+        the system.
+        cfcFeatureGroup object is superseded by cfcFeatureGroupRev."
+    ::= { ciscoFeatureCtrlMIBGroups 1 }
+
+cfcNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoFeatureOpStatusChange }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of notifications to monitor state of the
+        features.
+        cfcNotificationGroup object is superseded 
+        by cfcNotificationGroupRev."
+    ::= { ciscoFeatureCtrlMIBGroups 2 }
+
+cfcFeatureGroupRev OBJECT-GROUP
+    OBJECTS         {
+                        cfcFeatureCtrlName2,
+                        cfcFeatureCtrlTag2,
+                        cfcFeatureCtrlAction2,
+                        cfcFeatureCtrlLastAction2,
+                        cfcFeatureCtrlLastActionResult2,
+                        cfcFeatureCtrlLastFailureReason2,
+                        cfcFeatureCtrlOpStatus2,
+                        cfcFeatureCtrlOpStatusReason2
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for controlling the features in
+        the system. This group deprecates cfcFeatureGroup."
+    ::= { ciscoFeatureCtrlMIBGroups 3 }
+
+cfcNotificationGroupRev NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoFeatOpStatusChange }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications to monitor state of the
+        features."
+    ::= { ciscoFeatureCtrlMIBGroups 4 }
+
+cfcFeatureSetGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfcFeatureSetName,
+                        cfcFeatureSetAction,
+                        cfcFeatureSetLastAction,
+                        cfcFeatureSetLastActionResult,
+                        cfcFeatureSetLastFailureReason,
+                        cfcFeatureSetOpStatus,
+                        cfcFeatureSetOpStatusReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for controlling a feature set
+        in the system."
+    ::= { ciscoFeatureCtrlMIBGroups 5 }
+
+cfcFeatureSetNotificationCtrlGroup OBJECT-GROUP
+    OBJECTS         { cfcFeatureSetNotifEnable }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects controls the sending of
+        notifications defined in this MIB module."
+    ::= { ciscoFeatureCtrlMIBGroups 6 }
+
+cfcFeatureSetNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoFeatureSetOpStatusChange }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications to monitor state of a
+        feature set."
+    ::= { ciscoFeatureCtrlMIBGroups 7 }
+
+END
+
+

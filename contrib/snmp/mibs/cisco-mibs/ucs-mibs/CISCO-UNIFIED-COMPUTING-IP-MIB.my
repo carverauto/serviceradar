@@ -1,0 +1,563 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-IP-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- IP management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-IP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsIpIPv4DnsPref,
+    CucsIpIpV4StaticAddrPref,
+    CucsIpServiceIfPref
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsIpObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        IP management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 66 }
+
+cucsIpDnsSuffixTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIpDnsSuffixEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ip:DnsSuffix managed object table"
+    ::= { cucsIpObjects 4 }
+
+cucsIpDnsSuffixEntry OBJECT-TYPE
+    SYNTAX           CucsIpDnsSuffixEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIpDnsSuffixTable table."
+    INDEX { cucsIpDnsSuffixInstanceId }
+    ::= { cucsIpDnsSuffixTable 1 }
+
+CucsIpDnsSuffixEntry ::= SEQUENCE {
+    cucsIpDnsSuffixInstanceId                                        CucsManagedObjectId,
+    cucsIpDnsSuffixDn                                                CucsManagedObjectDn,
+    cucsIpDnsSuffixRn                                                SnmpAdminString,
+    cucsIpDnsSuffixGuid                                              SnmpAdminString,
+    cucsIpDnsSuffixHost                                              SnmpAdminString,
+    cucsIpDnsSuffixName                                              SnmpAdminString
+}
+
+cucsIpDnsSuffixInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIpDnsSuffixEntry 1 }
+
+cucsIpDnsSuffixDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:DnsSuffix:dn managed object property"
+    ::= { cucsIpDnsSuffixEntry 2 }
+
+cucsIpDnsSuffixRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:DnsSuffix:rn managed object property"
+    ::= { cucsIpDnsSuffixEntry 3 }
+
+cucsIpDnsSuffixGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:DnsSuffix:guid managed object property"
+    ::= { cucsIpDnsSuffixEntry 4 }
+
+cucsIpDnsSuffixHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:DnsSuffix:host managed object property"
+    ::= { cucsIpDnsSuffixEntry 5 }
+
+cucsIpDnsSuffixName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:DnsSuffix:name managed object property"
+    ::= { cucsIpDnsSuffixEntry 6 }
+
+cucsIpIPv4DnsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIpIPv4DnsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4Dns managed object table"
+    ::= { cucsIpObjects 1 }
+
+cucsIpIPv4DnsEntry OBJECT-TYPE
+    SYNTAX           CucsIpIPv4DnsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIpIPv4DnsTable table."
+    INDEX { cucsIpIPv4DnsInstanceId }
+    ::= { cucsIpIPv4DnsTable 1 }
+
+CucsIpIPv4DnsEntry ::= SEQUENCE {
+    cucsIpIPv4DnsInstanceId                                          CucsManagedObjectId,
+    cucsIpIPv4DnsDn                                                  CucsManagedObjectDn,
+    cucsIpIPv4DnsRn                                                  SnmpAdminString,
+    cucsIpIPv4DnsAddr                                                InetAddressIPv4,
+    cucsIpIPv4DnsDefGw                                               InetAddressIPv4,
+    cucsIpIPv4DnsPref                                                CucsIpIPv4DnsPref,
+    cucsIpIPv4DnsSubnet                                              InetAddressIPv4
+}
+
+cucsIpIPv4DnsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIpIPv4DnsEntry 1 }
+
+cucsIpIPv4DnsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4Dns:dn managed object property"
+    ::= { cucsIpIPv4DnsEntry 2 }
+
+cucsIpIPv4DnsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4Dns:rn managed object property"
+    ::= { cucsIpIPv4DnsEntry 3 }
+
+cucsIpIPv4DnsAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4Dns:addr managed object property"
+    ::= { cucsIpIPv4DnsEntry 4 }
+
+cucsIpIPv4DnsDefGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4Dns:defGw managed object property"
+    ::= { cucsIpIPv4DnsEntry 5 }
+
+cucsIpIPv4DnsPref OBJECT-TYPE
+    SYNTAX       CucsIpIPv4DnsPref
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4Dns:pref managed object property"
+    ::= { cucsIpIPv4DnsEntry 6 }
+
+cucsIpIPv4DnsSubnet OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4Dns:subnet managed object property"
+    ::= { cucsIpIPv4DnsEntry 7 }
+
+cucsIpIPv4WinsServerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIpIPv4WinsServerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4WinsServer managed object table"
+    ::= { cucsIpObjects 5 }
+
+cucsIpIPv4WinsServerEntry OBJECT-TYPE
+    SYNTAX           CucsIpIPv4WinsServerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIpIPv4WinsServerTable table."
+    INDEX { cucsIpIPv4WinsServerInstanceId }
+    ::= { cucsIpIPv4WinsServerTable 1 }
+
+CucsIpIPv4WinsServerEntry ::= SEQUENCE {
+    cucsIpIPv4WinsServerInstanceId                                   CucsManagedObjectId,
+    cucsIpIPv4WinsServerDn                                           CucsManagedObjectDn,
+    cucsIpIPv4WinsServerRn                                           SnmpAdminString,
+    cucsIpIPv4WinsServerIPv4Address                                  InetAddressIPv4,
+    cucsIpIPv4WinsServerGuid                                         SnmpAdminString,
+    cucsIpIPv4WinsServerHost                                         SnmpAdminString,
+    cucsIpIPv4WinsServerName                                         SnmpAdminString
+}
+
+cucsIpIPv4WinsServerInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIpIPv4WinsServerEntry 1 }
+
+cucsIpIPv4WinsServerDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4WinsServer:dn managed object property"
+    ::= { cucsIpIPv4WinsServerEntry 2 }
+
+cucsIpIPv4WinsServerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4WinsServer:rn managed object property"
+    ::= { cucsIpIPv4WinsServerEntry 3 }
+
+cucsIpIPv4WinsServerIPv4Address OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4WinsServer:IPv4Address managed object property"
+    ::= { cucsIpIPv4WinsServerEntry 4 }
+
+cucsIpIPv4WinsServerGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4WinsServer:guid managed object property"
+    ::= { cucsIpIPv4WinsServerEntry 5 }
+
+cucsIpIPv4WinsServerHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4WinsServer:host managed object property"
+    ::= { cucsIpIPv4WinsServerEntry 6 }
+
+cucsIpIPv4WinsServerName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IPv4WinsServer:name managed object property"
+    ::= { cucsIpIPv4WinsServerEntry 7 }
+
+cucsIpIpV4StaticAddrTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIpIpV4StaticAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticAddr managed object table"
+    ::= { cucsIpObjects 2 }
+
+cucsIpIpV4StaticAddrEntry OBJECT-TYPE
+    SYNTAX           CucsIpIpV4StaticAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIpIpV4StaticAddrTable table."
+    INDEX { cucsIpIpV4StaticAddrInstanceId }
+    ::= { cucsIpIpV4StaticAddrTable 1 }
+
+CucsIpIpV4StaticAddrEntry ::= SEQUENCE {
+    cucsIpIpV4StaticAddrInstanceId                                   CucsManagedObjectId,
+    cucsIpIpV4StaticAddrDn                                           CucsManagedObjectDn,
+    cucsIpIpV4StaticAddrRn                                           SnmpAdminString,
+    cucsIpIpV4StaticAddrAddr                                         InetAddressIPv4,
+    cucsIpIpV4StaticAddrDefGw                                        InetAddressIPv4,
+    cucsIpIpV4StaticAddrPref                                         CucsIpIpV4StaticAddrPref,
+    cucsIpIpV4StaticAddrSubnet                                       InetAddressIPv4
+}
+
+cucsIpIpV4StaticAddrInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIpIpV4StaticAddrEntry 1 }
+
+cucsIpIpV4StaticAddrDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticAddr:dn managed object property"
+    ::= { cucsIpIpV4StaticAddrEntry 2 }
+
+cucsIpIpV4StaticAddrRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticAddr:rn managed object property"
+    ::= { cucsIpIpV4StaticAddrEntry 3 }
+
+cucsIpIpV4StaticAddrAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticAddr:addr managed object property"
+    ::= { cucsIpIpV4StaticAddrEntry 4 }
+
+cucsIpIpV4StaticAddrDefGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticAddr:defGw managed object property"
+    ::= { cucsIpIpV4StaticAddrEntry 5 }
+
+cucsIpIpV4StaticAddrPref OBJECT-TYPE
+    SYNTAX       CucsIpIpV4StaticAddrPref
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticAddr:pref managed object property"
+    ::= { cucsIpIpV4StaticAddrEntry 6 }
+
+cucsIpIpV4StaticAddrSubnet OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticAddr:subnet managed object property"
+    ::= { cucsIpIpV4StaticAddrEntry 7 }
+
+cucsIpIpV4StaticTargetAddrTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIpIpV4StaticTargetAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticTargetAddr managed object table"
+    ::= { cucsIpObjects 6 }
+
+cucsIpIpV4StaticTargetAddrEntry OBJECT-TYPE
+    SYNTAX           CucsIpIpV4StaticTargetAddrEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIpIpV4StaticTargetAddrTable table."
+    INDEX { cucsIpIpV4StaticTargetAddrInstanceId }
+    ::= { cucsIpIpV4StaticTargetAddrTable 1 }
+
+CucsIpIpV4StaticTargetAddrEntry ::= SEQUENCE {
+    cucsIpIpV4StaticTargetAddrInstanceId                             CucsManagedObjectId,
+    cucsIpIpV4StaticTargetAddrDn                                     CucsManagedObjectDn,
+    cucsIpIpV4StaticTargetAddrRn                                     SnmpAdminString,
+    cucsIpIpV4StaticTargetAddrAddr                                   InetAddressIPv4,
+    cucsIpIpV4StaticTargetAddrDefGw                                  InetAddressIPv4,
+    cucsIpIpV4StaticTargetAddrSubnet                                 InetAddressIPv4
+}
+
+cucsIpIpV4StaticTargetAddrInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIpIpV4StaticTargetAddrEntry 1 }
+
+cucsIpIpV4StaticTargetAddrDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticTargetAddr:dn managed object property"
+    ::= { cucsIpIpV4StaticTargetAddrEntry 2 }
+
+cucsIpIpV4StaticTargetAddrRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticTargetAddr:rn managed object property"
+    ::= { cucsIpIpV4StaticTargetAddrEntry 3 }
+
+cucsIpIpV4StaticTargetAddrAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticTargetAddr:addr managed object property"
+    ::= { cucsIpIpV4StaticTargetAddrEntry 4 }
+
+cucsIpIpV4StaticTargetAddrDefGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticTargetAddr:defGw managed object property"
+    ::= { cucsIpIpV4StaticTargetAddrEntry 5 }
+
+cucsIpIpV4StaticTargetAddrSubnet OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:IpV4StaticTargetAddr:subnet managed object property"
+    ::= { cucsIpIpV4StaticTargetAddrEntry 6 }
+
+cucsIpServiceIfTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsIpServiceIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ip:ServiceIf managed object table"
+    ::= { cucsIpObjects 3 }
+
+cucsIpServiceIfEntry OBJECT-TYPE
+    SYNTAX           CucsIpServiceIfEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsIpServiceIfTable table."
+    INDEX { cucsIpServiceIfInstanceId }
+    ::= { cucsIpServiceIfTable 1 }
+
+CucsIpServiceIfEntry ::= SEQUENCE {
+    cucsIpServiceIfInstanceId                                        CucsManagedObjectId,
+    cucsIpServiceIfDn                                                CucsManagedObjectDn,
+    cucsIpServiceIfRn                                                SnmpAdminString,
+    cucsIpServiceIfAddr                                              InetAddressIPv4,
+    cucsIpServiceIfDefGw                                             InetAddressIPv4,
+    cucsIpServiceIfPort                                              Gauge32,
+    cucsIpServiceIfPref                                              CucsIpServiceIfPref,
+    cucsIpServiceIfSubnet                                            InetAddressIPv4
+}
+
+cucsIpServiceIfInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsIpServiceIfEntry 1 }
+
+cucsIpServiceIfDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:ServiceIf:dn managed object property"
+    ::= { cucsIpServiceIfEntry 2 }
+
+cucsIpServiceIfRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:ServiceIf:rn managed object property"
+    ::= { cucsIpServiceIfEntry 3 }
+
+cucsIpServiceIfAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:ServiceIf:addr managed object property"
+    ::= { cucsIpServiceIfEntry 4 }
+
+cucsIpServiceIfDefGw OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:ServiceIf:defGw managed object property"
+    ::= { cucsIpServiceIfEntry 5 }
+
+cucsIpServiceIfPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:ServiceIf:port managed object property"
+    ::= { cucsIpServiceIfEntry 6 }
+
+cucsIpServiceIfPref OBJECT-TYPE
+    SYNTAX       CucsIpServiceIfPref
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:ServiceIf:pref managed object property"
+    ::= { cucsIpServiceIfEntry 7 }
+
+cucsIpServiceIfSubnet OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ip:ServiceIf:subnet managed object property"
+    ::= { cucsIpServiceIfEntry 8 }
+
+END

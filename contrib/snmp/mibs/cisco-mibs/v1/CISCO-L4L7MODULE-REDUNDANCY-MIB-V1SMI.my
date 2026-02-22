@@ -1,0 +1,1099 @@
+-- MIB file created 18-Aug-2008 12:22:06, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-L4L7MODULE-REDUNDANCY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-L4L7MODULE-REDUNDANCY-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    TimeStamp, TruthValue, RowStatus, StorageType
+            FROM SNMPv2-TC-v1
+    InterfaceIndex, InterfaceIndexOrZero
+            FROM IF-MIB
+    entPhysicalIndex
+            FROM ENTITY-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoL4L7moduleRedundancyMIB OBJECT IDENTIFIER ::= { ciscoMgmt 650 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200804040000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-l4l7security@cisco.com
+--  Descr
+--    The L4-7 SLB devices are used
+--    for scaling websites, building web
+--    enabled applications, and migrating 
+--    to web services. The following services
+--    ( but not limited to ) can be provided by 
+--    L4-7 slb devices:
+--      SLB ( Server Load Balancing )
+--      FW  ( Firewall )
+--      SSL ( Secure Socket Layer )
+--      IDS ( Intrusion Detection System ) .
+--    
+--    This MIB provides the tables/objects that
+--    support redundancy configuration and
+--    redundancy statistics.
+--    
+--    The redundancy model supported by this MIB
+--    allows two or more SLB devices to be 
+--    configured with one or more redundancy
+--    group. Each redundancy group is identified by
+--    a unique group ID. Two or more devices are 
+--    redundant to each other if they use the
+--    same redundancy Group ID.
+--    
+--    Acronyms and terms:
+--       HB          Heart Beat
+--       FT          Fault Tolerant
+--       HA          High Availability
+--       VLAN        Virtual Local Area Network
+--       LB          Load Balance
+--  RevDate
+--    200804040000Z
+--  RevDescr
+--    Added a new state 'warmCompatible' to
+--    clrPeerSoftwareCompatibilty 
+--    Added a new state 'standbyWarm' to ciscoL4L7RedState.
+--  RevDate
+--    200803130000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLmRedundancyMIBNotifs OBJECT IDENTIFIER ::= { ciscoL4L7moduleRedundancyMIB 0 }
+ciscoLmRedundancyMIBObjects OBJECT IDENTIFIER ::= { ciscoL4L7moduleRedundancyMIB 1 }
+ciscoLmRedundancyMIBConformance OBJECT IDENTIFIER ::= { ciscoL4L7moduleRedundancyMIB 2 }
+clrConfig       OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBObjects 1 }
+clrStats        OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBObjects 2 }
+clrNotifObjects OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBObjects 3 }
+ciscoLmRedundancyMIBCompliances OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBConformance 1 }
+ciscoLmRedundancyMIBGroups OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBConformance 2 }
+
+CiscoL4L7RedState ::= INTEGER {
+        other(1),
+        nonRedundant(2),
+        initializing(3),
+        negotiation(4),
+        active(5),
+        standbyCold(6),
+        standbyConfig(7),
+        standbyBulk(8),
+        standbyHot(9),
+        standbyWarm(10)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The redundancy state of the device
+--    in redundancy configuration.
+--        'other'          : other than values defined below.
+--        'nonRedundant'   : redundancy has not been configured.  
+--        'initializing'   : establish necessary system services
+--        'negotiation'    : peer unit discovery and negotiation
+--        'active'         : device is in active state. It is 
+--                           servicing the requests.
+--        'standbyCold'    : standby will take over if 
+--                           synchronization is failed using 
+--                           bulk synch mechanism.
+--        'standbyConfig'  : The active device receives a    
+--                           notification to send a snapshot of its  
+--                           running-config to the local standby     
+--                           device.
+--        'standbyBulk'    : The active device receives a    
+--                           notification to send a snapshot of the 
+--                           current state information for all       
+--                           applications to the standby device.     
+--        'standbyHot'     : Incremental data synchronization 
+--                           continues. This unit is ready and is 
+--                           able to instantly take over activity.
+--        'standbyWarm'    : When the peer software compatibility
+--                           is warmCompatible ( a state in 
+--                           clrPeerSoftwareCompatibility ) , the 
+--                           redundant groups on standby goes to
+--                           standbyWarm instead of standbyHot. 
+--                           Whether the bulk config sync 
+--                           fails/passes the transition to
+--                           standbyBulk is always made 
+--                           and eventually the standby device goes 
+--                           to standbyWarm. The standbyWarm state is 
+--                           similar to standbyHot state ( config 
+--                           mode will be locked, state replication/
+--                           config sync are continued ) , but when 
+--                           config-sync failed, there is no move to
+--                           standbyCold state.
+
+clrPeerConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClrPeerConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is for configuring peer groups that are
+        part of redundancy configuration. The peer configuration
+        specifies the information used for exchanging High 
+        Availability information related to redundancy groups."
+    ::= { clrConfig 1 }
+
+clrPeerConfigEntry OBJECT-TYPE
+    SYNTAX ClrPeerConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in clrPeerConfigTable. Each entry contains information
+        about peer interface, query interface, heart beat
+        count and heart beat time."
+    INDEX { entPhysicalIndex, clrPeerId }
+    ::= { clrPeerConfigTable 1 }
+
+ClrPeerConfigEntry ::= SEQUENCE {
+    clrPeerId Gauge,
+    clrPeerInterface InterfaceIndex,
+    clrPeerBackupInterface InterfaceIndexOrZero,
+    clrPeerHeartBeatTime Gauge,
+    clrPeerHeartBeatCount Gauge,
+    clrPeerStorageType StorageType,
+    clrPeerRowStatus RowStatus
+    }
+
+clrPeerId OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies unique id for the peer.
+        The peer is used in redundancy configuration."
+    ::= { clrPeerConfigEntry 1 }
+
+clrPeerInterface OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the interface used by the
+        peers to exchange High Availability ( HA ) protocol
+        information."
+    ::= { clrPeerConfigEntry 2 }
+
+clrPeerBackupInterface OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the backup interface used by the
+        peer. The backup interface is used in case the heart beat 
+        message is not received. This interface is used to 
+        send the heart beat message. If the message sent is not
+        successful, then it is assumed peer is down and switchover
+        will be initiated. If the message sent is successful 
+        on this interface, the peer transitions to standbyCold
+        and continue to monitor peer."
+    DEFVAL { 0 }
+    ::= { clrPeerConfigEntry 3 }
+
+clrPeerHeartBeatTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The time interval between heartbeat/keep-alive
+        messages exchanged between the peers."
+    DEFVAL { 1 }
+    ::= { clrPeerConfigEntry 4 }
+
+clrPeerHeartBeatCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used in conjunction with
+        'clrPeerHeartBeatTime' to switch over the active 
+        redundancy unit or not. Switch over occurs if 
+        heartbeats are  not received from the peer 
+        during a specific time period, which
+        is equal to ( clrPeerHeartBeatTime *
+        clrPeerHeartBeatCount ) ."
+    DEFVAL { 1 }
+    ::= { clrPeerConfigEntry 5 }
+
+clrPeerStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { nonVolatile }
+    ::= { clrPeerConfigEntry 6 }
+
+clrPeerRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries from the table.
+        
+        An entry MUST NOT exist in the active state unless all
+        objects in the entry have an appropriate value, as described
+        in the description clause for each writable object.
+        
+        This object may be modified if the associated
+        instance of this object is equal to active(1),
+        notInService(2), or notReady(3). All other writable objects
+        may be modified if the associated instance of this object is
+        equal to notInService(2) or notReady(3)."
+    ::= { clrPeerConfigEntry 7 }
+
+clrPeerInfoTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClrPeerInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information of the redundancy peer."
+    ::= { clrConfig 2 }
+
+clrPeerInfoEntry OBJECT-TYPE
+    SYNTAX ClrPeerInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in peer information table. An entry will get created
+        whenever an entry is created in clrPeerConfigTable. Each entry
+        contains information such as peer state, peer ip address,
+        software and license compatibility. The entPhysicalIndex
+        specifies an entry in  entPhysicalTable with entPhysicalClass
+        representing the value of 'module'."
+    INDEX { entPhysicalIndex, clrPeerId }
+    ::= { clrPeerInfoTable 1 }
+
+ClrPeerInfoEntry ::= SEQUENCE {
+    clrPeerOperStatus INTEGER,
+    clrPeerIpAddressType InetAddressType,
+    clrPeerIpAddress InetAddress,
+    clrPeerSoftwareCompatibilty INTEGER,
+    clrPeerLicenseCompatibility INTEGER,
+    clrPeerRedGroups Gauge
+    }
+
+clrPeerOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        init(1),
+        localIPaddr(2),
+        peerIPAddr(3),
+        startHB(4),
+        tcpSetup(5),
+        srgCheck(6),
+        licCheck(7),
+        compatible(8),
+        peerInterfaceDown(9),
+        down(10),
+        error(11)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the current status of the peer. The
+        possible values are
+        
+        init(1)             : The initial state of the peer.
+        localIPaddr(2)      : The local device IP address is missing. 
+                              Waiting for the local IP address 
+                              to be configured.
+        peerIPAddr(3)       : The peer IP address is missing. Waiting 
+                              for the peer IP address to be configured.
+        startHB(4)          : The peer configuration is complete. 
+                              Starting the heartbeat to see if there
+                              is a peer device.
+        tcpSetUp(5)         : The heartbeat has detected the presence
+                              of the peer device. Redundancy is in 
+                              the process of establishing a TCP 
+                              connection to the peer. 
+        srgCheck(6)         : Checking for software version 
+                              compatibility with the peer device.
+        licCheck(7)         : Checking for license compatibility with 
+                              the peer device.
+        compatible(8)       : Version and license checks indicate that 
+                              the peer is compatible for redundancy.
+        peerInterfaceDown(9): The peer interface ( used for transmitting
+                              and receiving HB messages ) is down,
+                              but, through the query interface,
+                              the local device has determined that
+                              the peer is still alive.
+        down(10)            : The peer device is down.
+        error(11)           : Indicates that an error has occurred 
+                              with the peer. Possible errors are: 
+                              version mismatch, license mismatch, 
+                              or failure to establish a TCP connection 
+                              to the peer. A syslog message appears 
+                              with more detailed information."
+    ::= { clrPeerInfoEntry 1 }
+
+clrPeerIpAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of internet address by which the
+        peer is reachable."
+    ::= { clrPeerInfoEntry 2 }
+
+clrPeerIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This Internet address for the redundant peer.
+        The type of this address is determined by the
+        value of the clrPeerIpAddressType object."
+    ::= { clrPeerInfoEntry 3 }
+
+clrPeerSoftwareCompatibilty OBJECT-TYPE
+    SYNTAX INTEGER {
+        init(1),
+        compatible(2),
+        inCompatible(3),
+        warmCompatible(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the software version of the local device
+        and the software version of the peer are compatible. The 
+        possible values are:
+        init(1)           : initialization state.
+        compatible(2)     : software version of the local and peer 
+                            device are compatible.
+        inCompatible(3)   : software version of the local and peer
+                            device are not compatible.
+        warmCompatible(4) : When the software version check of the 
+                            local and the peer device returns 
+                            'supersedes' or 'superseded_by' 
+                            then the clrPeerSoftwarecompatibility of
+                            the peer device is set to 'warmCompatible'."
+    ::= { clrPeerInfoEntry 4 }
+
+clrPeerLicenseCompatibility OBJECT-TYPE
+    SYNTAX INTEGER {
+        init(1),
+        compatible(2),
+        inCompatible(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the license of the local device and the
+        license of the peer device are compatible. The possible 
+        values  are: 
+        init(1)           : initialization state.
+        compatible(2)     : license version of the local and peer 
+                            device are compatible.
+        inCompatible(3)   : license version of the local and peer
+                            device are not compatible."
+    ::= { clrPeerInfoEntry 5 }
+
+clrPeerRedGroups OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object refers to the number of redundancy groups the peer
+        is associated with."
+    DEFVAL { 0 }
+    ::= { clrPeerInfoEntry 6 }
+
+clrRedundancyConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClrRedundancyConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is used for configuring
+        redundancy groups. The redundancy group
+        is configured by specifying the same
+        value of 'clrRedGroupId' in multiple devices."
+    ::= { clrConfig 3 }
+
+clrRedundancyConfigEntry OBJECT-TYPE
+    SYNTAX ClrRedundancyConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in redundancy table.
+        Each entry contains information such
+        as priority, preempt. Preemption
+        ensures that the group member with high priority
+        always becomes active. The entPhysicalIndex
+        specifies the entry in entPhysicalTable with
+        entPhysicalClass representing the value of 'module'."
+    INDEX { entPhysicalIndex, clrRedGroupId }
+    ::= { clrRedundancyConfigTable 1 }
+
+ClrRedundancyConfigEntry ::= SEQUENCE {
+    clrRedGroupId Gauge,
+    clrRedPeerId Gauge,
+    clrRedPriority Gauge,
+    clrRedPreempt TruthValue,
+    clrRedFailOverTime Gauge,
+    clrRedState CiscoL4L7RedState,
+    clrRedStateChangeTime TimeStamp,
+    clrRedContext OCTET STRING,
+    clrRedStorageType StorageType,
+    clrRedRowStatus RowStatus
+    }
+
+clrRedGroupId OBJECT-TYPE
+    SYNTAX Gauge(1..4096)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the redundancy group
+        identifier. This is the unique id of the
+        redundancy group."
+    ::= { clrRedundancyConfigEntry 1 }
+
+clrRedPeerId OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The peer ID to which this group belongs.
+        There must be an entry in clrPeerConfigTable
+        with this value.  This object cannot be modified
+        if the associated clrRedRowStatus object is equal 
+        to 'active'."
+    ::= { clrRedundancyConfigEntry 2 }
+
+clrRedPriority OBJECT-TYPE
+    SYNTAX Gauge(1..255)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The priority value of the redundancy group.
+        This value is used in selecting the active
+        and standby peer.
+        
+        The devices that belong to the same
+        redundancy group must be configured with a different
+        priority.  The redundancy group with a highest
+        priority will become active unit during 
+        negotiation phase of the redundancy.
+        If two (or more) devices in a group have 
+        the same priority, the one with the highest IP address 
+        of the interface is the active device. 
+        
+        If a redundancy group with high priority
+        value is online after its peer has become
+        active, then the group with high priority
+        will become standby.  This behavior can be
+        changed by setting clrRedPreempt object to
+        'true'."
+    DEFVAL { 10 }
+    ::= { clrRedundancyConfigEntry 3 }
+
+clrRedPreempt OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This specifies whether a high priority
+        redundancy device can become active irrespective
+        of the time at which it is online.
+        
+        The value 'true' specifies that the redundancy
+        group with higher priority will always become active.
+        
+        The value 'false' specifies that the redundacy
+        device which becomes active will remain active
+        even if another redundancy device comes online
+        with higher priority."
+    DEFVAL { true }
+    ::= { clrRedundancyConfigEntry 4 }
+
+clrRedFailOverTime OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The time to wait before standby redundancy
+        group become active. This represents the amount 
+        of time a module need to wait after the last 
+        keep-alive message is received before assuming
+        the peer is not operating."
+    DEFVAL { 3 }
+    ::= { clrRedundancyConfigEntry 5 }
+
+clrRedState OBJECT-TYPE
+    SYNTAX CiscoL4L7RedState
+--    Rsyntax INTEGER {
+--        other(1),
+--        nonRedundant(2),
+--        initializing(3),
+--        negotiation(4),
+--        active(5),
+--        standbyCold(6),
+--        standbyConfig(7),
+--        standbyBulk(8),
+--        standbyHot(9),
+--        standbyWarm(10)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current redundancy state."
+    ::= { clrRedundancyConfigEntry 6 }
+
+clrRedStateChangeTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time of the last change in the current
+        redundancy state."
+    ::= { clrRedundancyConfigEntry 7 }
+
+clrRedContext OBJECT-TYPE
+    SYNTAX OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object refers to the context name to which the redundant
+        group is associated with. The context refers to the logical 
+        partitioning within a device. The context can be identified 
+        by a unique name in a device."
+    ::= { clrRedundancyConfigEntry 8 }
+
+clrRedStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { nonVolatile }
+    ::= { clrRedundancyConfigEntry 9 }
+
+clrRedRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for adding/deleting
+        entries from the table.
+        
+        An entry MUST NOT exist in the active state unless all
+        objects in the entry have an appropriate value, as described
+        in the description clause for each writable object.
+        
+        This object may be modified if the associated
+        instance of this object is equal to active(1),
+        notInService(2), or notReady(3). All other writable objects
+        may be modified if the associated instance of this object is
+        equal to notInService(2) or notReady(3)."
+    ::= { clrRedundancyConfigEntry 10 }
+
+clrRedundancyInfoTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClrRedundancyInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information on the
+        devices that are part of redundancy group."
+    ::= { clrConfig 4 }
+
+clrRedundancyInfoEntry OBJECT-TYPE
+    SYNTAX ClrRedundancyInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in redundancy information table.
+        An entry will get created whenever an 
+        entry is created in clrRedundancyConfigTable.
+        Each entry contains information such
+        as priority, state and last time
+        when the redundancy state got changed.
+        The entPhysicalIndex specifies an entry in 
+        entPhysicalTable with entPhysicalClass representing 
+        the value of 'module'."
+    INDEX { entPhysicalIndex, clrRedGroupId }
+    ::= { clrRedundancyInfoTable 1 }
+
+ClrRedundancyInfoEntry ::= SEQUENCE {
+    clrRedundancyPriority Gauge,
+    clrRedundancyState CiscoL4L7RedState,
+    clrRedundancyStateChangeTime TimeStamp,
+    clrRedundancyIpAddressType InetAddressType,
+    clrRedundancyIpAddress InetAddress
+    }
+
+clrRedundancyPriority OBJECT-TYPE
+    SYNTAX Gauge(1..255)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The priority value of this redundancy
+        entry. This value is same as the
+        value configured in 'clrRedPriority'
+        for a redundancy group."
+    ::= { clrRedundancyInfoEntry 1 }
+
+clrRedundancyState OBJECT-TYPE
+    SYNTAX CiscoL4L7RedState
+--    Rsyntax INTEGER {
+--        other(1),
+--        nonRedundant(2),
+--        initializing(3),
+--        negotiation(4),
+--        active(5),
+--        standbyCold(6),
+--        standbyConfig(7),
+--        standbyBulk(8),
+--        standbyHot(9),
+--        standbyWarm(10)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current redundancy state."
+    ::= { clrRedundancyInfoEntry 2 }
+
+clrRedundancyStateChangeTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time of the last change in the current
+        redundancy state."
+    ::= { clrRedundancyInfoEntry 3 }
+
+clrRedundancyIpAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of internet address by which
+        this redundant device reachable."
+    ::= { clrRedundancyInfoEntry 4 }
+
+clrRedundancyIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the Internet address by which
+        this redundant device is reachable. The type of this 
+        address is determined by the value of the 
+        clrRedundancyIpAddressType object."
+    ::= { clrRedundancyInfoEntry 5 }
+
+clrLBStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClrLBStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the load balance statistics
+        related to a redundancy group."
+    ::= { clrStats 1 }
+
+clrLBStatsEntry OBJECT-TYPE
+    SYNTAX ClrLBStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents the load balance statistics
+        applicable for a redundancy group. The entPhysicalIndex 
+        specifies the entry in entPhysicalTable.
+        The entries will get created in this table 
+        by way of adding entries in clrRedundancyConfigTable.
+        The entries will be deleted from this table 
+        by way of removing entries in clrRedundancyConfigTable."
+    INDEX { entPhysicalIndex, clrRedGroupId }
+    ::= { clrLBStatsTable 1 }
+
+ClrLBStatsEntry ::= SEQUENCE {
+    clrLBStatsSharedStickyEntries Counter,
+    clrLBStatsSentPackets Counter,
+    clrLBStatsSendFailures Counter,
+    clrLBStatsDroppedEntries Counter,
+    clrLBStatsReceivedPackets Counter,
+    clrLBStatsReceiveFailures Counter
+    }
+
+clrLBStatsSharedStickyEntries OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of sticky entries that the
+        local device sent to the peer. Sticky entries is a LB
+        configuration which allows multiple connections from the same
+        client to be sent to the same server. Stickiness can be
+        configured based on source IP address, HTTP cookies, SSL session
+        ID ( for SSL traffic only ) , etc."
+    ::= { clrLBStatsEntry 1 }
+
+clrLBStatsSentPackets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the number of valid packets that the local
+        device sent to the peer."
+    ::= { clrLBStatsEntry 2 }
+
+clrLBStatsSendFailures OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the number of packets that the local
+        device attempted to send to the peer, but failed."
+    ::= { clrLBStatsEntry 3 }
+
+clrLBStatsDroppedEntries OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the number of sticky entries that the peer
+        sent to the local device, but the local device discarded them."
+    ::= { clrLBStatsEntry 4 }
+
+clrLBStatsReceivedPackets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the number of valid packets that the local
+        device received from the peer."
+    ::= { clrLBStatsEntry 5 }
+
+clrLBStatsReceiveFailures OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the number of packets that the peer sent
+        to the local device, but the local device failed to receive
+        them."
+    ::= { clrLBStatsEntry 6 }
+
+clrHAStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ClrHAStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the statistics related to
+        a redundant peer."
+    ::= { clrStats 2 }
+
+clrHAStatsEntry OBJECT-TYPE
+    SYNTAX ClrHAStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents the statistics
+        applicable for a redundant peer.
+        The entPhysicalIndex specifies the
+        entry in entPhysicalTable .
+        The entries will get created in this table 
+        by way of adding entries in clrPeerConfigTable.
+        The entries will be deleted from this table 
+        by way of removing entries in clrPeerConfigTable."
+    INDEX { entPhysicalIndex, clrPeerId }
+    ::= { clrHAStatsTable 1 }
+
+ClrHAStatsEntry ::= SEQUENCE {
+    clrHAStatsTxHeartBeatMsgs Counter,
+    clrHAStatsRxHeartBeatMsgs Counter,
+    clrHAStatsMissedHeartBeatMsgs Counter,
+    clrHAStatsRxUniDirectionalHeartBeatMsgs Counter,
+    clrHAStatsHeartBeatTimeoutMismatches Counter,
+    clrHAStatsPeerUpEvents Counter,
+    clrHAStatsPeerDownEvents Counter
+    }
+
+clrHAStatsTxHeartBeatMsgs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object refers to the number of heart beat messages sent
+        to the peer."
+    ::= { clrHAStatsEntry 1 }
+
+clrHAStatsRxHeartBeatMsgs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object refers to the number of heart beat messages
+        received from the peer."
+    ::= { clrHAStatsEntry 2 }
+
+clrHAStatsMissedHeartBeatMsgs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object refers to the number of missed heart
+        beat messages."
+    ::= { clrHAStatsEntry 3 }
+
+clrHAStatsRxUniDirectionalHeartBeatMsgs OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates that the heartbeat messages from a peer
+        is unidirectional. That is, the peer cannot receive ( only send
+        ) heartbeats."
+    ::= { clrHAStatsEntry 4 }
+
+clrHAStatsHeartBeatTimeoutMismatches OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Each HB packet contains the configured interval in the packet.
+        When a peer receives a HB packet, it checks to see if the
+        interval in the HB packet matches the interval configured
+        locally. This object indicates the number of HB that the local
+        device received from the remote peer with a mismatched HB
+        interval."
+    ::= { clrHAStatsEntry 5 }
+
+clrHAStatsPeerUpEvents OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the number of peer up messages that the
+        local device sent to the remote peer."
+    ::= { clrHAStatsEntry 6 }
+
+clrHAStatsPeerDownEvents OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the number of peer down messages that the
+        local device sent to the remote peer."
+    ::= { clrHAStatsEntry 7 }
+
+clrStateChangeNotifEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls the generation of
+        clrRedundancyStateChange notification.
+           'true'  : Indicates that clrRedundancyStateChange
+                     notification is to be generated when the state
+                     changes. That is, notification generation 
+                     is enabled.
+           'false' : Indicates that clrRedundancyStateChange
+                     notification generation is disabled."
+    DEFVAL { false }
+    ::= { clrNotifObjects 1 }
+
+clrRedundancyStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoL4L7moduleRedundancyMIB
+    VARIABLES {
+        clrRedState, clrRedStateChangeTime, clrRedPeerId }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "The notification generated when the redundancy state
+        is changed."
+    ::= 1
+
+clrPeerConfigGroup OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the peer configuration objects.
+--  objects
+--    clrPeerInterface, clrPeerBackupInterface, 
+--    clrPeerHeartBeatTime, clrPeerHeartBeatCount, 
+--    clrPeerOperStatus, clrPeerIpAddressType, clrPeerIpAddress, 
+--    clrPeerStorageType, clrPeerRowStatus, 
+--    clrPeerSoftwareCompatibilty, clrPeerLicenseCompatibility, 
+--    clrPeerRedGroups
+
+clrRedConfigGroup OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the redundancy configuration objects.
+--  objects
+--    clrRedPeerId, clrRedPriority, clrRedPreempt, 
+--    clrRedFailOverTime, clrRedState, clrRedStateChangeTime, 
+--    clrRedStorageType, clrRedRowStatus, clrRedContext
+
+clrRedInfoGroup OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the redundancy information objects.
+--  objects
+--    clrRedundancyPriority, clrRedundancyState, 
+--    clrRedundancyStateChangeTime, clrRedundancyIpAddressType, 
+--    clrRedundancyIpAddress
+
+cslbxNotifControlGroup OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects to control the
+--    notifications for state changed in a L4
+--    redundancy configuration.
+--  objects
+--    clrStateChangeNotifEnabled
+
+clrRedundancyStatsGroup OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains objects related to redundant peer and
+--    load balacing statistics.
+--  objects
+--    clrHAStatsTxHeartBeatMsgs, clrHAStatsRxHeartBeatMsgs, 
+--    clrHAStatsMissedHeartBeatMsgs, 
+--    clrHAStatsRxUniDirectionalHeartBeatMsgs, 
+--    clrHAStatsHeartBeatTimeoutMismatches, clrHAStatsPeerUpEvents, 
+--    clrHAStatsPeerDownEvents, clrLBStatsSharedStickyEntries, 
+--    clrLBStatsSentPackets, clrLBStatsSendFailures, 
+--    clrLBStatsDroppedEntries, clrLBStatsReceivedPackets, 
+--    clrLBStatsReceiveFailures
+
+cslbxNotifGroup OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBGroups 5 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains the notifications related to
+--    redundancy.
+--  notifications
+--    clrRedundancyStateChange
+
+ciscoLmRedundancyMIBCompliance OBJECT IDENTIFIER ::= { ciscoLmRedundancyMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the L4L7 Switch Redundancy.
+--  Module
+--    >>current<<
+--   MandGroup
+--    clrPeerConfigGroup
+--   MandGroup
+--    clrRedConfigGroup
+--   MandGroup
+--    clrRedundancyStatsGroup
+
+
+END
+

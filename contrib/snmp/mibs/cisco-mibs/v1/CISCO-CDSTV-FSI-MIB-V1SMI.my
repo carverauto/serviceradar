@@ -1,0 +1,246 @@
+-- MIB file created 18-Jun-2010 12:36:53, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CDSTV-FSI-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CDSTV-FSI-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddress, InetAddressType, InetPortNumber
+            FROM INET-ADDRESS-MIB
+    CiscoURLString
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoCdstvFsiMIB OBJECT IDENTIFIER ::= { ciscoMgmt 735 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201005100000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-cds@cisco.com
+--  Descr
+--    This MIB module defines FSI configurartion objects that
+--    faciliate the management of the Cisco Content Delivery System
+--    for TV (CDS-TV) product family.
+--    
+--    CDS-TV is a suite of products and software applications
+--    providing ingest, storage, caching, streaming, playout and
+--    on-demand delivery of video to television or set-top-box
+--    clients.
+--    
+--    Abbreviations:
+--    
+--    CDS     Content Delivery System
+--    ISA     Interactive Services Architecture
+--    ISV     Integrated Streamer-Vault
+--    FSI     File Service Interface
+--    FTP     File Transfer Protocol
+--    MPEG    Motion Picture Experts Group
+--    MSA     Managed Services Architecture
+--    RTSP    Real-Time Streaming Protocol
+--    STB     Set-Top Box
+--    
+--    Common terms:
+--    
+--    Catcher: Device responsible for receiving content (typically via
+--    satellite dishes and antennae) from content providers or from a
+--    Headend-In-The-Sky. 
+--    
+--    Content Ingest: Acquisition of content from a source such as a
+--    catcher or an FTP server for storing it locally and making it
+--    available to streamers as needed.
+--    
+--    Vault: Content delivery application responsible for ingesting
+--    and storing video content and making it available to streamers.
+--    
+--    Streamer: Content delivery application responsible for streaming
+--    video out to STB's.
+--  RevDate
+--    201005100000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoCdstvFsiMIBNotifs OBJECT IDENTIFIER ::= { ciscoCdstvFsiMIB 0 }
+ciscoCdstvFsiMIBObjects OBJECT IDENTIFIER ::= { ciscoCdstvFsiMIB 1 }
+ciscoCdstvFsiMIBConform OBJECT IDENTIFIER ::= { ciscoCdstvFsiMIB 2 }
+ciscoCdstvFsiMIBCompliances OBJECT IDENTIFIER ::= { ciscoCdstvFsiMIBConform 1 }
+ciscoCdstvFsiMIBGroups OBJECT IDENTIFIER ::= { ciscoCdstvFsiMIBConform 2 }
+
+cdstvFsiIpAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of the IP address
+        (specified by cdstvFsiIpAddress) of the vault used in FSI
+        communications with the back office."
+    ::= { ciscoCdstvFsiMIBObjects 1 }
+
+cdstvFsiIpAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the IP address of the vault used in FSI
+        communications with the back office. Value of 0.0.0.0 allows all
+        Layer-3 interfaces on the vault that are available to handle
+        incoming IP trafic such as content ingest to be used for FSI.
+        The type of this address is determined by the value of the
+        cdstvFsiIpAddressType object."
+    ::= { ciscoCdstvFsiMIBObjects 2 }
+
+cdstvFsiServerPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the port number on the vault used in FSI
+        communications with the back office."
+    ::= { ciscoCdstvFsiMIBObjects 3 }
+
+cdstvFsiFtpClientPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the port used by FSI communications when
+        connecting to the catcher or other FTP server to pull content
+        from."
+    ::= { ciscoCdstvFsiMIBObjects 4 }
+
+cdstvFsiFtpOutServerPort OBJECT-TYPE
+    SYNTAX InetPortNumber
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the port used by FSI communications for
+        egress FTP out pulls from the vault."
+    ::= { ciscoCdstvFsiMIBObjects 5 }
+
+cdstvFsiFtpOutLoginTTL OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    hops
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the configured maximum Time To Live (TTL)
+        that an FTP client is allowed to connect and login to the vault
+        to perform an FTP out pull with a temporary login."
+    ::= { ciscoCdstvFsiMIBObjects 6 }
+
+cdstvFsiLogLevel OBJECT-TYPE
+    SYNTAX INTEGER {
+        off(1),
+        low(2),
+        high(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the logging level, i.e., the amount of
+        event information logged. 
+        'off' indicates that logging is completely disabled.
+        'low' indicates that only errors are logged.
+        'high' indicates that all errors, warnings and success messages
+        are logged."
+    ::= { ciscoCdstvFsiMIBObjects 7 }
+
+cdstvFsiContentRootPath OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the root directory used to store MPEG
+        content files on the vault, for example, '/files'."
+    ::= { ciscoCdstvFsiMIBObjects 8 }
+
+cdstvFsiAsyncCallbackURL OBJECT-TYPE
+    SYNTAX CiscoURLString
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the asynchronous callback URL used in the
+        recording completion FSI notification which is sent out when a
+        scheduled recording completes its capture. This URL is basically
+        used to tell the client the recording is completed."
+    ::= { ciscoCdstvFsiMIBObjects 9 }
+
+ciscoCdstvFsiMIBMainObjectGroup OBJECT IDENTIFIER ::= { ciscoCdstvFsiMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which provides FSI configuration.
+--  objects
+--    cdstvFsiIpAddress, cdstvFsiServerPort, cdstvFsiFtpClientPort, 
+--    cdstvFsiFtpOutServerPort, cdstvFsiFtpOutLoginTTL, 
+--    cdstvFsiLogLevel, cdstvFsiContentRootPath, 
+--    cdstvFsiAsyncCallbackURL, cdstvFsiIpAddressType
+
+ciscoCdstvFsiMIBCompliance OBJECT IDENTIFIER ::= { ciscoCdstvFsiMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for CISCO-CDSTV-FSI-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoCdstvFsiMIBMainObjectGroup
+--   ObjVar
+--    cdstvFsiIpAddressType
+--   ObjVar
+--    cdstvFsiIpAddress
+--   ObjVar
+--    cdstvFsiServerPort
+--   ObjVar
+--    cdstvFsiFtpClientPort
+--   ObjVar
+--    cdstvFsiFtpOutServerPort
+--   ObjVar
+--    cdstvFsiFtpOutLoginTTL
+--   ObjVar
+--    cdstvFsiLogLevel
+--   ObjVar
+--    cdstvFsiContentRootPath
+--   ObjVar
+--    cdstvFsiAsyncCallbackURL
+
+
+END
+

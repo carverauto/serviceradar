@@ -1,0 +1,2168 @@
+-- $ID$
+-- ********************************************************************
+-- CISCO-GTPV2-MIB.my: MIB file for GTPv2 statistics
+--   
+-- Apr 2009, Bulbul Hossain
+--   
+-- Copyright (c) 2009-2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- ********************************************************************
+-- $Endlog$
+
+CISCO-GTPV2-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    cGtpPathAddressType,
+    cGtpPathAddress,
+    cGtpPathPort,
+    cGtpHistIndex,
+    cGtpHistRemoteAddrType,
+    cGtpHistRemoteAddress,
+    cGtpHistRemotePort,
+    cGtpPathStatisticsEntry,
+    cGtpPathStatisticsHistEntry
+        FROM CISCO-GTP-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoGtpv2MIB MODULE-IDENTITY
+    LAST-UPDATED    "201005240000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lte@cisco.com"
+    DESCRIPTION
+        "This MIB module manages the GPRS Tunneling Protocol
+        version 2(GTPv2) statistics for the Evolved Packet
+        Core(EPC) architecture.
+
+        SGW and PGW are the key elements of EPC architecture.
+
+        The PGW is the permanent IP point-of-attachment for 
+        access via the E-UTRAN. The PGW performs IP policy and
+        charging enforcement on packet flows to and from mobile 
+        devices.
+
+        The SGW is a local mobility anchor for E-UTRAN mobility,
+        switching packets between the S5 interface and the GTP
+        based S1-U interface for mobiles in connected mode.
+
+        The following diagram illustrates the EPC logical
+        architecture with the name of inter-node interface:        
+
+        +------------------------------------------------+  
+        |                                                |
+        |                                                |
+        |           +=======+__________                  |
+        |           | UTRAN |          |S12              | 
+        |           |      +======+    |                 | 
+        |           +======|      |    |                 |
+        |           +======| SGSN |___ |                 |
+        |           |      +======+   ||                 |
+        |           | GERAN |  |    S4||                 |
+        |           +=======+  |(GTP-C||                 |
+        |                    S3| VO,V1||                 |
+        |                      |  GTPU||                 |   
+        |                      |VO,V1)||                 |
+        |                  +======+   ||                 | 
+        |              ____| MME  |__ ||                 |
+        |              |   +======+  |||                 |
+        |        S1-MME|      S11    |||                 |
+        |              |     GTP-C   |||                 |
+        |              |  (V0,V1,V2) |||                 |
+        |+====+ +========+        +======+     +======+  |  +===+
+        || UE |-|E-Utran |        | SGW  |     | PGW  |-SGi-|PDN|
+        ||    | |(EnodeB)|        |      |     |      |  |  |   |
+        |+====+ +========+        +======+     +======+  |  +===+
+        |              |            |  |  GTP-C   |      | 
+        |              |            |  |(vo,v1,v2)|      | 
+        |              |            |  |GTP-C     |      |  
+        |              |            |  |  (vo,v1) |      | 
+        |              |  GTP v2-u  |  |          |      |
+        |               ------------   -----------       |
+        |                  (S1-U)          S5            |
+        |                                                |
+        +------------------------------------------------+
+
+        GTP is the protocol between SGW and PGW in the EPC
+        backbone network. It includes both the GTP signaling
+        and data transfer procedures.
+
+        The GTP signaling provides control and support for
+        the user data and is know as control plane messages.
+        Where as the user data is known as user plane messages.
+
+        SGW and PGW supports GTPv2, GTPv1 and GTPv0
+        simultaneously. 
+
+        GTPv2 has been introduced in this evolution. It is
+        different from GTPv1 and GTPv0 in few respects, for E-UTRAN
+        access to EPC, the PDN connectivity service is provided
+        by EPS bearer. An EPS bearer uniquely identifies traffic
+        flows between an UE and EPC.
+
+        Acronyms and terms:
+
+         3GPP   3rd Generation Partnership Project
+         EPC    Evolved Packet Core
+         EPS    Evolved Packet System
+         E-UTRAN Evolved UTRAN
+         GPRS   General Packet Radio Service
+         GTP    GPRS Tunneling Protocol
+         PDN    Public Data Network
+         PGW    PDN Gateway
+         SGW    Serving Gateway
+         UE     User Equipment
+         UMTS   Universal Mobile Telecommunications System
+         UTRAN  UMTS Radio Access Network
+
+
+        REFERENCE
+
+        [1] 3GPP: Evolved GPRS Tunneling Protocol for Control
+            Plane (GTPv2-C). 3GPP TS 29.274 V1.3.1
+
+        [2] 3GPP: GPRS enhancements for EUTRAN access.
+            3GPP TS 23.401 V8.3.0"
+    REVISION        "201005240000Z"
+    DESCRIPTION
+        "The following changes have been made.
+
+        [1] The following objects have been added to
+            cGtpv2SystemStatistics.
+
+            cGtpv2SentStopPageInds,
+            cGtpv2Initv2tov1Handoffs,
+            cGtpv2Succv2tov1Handoffs,
+            cGtpv2Initv1tov2Handoffs,
+            cGtpv2Succv1tov2Handoffs,
+            cGtpv2TotalN3Retransmits.
+
+        [2] The following objects have been added to
+            cGtpv2ReqMsgStatsTable.            
+
+            cGtpv2DeletePdnConnSetReqs,
+            cGtpv2RelAccessBearerReqs,
+            cGtpv2DownlinkDataNotifs,
+            cGtpv2CreateIndirectTunnelReqs,
+            cGtpv2DeleteIndirectTunnelReqs,
+            cGtpv2SuspendNotifs,
+            cGtpv2ResumeNotifs,
+            cGtpv2EchoReqs.
+
+        [3] The following objects have been added to
+            cGtpv2RspMsgStatsTable.            
+
+            cGtpv2DeletePdnConnSetRsps,
+            cGtpv2RelAccessBearerRsps,
+            cGtpv2DownlinkDataNotifAcks,
+            cGtpv2DownlinkDataNotifFailInds,
+            cGtpv2CreateIndirectTunnelRsps,
+            cGtpv2DeleteIndirectTunnelRsps,
+            cGtpv2SuspendNotifAcks,
+            cGtpv2ResumeNotifAck,
+            cGtpv2EchoRsps.
+
+        [4] The following objects have been added to
+            cGtpPathGtpv2StatisticsTable.
+
+            cGtpPathSentStopPageInds.
+
+        [5] The following objects have been added to
+            cGtpPathGtpv2ReqMsgTable.
+
+            cGtpPathDeletePdnConnSetReqs,
+            cGtpPathRelAccessBearerReqs,
+            cGtpPathDownlinkDataNotifs,
+            cGtpPathSuspendNotifs,
+            cGtpPathResumeNotifs,
+            cGtpPathEchoReqs,
+            cGtpPathVerNotSupported.
+
+        [6] The following objects have been added to
+            cGtpPathGtpv2RspMsgTable.
+
+            cGtpPathDeletePdnConnSetRsps,
+            cGtpPathRelAccessBearerRsps,
+            cGtpPathDownlinkDataNotifAcks,
+            cGtpPathDownlinkDataNotifFailInds,
+            cGtpPathSuspendNotifAcks,
+            cGtpPathResumeNotifAcks,
+            cGtpPathEchoRsps              
+
+        [7] The following objects have been added to
+            cGtpPathHistGtpv2StatisticsTable.
+
+            cGtpPathHistSentStopPageInds.
+
+        [8] The following objects have been added to
+            cGtpPathHistGtpv2ReqMsgTable.
+
+            cGtpPathHistDeletePdnConnSetReqs,
+            cGtpPathHistRelAccessBearerReqs,
+            cGtpPathHistDownlinkDataNotifs,
+            cGtpPathHistSuspendNotifs,
+            cGtpPathHistResumeNotifs,
+            cGtpPathHistEchoReqs,
+            cGtpPathHistVerNotSupported.
+
+        [9] The following objects have been added to
+            cGtpPathHistGtpv2RspMsgTable.
+
+            cGtpPathHistDeletePdnConnSetRsps,
+            cGtpPathHistRelAccessBearerRsps,
+            cGtpPathHistDownlinkDataNotifAcks,
+            cGtpPathHistDownlinkDataNotifFailInds,
+            cGtpPathHistSuspendNotifAcks,
+            cGtpPathHistResumeNotifAcks
+            cGtpPathHistEchoRsps.
+
+        [10] The Unit of existing objects have been changed from       
+             packets to messages.
+
+        [11] The following objects have been added
+
+            cGtpv2MIBSystemStatisticsGroupSup1,
+            cGtpv2MIBGtpPathStatisticsGroupSup1,
+            cGtpv2MIBGtpPathHistStatsGroupSup1. 
+
+        [12] The compliance statement cGtpv2MIBCompliance has
+            been superceded by cGtpv2MIBComplianceRev1."
+    REVISION        "201004270000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 734 }
+
+
+
+CGtpv2Action ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention defines the possible actions taken
+        by a GTPv2 entity on GTP messages. The semantics are as
+        follows.
+
+        'cGtpv2Sent'     - The entity has sent a particular
+                           message.
+        'cGtpv2Received' - The entity has received a particular
+                           message.
+        'cGtpv2Rejected' - The entity has rejected a particular
+                           message."
+    SYNTAX          INTEGER  {
+                        cGtpv2Sent(1),
+                        cGtpv2Received(2),
+                        cGtpv2Rejected(3)
+                    }
+-- Object definitions
+
+cGtpv2MIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoGtpv2MIB 1 }
+
+cGtpv2Statistics  OBJECT IDENTIFIER
+    ::= { cGtpv2MIBObjects 1 }
+
+cGtpv2SystemStatistics  OBJECT IDENTIFIER
+    ::= { cGtpv2Statistics 1 }
+
+cGtpPathGtpv2Statistics  OBJECT IDENTIFIER
+    ::= { cGtpv2Statistics 2 }
+
+cGtpPathHistGtpv2Statistics  OBJECT IDENTIFIER
+    ::= { cGtpv2Statistics 3 }
+
+cGtpv2MIBConformances  OBJECT IDENTIFIER
+    ::= { ciscoGtpv2MIB 2 }
+
+cGtpv2MIBCompliances  OBJECT IDENTIFIER
+    ::= { cGtpv2MIBConformances 1 }
+
+cGtpv2MIBGroups  OBJECT IDENTIFIER
+    ::= { cGtpv2MIBConformances 2 }
+
+
+cGtpv2DroppedSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv2
+        control plane messages dropped by the gateway." 
+    ::= { cGtpv2SystemStatistics 1 }
+
+cGtpv2ReservedValueIeMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of messages
+        received by the gateway that has atleast one reserved
+        Information Element." 
+    ::= { cGtpv2SystemStatistics 2 }
+-- GTPv2 system request message statistics
+
+cGtpv2ReqMsgStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpv2ReqMsgStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics about the GTPv2 request
+        messages handled by the gateway.
+
+        A row is created when the EPC subsystem is initialized and
+        deleted when the gateway is rebooted."
+    ::= { cGtpv2SystemStatistics 3 }
+
+cGtpv2ReqMsgStatsEntry OBJECT-TYPE
+    SYNTAX          CGtpv2ReqMsgStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cGtpv2ReqMsgStatsTable and corresponds to the statistics
+        related to the GTPv2 request messages handled by the
+        gateway."
+    INDEX           { cGtpv2MsgReqAction } 
+    ::= { cGtpv2ReqMsgStatsTable 1 }
+
+CGtpv2ReqMsgStatsEntry ::= SEQUENCE {
+        cGtpv2MsgReqAction             CGtpv2Action,
+        cGtpv2CreateSessReqs           Counter32,
+        cGtpv2DeleteSessReqs           Counter32,
+        cGtpv2CreateBearerReqs         Counter32,
+        cGtpv2ModifyBearerReqs         Counter32,
+        cGtpv2UpdateBearerReqs         Counter32,
+        cGtpv2DeleteBearerReqs         Counter32,
+        cGtpv2ChangeNotifReqs          Counter32,
+        cGtpv2ModifyBearerCmds         Counter32,
+        cGtpv2DeleteBearerCmds         Counter32,
+        cGtpv2BearerResrcCmds          Counter32,
+        cGtpv2DeletePdnConnSetReqs     Counter32,
+        cGtpv2RelAccessBearerReqs      Counter32,
+        cGtpv2DownlinkDataNotifs       Counter32,
+        cGtpv2CreateIndirectTunnelReqs Counter32,
+        cGtpv2DeleteIndirectTunnelReqs Counter32,
+        cGtpv2SuspendNotifs            Counter32,
+        cGtpv2ResumeNotifs             Counter32,
+        cGtpv2EchoReqs                 Counter32
+}
+
+cGtpv2MsgReqAction OBJECT-TYPE
+    SYNTAX          CGtpv2Action
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a particular action taken by the
+        gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 1 }
+
+cGtpv2CreateSessReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Create-Session
+        request messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 2 }
+
+cGtpv2DeleteSessReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Session
+        request messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 3 }
+
+cGtpv2CreateBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Create-Bearer
+        request messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 4 }
+
+cGtpv2ModifyBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Modify-Bearer
+        request messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 5 }
+
+cGtpv2UpdateBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Update-Bearer
+        request messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 6 }
+
+cGtpv2DeleteBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Bearer
+        request messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 7 }
+
+cGtpv2ChangeNotifReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Change-Notification
+        request messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 8 }
+
+cGtpv2ModifyBearerCmds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Modify-Bearer
+        command messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 9 }
+
+cGtpv2DeleteBearerCmds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Bearer
+        command messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 10 }
+
+cGtpv2BearerResrcCmds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Bearer-Resource
+        command messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 11 }
+
+cGtpv2DeletePdnConnSetReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Delete-PDN-Connection-Set request messages handled
+        by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 12 }
+
+cGtpv2RelAccessBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Release-Access-Bearer request messages handled
+        by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 13 }
+
+cGtpv2DownlinkDataNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Downlink-Data-Notification messages handled
+        by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 14 }
+
+cGtpv2CreateIndirectTunnelReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Indirect-Tunnel-Create request messages handled
+        by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 15 }
+
+cGtpv2DeleteIndirectTunnelReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Indirect-Tunnel-Delete request messages handled
+        by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 16 }
+
+cGtpv2SuspendNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Suspend-Notification messages handled by the
+        gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 17 }
+
+cGtpv2ResumeNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Resume-Notification messages handled by the
+        gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 18 }
+
+cGtpv2EchoReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of echo
+        request messages handled by the gateway." 
+    ::= { cGtpv2ReqMsgStatsEntry 19 }
+ 
+
+-- GTPv2 system response message statistics
+
+cGtpv2RspMsgStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpv2RspMsgStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics about the GTPv2 response
+        messages handled by the gateway.
+
+        A row is created when the EPC subsystem is initialized and
+        deleted when the gateway is rebooted."
+    ::= { cGtpv2SystemStatistics 4 }
+
+cGtpv2RspMsgStatsEntry OBJECT-TYPE
+    SYNTAX          CGtpv2RspMsgStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cGtpv2RspMsgStatsTable and corresponds to the statistics
+        related to the GTPv2 response messages handled by the
+        gateway."
+    INDEX           { cGtpv2MsgRspAction } 
+    ::= { cGtpv2RspMsgStatsTable 1 }
+
+CGtpv2RspMsgStatsEntry ::= SEQUENCE {
+        cGtpv2MsgRspAction              CGtpv2Action,
+        cGtpv2CreateSessRsps            Counter32,
+        cGtpv2DeleteSessRsps            Counter32,
+        cGtpv2CreateBearerRsps          Counter32,
+        cGtpv2ModifyBearerRsps          Counter32,
+        cGtpv2UpdateBearerRsps          Counter32,
+        cGtpv2DeleteBearerRsps          Counter32,
+        cGtpv2ModifyBearerFailInds      Counter32,
+        cGtpv2DeleteBearerFailInds      Counter32,
+        cGtpv2BearerResrcFailInds       Counter32,
+        cGtpv2DeletePdnConnSetRsps      Counter32,
+        cGtpv2RelAccessBearerRsps       Counter32,
+        cGtpv2DownlinkDataNotifAcks     Counter32,
+        cGtpv2DownlinkDataNotifFailInds Counter32,
+        cGtpv2CreateIndirectTunnelRsps  Counter32,
+        cGtpv2DeleteIndirectTunnelRsps  Counter32,
+        cGtpv2SuspendNotifAcks          Counter32,
+        cGtpv2ResumeNotifAck            Counter32,
+        cGtpv2EchoRsps                  Counter32
+}
+
+cGtpv2MsgRspAction OBJECT-TYPE
+    SYNTAX          CGtpv2Action
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a particular action taken by the
+        gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 1 }
+
+cGtpv2CreateSessRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Create-Session
+        response messages handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 2 }
+
+cGtpv2DeleteSessRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Session
+        response messages handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 3 }
+
+cGtpv2CreateBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Create-Bearer
+        response messages handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 4 }
+
+cGtpv2ModifyBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Modify-Bearer
+        response messages handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 5 }
+
+cGtpv2UpdateBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Update-Bearer
+        response messages handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 6 }
+
+cGtpv2DeleteBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Bearer
+        response messages handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 7 }
+
+cGtpv2ModifyBearerFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Modify-Bearer
+        failure indication message handled by the
+        gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 8 }
+
+cGtpv2DeleteBearerFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Bearer
+        failure indication message handled by the
+        gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 9 }
+
+cGtpv2BearerResrcFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Bearer-Resource
+        failure indication message handled by the
+        gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 10 }
+
+cGtpv2DeletePdnConnSetRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Delete-PDN-Connection-Set response messages handled
+        by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 11 }
+
+cGtpv2RelAccessBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Release-Access-Bearer response messages handled
+        by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 12 }
+
+cGtpv2DownlinkDataNotifAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Downlink-Data-Notification acknowledgement messages
+        handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 13 }
+
+cGtpv2DownlinkDataNotifFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Downlink-Data-Notification failure indication messages
+        handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 14 }
+
+cGtpv2CreateIndirectTunnelRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Indirect-Tunnel-Create response messages
+        handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 15 }
+
+cGtpv2DeleteIndirectTunnelRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Indirect-Tunnel-Delete response messages
+        handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 16 }
+
+cGtpv2SuspendNotifAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Suspend-Notification acknowledgments handled
+        by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 17 }
+
+cGtpv2ResumeNotifAck OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Resume-Notification acknowledgments messages
+        handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 18 }
+
+cGtpv2EchoRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of echo
+        response messages handled by the gateway." 
+    ::= { cGtpv2RspMsgStatsEntry 19 }
+ 
+
+
+-- Global statistics
+
+cGtpv2SentStopPageInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Stop-Paging-Indication messages handled by the
+        gateway." 
+    ::= { cGtpv2SystemStatistics 5 }
+
+cGtpv2Initv2tov1Handoffs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        GTPv2 to GTPv1 handoff initiated in the
+        gateway." 
+    ::= { cGtpv2SystemStatistics 6 }
+
+cGtpv2Succv2tov1Handoffs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        successful GTPv2 to GTPv1 handoff that has
+        occured in the gateway." 
+    ::= { cGtpv2SystemStatistics 7 }
+
+cGtpv2Initv1tov2Handoffs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        GTPv1 to GTPv2 handoff initiated in the
+        gateway." 
+    ::= { cGtpv2SystemStatistics 8 }
+
+cGtpv2Succv1tov2Handoffs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        successful GTPv1 to GTPv2 handoff that has
+        occured in the gateway." 
+    ::= { cGtpv2SystemStatistics 9 }
+
+cGtpv2TotalN3Retransmits OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        N3 retransmits that has occured in the
+        gateway." 
+    ::= { cGtpv2SystemStatistics 10 }
+-- Path Statistics Table
+
+cGtpPathGtpv2StatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpPathGtpv2StatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics for each GTP path
+        established.
+
+        A row is created when a GTP path is established and deleted
+        when the GTP path gets removed.
+
+        This table has an one-to-one relationship with
+        cGtpPathStatisticsTable of CISCO-GTP-MIB. There exists a
+        row in this table for each row of cGtpPathStatisticsTable."
+    ::= { cGtpPathGtpv2Statistics 1 }
+
+cGtpPathGtpv2StatisticsEntry OBJECT-TYPE
+    SYNTAX          CGtpPathGtpv2StatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cGtpPathGtpv2StatisticsTable and corresponds to
+        the GTPv2 message statistics for each GTP path
+        established."
+    AUGMENTS           { cGtpPathStatisticsEntry  } 
+    ::= { cGtpPathGtpv2StatisticsTable 1 }
+
+CGtpPathGtpv2StatisticsEntry ::= SEQUENCE {
+        cGtpPathDroppedSigMsgs   Counter32,
+        cGtpPathSentStopPageInds Counter32
+}
+
+cGtpPathDroppedSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of GTPv2
+        control plane messages dropped on a GTP path." 
+    ::= { cGtpPathGtpv2StatisticsEntry 1 }
+
+cGtpPathSentStopPageInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Stop-Paging-Indication messages handled on
+        the GTP path." 
+    ::= { cGtpPathGtpv2StatisticsEntry 2 }
+ 
+
+-- GTP path GTPv2 request message statistics
+
+cGtpPathGtpv2ReqMsgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpPathGtpv2ReqMsgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics about the GTPv2 request
+        messages handled by the gateway on a GTP path established.
+
+        This table has an expansion dependent relationship with
+        cGtpPathTable of CISCO-GTP-MIB. For each row of
+        cGtpPathTable, there exists one or more rows in
+        cGtpPathGtpv2ReqMsgTable."
+    ::= { cGtpPathGtpv2Statistics 2 }
+
+cGtpPathGtpv2ReqMsgEntry OBJECT-TYPE
+    SYNTAX          CGtpPathGtpv2ReqMsgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cGtpPathGtpv2ReqMsgTable and corresponds to the statistics
+        related to the GTPv2 request messages handled by the
+        gateway for each GTP path."
+    INDEX           {
+                        cGtpPathAddressType,
+                        cGtpPathAddress,
+                        cGtpPathPort,
+                        cGtpPathMsgReqAction
+                    } 
+    ::= { cGtpPathGtpv2ReqMsgTable 1 }
+
+CGtpPathGtpv2ReqMsgEntry ::= SEQUENCE {
+        cGtpPathMsgReqAction         CGtpv2Action,
+        cGtpPathCreateSessReqs       Counter32,
+        cGtpPathDeleteSessReqs       Counter32,
+        cGtpPathCreateBearerReqs     Counter32,
+        cGtpPathModifyBearerReqs     Counter32,
+        cGtpPathUpdateBearerReqs     Counter32,
+        cGtpPathDeleteBearerReqs     Counter32,
+        cGtpPathChangeNotifReqs      Counter32,
+        cGtpPathModifyBearerCmds     Counter32,
+        cGtpPathDeleteBearerCmds     Counter32,
+        cGtpPathBearerResrcCmds      Counter32,
+        cGtpPathDeletePdnConnSetReqs Counter32,
+        cGtpPathRelAccessBearerReqs  Counter32,
+        cGtpPathDownlinkDataNotifs   Counter32,
+        cGtpPathSuspendNotifs        Counter32,
+        cGtpPathResumeNotifs         Counter32,
+        cGtpPathEchoReqs             Counter32,
+        cGtpPathVerNotSupported      Counter32
+}
+
+cGtpPathMsgReqAction OBJECT-TYPE
+    SYNTAX          CGtpv2Action
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a particular action taken by the
+        gateway." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 1 }
+
+cGtpPathCreateSessReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Create-Session
+        request messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 2 }
+
+cGtpPathDeleteSessReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Session
+        request messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 3 }
+
+cGtpPathCreateBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Create-Bearer
+        request messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 4 }
+
+cGtpPathModifyBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Modify-Bearer
+        request messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 5 }
+
+cGtpPathUpdateBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Update-Bearer
+        request messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 6 }
+
+cGtpPathDeleteBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Bearer
+        request messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 7 }
+
+cGtpPathChangeNotifReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Change-Notification
+        request messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 8 }
+
+cGtpPathModifyBearerCmds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Modify-Bearer
+        command messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 9 }
+
+cGtpPathDeleteBearerCmds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Bearer
+        command messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 10 }
+
+cGtpPathBearerResrcCmds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Bearer-Resource
+        command messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 11 }
+
+cGtpPathDeletePdnConnSetReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Delete-PDN-Connection-Set request messages
+        handled on the GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 12 }
+
+cGtpPathRelAccessBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Release-Access-Bearer request messages handled
+        on the GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 13 }
+
+cGtpPathDownlinkDataNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Downlink-Data-Notification messages handled
+        on the GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 14 }
+
+cGtpPathSuspendNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Suspend-Notification messages handled on the
+        GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 15 }
+
+cGtpPathResumeNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Resume-Notification messages handled on the
+        GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 16 }
+
+cGtpPathEchoReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of echo
+        request messages handled on the GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 17 }
+
+cGtpPathVerNotSupported OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of version
+        not supported messages handled on the GTP path." 
+    ::= { cGtpPathGtpv2ReqMsgEntry 18 }
+ 
+
+-- GTP path GTPv2 response message statistics
+
+cGtpPathGtpv2RspMsgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpPathGtpv2RspMsgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics about the GTPv2 response
+        messages handled by the gateway on a GTP path established.
+
+        This table has an expansion dependent relationship with
+        cGtpPathTable of CISCO-GTP-MIB. For each row of
+        cGtpPathTable, there exists one or more rows in
+        cGtpPathGtpv2RspMsgTable."
+    ::= { cGtpPathGtpv2Statistics 3 }
+
+cGtpPathGtpv2RspMsgEntry OBJECT-TYPE
+    SYNTAX          CGtpPathGtpv2RspMsgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cGtpPathGtpv2RspMsgTable and corresponds to the statistics
+        related to the GTPv2 response messages handled by the
+        gateway for each GTP path."
+    INDEX           {
+                        cGtpPathAddressType,
+                        cGtpPathAddress,
+                        cGtpPathPort,
+                        cGtpPathMsgRspAction
+                    } 
+    ::= { cGtpPathGtpv2RspMsgTable 1 }
+
+CGtpPathGtpv2RspMsgEntry ::= SEQUENCE {
+        cGtpPathMsgRspAction              CGtpv2Action,
+        cGtpPathCreateSessRsps            Counter32,
+        cGtpPathDeleteSessRsps            Counter32,
+        cGtpPathCreateBearerRsps          Counter32,
+        cGtpPathModifyBearerRsps          Counter32,
+        cGtpPathUpdateBearerRsps          Counter32,
+        cGtpPathDeleteBearerRsps          Counter32,
+        cGtpPathModifyBearerFailInds      Counter32,
+        cGtpPathDeleteBearerFailInds      Counter32,
+        cGtpPathBearerResrcFailInds       Counter32,
+        cGtpPathDeletePdnConnSetRsps      Counter32,
+        cGtpPathRelAccessBearerRsps       Counter32,
+        cGtpPathDownlinkDataNotifAcks     Counter32,
+        cGtpPathDownlinkDataNotifFailInds Counter32,
+        cGtpPathSuspendNotifAcks          Counter32,
+        cGtpPathResumeNotifAcks           Counter32,
+        cGtpPathEchoRsps                  Counter32
+}
+
+cGtpPathMsgRspAction OBJECT-TYPE
+    SYNTAX          CGtpv2Action
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a particular action taken by the
+        gateway." 
+    ::= { cGtpPathGtpv2RspMsgEntry 1 }
+
+cGtpPathCreateSessRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Create-Session
+        response messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 2 }
+
+cGtpPathDeleteSessRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Session
+        response messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 3 }
+
+cGtpPathCreateBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Create-Bearer
+        response messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 4 }
+
+cGtpPathModifyBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Modify-Bearer
+        response messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 5 }
+
+cGtpPathUpdateBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Update-Bearer
+        response messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 6 }
+
+cGtpPathDeleteBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Bearer
+        response messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 7 }
+
+cGtpPathModifyBearerFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Modify-Bearer
+        failure indication message handled on a
+        GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 8 }
+
+cGtpPathDeleteBearerFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Delete-Bearer
+        failure indication message handled on a
+        GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 9 }
+
+cGtpPathBearerResrcFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of Bearer-Resource
+        failure indication message handled on a GTP
+        path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 10 }
+
+cGtpPathDeletePdnConnSetRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Delete-PDN-Connection-Set response messages handled
+        on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 11 }
+
+cGtpPathRelAccessBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Release-Access-Bearer response messages handled
+        on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 12 }
+
+cGtpPathDownlinkDataNotifAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Downlink-Data-Notification acknowledgements
+        handled on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 13 }
+
+cGtpPathDownlinkDataNotifFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Downlink-Data-Notification failed indication
+        messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 14 }
+
+cGtpPathSuspendNotifAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Suspend-Notification acknowledgment messages
+        handled in a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 15 }
+
+cGtpPathResumeNotifAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Resume-Notification acknowledgment messages handled
+        on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 16 }
+
+cGtpPathEchoRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of echo
+        response messages handled on a GTP path." 
+    ::= { cGtpPathGtpv2RspMsgEntry 17 }
+ 
+
+-- Path Statistics History Table
+
+cGtpPathHistGtpv2StatisticsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpPathHistGtpv2StatisticsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the GTPv2 statistics for those GTP paths
+        that have been deleted.
+
+        A row is created when a GTP path is removed and deleted 
+        when the GTP path entry limit, given by the object
+        cGtpPathHistoryLimit, is reached. The least recent paths
+        will be removed once the limit is reached.
+
+        This table has an one-to-one relationship with
+        cGtpPathStatisticsHistoryTable of CISCO-GTP-MIB. There
+        exists a row in this table for each row of
+        cGtpPathStatisticsHistoryTable."
+    ::= { cGtpPathHistGtpv2Statistics 1 }
+
+cGtpPathHistGtpv2StatisticsEntry OBJECT-TYPE
+    SYNTAX          CGtpPathHistGtpv2StatisticsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cGtpPathHistGtpv2StatisticsTable and corresponds to
+        the GTPv2 statistics on a specific historic GTP path."
+    AUGMENTS           { cGtpPathStatisticsHistEntry  } 
+    ::= { cGtpPathHistGtpv2StatisticsTable 1 }
+
+CGtpPathHistGtpv2StatisticsEntry ::= SEQUENCE {
+        cGtpPathHistDroppedSigMsgs   Counter32,
+        cGtpPathHistSentStopPageInds Counter32
+}
+
+cGtpPathHistDroppedSigMsgs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number
+        of GTPv2 control plane message dropped." 
+    ::= { cGtpPathHistGtpv2StatisticsEntry 1 }
+
+cGtpPathHistSentStopPageInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Stop-Paging-Indication messages sent on a GTP path." 
+    ::= { cGtpPathHistGtpv2StatisticsEntry 2 }
+ 
+
+-- GTP path history GTPv2 request message statistics
+
+cGtpPathHistGtpv2ReqMsgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpPathHistGtpv2ReqMsgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics for the GTPv2
+        request message handled on a GTP path that has since
+        been deleted and has an entry in
+        cGtpPathStatisticsHistoryTable.
+
+        This table has an expansion dependent relationship with
+        cGtpPathStatisticsHistoryTable of CISCO-GTP-MIB. For each
+        row of cGtpPathStatisticsHistoryTable, there exists one
+        or more rows in cGtpPathHistGtpv2ReqMsgTable."
+    ::= { cGtpPathHistGtpv2Statistics 2 }
+
+cGtpPathHistGtpv2ReqMsgEntry OBJECT-TYPE
+    SYNTAX          CGtpPathHistGtpv2ReqMsgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cGtpPathHistGtpv2ReqMsgTable and corresponds to the
+        statistics of the GTPv2 request messages handled by
+        the gateway for each historic GTP path."
+    INDEX           {
+                        cGtpHistIndex,
+                        cGtpHistRemoteAddrType,
+                        cGtpHistRemoteAddress,
+                        cGtpHistRemotePort,
+                        cGtpPathHistMsgReqAction
+                    } 
+    ::= { cGtpPathHistGtpv2ReqMsgTable 1 }
+
+CGtpPathHistGtpv2ReqMsgEntry ::= SEQUENCE {
+        cGtpPathHistMsgReqAction         CGtpv2Action,
+        cGtpPathHistCreateSessReqs       Counter32,
+        cGtpPathHistDeleteSessReqs       Counter32,
+        cGtpPathHistCreateBearerReqs     Counter32,
+        cGtpPathHistModifyBearerReqs     Counter32,
+        cGtpPathHistUpdateBearerReqs     Counter32,
+        cGtpPathHistDeleteBearerReqs     Counter32,
+        cGtpPathHistChangeNotifReqs      Counter32,
+        cGtpPathHistModifyBearerCmds     Counter32,
+        cGtpPathHistDeleteBearerCmds     Counter32,
+        cGtpPathHistBearerResrcCmds      Counter32,
+        cGtpPathHistDeletePdnConnSetReqs Counter32,
+        cGtpPathHistRelAccessBearerReqs  Counter32,
+        cGtpPathHistDownlinkDataNotifs   Counter32,
+        cGtpPathHistSuspendNotifs        Counter32,
+        cGtpPathHistResumeNotifs         Counter32,
+        cGtpPathHistEchoReqs             Counter32,
+        cGtpPathHistVerNotSupported      Counter32
+}
+
+cGtpPathHistMsgReqAction OBJECT-TYPE
+    SYNTAX          CGtpv2Action
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a particular action taken by the
+        gateway." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 1 }
+
+cGtpPathHistCreateSessReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Create-Session request messages handled on
+        a GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 2 }
+
+cGtpPathHistDeleteSessReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Delete-Session request messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 3 }
+
+cGtpPathHistCreateBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Create-Bearer request messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 4 }
+
+cGtpPathHistModifyBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Modify-Bearer request messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 5 }
+
+cGtpPathHistUpdateBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Update-Bearer request messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 6 }
+
+cGtpPathHistDeleteBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Delete-Bearer request messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 7 }
+
+cGtpPathHistChangeNotifReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Change-Notification request messages handled
+        on a GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 8 }
+
+cGtpPathHistModifyBearerCmds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Modify-Bearer command messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 9 }
+
+cGtpPathHistDeleteBearerCmds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Delete-Bearer command messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 10 }
+
+cGtpPathHistBearerResrcCmds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Bearer-Resource command messages handled on
+        a GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 11 }
+
+cGtpPathHistDeletePdnConnSetReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Delete-PDN-Connection-Set request messages handled on a GTP
+        path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 12 }
+
+cGtpPathHistRelAccessBearerReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Release-Access-Bearer request messages handled on a GTP 
+        path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 13 }
+
+cGtpPathHistDownlinkDataNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Downlink-Data-Notification messages handled on a GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 14 }
+
+cGtpPathHistSuspendNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Suspend-Notification messages handled on a GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 15 }
+
+cGtpPathHistResumeNotifs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Resume-Notification messages handled on a GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 16 }
+
+cGtpPathHistEchoReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        echo request messages handled on a GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 17 }
+
+cGtpPathHistVerNotSupported OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        version not supported messages handled on a GTP path." 
+    ::= { cGtpPathHistGtpv2ReqMsgEntry 18 }
+ 
+
+-- GTP path history GTPv2 response message statistics
+
+cGtpPathHistGtpv2RspMsgTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CGtpPathHistGtpv2RspMsgEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics for the GTPv2
+        response message handled on a GTP path that has since
+        been deleted and has an entry in
+        cGtpPathStatisticsHistoryTable.
+
+        This table has an expansion dependent relationship with
+        cGtpPathStatisticsHistoryTable of CISCO-GTP-MIB. For each
+        row of cGtpPathStatisticsHistoryTable, there exists one
+        or more rows in cGtpPathHistGtpv2RspMsgTable."
+    ::= { cGtpPathHistGtpv2Statistics 3 }
+
+cGtpPathHistGtpv2RspMsgEntry OBJECT-TYPE
+    SYNTAX          CGtpPathHistGtpv2RspMsgEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cGtpPathHistGtpv2RspMsgTable and corresponds to the
+        statistics of the GTPv2 response messages handled by
+        the gateway for each historic GTP path."
+    INDEX           {
+                        cGtpHistIndex,
+                        cGtpHistRemoteAddrType,
+                        cGtpHistRemoteAddress,
+                        cGtpHistRemotePort,
+                        cGtpPathHistMsgRspAction
+                    } 
+    ::= { cGtpPathHistGtpv2RspMsgTable 1 }
+
+CGtpPathHistGtpv2RspMsgEntry ::= SEQUENCE {
+        cGtpPathHistMsgRspAction              CGtpv2Action,
+        cGtpPathHistCreateSessRsps            Counter32,
+        cGtpPathHistDeleteSessRsps            Counter32,
+        cGtpPathHistCreateBearerRsps          Counter32,
+        cGtpPathHistModifyBearerRsps          Counter32,
+        cGtpPathHistUpdateBearerRsps          Counter32,
+        cGtpPathHistDeleteBearerRsps          Counter32,
+        cGtpPathHistModifyBearerFailInds      Counter32,
+        cGtpPathHistDeleteBearerFailInds      Counter32,
+        cGtpPathHistBearerResrcFailInds       Counter32,
+        cGtpPathHistDeletePdnConnSetRsps      Counter32,
+        cGtpPathHistRelAccessBearerRsps       Counter32,
+        cGtpPathHistDownlinkDataNotifAcks     Counter32,
+        cGtpPathHistDownlinkDataNotifFailInds Counter32,
+        cGtpPathHistSuspendNotifAcks          Counter32,
+        cGtpPathHistResumeNotifAcks           Counter32,
+        cGtpPathHistEchoRsps                  Counter32
+}
+
+cGtpPathHistMsgRspAction OBJECT-TYPE
+    SYNTAX          CGtpv2Action
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents a particular action taken by the
+        gateway." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 1 }
+
+cGtpPathHistCreateSessRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Create-Session response messages handled on
+        a GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 2 }
+
+cGtpPathHistDeleteSessRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Delete-Session response messages handled on
+        a GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 3 }
+
+cGtpPathHistCreateBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Create-Bearer response messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 4 }
+
+cGtpPathHistModifyBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Modify-Bearer response messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 5 }
+
+cGtpPathHistUpdateBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Update-Bearer response messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 6 }
+
+cGtpPathHistDeleteBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Delete-Bearer response messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 7 }
+
+cGtpPathHistModifyBearerFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Modify-Bearer failure indication message handled
+        on a GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 8 }
+
+cGtpPathHistDeleteBearerFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Delete-Bearer failure indication message handled
+        on a GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 9 }
+
+cGtpPathHistBearerResrcFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the total number of
+        Bearer-Resource failure indication message
+        handled on a GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 10 }
+
+cGtpPathHistDeletePdnConnSetRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Delete-PDN-Connection-Set response messages handled on a GTP
+        path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 11 }
+
+cGtpPathHistRelAccessBearerRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Release-Access-Bearer response messages handled on a 
+        GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 12 }
+
+cGtpPathHistDownlinkDataNotifAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Downlink-Data-Notification acknowledgement messages handled
+        on a GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 13 }
+
+cGtpPathHistDownlinkDataNotifFailInds OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Downlink-Data-Notification failed indication messages handled
+        on a GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 14 }
+
+cGtpPathHistSuspendNotifAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Suspend-Notification acknowledgment messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 15 }
+
+cGtpPathHistResumeNotifAcks OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        Resume-Notification acknowledgment messages handled on a
+        GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 16 }
+
+cGtpPathHistEchoRsps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "messages"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object represents the history of the total number of
+        echo response messages handled on a GTP path." 
+    ::= { cGtpPathHistGtpv2RspMsgEntry 17 }
+ 
+
+
+-- Compliance statements
+
+cGtpv2MIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statements for the entities that
+        implement the ciscoGtpv2MIB module.This is deprecated
+        by cGtpv2MIBComplianceRev1."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpv2MIBSystemStatisticsGroup,
+                        cGtpv2MIBGtpPathStatisticsGroup,
+                        cGtpv2MIBGtpPathHistStatsGroup
+                    }
+    ::= { cGtpv2MIBCompliances 1 }
+
+cGtpv2MIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statements for the entities that
+        implement the ciscoGtpv2MIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cGtpv2MIBSystemStatisticsGroup,
+                        cGtpv2MIBGtpPathStatisticsGroup,
+                        cGtpv2MIBGtpPathHistStatsGroup,
+                        cGtpv2MIBSystemStatisticsGroupSup1,
+                        cGtpv2MIBGtpPathStatisticsGroupSup1,
+                        cGtpv2MIBGtpPathHistStatsGroupSup1
+                    }
+    ::= { cGtpv2MIBCompliances 2 }
+
+-- Object Groups
+
+cGtpv2MIBSystemStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGtpv2DroppedSigMsgs,
+                        cGtpv2ReservedValueIeMsgs,
+                        cGtpv2CreateSessReqs,
+                        cGtpv2DeleteSessReqs,
+                        cGtpv2CreateBearerReqs,
+                        cGtpv2ModifyBearerReqs,
+                        cGtpv2UpdateBearerReqs,
+                        cGtpv2DeleteBearerReqs,
+                        cGtpv2ChangeNotifReqs,
+                        cGtpv2ModifyBearerCmds,
+                        cGtpv2DeleteBearerCmds,
+                        cGtpv2BearerResrcCmds,
+                        cGtpv2CreateSessRsps,
+                        cGtpv2DeleteSessRsps,
+                        cGtpv2CreateBearerRsps,
+                        cGtpv2ModifyBearerRsps,
+                        cGtpv2UpdateBearerRsps,
+                        cGtpv2DeleteBearerRsps,
+                        cGtpv2ModifyBearerFailInds,
+                        cGtpv2DeleteBearerFailInds,
+                        cGtpv2BearerResrcFailInds
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group provides the statistics related to the
+        GTPv2 messages handled by the gateway."
+    ::= { cGtpv2MIBGroups 1 }
+
+cGtpv2MIBGtpPathStatisticsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGtpPathDroppedSigMsgs,
+                        cGtpPathCreateSessReqs,
+                        cGtpPathDeleteSessReqs,
+                        cGtpPathCreateBearerReqs,
+                        cGtpPathModifyBearerReqs,
+                        cGtpPathUpdateBearerReqs,
+                        cGtpPathDeleteBearerReqs,
+                        cGtpPathCreateSessRsps,
+                        cGtpPathDeleteSessRsps,
+                        cGtpPathCreateBearerRsps,
+                        cGtpPathModifyBearerRsps,
+                        cGtpPathUpdateBearerRsps,
+                        cGtpPathDeleteBearerRsps,
+                        cGtpPathChangeNotifReqs,
+                        cGtpPathModifyBearerCmds,
+                        cGtpPathModifyBearerFailInds,
+                        cGtpPathDeleteBearerCmds,
+                        cGtpPathDeleteBearerFailInds,
+                        cGtpPathBearerResrcCmds,
+                        cGtpPathBearerResrcFailInds
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group provides the statistics related to the GTPv2
+        messages handled on a GTP path in the gateway."
+    ::= { cGtpv2MIBGroups 2 }
+
+cGtpv2MIBGtpPathHistStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cGtpPathHistDroppedSigMsgs,
+                        cGtpPathHistCreateSessReqs,
+                        cGtpPathHistDeleteSessReqs,
+                        cGtpPathHistCreateBearerReqs,
+                        cGtpPathHistModifyBearerReqs,
+                        cGtpPathHistUpdateBearerReqs,
+                        cGtpPathHistDeleteBearerReqs,
+                        cGtpPathHistCreateSessRsps,
+                        cGtpPathHistDeleteSessRsps,
+                        cGtpPathHistCreateBearerRsps,
+                        cGtpPathHistModifyBearerRsps,
+                        cGtpPathHistUpdateBearerRsps,
+                        cGtpPathHistDeleteBearerRsps,
+                        cGtpPathHistChangeNotifReqs,
+                        cGtpPathHistModifyBearerCmds,
+                        cGtpPathHistModifyBearerFailInds,
+                        cGtpPathHistDeleteBearerCmds,
+                        cGtpPathHistDeleteBearerFailInds,
+                        cGtpPathHistBearerResrcCmds,
+                        cGtpPathHistBearerResrcFailInds
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group provides the history statistics related to the
+        GTPv2 messages handled on an already-deleted GTP path in
+        the gateway."
+    ::= { cGtpv2MIBGroups 3 }
+
+cGtpv2MIBSystemStatisticsGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpv2SentStopPageInds,
+                        cGtpv2Initv2tov1Handoffs,
+                        cGtpv2Succv2tov1Handoffs,
+                        cGtpv2Initv1tov2Handoffs,
+                        cGtpv2Succv1tov2Handoffs,
+                        cGtpv2TotalN3Retransmits,
+                        cGtpv2DeletePdnConnSetReqs,
+                        cGtpv2RelAccessBearerReqs,
+                        cGtpv2DownlinkDataNotifs,
+                        cGtpv2CreateIndirectTunnelReqs,
+                        cGtpv2DeleteIndirectTunnelReqs,
+                        cGtpv2SuspendNotifs,
+                        cGtpv2ResumeNotifs,
+                        cGtpv2EchoReqs,
+                        cGtpv2DeletePdnConnSetRsps,
+                        cGtpv2RelAccessBearerRsps,
+                        cGtpv2DownlinkDataNotifAcks,
+                        cGtpv2DownlinkDataNotifFailInds,
+                        cGtpv2CreateIndirectTunnelRsps,
+                        cGtpv2DeleteIndirectTunnelRsps,
+                        cGtpv2SuspendNotifAcks,
+                        cGtpv2ResumeNotifAck,
+                        cGtpv2EchoRsps
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This supplements cGtpv2MIBSystemStatisticsGroup to
+        provides the statistics related to the GTPv2 messages
+        handled by the gateway."
+    ::= { cGtpv2MIBGroups 4 }
+
+cGtpv2MIBGtpPathStatisticsGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpPathSentStopPageInds,
+                        cGtpPathDeletePdnConnSetReqs,
+                        cGtpPathRelAccessBearerReqs,
+                        cGtpPathDownlinkDataNotifs,
+                        cGtpPathSuspendNotifs,
+                        cGtpPathResumeNotifs,
+                        cGtpPathEchoReqs,
+                        cGtpPathVerNotSupported,
+                        cGtpPathDeletePdnConnSetRsps,
+                        cGtpPathRelAccessBearerRsps,
+                        cGtpPathDownlinkDataNotifAcks,
+                        cGtpPathDownlinkDataNotifFailInds,
+                        cGtpPathSuspendNotifAcks,
+                        cGtpPathResumeNotifAcks,
+                        cGtpPathEchoRsps
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This supplements cGtpv2MIBGtpPathStatisticsGroup to
+        provides the statistics related to the GTPv2 messages
+        handled on a GTP path in the gateway."
+    ::= { cGtpv2MIBGroups 5 }
+
+cGtpv2MIBGtpPathHistStatsGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        cGtpPathHistSentStopPageInds,
+                        cGtpPathHistDeletePdnConnSetReqs,
+                        cGtpPathHistRelAccessBearerReqs,
+                        cGtpPathHistDownlinkDataNotifs,
+                        cGtpPathHistSuspendNotifs,
+                        cGtpPathHistResumeNotifs,
+                        cGtpPathHistEchoReqs,
+                        cGtpPathHistVerNotSupported,
+                        cGtpPathHistDeletePdnConnSetRsps,
+                        cGtpPathHistRelAccessBearerRsps,
+                        cGtpPathHistDownlinkDataNotifAcks,
+                        cGtpPathHistDownlinkDataNotifFailInds,
+                        cGtpPathHistSuspendNotifAcks,
+                        cGtpPathHistResumeNotifAcks,
+                        cGtpPathHistEchoRsps
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This supplements cGtpv2MIBGtpPathHistStatsGroup to provides
+        the history statistics related to the GTPv2 messages handled
+        on an already-deleted GTP path in the gateway."
+    ::= { cGtpv2MIBGroups 6 }
+
+END
+
+

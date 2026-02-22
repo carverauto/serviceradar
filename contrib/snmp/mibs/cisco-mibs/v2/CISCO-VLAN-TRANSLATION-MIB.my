@@ -1,0 +1,419 @@
+-- *****************************************************************
+-- CISCO-VLAN-TRANSLATION-MIB.my
+--
+-- June 2004, Wen Xu
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VLAN-TRANSLATION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, 
+        OBJECT-TYPE, 
+        Unsigned32 
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        RowStatus, 
+        TruthValue
+                FROM SNMPv2-TC
+        ifIndex
+                FROM IF-MIB
+        VlanIndex
+                FROM Q-BRIDGE-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoVlanTranslationMIB MODULE-IDENTITY
+        LAST-UPDATED        "200406010000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+                             
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com"
+        DESCRIPTION 
+                "The MIB module for the management of VLAN translations.
+
+                VLAN translation refers to the ability of the device
+                to translate between different virtual LANs or between
+                VLAN and non-VLAN encapsulating interfaces at Layer 2.
+                Translation is typically used for selective inter-VLAN
+                switching of non-routable protocols and to extend a
+                single VLAN topology across hybrid switching
+                environments."
+
+        REVISION        "200406010000Z"         
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 411 }
+
+ciscoVlanTranslationMIBNotifs  OBJECT IDENTIFIER 
+                               ::= { ciscoVlanTranslationMIB 0 }
+
+ciscoVlanTranslationMIBObjects OBJECT IDENTIFIER 
+                               ::= { ciscoVlanTranslationMIB 1 }
+
+ciscoVlanTranslationMIBConform OBJECT IDENTIFIER 
+                               ::= { ciscoVlanTranslationMIB 2 }
+
+-- Device level VLAN Translation
+
+cvtGlobalTranslation  OBJECT IDENTIFIER 
+                               ::= { ciscoVlanTranslationMIBObjects 1 }
+
+cvtGlobalTranslationMax OBJECT-TYPE
+        SYNTAX        Unsigned32 
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION   
+                "Maximum number of configurable global VLAN translation
+                entries allowed in the cvtGlobalTranslationTable.
+
+                A value of zero indicates no limitation on the number
+                of configurable global VLAN translation."
+        ::= { cvtGlobalTranslation 1 }
+
+cvtGlobalTranslationTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CvtGlobalTranslationEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION         
+                "This table contains the device based VLAN-to-VLAN
+                associations for all the device's physical ports.
+                The translation is applied in both ingress and egress
+                sides of all the Layer 2 trunks.  VLAN translation
+                makes the traffic arriving on the VLAN
+                cvtGlobalOriginalVlan on the trunk ports to be mapped
+                to or tagged with the VLAN cvtGlobalTranslatedVlan.
+                It also causes all the traffic internally tagged with
+                the VLAN cvtGlobalTranslatedVlan and leaving the
+                trunk ports to be tagged with VLAN
+                cvtGlobalOriginalVlan.
+
+                A global VLAN translation configuration is inactive for
+                those ports that are not Layer 2 trunks. 
+
+                The global VLAN translations are mutually exclusive to
+                the port based VLAN translations.  The rows in this
+                table can only be created when the table
+                cvtPortTranslationTable is empty.
+
+                A conceptual row is created for each VLAN mapping
+                configuration on the device which supports the feature.
+                The value of cvtGlobalTranslationMax determines the
+                maximum number of rows in this table."
+        ::= { cvtGlobalTranslation 2 }
+
+cvtGlobalTranslationEntry OBJECT-TYPE
+        SYNTAX        CvtGlobalTranslationEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+                "Information about the VLAN translation for a
+                particular VLAN to a different VLAN."
+        INDEX   { cvtGlobalOriginalVlan }
+        ::= { cvtGlobalTranslationTable 1 }
+
+CvtGlobalTranslationEntry ::=
+        SEQUENCE {
+                 cvtGlobalOriginalVlan          VlanIndex,
+                 cvtGlobalTranslatedVlan        VlanIndex,
+                 cvtGlobalTranslationEffective  TruthValue,
+                 cvtGlobalTranslationStatus     RowStatus
+        }
+
+cvtGlobalOriginalVlan OBJECT-TYPE
+        SYNTAX        VlanIndex
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+                "The VLAN translation is applied in both ingress and 
+                egress sides of all the Layer 2 trunks. It makes the 
+                traffic arriving on the VLAN with this VLAN ID to 
+                be mapped to or tagged with the corresponding instance 
+                of cvtGlobalTranslatedVlan on the device. It also
+                causes all the traffic internally tagged with the 
+                corresponding instance of cvtGlobalTranslatedVlan and 
+                leaving the trunk ports to be tagged with the VLAN of 
+                this VLAN ID."
+        ::= { cvtGlobalTranslationEntry 1 }
+
+cvtGlobalTranslatedVlan OBJECT-TYPE
+        SYNTAX        VlanIndex
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION   
+                "The VLAN translation is applied in both ingress and 
+                egress sides of all the Layer 2 trunks. It makes the 
+                traffic arriving on the VLAN with the corresponding 
+                instance of cvtGlobalOriginalVlan on the device to be 
+                mapped to or tagged with the VLAN of this VLAN ID. It 
+                also causes all the traffic internally tagged with the 
+                VLAN of this VLAN ID and leaving the trunk ports to 
+                be tagged with the corresponding instance of 
+                cvtGlobalOriginalVlan on the device."
+        ::= { cvtGlobalTranslationEntry 2 }
+
+cvtGlobalTranslationEffective OBJECT-TYPE
+        SYNTAX        TruthValue
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION  
+                "Indicates whether this VLAN translation is 
+                functioning on the device."
+        ::= { cvtGlobalTranslationEntry 3 }
+
+cvtGlobalTranslationStatus OBJECT-TYPE
+        SYNTAX        RowStatus
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION   
+                "The status of the conceptual row for this global
+                VLAN translation.
+
+                Once a row becomes active, value in any other column
+                within such row cannot be modified.
+
+                When this object is set to createAndGo(4) and the
+                number of the existing rows exceeds 
+                cvtGlobalTranslationMax, agent returns
+                'resourceUnavailable'."
+        ::= { cvtGlobalTranslationEntry 4 }
+
+-- Port level VLAN Translation
+
+cvtPortBasedTranslation   OBJECT IDENTIFIER 
+                          ::= { ciscoVlanTranslationMIBObjects 2 }
+
+cvtPortConfigTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CvtPortConfigEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "This table contains information related to the port
+                based VLAN translation on the device."
+        ::= { cvtPortBasedTranslation 1 }
+
+cvtPortConfigEntry OBJECT-TYPE
+        SYNTAX        CvtPortConfigEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION
+                "A set of configuration information regarding port
+                based VLAN translation.
+   
+                An entry exists for every physical port which supports
+                VLAN translation feature."
+        INDEX   { ifIndex } 
+        ::= { cvtPortConfigTable 1 }
+
+CvtPortConfigEntry ::=
+        SEQUENCE {
+                 cvtPortTranslationEnabled    TruthValue,
+                 cvtPortTranslationMax        Unsigned32
+        }
+
+cvtPortTranslationEnabled  OBJECT-TYPE
+        SYNTAX        TruthValue
+        MAX-ACCESS    read-write
+        STATUS        current
+        DESCRIPTION
+                "This object indicates whether the VLAN translation 
+                feature is enabled on the port.
+
+                Setting this value to 'true' enables VLAN translation
+                on the port.
+
+                Setting this value to 'false' disables VLAN
+                translation on the port.  The corresponding
+                entries in table cvtPortTranslationTable will not
+                be used if the value of this object is 'false'." 
+        ::= { cvtPortConfigEntry 1 }
+
+cvtPortTranslationMax  OBJECT-TYPE
+        SYNTAX        Unsigned32
+        MAX-ACCESS    read-only
+        STATUS        current
+        DESCRIPTION
+                "Maximum number of configurable VLAN translation
+                entries allowed on the port.
+
+                A value of zero indicates no limitation
+                on the number of configurable VLANs which can
+                be translated."
+        ::= { cvtPortConfigEntry 2 }
+
+cvtPortTranslationTable OBJECT-TYPE
+        SYNTAX        SEQUENCE OF CvtPortTranslationEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION         
+                "This table contains the port based VLAN-to-VLAN
+                associations for the device's physical ports.
+                The translation is applied in both ingress and egress
+                sides of the layer 2 trunk on the port. It causes the 
+                traffic arriving on the VLAN cvtPortOriginalVlan on 
+                this port to be mapped to or tagged with the VLAN 
+                cvtPortTranslatedVlan. It also causes all the traffic 
+                internally tagged with the VLAN cvtPortTranslatedVlan 
+                and leaving the port to be tagged with VLAN 
+                cvtPortOriginalVlan.
+
+                A VLAN translation configuration that is applied to
+                Layer 2 ports that are not Layer 2 trunks is inactive.
+
+                The port based VLAN translations are mutually exclusive
+                to the global VLAN translations. The rows in this
+                table can only be created when the table
+                cvtGlobalTranslationTable is empty.
+
+                A conceptual row is created for a translation on a
+                particular physical port which supports the feature.
+                The value of the corresponding instance of
+                cvtPortTranslationMax determines the maximum number
+                of rows for the same port.
+
+                On some platforms, VLAN translation may be configured
+                per port group rather than per port.  If multiple ports
+                belong to a port group, the VLAN translation configured
+                to any of the ports in such group will apply to all
+                ports in the same group."
+        ::= { cvtPortBasedTranslation 2 }
+
+cvtPortTranslationEntry OBJECT-TYPE
+        SYNTAX        CvtPortTranslationEntry
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+                "Entry containing VLAN translation Information for a
+                particular VLAN on a specific port.  
+               
+                The entry is created and deleted by using
+                cvtPortTranslationStatus."
+        INDEX   { ifIndex, cvtPortOriginalVlan }
+        ::= { cvtPortTranslationTable 1 }
+
+CvtPortTranslationEntry ::=
+        SEQUENCE {
+                 cvtPortOriginalVlan       VlanIndex,
+                 cvtPortTranslatedVlan     VlanIndex,
+                 cvtPortTranslationStatus  RowStatus
+        }
+
+cvtPortOriginalVlan OBJECT-TYPE
+        SYNTAX        VlanIndex
+        MAX-ACCESS    not-accessible
+        STATUS        current
+        DESCRIPTION   
+                "The VLAN translation is applied in both ingress and
+                egress sides of the layer 2 trunk on the port. It makes 
+                the traffic arriving on the VLAN with this VLAN ID to
+                be mapped to or tagged with the corresponding instance
+                of cvtPortTranslatedVlan on the port. It also
+                causes all the traffic internally tagged with the
+                corresponding instance of cvtPortTranslatedVlan and
+                leaving the trunk port to be tagged with the VLAN of
+                this VLAN ID."
+        ::= { cvtPortTranslationEntry 1 }
+
+cvtPortTranslatedVlan OBJECT-TYPE
+        SYNTAX        VlanIndex
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION   
+                "The VLAN translation is applied in both ingress and
+                egress sides of the Layer 2 trunk on the port. It makes 
+                the traffic arriving on the VLAN with the corresponding
+                instance of cvtPortOriginalVlan on the device to be
+                mapped to or tagged with the VLAN of this VLAN ID. It
+                also causes all the traffic internally tagged with the
+                VLAN of this VLAN ID and leaving the trunk port to
+                be tagged with the corresponding instance of
+                cvtPortOriginalVlan on the port."
+        ::= { cvtPortTranslationEntry 2 }
+
+cvtPortTranslationStatus OBJECT-TYPE
+        SYNTAX        RowStatus
+        MAX-ACCESS    read-create
+        STATUS        current
+        DESCRIPTION   
+                "The status of this conceptual row for the VLAN
+                translation on the specific port.
+
+                Once a row becomes active, value in any other column
+                within such row cannot be modified.
+
+                When this object is set to 'createAndGo' and the
+                number of the existing rows for a specific physical
+                port exceeds cvtPortTranslationMax of this port in
+                cvtPortConfigTable, agent returns
+                'resourceUnavailable'."
+        ::= { cvtPortTranslationEntry 3 }
+
+-- Conformance
+
+cvtMIBCompliances  OBJECT IDENTIFIER 
+                   ::= { ciscoVlanTranslationMIBConform 1 }
+
+cvtMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for trunk port VLAN 
+                translation implementations."
+        MODULE  -- this module
+
+                GROUP    cvtGlobalTranslationGroup
+                DESCRIPTION
+                        "This group must be implemented if the device
+                        supports the device based VLAN translation
+                        feature."
+
+                GROUP   cvtPortTranslationGroup
+                DESCRIPTION
+                        "This group must be implemented if the device
+                        supports the port based VLAN translation
+                        feature."
+        ::= { cvtMIBCompliances 1 }
+
+-- Units of Conformance
+
+cvtMIBGroups  OBJECT IDENTIFIER 
+                   ::= { ciscoVlanTranslationMIBConform 2 }
+
+cvtGlobalTranslationGroup OBJECT-GROUP
+        OBJECTS { 
+                cvtGlobalTranslationMax,
+                cvtGlobalTranslatedVlan,
+                cvtGlobalTranslationEffective,
+                cvtGlobalTranslationStatus 
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects providing the device level
+                VLAN translation ability on the device."
+        ::= { cvtMIBGroups 1 }
+
+cvtPortTranslationGroup OBJECT-GROUP
+        OBJECTS { 
+                cvtPortTranslationEnabled,
+                cvtPortTranslationMax,
+                cvtPortTranslatedVlan,
+                cvtPortTranslationStatus 
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects providing the port level
+                VLAN translation ability on the device."
+        ::= { cvtMIBGroups 2 }
+
+END

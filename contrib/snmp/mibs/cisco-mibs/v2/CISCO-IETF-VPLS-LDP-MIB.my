@@ -1,0 +1,238 @@
+-- *****************************************************************
+-- CISCO-IETF-VPLS-LDP-MIB.my
+--   
+-- November 2006, Mark Tooker
+--   
+-- Copyright (c) 2006-2009 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IETF-VPLS-LDP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    VPNId
+        FROM VPN-TC-STD-MIB
+    cvplsConfigIndex,
+    cvplsPwBindIndex
+        FROM CISCO-IETF-VPLS-GENERIC-MIB
+    ciscoExperiment
+        FROM CISCO-SMI;
+
+
+cvplsLdpMIB MODULE-IDENTITY
+    LAST-UPDATED    "200711221200Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service 
+
+            Postal:  
+            170 W Tasman Drive 
+            San Jose, CA  95134 
+            USA 
+
+            Tel: +1 800 553-NETS 
+
+            E-mail: cs-l2vpn@cisco.com"
+    DESCRIPTION
+        "This MIB module contains managed object definitions for
+        LDP signalled Virtual Private LAN Services as in
+        [L2VPN-VPLS-LDP]
+
+        This MIB module enables the use of any underlying Pseudo Wire
+        network.
+
+        This MIB is based on the following IETF document.
+
+        http://www1.tools.ietf.org/html/draft-nadeau-l2vpn-vpls-mib-03"
+    REVISION        "200711221200Z"
+    DESCRIPTION
+        "Initial version of this MIB."
+    ::= { ciscoExperiment 141 }
+
+
+-- Top-level components of this MIB.
+--   
+-- Tables, Scalars
+
+cvplsLdpObjects  OBJECT IDENTIFIER
+    ::= { cvplsLdpMIB 1 }
+
+-- Conformance
+
+cvplsLdpConformance  OBJECT IDENTIFIER
+    ::= { cvplsLdpMIB 2 }
+
+
+cvplsLdpConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CvplsLdpConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table specifies information for configuring
+        and monitoring LDP specific parameters for
+        Virtual Private Lan Services(VPLS)."
+    ::= { cvplsLdpObjects 1 }
+
+cvplsLdpConfigEntry OBJECT-TYPE
+    SYNTAX          CvplsLdpConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A row in this table represents LDP specific information
+        for Virtual Private Lan Service(VPLS) in a packet network.
+        It is indexed by cvplsConfigIndex, which uniquely
+        identifies a single VPLS.
+
+        A row is automatically created when a VPLS service is
+        configured using LDP signalling.
+
+        None of the read-create objects values can be
+        changed when cvplsRowStatus is in the active(1)
+        state. Changes are allowed when the cvplsRowStatus
+        is in notInService(2) or notReady(3) states only.
+        If the operator need to change one of the values
+        for an active row the cvplsConfigRowStatus should be
+        first changed to notInService(2), the objects may
+        be changed now, and later to active(1) in order to
+        re-initiate the signaling process with the new
+        values in effect."
+    INDEX           { cvplsConfigIndex } 
+    ::= { cvplsLdpConfigTable 1 }
+
+CvplsLdpConfigEntry ::= SEQUENCE {
+        cvplsLdpConfigMacAddrWithdraw TruthValue
+}
+
+cvplsLdpConfigMacAddrWithdraw OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies if MAC address withdrawl is
+        enabled in this service. If this object is true then
+        Mac address withdrawl Learning is enabled. If false,
+        then Mac Learning is disabled."
+    DEFVAL          { true } 
+    ::= { cvplsLdpConfigEntry 1 }
+ 
+
+-- VPLS LDP PW Binding Table
+
+cvplsLdpPwBindTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CvplsLdpPwBindEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides LDP specific information for
+        an association between a VPLS service and the
+        corresponding Pseudo Wires. A service can have more
+        than one Pseudo Wire association. Pseudo Wires are
+        defined in the cpwTable."
+    ::= { cvplsLdpObjects 2 }
+
+cvplsLdpPwBindEntry OBJECT-TYPE
+    SYNTAX          CvplsLdpPwBindEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each row represents an association between a
+        VPLS instance and one or more Pseudo Wires
+        defined in the cpwTable. Each index is unique
+        in describing an entry in this table. However
+        both indexes are required to define the one
+        to many association of service to pseudowire.
+
+        An entry in this table is instantiated only when 
+        LDP signalling is used to configure VPLS service.
+
+        Each entry in this table provides LDP specific
+        information for the VPlS represented by 
+        cvplsConfigIndex."
+    INDEX           {
+                        cvplsConfigIndex,
+                        cvplsPwBindIndex
+                    } 
+    ::= { cvplsLdpPwBindTable 1 }
+
+CvplsLdpPwBindEntry ::= SEQUENCE {
+        cvplsLdpPwBindMacAddressLimit Unsigned32
+}
+
+cvplsLdpPwBindMacAddressLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value of this object specifies the maximum number
+        of learned and static entries allowed in the
+        Forwarding database for this PW Binding. The value 0
+        means there is no limit for this PW Binding."
+    DEFVAL          { 0 } 
+    ::= { cvplsLdpPwBindEntry 1 }
+ 
+
+-- Compliance requirement for read-only implementations.
+
+cvplsLdpCompliances  OBJECT IDENTIFIER
+    ::= { cvplsLdpConformance 1 }
+
+
+cvplsLdpModuleFullCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance requirement for implementations that
+        provide full support for CISCO-IETF-VPLS-LDP-MIB.
+        Such devices can then be monitored and configured using 
+        this MIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cvplsLdpGroup }
+    ::= { cvplsLdpCompliances 1 }
+
+cvplsLdpModuleReadOnlyCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance requirement for implementations that only
+        provide read-only support for CISCO-IETF-VPLS-LDP-MIB.
+        Such devices can then be monitored but cannot be
+        configured using this MIB modules."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cvplsLdpGroup }
+
+    OBJECT          cvplsLdpConfigMacAddrWithdraw
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cvplsLdpPwBindMacAddressLimit
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { cvplsLdpCompliances 2 }
+-- Units of conformance.
+
+cvplsLdpGroups  OBJECT IDENTIFIER
+    ::= { cvplsLdpConformance 2 }
+
+
+cvplsLdpGroup OBJECT-GROUP
+    OBJECTS         {
+                        cvplsLdpConfigMacAddrWithdraw,
+                        cvplsLdpPwBindMacAddressLimit
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The group of objects supporting
+        management of L2VPN VPLS services using LDP."
+    ::= { cvplsLdpGroups 1 }
+
+END

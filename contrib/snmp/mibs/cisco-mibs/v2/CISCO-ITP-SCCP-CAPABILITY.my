@@ -1,0 +1,197 @@
+-- *****************************************************************
+-- CISCO-ITP-SCCP-CAPABILITY.my: Itp Signaling Connection Control  
+--                               Part Agent capability MIB
+--
+-- August 2001, John Linton
+--
+-- Copyright (c) 2001, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+CISCO-ITP-SCCP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+                
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+                
+        ciscoAgentCapability
+                FROM CISCO-SMI; 
+                
+
+ciscoItpSccpCapability MODULE-IDENTITY
+                LAST-UPDATED    "200203040000Z"
+                ORGANIZATION    "Cisco Systems, Inc."
+                CONTACT-INFO
+                        "       Cisco Systems
+                                Customer Service
+                        
+                        Postal: 170 West Tasman Drive
+                                San Jose, CA  95134
+                                USA
+                        
+                           Tel: +1 800 553-NETS
+                        
+                        E-mail: cs-ss7@cisco.com"
+                DESCRIPTION
+                        "Agent capabilities for the CISCO-ITP-SCCP-MIB."
+                REVISION        "200203040000Z"
+                DESCRIPTION
+                   "Changes required for the following modifications
+                    to the CISCO-ITP-SCCP-MIB.
+                    
+                    Added the following objects:
+                       CItpSccpGttPrefName
+                       cItpSccpPrefConfigLastChanged
+                       cItpSccpGttPrePrefConv
+                       cItpSccpGttPostPrefConv
+                       cItpSccpGttGtaAddrDispZB
+                       cItpSccpGttGtaAddrLenZB
+                       cItpSccpGttGtaAsName
+
+                    Added the following Tables:
+                       cItpSccpGttAppGrTable
+                       cItpSccpGttPrefTable
+
+                    Updated the following Textual Conventions:
+                       CItpSccpGttAppType
+                       CItpSccpGttGtaResType
+
+                    Deprecated the following objects:
+                       CItpSccpGttGtaAddrLen
+                       cItpSccpGttGtaAddrDisp
+                       cItpSccpGttGtaAddrLen
+
+                    Deprecated the following Tables:
+                       cItpSccpGttAppTable"
+                       
+                REVISION        "200110240000Z"
+                DESCRIPTION
+                        "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 221 }
+
+ciscoItpSccpCapabilityV12R024MB1 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.2(4)MB1"
+  STATUS          current
+  DESCRIPTION     "IOS 12.2(4)MB1 Cisco CISCO-ITP-SCCP-MIB.my User Agent
+                   MIB capabilities."
+
+SUPPORTS        CISCO-ITP-SCCP-MIB
+  INCLUDES      { 
+                        cItpSccpScalarsGroup,
+                        cItpSccpGttConPcGroup,
+                        cItpSccpGttMapGroup,
+                        cItpSccpGttSelGroup,
+                        cItpSccpGttGtaGroup,
+                        cItpSccpNotificationsGroup
+                }  
+                  
+  VARIATION      cItpSccpTotalMsgs
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpLocalMsgs
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpUDTMsgsSent
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpXUDTMsgsSent
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpLUDTMsgsSent
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpLUDTSMsgsSent
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpCrToMtp
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpCrefToMtp
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpRsrToMtp
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpErrToMtp
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+
+
+::= { ciscoItpSccpCapability 1 }
+
+ciscoItpSccpCapabilityV12R0204MB4 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.2(4)MB4"
+  STATUS          current
+  DESCRIPTION     "IOS 12.2(4)MB4 Cisco CISCO-ITP-SCCP-MIB.my User Agent
+                   MIB capabilities."
+
+SUPPORTS        CISCO-ITP-SCCP-MIB
+  INCLUDES      { 
+                        cItpSccpScalarsGroup,
+                        cItpSccpGttConPcGroup,
+                        cItpSccpGttMapGroup,
+                        cItpSccpNotificationsGroup,
+                        cItpSccpConfigStatusGroup,
+                        cItpSccpGttSelGroupRev1,
+                        cItpSccpGttGtaGroupRev1,
+                        cItpSccpGttAppGrGroup,
+                        cItpSccpGttPrefGroup
+                }  
+                  
+  VARIATION      cItpSccpTotalMsgs
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpLocalMsgs
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpUDTMsgsSent
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpXUDTMsgsSent
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpLUDTMsgsSent
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpLUDTSMsgsSent
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpCrToMtp
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpCrefToMtp
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpRsrToMtp
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+    
+  VARIATION      cItpSccpErrToMtp
+    ACCESS       not-implemented
+    DESCRIPTION "Not implemented."
+
+
+::= { ciscoItpSccpCapability 2 }
+
+END

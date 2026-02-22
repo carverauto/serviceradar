@@ -1,0 +1,3126 @@
+-- *****************************************************************
+-- CISCO-SESS-BORDER-CTRLR-CALL-STATS-MIB.my
+--   
+-- Copyright (c) 2007-2008, 2010 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-SESS-BORDER-CTRLR-CALL-STATS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter64,
+    Gauge32,
+    Counter32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    EntPhysicalIndexOrZero
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoSbcCallStatsMIB MODULE-IDENTITY
+    LAST-UPDATED    "201009030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+
+            San Jose, CA  95134
+
+            USA
+
+            Tel: +1 800 553-NETS
+            E-mail: sbc-dev@cisco.com"
+    DESCRIPTION
+        "The main purpose of this MIB is to define the statistics
+        information for Session Border Controller application. The 
+        statistics are mainly of two types - Call statistics and 
+        Media statistics. The calls can further be categorized as SIP 
+        calls and H.248 calls.
+
+        This MIB categorizes the statistics information into following
+        four types:
+        1. Global call statistics - Represents the global call related
+           statistics like call rates, media flows, signaling flows
+           etc.
+
+        2. Periodic statistics - Represents the SBC call statistics 
+           information for a particular time interval like current 5 
+           minutes, previous 5 minutes, current 15 minutes, previous 15
+           minutes, current hour and previous hour.
+
+        3. Per flow statistics - Represents the SBC media flow 
+           statistics. These are media statistics for each of the
+           current ongoing call flow.
+
+        4. H.248 statistics - Represents the H.248 call related 
+           statistics information when H.248 controller is associated
+           with SBC.
+
+        The Session Border Controller (SBC) enables direct IP-to-IP
+        interconnect between multiple administrative domains for
+        session-based services providing protocol inter-working,
+        security, and admission control and management. The SBC is a
+        voice over IP (VoIP) device that sits on the border of a 
+        network and controls call admission to that network. 
+
+        The primary purpose of an SBC is to protect the interior of the
+        network from excessive call load and malicious traffic.
+        Additional functions provided by the SBC include media bridging
+        and billing services. 
+
+
+        GLOSSARY
+        SBC: Session Border Controller
+
+        CSB: CISCO Session Border Controller
+
+        CAC: Call Admission Control - protects voice traffic from the
+        negative effects of other voice traffic and to keep excess
+        voice traffic off the network. It is used to prevent congestion
+        in Voice traffic. It is used in the Call Setup phase.
+
+        RTP: Real Time Transport Protocol - defines a standardized
+        packet format for delivering audio and video over the Internet.
+
+        RTCP: Real Time Control Protocol - It is a sister protocol of
+        the Real-time Transport Protocol (RTP). RTCP provides
+        out-of-band control information for an RTP flow. It partners
+        RTP in the delivery and packaging of multimedia data, but does
+        not transport any data itself. It is used periodically to
+        transmit control packets to participants in a streaming
+        multimedia session.
+
+        VMG: Virtual Media Gateway - introduced to bridge between
+        different transmission technologies and to add service to
+        end-user connections. Its architecture separates control and
+        connectivity functions into physically separate network layers.
+
+        VPN: Virtual Private Network - It is a communications network
+        tunneled through another network, and dedicated for a specific
+        network.
+
+        Gate Id - Context Identifiers assigned uniquely to a SIP/H.248
+        call flows.
+
+        Flow Pair Id: Stream Identifiers assigned uniquely to a
+        SIP/H.248 call flows.
+
+        Adjacency: An adjacency contains the system information to be
+        transmitted to next HOP.
+
+        REFERENCES
+        1. CISCO Session Border Controller Documents and FAQ
+        http://zed.cisco.com/confluence/display/SBC/SBC"
+    REVISION        "201009030000Z"
+    DESCRIPTION
+        "Updated existing tables by adding new fields. Below is the
+        description of changes for each table-
+
+        1. The statistics fields introduced in csbCallStatsTable are -
+                csbCallStatsAvailableTranscodeFlows
+                csbCallStatsActiveTranscodeFlows
+                csbCallStatsPeakTranscodeFlows
+                csbCallStatsTotalTranscodeFlows
+
+        2. The statistics fields introduced in csbCurrPeriodicStatsTable
+        are -
+
+                csbCurrPeriodicStatsTranscodedCalls
+                csbCurrPeriodicStatsTransratedCalls
+                csbCurrPeriodicStatsTotalCallUpdateFailure
+                csbCurrPeriodicStatsActiveIpv6Calls
+                csbCurrPeriodicStatsActiveE2EmergencyCalls
+                csbCurrPeriodicStatsImsRxActiveCalls
+                csbCurrPeriodicStatsImsRxCallSetupFaiures
+                csbCurrPeriodicStatsImsRxCallRenagotiationAttempts
+                csbCurrPeriodicStatsImsRxCallRenagotiationFailures
+                csbCurrPeriodicStatsAudioTranscodedCalls
+                csbCurrPeriodicStatsFaxTranscodedCalls
+                csbCurrPeriodicStatsRtpDisallowedFailures
+                csbCurrPeriodicStatsSrtpDisallowedFailures
+                csbCurrPeriodicStatsNonSrtpCalls
+                csbCurrPeriodicStatsSrtpNonIwCalls
+                csbCurrPeriodicStatsSrtpIwCalls
+                csbCurrPeriodicStatsDtmfIw2833Calls
+                csbCurrPeriodicStatsDtmfIwInbandCalls
+                csbCurrPeriodicStatsDtmfIw2833InbandCalls
+                csbCurrPeriodicStatsTotalTapsRequested
+                csbCurrPeriodicStatsTotalTapsSucceeded
+                csbCurrPeriodicStatsCurrentTaps
+
+        3. The statistics fields introduced in csbHistoryStatsTable
+        are-
+
+                csbHistoryStatsTranscodedCalls
+                csbHistoryStatsTransratedCalls
+                csbHistoryStatsTotalCallUpdateFailure
+                csbHistoryStatsActiveIpv6Calls
+                csbHistoryStatsActiveE2EmergencyCalls
+                csbHistoryStatsImsRxActiveCalls
+                csbHistoryStatsImsRxCallSetupFaiures
+                csbHistoryStatsImsRxCallRenagotiationAttempts
+                csbHistoryStatsImsRxCallRenagotiationFailures
+                csbHistoryStatsAudioTranscodedCalls
+                csbHistoryStatsFaxTranscodedCalls
+                csbHistoryStatsRtpDisallowedFailures
+                csbHistoryStatsSrtpDisallowedFailures
+                csbHistoryStatsNonSrtpCalls
+                csbHistoryStatsSrtpNonIwCalls
+                csbHistoryStatsSrtpIwCalls
+                csbHistoryStatsDtmfIw2833Calls
+                csbHistoryStatsDtmfIwInbandCalls
+                csbHistoryStatsDtmfIw2833InbandCalls
+                csbHistoryStatsTotalTapsRequested
+                csbHistoryStatsTotalTapsSucceeded
+                csbHistoryStatsCurrentTaps
+
+        4. The statistics field introduced in csbPerFlowStatsTable is-
+                csbPerFlowStatsRTPPktsLost"
+    REVISION        "200808270000Z"
+    DESCRIPTION
+        "Updated description for following objects
+        csbPerFlowStatsRTCPPktsSent 
+        csbPerFlowStatsRTCPPktsRcvd
+        csbPerFlowStatsRTCPPktsLost
+        Deprecated the csbH248StatsTable and replaced it with 
+        csbH248StatsRev1Table to correct problem with index."
+    REVISION        "200805290000Z"
+    DESCRIPTION
+        "Initial version of the MIB module."
+    ::= { ciscoMgmt 657 }
+
+
+
+CiscoSbcPeriodicStatsInterval ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This textual convention represents the interval values for
+        which the periodic stats and history stats are to be displayed.
+        fiveMinute - Interval to display current/previous 5 minutes
+        statistics information.
+        fifteenMinute - Interval to display current/previous 15 minutes
+        statistics information.
+        oneHour - Interval to display current/previous one hour
+        statistics information.
+        oneDay - Interval to display current/previous one day
+        statistics information."
+    SYNTAX          INTEGER  {
+                        fiveMinute(1),
+                        fifteenMinute(2),
+                        oneHour(3),
+                        oneDay(4)
+                    }
+ciscoSbcCallStatsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoSbcCallStatsMIB 0 }
+
+ciscoSbcCallStatsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoSbcCallStatsMIB 1 }
+
+ciscoSbcCallStatsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoSbcCallStatsMIB 2 }
+
+
+csbCallStatsInstanceTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbCallStatsInstanceEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The call stats instance table contains the physical index for
+        each of the physical entity (line card, primary, secondary
+        cards). The index of the table is instance index which uniquely
+        identifies the physical entity present on the box."
+    ::= { ciscoSbcCallStatsMIBObjects 1 }
+
+csbCallStatsInstanceEntry OBJECT-TYPE
+    SYNTAX          CsbCallStatsInstanceEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in csbCallStatsInstanceTable. There is an
+        entry in this table for each SBC instance, as identified by a 
+        value of csbCallStatsInstanceIndex."
+    INDEX           { csbCallStatsInstanceIndex } 
+    ::= { csbCallStatsInstanceTable 1 }
+
+CsbCallStatsInstanceEntry ::= SEQUENCE {
+        csbCallStatsInstanceIndex         Unsigned32,
+        csbCallStatsInstancePhysicalIndex EntPhysicalIndexOrZero
+}
+
+csbCallStatsInstanceIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies the sequence number of an
+        entity or slot that is configured per device. This index is
+        assigned arbitrarily by the engine and is not saved over
+        reboots." 
+    ::= { csbCallStatsInstanceEntry 1 }
+
+csbCallStatsInstancePhysicalIndex OBJECT-TYPE
+    SYNTAX          EntPhysicalIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the physical entity for which all the
+        measurements are maintained. The exact type of this
+        entity is described by its entPhysicalVendorType value." 
+    ::= { csbCallStatsInstanceEntry 2 }
+ 
+
+
+csbCallStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbCallStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the global statistics information in the
+        form of a table which contains call specific information like
+        call rates, media flows, signaling flows etc. The index of the
+        table is service index which corresponds to a particular 
+        service configured on the SBC and all the rows of the table
+        represents the global information regarding all the call flows
+        related to that particular service. The other index of this
+        table is csbCallStatsInstanceIndex which is defined in
+        csbCallStatsInstanceTable."
+    ::= { ciscoSbcCallStatsMIBObjects 2 }
+
+csbCallStatsEntry OBJECT-TYPE
+    SYNTAX          CsbCallStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An conceptual row in the csbCallStatsGlobalStatsTable. There is
+        an entry in this table for the particular service configured on
+        SBC identified by a value of csbCallStatsInstanceIndex. The
+        other index of this table is csbCallStatsInstanceIndex which is
+        defined in csbCallStatsInstanceTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex
+                    } 
+    ::= { csbCallStatsTable 1 }
+
+CsbCallStatsEntry ::= SEQUENCE {
+        csbCallStatsServiceIndex            Unsigned32,
+        csbCallStatsSbcName                 SnmpAdminString,
+        csbCallStatsCallsHigh               Unsigned32,
+        csbCallStatsRate1Sec                Gauge32,
+        csbCallStatsCallsLow                Unsigned32,
+        csbCallStatsAvailableFlows          Gauge32,
+        csbCallStatsUsedFlows               Gauge32,
+        csbCallStatsPeakFlows               Unsigned32,
+        csbCallStatsTotalFlows              Unsigned32,
+        csbCallStatsUsedSigFlows            Gauge32,
+        csbCallStatsPeakSigFlows            Unsigned32,
+        csbCallStatsTotalSigFlows           Unsigned32,
+        csbCallStatsAvailablePktRate        Gauge32,
+        csbCallStatsUnclassifiedPkts        Counter64,
+        csbCallStatsRTPPktsSent             Counter64,
+        csbCallStatsRTPPktsRcvd             Counter64,
+        csbCallStatsRTPPktsDiscard          Counter64,
+        csbCallStatsRTPOctetsSent           Counter64,
+        csbCallStatsRTPOctetsRcvd           Counter64,
+        csbCallStatsRTPOctetsDiscard        Counter64,
+        csbCallStatsNoMediaCount            Counter32,
+        csbCallStatsRouteErrors             Counter32,
+        csbCallStatsAvailableTranscodeFlows Gauge32,
+        csbCallStatsActiveTranscodeFlows    Gauge32,
+        csbCallStatsPeakTranscodeFlows      Unsigned32,
+        csbCallStatsTotalTranscodeFlows     Unsigned32
+}
+
+csbCallStatsServiceIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the index of the name of the SBC
+        service configured. This object also acts as an index for the
+        table." 
+    ::= { csbCallStatsEntry 1 }
+
+csbCallStatsSbcName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured name of the SBC service.
+        The length of this object is zero when value is not assigned
+        to it." 
+    ::= { csbCallStatsEntry 2 }
+
+csbCallStatsCallsHigh OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "calls per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of calls per second
+        processed by the Session Border Controller in past 24 hours." 
+    ::= { csbCallStatsEntry 3 }
+
+csbCallStatsRate1Sec OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average calls per second processed by
+        the Session Border Controller." 
+    ::= { csbCallStatsEntry 4 }
+
+csbCallStatsCallsLow OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "calls per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the minimum calls per second in past 24
+        hours." 
+    ::= { csbCallStatsEntry 5 }
+
+csbCallStatsAvailableFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of media flows which are
+        available." 
+    ::= { csbCallStatsEntry 6 }
+
+csbCallStatsUsedFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of media flows which are
+        used. This is for the flow allocated and connected. The flow
+        allocated but not connected is not counted." 
+    ::= { csbCallStatsEntry 7 }
+
+csbCallStatsPeakFlows OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of peak flows in SBC.
+        This is the highest recorded value for the active flows since
+        the box was booted/reseted." 
+    ::= { csbCallStatsEntry 8 }
+
+csbCallStatsTotalFlows OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of media support by this
+        instance of SBC. The total number of flows include the
+        available
+        flows and the active flows. This value is since box was
+        booted/reseted. Total flows include the active flows and the
+        flows allocated but not connected." 
+    ::= { csbCallStatsEntry 9 }
+
+csbCallStatsUsedSigFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "signal flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active signaling flows for
+        signaling pinholes." 
+    ::= { csbCallStatsEntry 10 }
+
+csbCallStatsPeakSigFlows OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "signal flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the peak signaling flow in SBC.
+        This is the highest recorded value for the active signaling
+        flows. This object is calculated using csbCallStatsUsedFlows." 
+    ::= { csbCallStatsEntry 11 }
+
+csbCallStatsTotalSigFlows OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "signal flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of Signalling Flows
+        that can be supported by this instance of SBC." 
+    ::= { csbCallStatsEntry 12 }
+
+csbCallStatsAvailablePktRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the remaining capacity that can be
+        supported by SBC." 
+    ::= { csbCallStatsEntry 13 }
+
+csbCallStatsUnclassifiedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of unclassified packets
+        processed by SBC." 
+    ::= { csbCallStatsEntry 14 }
+
+csbCallStatsRTPPktsSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of RTP packets sent." 
+    ::= { csbCallStatsEntry 15 }
+
+csbCallStatsRTPPktsRcvd OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of RTP packets
+        received." 
+    ::= { csbCallStatsEntry 16 }
+
+csbCallStatsRTPPktsDiscard OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of RTP packets
+        discarded." 
+    ::= { csbCallStatsEntry 17 }
+
+csbCallStatsRTPOctetsSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP octets sent by the
+        SBC." 
+    ::= { csbCallStatsEntry 18 }
+
+csbCallStatsRTPOctetsRcvd OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP octets received by
+        the SBC." 
+    ::= { csbCallStatsEntry 19 }
+
+csbCallStatsRTPOctetsDiscard OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP octets discarded by
+        the SBC." 
+    ::= { csbCallStatsEntry 20 }
+
+csbCallStatsNoMediaCount OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "no media events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the accumulated No media event
+        count." 
+    ::= { csbCallStatsEntry 21 }
+
+csbCallStatsRouteErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "route error events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the accumulated route error event
+        count. This counter is for the route error of media stream." 
+    ::= { csbCallStatsEntry 22 }
+
+csbCallStatsAvailableTranscodeFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of additional transcoded flows
+        that this media gateway manager (MGM) entity is currently able
+        to configure." 
+    ::= { csbCallStatsEntry 23 }
+
+csbCallStatsActiveTranscodeFlows OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current number of transcoded
+        flows that are actively forwarding media traffic.  In this
+        context, a flow is a media stream passing through the device.
+        So a single voice call will be counted only once." 
+    ::= { csbCallStatsEntry 24 }
+
+csbCallStatsPeakTranscodeFlows OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the peak number of active transcoded
+        flows since the statistics were last reset.  In this context, a
+        flow is a media stream passing through the device, so a single
+        voice call will be counted once." 
+    ::= { csbCallStatsEntry 25 }
+
+csbCallStatsTotalTranscodeFlows OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "flows"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the accumulated total number of
+        transcoded flows.  This count contains both active flows and
+        flows that were allocated but never connected.  In this context,
+        a flow is a media stream passing through the device, so a single
+        voice call will be counted once." 
+    ::= { csbCallStatsEntry 26 }
+ 
+
+
+csbCurrPeriodicStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbCurrPeriodicStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to collect measurement over several
+        different intervals as defined by the
+        csbCurrPeriodicStatsInterval object. When a new interval starts
+        the objects associated with the interval are reset and count up
+        throughout the interval. The index of the table is the interval
+        for which the stats information is to be displayed. The interval
+        values can be 5 min, 15 mins, 1 hour and one day. The other
+        indices of this table are csbCallStatsInstanceIndex
+        defined in csbCallStatsInstanceTable and
+        csbCallStatsServiceIndex defined in csbCallStatsTable.
+
+        The gauge values are reported as :-
+        1.If the period being queried is current5mins, this is the value
+        at the instant that the query is issued. 
+        2.Otherwise, for the other intevals, this is an average value
+        during the summary period sampled at 5 minute intervals."
+    ::= { ciscoSbcCallStatsMIBObjects 3 }
+
+csbCurrPeriodicStatsEntry OBJECT-TYPE
+    SYNTAX          CsbCurrPeriodicStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An conceptual row in the csbCurrPeriodicStatsTable. There is
+        an entry in this table for the particular controller by a value
+        of csbH248StatsCtrlrIndex. The other indices of this table are
+        csbCallStatsInstanceIndex defined in csbCallStatsInstanceTable
+        and csbCallStatsServiceIndex defined in csbCallStatsTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbCurrPeriodicStatsInterval
+                    } 
+    ::= { csbCurrPeriodicStatsTable 1 }
+
+CsbCurrPeriodicStatsEntry ::= SEQUENCE {
+        csbCurrPeriodicStatsInterval                       CiscoSbcPeriodicStatsInterval,
+        csbCurrPeriodicStatsActiveCalls                    Gauge32,
+        csbCurrPeriodicStatsActivatingCalls                Gauge32,
+        csbCurrPeriodicStatsDeactivatingCalls              Gauge32,
+        csbCurrPeriodicStatsTotalCallAttempts              Gauge32,
+        csbCurrPeriodicStatsFailedCallAttempts             Gauge32,
+        csbCurrPeriodicStatsCallRoutingFailure             Gauge32,
+        csbCurrPeriodicStatsCallResourceFailure            Gauge32,
+        csbCurrPeriodicStatsCallMediaFailure               Gauge32,
+        csbCurrPeriodicStatsCallSigFailure                 Gauge32,
+        csbCurrPeriodicStatsActiveCallFailure              Gauge32,
+        csbCurrPeriodicStatsCongestionFailure              Gauge32,
+        csbCurrPeriodicStatsCallSetupPolicyFailure         Gauge32,
+        csbCurrPeriodicStatsCallSetupNAPolicyFailure       Gauge32,
+        csbCurrPeriodicStatsCallSetupRoutingPolicyFailure  Gauge32,
+        csbCurrPeriodicStatsCallSetupCACPolicyFailure      Gauge32,
+        csbCurrPeriodicStatsCallSetupCACCallLimitFailure   Gauge32,
+        csbCurrPeriodicStatsCallSetupCACRateLimitFailure   Gauge32,
+        csbCurrPeriodicStatsCallSetupCACBandwidthFailure   Gauge32,
+        csbCurrPeriodicStatsCallSetupCACMediaLimitFailure  Gauge32,
+        csbCurrPeriodicStatsCallSetupCACMediaUpdateFailure Gauge32,
+        csbCurrPeriodicStatsTimestamp                      OCTET STRING,
+        csbCurrPeriodicStatsTranscodedCalls                Gauge32,
+        csbCurrPeriodicStatsTransratedCalls                Gauge32,
+        csbCurrPeriodicStatsTotalCallUpdateFailure         Gauge32,
+        csbCurrPeriodicStatsActiveIpv6Calls                Gauge32,
+        csbCurrPeriodicStatsActiveEmergencyCalls           Gauge32,
+        csbCurrPeriodicStatsActiveE2EmergencyCalls         Gauge32,
+        csbCurrPeriodicStatsImsRxActiveCalls               Gauge32,
+        csbCurrPeriodicStatsImsRxCallSetupFaiures          Gauge32,
+        csbCurrPeriodicStatsImsRxCallRenegotiationAttempts Gauge32,
+        csbCurrPeriodicStatsImsRxCallRenegotiationFailures Gauge32,
+        csbCurrPeriodicStatsAudioTranscodedCalls           Gauge32,
+        csbCurrPeriodicStatsFaxTranscodedCalls             Gauge32,
+        csbCurrPeriodicStatsRtpDisallowedFailures          Gauge32,
+        csbCurrPeriodicStatsSrtpDisallowedFailures         Gauge32,
+        csbCurrPeriodicStatsNonSrtpCalls                   Gauge32,
+        csbCurrPeriodicStatsSrtpNonIwCalls                 Gauge32,
+        csbCurrPeriodicStatsSrtpIwCalls                    Gauge32,
+        csbCurrPeriodicStatsDtmfIw2833Calls                Gauge32,
+        csbCurrPeriodicStatsDtmfIwInbandCalls              Gauge32,
+        csbCurrPeriodicStatsDtmfIw2833InbandCalls          Gauge32,
+        csbCurrPeriodicStatsTotalTapsRequested             Gauge32,
+        csbCurrPeriodicStatsTotalTapsSucceeded             Gauge32,
+        csbCurrPeriodicStatsCurrentTaps                    Gauge32,
+        csbCurrPeriodicIpsecCalls                          Gauge32
+}
+
+csbCurrPeriodicStatsInterval OBJECT-TYPE
+    SYNTAX          CiscoSbcPeriodicStatsInterval
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the interval for which the periodic
+        statistics information is to be displayed. The interval
+        values can be 5 min, 15 mins, 1 hour , 1 Day. This object acts
+        as index for the table." 
+    ::= { csbCurrPeriodicStatsEntry 1 }
+
+csbCurrPeriodicStatsActiveCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of calls that have become
+        active during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 2 }
+
+csbCurrPeriodicStatsActivatingCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of calls that have become
+        activing during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 3 }
+
+csbCurrPeriodicStatsDeactivatingCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of calls that have become
+        deactiving during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 4 }
+
+csbCurrPeriodicStatsTotalCallAttempts OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of total call attempts during
+        this interval." 
+    ::= { csbCurrPeriodicStatsEntry 5 }
+
+csbCurrPeriodicStatsFailedCallAttempts OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of failed call attempts during
+        this interval." 
+    ::= { csbCurrPeriodicStatsEntry 6 }
+
+csbCurrPeriodicStatsCallRoutingFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to routing failures during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 7 }
+
+csbCurrPeriodicStatsCallResourceFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to resource failures during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 8 }
+
+csbCurrPeriodicStatsCallMediaFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to media failure during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 9 }
+
+csbCurrPeriodicStatsCallSigFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to signaling failure during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 10 }
+
+csbCurrPeriodicStatsActiveCallFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active call failures during
+        this interval." 
+    ::= { csbCurrPeriodicStatsEntry 11 }
+
+csbCurrPeriodicStatsCongestionFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to congestion during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 12 }
+
+csbCurrPeriodicStatsCallSetupPolicyFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to policy failure during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 13 }
+
+csbCurrPeriodicStatsCallSetupNAPolicyFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to NA policy failure during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 14 }
+
+csbCurrPeriodicStatsCallSetupRoutingPolicyFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to routing policy failure during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 15 }
+
+csbCurrPeriodicStatsCallSetupCACPolicyFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to CAC policy failure during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 16 }
+
+csbCurrPeriodicStatsCallSetupCACCallLimitFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to CAC call limit during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 17 }
+
+csbCurrPeriodicStatsCallSetupCACRateLimitFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to CAC call rate limit during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 18 }
+
+csbCurrPeriodicStatsCallSetupCACBandwidthFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to CAC bandwidth limit during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 19 }
+
+csbCurrPeriodicStatsCallSetupCACMediaLimitFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to CAC media limit during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 20 }
+
+csbCurrPeriodicStatsCallSetupCACMediaUpdateFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call update failure due
+        to policy failure during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 21 }
+
+csbCurrPeriodicStatsTimestamp OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..80))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current time at the start of each
+        interval." 
+    ::= { csbCurrPeriodicStatsEntry 22 }
+
+csbCurrPeriodicStatsTranscodedCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object indicates the number of transcoded calls that are
+        active during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 23 }
+
+csbCurrPeriodicStatsTransratedCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object indicates the number of transrated calls that are
+        active during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 24 }
+
+csbCurrPeriodicStatsTotalCallUpdateFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of call update failures
+        during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 25 }
+
+csbCurrPeriodicStatsActiveIpv6Calls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Object indicates the number of calls through SBC that use
+        IPv6 signaling.  This statistic totals all calls that traverse
+        an IPv6 adjacency on either or both sides of SBC during this
+        interval." 
+    ::= { csbCurrPeriodicStatsEntry 26 }
+
+csbCurrPeriodicStatsActiveEmergencyCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of calls through SBC that have
+        been identified as emergency calls (by Number Analysis) during
+        this interval." 
+    ::= { csbCurrPeriodicStatsEntry 27 }
+
+csbCurrPeriodicStatsActiveE2EmergencyCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of calls through SBC that have
+        been identified as emergency calls (by Number Analysis) and
+        have used the e2 interface to obtain location information for
+        the caller during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 28 }
+
+csbCurrPeriodicStatsImsRxActiveCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of active calls which
+        use IMS Rx, during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 29 }
+
+csbCurrPeriodicStatsImsRxCallSetupFaiures OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call Setup failures owing to
+        IMS Rx failure during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 30 }
+
+csbCurrPeriodicStatsImsRxCallRenegotiationAttempts OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "attempts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call renegotiation attempts
+        using IMS Rx during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 31 }
+
+csbCurrPeriodicStatsImsRxCallRenegotiationFailures OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call renegotiation failures
+        owing to IMS Rx failure during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 32 }
+
+csbCurrPeriodicStatsAudioTranscodedCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of active audio transcoded calls through
+        this adjacency or account during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 33 }
+
+csbCurrPeriodicStatsFaxTranscodedCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the the number of active fax
+        transcoded calls through this adjacency or account during this
+        interval." 
+    ::= { csbCurrPeriodicStatsEntry 34 }
+
+csbCurrPeriodicStatsRtpDisallowedFailures OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call setup failures due to RTP
+        being proposed when not permitted during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 35 }
+
+csbCurrPeriodicStatsSrtpDisallowedFailures OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call setup failures due to SRTP
+        being proposed when not permitted during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 36 }
+
+csbCurrPeriodicStatsNonSrtpCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account which do not use SRTP on any
+        media channels during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 37 }
+
+csbCurrPeriodicStatsSrtpNonIwCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account that have one or more media
+        channels which use SRTP. This count does not include media 
+        channels that provide interworking between RTP and SRTP during
+        this interval." 
+    ::= { csbCurrPeriodicStatsEntry 38 }
+
+csbCurrPeriodicStatsSrtpIwCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account that have one or more media
+        channels that provide interworking between RTP and SRTP during
+        this interval." 
+    ::= { csbCurrPeriodicStatsEntry 39 }
+
+csbCurrPeriodicStatsDtmfIw2833Calls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account for which DTMF interworking
+        is enabled between DTMF in signaling and DTMF in media via RFC
+        2833 during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 40 }
+
+csbCurrPeriodicStatsDtmfIwInbandCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account for which DTMF interworking
+        is enabled between DTMF in signaling and DTMF in media via 
+        inband DTMF tones during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 41 }
+
+csbCurrPeriodicStatsDtmfIw2833InbandCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account for which DTMF interworking
+        is enabled between DTMF in media via RFC 2833 and DTMF in media
+        via inband DTMF tones during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 42 }
+
+csbCurrPeriodicStatsTotalTapsRequested OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "attempts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the lawful intercept tap attempts
+        requested within the scope of this query during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 43 }
+
+csbCurrPeriodicStatsTotalTapsSucceeded OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "success"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the lawful intercept tap attempts that
+        have been successfully implemented within the scope of this
+        query during this interval." 
+    ::= { csbCurrPeriodicStatsEntry 44 }
+
+csbCurrPeriodicStatsCurrentTaps OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "taps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Lawful intercept taps currently in
+        place on calls within the scope of this query during this
+        interval." 
+    ::= { csbCurrPeriodicStatsEntry 45 }
+
+csbCurrPeriodicIpsecCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of active calls on this adjacency or account which
+        are to or from registered subscribers using IPSEC during this
+        interval." 
+    ::= { csbCurrPeriodicStatsEntry 46 }
+ 
+
+
+csbHistoryStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbHistoryStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provide historical measurement in various interval
+        length defined by the csbHistoryStatsInterval object. Each
+        interval may contain one or more entries to allow for detailed
+        measurment to be collected. It is up to the platform to
+        determine the number of intervals to be supported like 
+        5 minutes, 15 minutes, 1 hour and 1 day. In addition, the number
+        of
+        historical entries is also determined by the platform
+        resources.
+
+        The gauge values are reported as:
+        If the period being queried is previous5mins, this is the number
+        of calls that were active at the end of the previous 5 minute
+        period. Otherwise for the other intevals, this is an average
+        value during the summary period, sampled at 5 minute intervals."
+    ::= { ciscoSbcCallStatsMIBObjects 4 }
+
+csbHistoryStatsEntry OBJECT-TYPE
+    SYNTAX          CsbHistoryStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the csbHistoryStatsTable. The entries in
+        this table are updated as interval completes in the
+        csbCurrPeriodicStatsTable table and the data is moved from that
+        table to this one."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbHistoryStatsInterval,
+                        csbHistoryStatsElements
+                    } 
+    ::= { csbHistoryStatsTable 1 }
+
+CsbHistoryStatsEntry ::= SEQUENCE {
+        csbHistoryStatsInterval                       CiscoSbcPeriodicStatsInterval,
+        csbHistoryStatsElements                       Unsigned32,
+        csbHistoryStatsActiveCalls                    Gauge32,
+        csbHistoryStatsTotalCallAttempts              Gauge32,
+        csbHistoryStatsFailedCallAttempts             Gauge32,
+        csbHistoryStatsCallRoutingFailure             Gauge32,
+        csbHistoryStatsCallResourceFailure            Gauge32,
+        csbHistoryStatsCallMediaFailure               Gauge32,
+        csbHistoryStatsFailSigFailure                 Gauge32,
+        csbHistoryStatsActiveCallFailure              Gauge32,
+        csbHistoryStatsCongestionFailure              Gauge32,
+        csbHistoryStatsCallSetupPolicyFailure         Gauge32,
+        csbHistoryStatsCallSetupNAPolicyFailure       Gauge32,
+        csbHistoryStatsCallSetupRoutingPolicyFailure  Gauge32,
+        csbHistoryStatsCallSetupCACPolicyFailure      Gauge32,
+        csbHistoryStatsCallSetupCACCallLimitFailure   Gauge32,
+        csbHistoryStatsCallSetupCACRateLimitFailure   Gauge32,
+        csbHistoryStatsCallSetupCACBandwidthFailure   Gauge32,
+        csbHistoryStatsCallSetupCACMediaLimitFailure  Gauge32,
+        csbHistoryStatsCallSetupCACMediaUpdateFailure Gauge32,
+        csbHistoryStatsTimestamp                      OCTET STRING,
+        csbHistroyStatsTranscodedCalls                Gauge32,
+        csbHistroyStatsTransratedCalls                Gauge32,
+        csbHistoryStatsTotalCallUpdateFailure         Gauge32,
+        csbHistoryStatsActiveIpv6Calls                Gauge32,
+        csbHistoryStatsActiveEmergencyCalls           Gauge32,
+        csbHistoryStatsActiveE2EmergencyCalls         Gauge32,
+        csbHistoryStatsImsRxActiveCalls               Gauge32,
+        csbHistoryStatsImsRxCallSetupFailures         Gauge32,
+        csbHistoryStatsImsRxCallRenegotiationAttempts Gauge32,
+        csbHistoryStatsImsRxCallRenegotiationFailures Gauge32,
+        csbHistoryStatsAudioTranscodedCalls           Gauge32,
+        csbHistoryStatsFaxTranscodedCalls             Gauge32,
+        csbHistoryStatsRtpDisallowedFailures          Gauge32,
+        csbHistoryStatsSrtpDisallowedFailures         Gauge32,
+        csbHistoryStatsNonSrtpCalls                   Gauge32,
+        csbHistoryStatsSrtpNonIwCalls                 Gauge32,
+        csbHistoryStatsSrtpIwCalls                    Gauge32,
+        csbHistoryStatsDtmfIw2833Calls                Gauge32,
+        csbHistoryStatsDtmfIwInbandCalls              Gauge32,
+        csbHistoryStatsDtmfIw2833InbandCalls          Gauge32,
+        csbHistoryStatsTotalTapsRequested             Gauge32,
+        csbHistoryStatsTotalTapsSucceeded             Gauge32,
+        csbHistoryStatsCurrentTaps                    Gauge32,
+        csbHistoryStatsIpsecCalls                     Gauge32
+}
+
+csbHistoryStatsInterval OBJECT-TYPE
+    SYNTAX          CiscoSbcPeriodicStatsInterval
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the interval for which the history
+        statistics information is to be displayed. The interval
+        values can be 5 min, 15 mins, 1 hour , 1 day. This object acts
+        as index for the table." 
+    ::= { csbHistoryStatsEntry 1 }
+
+csbHistoryStatsElements OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The platform assigns a number starting with one and
+        increments it each for each new row. When the maximum         
+        number of row is reached the oldest rows are deleted. It is up
+        to the platform to determine the number of entries for each
+        interval. It is recommended that each platform support at least
+        one entry for 5 min, 15 mins, 1 hour and 1 day intervals." 
+    ::= { csbHistoryStatsEntry 2 }
+
+csbHistoryStatsActiveCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls history during
+        this interval." 
+    ::= { csbHistoryStatsEntry 3 }
+
+csbHistoryStatsTotalCallAttempts OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of total call attempts history
+        during this interval." 
+    ::= { csbHistoryStatsEntry 4 }
+
+csbHistoryStatsFailedCallAttempts OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of failed call attempts during
+        this interval." 
+    ::= { csbHistoryStatsEntry 5 }
+
+csbHistoryStatsCallRoutingFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to routing failures during this interval." 
+    ::= { csbHistoryStatsEntry 6 }
+
+csbHistoryStatsCallResourceFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to resource failures during this interval." 
+    ::= { csbHistoryStatsEntry 7 }
+
+csbHistoryStatsCallMediaFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to media failure during this interval." 
+    ::= { csbHistoryStatsEntry 8 }
+
+csbHistoryStatsFailSigFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to signaling failure during this interval." 
+    ::= { csbHistoryStatsEntry 9 }
+
+csbHistoryStatsActiveCallFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active call failures during
+        this interval." 
+    ::= { csbHistoryStatsEntry 10 }
+
+csbHistoryStatsCongestionFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to congestion during this interval." 
+    ::= { csbHistoryStatsEntry 11 }
+
+csbHistoryStatsCallSetupPolicyFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to some policy violations during this interval." 
+    ::= { csbHistoryStatsEntry 12 }
+
+csbHistoryStatsCallSetupNAPolicyFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to NA policy failure during this interval." 
+    ::= { csbHistoryStatsEntry 13 }
+
+csbHistoryStatsCallSetupRoutingPolicyFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to routing policy failure during this interval." 
+    ::= { csbHistoryStatsEntry 14 }
+
+csbHistoryStatsCallSetupCACPolicyFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to CAC policy failure during this interval." 
+    ::= { csbHistoryStatsEntry 15 }
+
+csbHistoryStatsCallSetupCACCallLimitFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to CAC call limit during this interval." 
+    ::= { csbHistoryStatsEntry 16 }
+
+csbHistoryStatsCallSetupCACRateLimitFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to CAC call rate limit during this interval." 
+    ::= { csbHistoryStatsEntry 17 }
+
+csbHistoryStatsCallSetupCACBandwidthFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to CAC bandwidth limit during this interval." 
+    ::= { csbHistoryStatsEntry 18 }
+
+csbHistoryStatsCallSetupCACMediaLimitFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call setup failures due
+        to CAC media limit during this interval." 
+    ::= { csbHistoryStatsEntry 19 }
+
+csbHistoryStatsCallSetupCACMediaUpdateFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of call update failure due
+        to policy failure during this interval." 
+    ::= { csbHistoryStatsEntry 20 }
+
+csbHistoryStatsTimestamp OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..80))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the time at the start of the interval
+        when measurements were first collected for this interval in the
+        csbCurrPeriodicStatsTable." 
+    ::= { csbHistoryStatsEntry 21 }
+
+csbHistroyStatsTranscodedCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object indicates the number of active transcoded
+        calls during this interval." 
+    ::= { csbHistoryStatsEntry 22 }
+
+csbHistroyStatsTransratedCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The object indicates the number of active transrated
+        calls during this interval." 
+    ::= { csbHistoryStatsEntry 23 }
+
+csbHistoryStatsTotalCallUpdateFailure OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call update failures during
+        this interval." 
+    ::= { csbHistoryStatsEntry 24 }
+
+csbHistoryStatsActiveIpv6Calls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This Object indicates the number of calls through SBC that use
+        IPv6 signaling.  This statistic totals all calls that traverse
+        an IPv6 adjacency on either or both sides of SBC during this
+        interval." 
+    ::= { csbHistoryStatsEntry 25 }
+
+csbHistoryStatsActiveEmergencyCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of calls through SBC that have
+        been identified as emergency calls (by Number Analysis)  during
+        this interval." 
+    ::= { csbHistoryStatsEntry 26 }
+
+csbHistoryStatsActiveE2EmergencyCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of calls through SBC that have
+        been identified as emergency calls (by Number Analysis) and
+        have used the e2 interface to obtain location information for
+        the
+        caller." 
+    ::= { csbHistoryStatsEntry 27 }
+
+csbHistoryStatsImsRxActiveCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of active calls which
+        use IMS Rx, during this interval." 
+    ::= { csbHistoryStatsEntry 28 }
+
+csbHistoryStatsImsRxCallSetupFailures OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call setup failures owing to
+        IMS Rx failure during this interval." 
+    ::= { csbHistoryStatsEntry 29 }
+
+csbHistoryStatsImsRxCallRenegotiationAttempts OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "attempts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call renegotiation attempts
+        using IMS Rx during this interval." 
+    ::= { csbHistoryStatsEntry 30 }
+
+csbHistoryStatsImsRxCallRenegotiationFailures OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call renegotiation failures
+        owing to IMS Rx failure during this interval." 
+    ::= { csbHistoryStatsEntry 31 }
+
+csbHistoryStatsAudioTranscodedCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of active audio transcoded calls through
+        this adjacency or account during this interval." 
+    ::= { csbHistoryStatsEntry 32 }
+
+csbHistoryStatsFaxTranscodedCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the the number of active fax
+        transcoded calls through this adjacency or account during this
+        interval." 
+    ::= { csbHistoryStatsEntry 33 }
+
+csbHistoryStatsRtpDisallowedFailures OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call setup failures due to RTP
+        being proposed when not permitted during this interval." 
+    ::= { csbHistoryStatsEntry 34 }
+
+csbHistoryStatsSrtpDisallowedFailures OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "failures"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total call setup failures due to SRTP
+        being proposed when not permitted during this interval." 
+    ::= { csbHistoryStatsEntry 35 }
+
+csbHistoryStatsNonSrtpCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account which do not use SRTP on any
+        media channels during this interval." 
+    ::= { csbHistoryStatsEntry 36 }
+
+csbHistoryStatsSrtpNonIwCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account that have one or more media
+        channels that use SRTP but no media channels that provide
+        interworking between RTP and SRTP during this interval." 
+    ::= { csbHistoryStatsEntry 37 }
+
+csbHistoryStatsSrtpIwCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account that have one or more media
+        channels that provide interworking between RTP and SRTP during
+        this interval." 
+    ::= { csbHistoryStatsEntry 38 }
+
+csbHistoryStatsDtmfIw2833Calls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account for which DTMF interworking
+        is enabled between DTMF in signaling and DTMF in media via RFC
+        2833 during this interval." 
+    ::= { csbHistoryStatsEntry 39 }
+
+csbHistoryStatsDtmfIwInbandCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account for which DTMF interworking
+        is enabled between DTMF in signaling and DTMF in media via
+        inband DTMF tones during this interval." 
+    ::= { csbHistoryStatsEntry 40 }
+
+csbHistoryStatsDtmfIw2833InbandCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of active calls
+        through this adjacency or account for which DTMF interworking
+        is enabled between DTMF in media via RFC 2833 and DTMF in media
+        via inband DTMF tones during this interval." 
+    ::= { csbHistoryStatsEntry 41 }
+
+csbHistoryStatsTotalTapsRequested OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "attempts"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the lawful intercept tap attempts
+        requested within the scope of this query during this interval." 
+    ::= { csbHistoryStatsEntry 42 }
+
+csbHistoryStatsTotalTapsSucceeded OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "success"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the lawful intercept tap attempts that
+        have been successfully implemented within the scope of this
+        query during this interval." 
+    ::= { csbHistoryStatsEntry 43 }
+
+csbHistoryStatsCurrentTaps OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "taps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Lawful intercept taps currently in
+        place on calls within the scope of this query during this
+        interval." 
+    ::= { csbHistoryStatsEntry 44 }
+
+csbHistoryStatsIpsecCalls OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "calls"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of active calls on this adjacency or account which
+        are to or from registered subscribers using IPSEC during this
+        interval." 
+    ::= { csbHistoryStatsEntry 45 }
+ 
+
+
+csbPerFlowStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbPerFlowStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes statistics table for each call flow. The
+        indices of the table are virtual media gateway id, gate id,
+        falow pair id and side id (indices for side A or side B). The
+        other indices of this table are csbCallStatsInstanceIndex
+        defined in csbCallStatsInstanceTable and
+        csbCallStatsServiceIndex defined in csbCallStatsTable."
+    ::= { ciscoSbcCallStatsMIBObjects 5 }
+
+csbPerFlowStatsEntry OBJECT-TYPE
+    SYNTAX          CsbPerFlowStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An conceptual row in the csbPerFlowStatsTable. There is
+        an entry in this table for vdbe Id, gate id, flow pair id and
+        side id. The other indices of this table are
+        csbCallStatsInstanceIndex defined in csbCallStatsInstanceTable
+        and csbCallStatsServiceIndex defined in csbCallStatsTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbPerFlowStatsVdbeId,
+                        csbPerFlowStatsGateId,
+                        csbPerFlowStatsFlowPairId,
+                        csbPerFlowStatsSideId
+                    } 
+    ::= { csbPerFlowStatsTable 1 }
+
+CsbPerFlowStatsEntry ::= SEQUENCE {
+        csbPerFlowStatsVdbeId           Integer32,
+        csbPerFlowStatsGateId           Integer32,
+        csbPerFlowStatsFlowPairId       Integer32,
+        csbPerFlowStatsSideId           INTEGER,
+        csbPerFlowStatsFlowType         INTEGER,
+        csbPerFlowStatsRTPPktsSent      Counter64,
+        csbPerFlowStatsRTPPktsRcvd      Counter64,
+        csbPerFlowStatsRTPPktsDiscard   Counter64,
+        csbPerFlowStatsRTPOctetsSent    Counter64,
+        csbPerFlowStatsRTPOctetsRcvd    Counter64,
+        csbPerFlowStatsRTPOctetsDiscard Counter64,
+        csbPerFlowStatsRTCPPktsSent     Counter64,
+        csbPerFlowStatsRTCPPktsRcvd     Counter64,
+        csbPerFlowStatsRTCPPktsLost     Counter64,
+        csbPerFlowStatsEPJitter         Counter64,
+        csbPerFlowStatsTmanPerMbs       Gauge32,
+        csbPerFlowStatsTmanPerSdr       Gauge32,
+        csbPerFlowStatsDscpSettings     SnmpAdminString,
+        csbPerFlowStatsAdrStatus        OCTET STRING,
+        csbPerFlowStatsQASettings       OCTET STRING,
+        csbPerFlowStatsRTPPktsLost      Counter64
+}
+
+csbPerFlowStatsVdbeId OBJECT-TYPE
+    SYNTAX          Integer32 (0..255)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the virtual media gateway id. This
+        object also acts as an index for the table." 
+    ::= { csbPerFlowStatsEntry 1 }
+
+csbPerFlowStatsGateId OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the gate id. This object also acts as
+        an index for the table." 
+    ::= { csbPerFlowStatsEntry 2 }
+
+csbPerFlowStatsFlowPairId OBJECT-TYPE
+    SYNTAX          Integer32 (0..65535)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the flow pair id. This object also acts
+        as an index for the table." 
+    ::= { csbPerFlowStatsEntry 3 }
+
+csbPerFlowStatsSideId OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        sideA(1),
+                        sideB(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the index corresponding to side of flow
+        pair either side A or side B. This object also acts as an index
+        for the table." 
+    ::= { csbPerFlowStatsEntry 4 }
+
+csbPerFlowStatsFlowType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        media(1),
+                        signalling(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of the flow, like media flow,
+        signaling flow etc." 
+    ::= { csbPerFlowStatsEntry 5 }
+
+csbPerFlowStatsRTPPktsSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP packets sent per flow
+        by the SBC." 
+    ::= { csbPerFlowStatsEntry 6 }
+
+csbPerFlowStatsRTPPktsRcvd OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP packets received per
+        flow by the SBC." 
+    ::= { csbPerFlowStatsEntry 7 }
+
+csbPerFlowStatsRTPPktsDiscard OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP packets discarded  per
+        flow by the SBC." 
+    ::= { csbPerFlowStatsEntry 8 }
+
+csbPerFlowStatsRTPOctetsSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP octets sent
+        per flow by the SBC." 
+    ::= { csbPerFlowStatsEntry 9 }
+
+csbPerFlowStatsRTPOctetsRcvd OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP octets received
+        per flow by the SBC." 
+    ::= { csbPerFlowStatsEntry 10 }
+
+csbPerFlowStatsRTPOctetsDiscard OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP octets discarded
+        per flow by the SBC." 
+    ::= { csbPerFlowStatsEntry 11 }
+
+csbPerFlowStatsRTCPPktsSent OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of RTP packets sent by the remote end point to this
+        MG on this flow. Comparing this with the local number of RTP
+        packets received from the remote end point gives an indication
+        of how many incoming  packets were dropped on this leg of the
+        call. This information is from RTCP packet. Not all endpoints
+        report this statistic, if it is not available it will be set to
+        zero. This statistic will not be available for signaling flows." 
+    ::= { csbPerFlowStatsEntry 12 }
+
+csbPerFlowStatsRTCPPktsRcvd OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of RTP packets received by the remote end point from
+        this MG on this flow. Comparing this with the local number of
+        RTP packets sent from this MG to the remote endpoint gives an
+        indication of how many outgoing packets were dropped on this
+        leg of the call. This information is from RTCP packet. Not all
+        endpoints report this statistic, if it is not available it will
+        be set to zero. This statistic will not be available for
+        signaling flows." 
+    ::= { csbPerFlowStatsEntry 13 }
+
+csbPerFlowStatsRTCPPktsLost OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of RTP packets reported as lost by the remote end
+        point on this flow. This information is from RTCP packet. Not
+        all endpoints report this statistic, if it is not available it
+        will be set to zero. This statistic will not be available for
+        signaling flows." 
+    ::= { csbPerFlowStatsEntry 14 }
+
+csbPerFlowStatsEPJitter OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the End Point jitter per flow in the
+        SBC." 
+    ::= { csbPerFlowStatsEntry 15 }
+
+csbPerFlowStatsTmanPerMbs OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum burst size for the
+        current FlowPair." 
+    ::= { csbPerFlowStatsEntry 16 }
+
+csbPerFlowStatsTmanPerSdr OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "kilobytes per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the bandwidth reserved for flow in
+        kilobytes/second." 
+    ::= { csbPerFlowStatsEntry 17 }
+
+csbPerFlowStatsDscpSettings OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the mark packets sent for the
+        current FlowPair with, or zero if none set. The DSCP is a 6-bit
+        value, which will be present in the top 6 bits of the lowest
+        byte of this field." 
+    ::= { csbPerFlowStatsEntry 18 }
+
+csbPerFlowStatsAdrStatus OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..10))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates whether the flow on the current
+        FlowPair has subscribed for the NAT latch event." 
+    ::= { csbPerFlowStatsEntry 19 }
+
+csbPerFlowStatsQASettings OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..10))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the flow on the current FlowPair has
+        subscribed for the media loss event." 
+    ::= { csbPerFlowStatsEntry 20 }
+
+csbPerFlowStatsRTPPktsLost OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of RTP packets lost per flow
+        by the SBC." 
+    ::= { csbPerFlowStatsEntry 21 }
+ 
+
+
+csbH248StatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbH248StatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table describes the H.248 statistics for SBC. The index of
+        the table is service index which corresponds to a particular 
+        service configured on the SBC and the index assigned to a
+        particular H.248 controller. The other index of this table is
+        csbCallStatsInstanceIndex defined in csbCallStatsInstanceTable.
+        This table is replaced by the csbH248StatsRev1Table."
+    ::= { ciscoSbcCallStatsMIBObjects 6 }
+
+csbH248StatsEntry OBJECT-TYPE
+    SYNTAX          CsbH248StatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "An conceptual row in the csbCallStath248Table. There is
+        an entry in this table for the particular controller by a value
+        of csbH248StatsCtrlrIndex. The other indices of this table are
+        csbCallStatsInstanceIndex defined in csbCallStatsInstanceTable
+        and csbCallStatsServiceIndex defined in csbCallStatsTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbH248StatsCtrlrIndex
+                    } 
+    ::= { csbH248StatsTable 1 }
+
+CsbH248StatsEntry ::= SEQUENCE {
+        csbH248StatsCtrlrIndex      Integer32,
+        csbH248StatsRequestsSent    Counter32,
+        csbH248StatsRequestsRcvd    Counter32,
+        csbH248StatsRequestsFailed  Counter32,
+        csbH248StatsRequestsRetried Counter32,
+        csbH248StatsRepliesSent     Counter32,
+        csbH248StatsRepliesRcvd     Counter32,
+        csbH248StatsRepliesRetried  Counter32,
+        csbH248StatsSegPktsSent     Counter32,
+        csbH248StatsSegPktsRcvd     Counter32,
+        csbH248StatsEstablishedTime OCTET STRING,
+        csbH248StatsTMaxTimeoutVal  Integer32,
+        csbH248StatsRTT             Gauge32,
+        csbH248StatsLT              Gauge32
+}
+
+csbH248StatsCtrlrIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..50)
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object identifies the controller index of the H.248
+        server. This is also the index for the table." 
+    ::= { csbH248StatsEntry 1 }
+
+csbH248StatsRequestsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the requests sent through the Session
+        Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsEntry 2 }
+
+csbH248StatsRequestsRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the requests received through the
+        Session Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsEntry 3 }
+
+csbH248StatsRequestsFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the requests failed on session
+        Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsEntry 4 }
+
+csbH248StatsRequestsRetried OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the requests retried through the Session
+        Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsEntry 5 }
+
+csbH248StatsRepliesSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of replies sent through the
+        Session Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsEntry 6 }
+
+csbH248StatsRepliesRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of replies received from the
+        Session Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsEntry 7 }
+
+csbH248StatsRepliesRetried OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of replies retried through
+        the Session Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsEntry 8 }
+
+csbH248StatsSegPktsSent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of packets sent through the
+        Session Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsEntry 9 }
+
+csbH248StatsSegPktsRcvd OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of packets received from the
+        Session Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsEntry 10 }
+
+csbH248StatsEstablishedTime OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..80))
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the H.248 Controller established
+        time (the time at which the association became established)." 
+    ::= { csbH248StatsEntry 11 }
+
+csbH248StatsTMaxTimeoutVal OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the T-Max timeout value. This field
+        specifies the maximum delay (in milliseconds) for a response
+        from an MGC before deciding that the request has failed." 
+    ::= { csbH248StatsEntry 12 }
+
+csbH248StatsRTT OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the calculated RTT value. This field
+        specifies the maximum round trip propagation delay in the 
+        network (in milliseconds)." 
+    ::= { csbH248StatsEntry 13 }
+
+csbH248StatsLT OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the LT value calculated from RTT
+        value and Max timeout value. This field specifies the maximum
+        delay (in milliseconds) for a response from an MGC plus the
+        maximum round trip propagation delay in the network (in
+        milliseconds)." 
+    ::= { csbH248StatsEntry 14 }
+ 
+
+
+csbH248StatsRev1Table OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CsbH248StatsRev1Entry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the H.248 statistics for SBC. The index of
+        the table is service index which corresponds to a particular 
+        service configured on the SBC and the index assigned to a
+        particular H.248 controller. The other index of this table is
+        csbCallStatsInstanceIndex defined in csbCallStatsInstanceTable."
+    ::= { ciscoSbcCallStatsMIBObjects 7 }
+
+csbH248StatsRev1Entry OBJECT-TYPE
+    SYNTAX          CsbH248StatsRev1Entry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An conceptual row in the csbCallStath248Table. There is
+        an entry in this table for the particular Vdbe by a value
+        of csbH248StatsVdbeId. The other indices of this table are
+        csbCallStatsInstanceIndex defined in csbCallStatsInstanceTable
+        and csbCallStatsServiceIndex defined in csbCallStatsTable."
+    INDEX           {
+                        csbCallStatsInstanceIndex,
+                        csbCallStatsServiceIndex,
+                        csbH248StatsVdbeId
+                    } 
+    ::= { csbH248StatsRev1Table 1 }
+
+CsbH248StatsRev1Entry ::= SEQUENCE {
+        csbH248StatsVdbeId              Integer32,
+        csbH248StatsRequestsSentRev1    Counter32,
+        csbH248StatsRequestsRcvdRev1    Counter32,
+        csbH248StatsRequestsFailedRev1  Counter32,
+        csbH248StatsRequestsRetriedRev1 Counter32,
+        csbH248StatsRepliesSentRev1     Counter32,
+        csbH248StatsRepliesRcvdRev1     Counter32,
+        csbH248StatsRepliesRetriedRev1  Counter32,
+        csbH248StatsSegPktsSentRev1     Counter32,
+        csbH248StatsSegPktsRcvdRev1     Counter32,
+        csbH248StatsEstablishedTimeRev1 OCTET STRING,
+        csbH248StatsTMaxTimeoutValRev1  Integer32,
+        csbH248StatsRTTRev1             Gauge32,
+        csbH248StatsLTRev1              Gauge32
+}
+
+csbH248StatsVdbeId OBJECT-TYPE
+    SYNTAX          Integer32 (0..255)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the virtual media gateway id. This is
+        also the index for the table." 
+    ::= { csbH248StatsRev1Entry 1 }
+
+csbH248StatsRequestsSentRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the requests sent through the Session
+        Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsRev1Entry 2 }
+
+csbH248StatsRequestsRcvdRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the requests received through the
+        Session Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsRev1Entry 3 }
+
+csbH248StatsRequestsFailedRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the requests failed on session
+        Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsRev1Entry 4 }
+
+csbH248StatsRequestsRetriedRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the requests retried through the Session
+        Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsRev1Entry 5 }
+
+csbH248StatsRepliesSentRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of replies sent through the
+        Session Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsRev1Entry 6 }
+
+csbH248StatsRepliesRcvdRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of replies received from the
+        Session Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsRev1Entry 7 }
+
+csbH248StatsRepliesRetriedRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of replies retried through
+        the Session Controller Interface to an SBE or DBE." 
+    ::= { csbH248StatsRev1Entry 8 }
+
+csbH248StatsSegPktsSentRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of response segments sent by
+        DBE. This field will only be present if segmentation is enabled
+        on this association." 
+    ::= { csbH248StatsRev1Entry 9 }
+
+csbH248StatsSegPktsRcvdRev1 OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of response segments received
+        by DBE. This field will only be present if segmentation is
+        enabled on this association." 
+    ::= { csbH248StatsRev1Entry 10 }
+
+csbH248StatsEstablishedTimeRev1 OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (0..80))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the H.248 Controller established
+        time (the time at which the association became established)." 
+    ::= { csbH248StatsRev1Entry 11 }
+
+csbH248StatsTMaxTimeoutValRev1 OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the T-Max timeout value. This field
+        specifies the maximum delay (in milliseconds) for a response
+        from an MGC before deciding that the request has failed." 
+    ::= { csbH248StatsRev1Entry 12 }
+
+csbH248StatsRTTRev1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the calculated RTT value. This field
+        specifies the maximum round trip propagation delay in the 
+        network (in milliseconds)." 
+    ::= { csbH248StatsRev1Entry 13 }
+
+csbH248StatsLTRev1 OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the LT value calculated from RTT
+        value and Max timeout value. This field specifies the maximum
+        delay (in milliseconds) for a response from an MGC plus the
+        maximum round trip propagation delay in the network (in
+        milliseconds)." 
+    ::= { csbH248StatsRev1Entry 14 }
+ 
+
+csbCallStatsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoSbcCallStatsMIBConform 1 }
+
+csbCallStatsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoSbcCallStatsMIBConform 2 }
+
+
+csbCallStatsMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This is a default module-compliance
+        containing csbCallStatsMIBGroups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        csbGlobalStatsGroup,
+                        csbCurrPeriodicStatsGroup,
+                        csbHistoryStatsGroup,
+                        csbPerFlowStatsGroup,
+                        csbH248StatsGroup,
+                        csbStatsInstanceGroup
+                    }
+    ::= { csbCallStatsMIBCompliances 1 }
+
+csbCallStatsMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "This is a default module-compliance
+        containing csbCallStatsMIBGroups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        csbGlobalStatsGroup,
+                        csbCurrPeriodicStatsGroup,
+                        csbHistoryStatsGroup,
+                        csbPerFlowStatsGroup,
+                        csbH248StatsGroupRev1,
+                        csbStatsInstanceGroup
+                    }
+    ::= { csbCallStatsMIBCompliances 2 }
+
+csbCallStatsMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+        containing csbCallStatsMIBGroups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        csbGlobalStatsGroup,
+                        csbCurrPeriodicStatsGroup,
+                        csbHistoryStatsGroup,
+                        csbPerFlowStatsGroup,
+                        csbH248StatsGroupRev1,
+                        csbStatsInstanceGroup,
+                        csbGlobalStatsGroupSup1,
+                        csbCurrPeriodicStatsGroupSup1,
+                        csbHistoryStatsGroupSup1,
+                        csbPerFlowStatsGroupSup1
+                    }
+    ::= { csbCallStatsMIBCompliances 3 }
+
+csbStatsInstanceGroup OBJECT-GROUP
+    OBJECTS         { csbCallStatsInstancePhysicalIndex }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing physical entity index for
+        cisco Session border Controller (SBC)."
+    ::= { csbCallStatsMIBGroups 1 }
+
+-- Units of Conformance
+
+csbGlobalStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbCallStatsCallsHigh,
+                        csbCallStatsRate1Sec,
+                        csbCallStatsCallsLow,
+                        csbCallStatsAvailableFlows,
+                        csbCallStatsUsedFlows,
+                        csbCallStatsTotalFlows,
+                        csbCallStatsRTPPktsRcvd,
+                        csbCallStatsRTPPktsDiscard,
+                        csbCallStatsUsedSigFlows,
+                        csbCallStatsTotalSigFlows,
+                        csbCallStatsAvailablePktRate,
+                        csbCallStatsPeakFlows,
+                        csbCallStatsUnclassifiedPkts,
+                        csbCallStatsRTPOctetsSent,
+                        csbCallStatsRTPOctetsRcvd,
+                        csbCallStatsRTPOctetsDiscard,
+                        csbCallStatsPeakSigFlows,
+                        csbCallStatsSbcName,
+                        csbCallStatsRTPPktsSent,
+                        csbCallStatsNoMediaCount,
+                        csbCallStatsRouteErrors
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing global statistics for cisco
+        Session border Controller (SBC)."
+    ::= { csbCallStatsMIBGroups 2 }
+
+csbCurrPeriodicStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbCurrPeriodicStatsActiveCalls,
+                        csbCurrPeriodicStatsActivatingCalls,
+                        csbCurrPeriodicStatsDeactivatingCalls,
+                        csbCurrPeriodicStatsTotalCallAttempts,
+                        csbCurrPeriodicStatsFailedCallAttempts,
+                        csbCurrPeriodicStatsCallRoutingFailure,
+                        csbCurrPeriodicStatsCallResourceFailure,
+                        csbCurrPeriodicStatsCallMediaFailure,
+                        csbCurrPeriodicStatsCallSigFailure,
+                        csbCurrPeriodicStatsActiveCallFailure,
+                        csbCurrPeriodicStatsCongestionFailure,
+                        csbCurrPeriodicStatsCallSetupPolicyFailure,
+                        csbCurrPeriodicStatsCallSetupNAPolicyFailure,
+                        csbCurrPeriodicStatsCallSetupRoutingPolicyFailure,
+                        csbCurrPeriodicStatsCallSetupCACPolicyFailure,
+                        csbCurrPeriodicStatsCallSetupCACCallLimitFailure,
+                        csbCurrPeriodicStatsCallSetupCACRateLimitFailure,
+                        csbCurrPeriodicStatsCallSetupCACBandwidthFailure,
+                        csbCurrPeriodicStatsCallSetupCACMediaLimitFailure,
+                        csbCurrPeriodicStatsCallSetupCACMediaUpdateFailure,
+                        csbCurrPeriodicStatsTimestamp
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing current 5 minute statistics
+        for Cisco Session border Controller (SBC)."
+    ::= { csbCallStatsMIBGroups 3 }
+
+csbHistoryStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbHistoryStatsActiveCalls,
+                        csbHistoryStatsTotalCallAttempts,
+                        csbHistoryStatsFailedCallAttempts,
+                        csbHistoryStatsCallRoutingFailure,
+                        csbHistoryStatsCallResourceFailure,
+                        csbHistoryStatsCallMediaFailure,
+                        csbHistoryStatsFailSigFailure,
+                        csbHistoryStatsActiveCallFailure,
+                        csbHistoryStatsCongestionFailure,
+                        csbHistoryStatsCallSetupPolicyFailure,
+                        csbHistoryStatsCallSetupNAPolicyFailure,
+                        csbHistoryStatsCallSetupRoutingPolicyFailure,
+                        csbHistoryStatsCallSetupCACPolicyFailure,
+                        csbHistoryStatsCallSetupCACCallLimitFailure,
+                        csbHistoryStatsCallSetupCACRateLimitFailure,
+                        csbHistoryStatsCallSetupCACBandwidthFailure,
+                        csbHistoryStatsCallSetupCACMediaLimitFailure,
+                        csbHistoryStatsCallSetupCACMediaUpdateFailure,
+                        csbHistoryStatsTimestamp
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing previous 5 minute statistics
+        for Cisco Session border Controller (SBC)."
+    ::= { csbCallStatsMIBGroups 4 }
+
+csbPerFlowStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbPerFlowStatsRTPPktsRcvd,
+                        csbPerFlowStatsRTPPktsSent,
+                        csbPerFlowStatsRTPPktsDiscard,
+                        csbPerFlowStatsRTCPPktsSent,
+                        csbPerFlowStatsRTPOctetsRcvd,
+                        csbPerFlowStatsRTPOctetsSent,
+                        csbPerFlowStatsRTPOctetsDiscard,
+                        csbPerFlowStatsRTCPPktsRcvd,
+                        csbPerFlowStatsRTCPPktsLost,
+                        csbPerFlowStatsFlowType,
+                        csbPerFlowStatsTmanPerMbs,
+                        csbPerFlowStatsTmanPerSdr,
+                        csbPerFlowStatsDscpSettings,
+                        csbPerFlowStatsAdrStatus,
+                        csbPerFlowStatsQASettings,
+                        csbPerFlowStatsEPJitter
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing per flow statistics
+        for Cisco Session border Controller (SBC)."
+    ::= { csbCallStatsMIBGroups 5 }
+
+csbH248StatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        csbH248StatsRequestsSent,
+                        csbH248StatsRequestsRcvd,
+                        csbH248StatsRequestsFailed,
+                        csbH248StatsRequestsRetried,
+                        csbH248StatsRepliesSent,
+                        csbH248StatsRepliesRcvd,
+                        csbH248StatsRepliesRetried,
+                        csbH248StatsSegPktsSent,
+                        csbH248StatsSegPktsRcvd,
+                        csbH248StatsTMaxTimeoutVal,
+                        csbH248StatsRTT,
+                        csbH248StatsLT,
+                        csbH248StatsEstablishedTime
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing H.248 statistics for Cisco
+        Session border Controller (SBC)."
+    ::= { csbCallStatsMIBGroups 6 }
+
+csbH248StatsGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        csbH248StatsRequestsSentRev1,
+                        csbH248StatsRequestsRcvdRev1,
+                        csbH248StatsRequestsFailedRev1,
+                        csbH248StatsRequestsRetriedRev1,
+                        csbH248StatsRepliesSentRev1,
+                        csbH248StatsRepliesRcvdRev1,
+                        csbH248StatsRepliesRetriedRev1,
+                        csbH248StatsSegPktsSentRev1,
+                        csbH248StatsSegPktsRcvdRev1,
+                        csbH248StatsEstablishedTimeRev1,
+                        csbH248StatsTMaxTimeoutValRev1,
+                        csbH248StatsRTTRev1,
+                        csbH248StatsLTRev1
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing H.248 statistics for Cisco
+        Session border Controller (SBC)."
+    ::= { csbCallStatsMIBGroups 7 }
+
+csbGlobalStatsGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        csbCallStatsAvailableTranscodeFlows,
+                        csbCallStatsActiveTranscodeFlows,
+                        csbCallStatsPeakTranscodeFlows,
+                        csbCallStatsTotalTranscodeFlows
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing global statistics for cisco
+        Session border Controller (SBC)."
+    ::= { csbCallStatsMIBGroups 8 }
+
+csbCurrPeriodicStatsGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        csbCurrPeriodicStatsTranscodedCalls,
+                        csbCurrPeriodicStatsTransratedCalls,
+                        csbCurrPeriodicStatsTotalCallUpdateFailure,
+                        csbCurrPeriodicStatsActiveIpv6Calls,
+                        csbCurrPeriodicStatsActiveEmergencyCalls,
+                        csbCurrPeriodicStatsActiveE2EmergencyCalls,
+                        csbCurrPeriodicStatsImsRxActiveCalls,
+                        csbCurrPeriodicStatsImsRxCallSetupFaiures,
+                        csbCurrPeriodicStatsImsRxCallRenegotiationAttempts,
+                        csbCurrPeriodicStatsImsRxCallRenegotiationFailures,
+                        csbCurrPeriodicStatsAudioTranscodedCalls,
+                        csbCurrPeriodicStatsFaxTranscodedCalls,
+                        csbCurrPeriodicStatsRtpDisallowedFailures,
+                        csbCurrPeriodicStatsSrtpDisallowedFailures,
+                        csbCurrPeriodicStatsNonSrtpCalls,
+                        csbCurrPeriodicStatsSrtpNonIwCalls,
+                        csbCurrPeriodicStatsSrtpIwCalls,
+                        csbCurrPeriodicStatsDtmfIw2833Calls,
+                        csbCurrPeriodicStatsDtmfIwInbandCalls,
+                        csbCurrPeriodicStatsDtmfIw2833InbandCalls,
+                        csbCurrPeriodicStatsTotalTapsRequested,
+                        csbCurrPeriodicStatsTotalTapsSucceeded,
+                        csbCurrPeriodicStatsCurrentTaps,
+                        csbCurrPeriodicIpsecCalls
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing current 5 min, 15 min,  1
+        hour and 1 day statistics for Cisco Session border Controller
+        (SBC)."
+    ::= { csbCallStatsMIBGroups 9 }
+
+csbHistoryStatsGroupSup1 OBJECT-GROUP
+    OBJECTS         {
+                        csbHistroyStatsTranscodedCalls,
+                        csbHistroyStatsTransratedCalls,
+                        csbHistoryStatsTotalCallUpdateFailure,
+                        csbHistoryStatsActiveIpv6Calls,
+                        csbHistoryStatsActiveEmergencyCalls,
+                        csbHistoryStatsActiveE2EmergencyCalls,
+                        csbHistoryStatsImsRxActiveCalls,
+                        csbHistoryStatsImsRxCallSetupFailures,
+                        csbHistoryStatsImsRxCallRenegotiationAttempts,
+                        csbHistoryStatsImsRxCallRenegotiationFailures,
+                        csbHistoryStatsAudioTranscodedCalls,
+                        csbHistoryStatsFaxTranscodedCalls,
+                        csbHistoryStatsRtpDisallowedFailures,
+                        csbHistoryStatsSrtpDisallowedFailures,
+                        csbHistoryStatsNonSrtpCalls,
+                        csbHistoryStatsSrtpNonIwCalls,
+                        csbHistoryStatsSrtpIwCalls,
+                        csbHistoryStatsDtmfIw2833Calls,
+                        csbHistoryStatsDtmfIwInbandCalls,
+                        csbHistoryStatsDtmfIw2833InbandCalls,
+                        csbHistoryStatsTotalTapsRequested,
+                        csbHistoryStatsTotalTapsSucceeded,
+                        csbHistoryStatsCurrentTaps,
+                        csbHistoryStatsIpsecCalls
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing current 5 min, 15 min,  1
+        hour and 1 day statistics for Cisco Session border Controller
+        (SBC)."
+    ::= { csbCallStatsMIBGroups 10 }
+
+csbPerFlowStatsGroupSup1 OBJECT-GROUP
+    OBJECTS         { csbPerFlowStatsRTPPktsLost }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing per flow statistics
+        for Cisco Session border Controller (SBC)."
+    ::= { csbCallStatsMIBGroups 11 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

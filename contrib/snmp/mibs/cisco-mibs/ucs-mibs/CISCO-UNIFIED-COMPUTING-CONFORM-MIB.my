@@ -1,0 +1,113 @@
+-- ********************************************************************
+-- CISCO-UNIFIED-COMPUTING-CONFORM-MIB.my
+-- 
+-- UCS Fault conformance
+--
+-- Copyright (c) 2005-2010 Cisco Systems, Inc. All rights reserved.
+-- ********************************************************************
+
+CISCO-UNIFIED-COMPUTING-CONFORM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE
+                FROM SNMPv2-SMI
+    	ciscoMgmt
+			FROM CISCO-SMI
+        ciscoUnifiedComputingMIB,
+		ciscoUnifiedComputingMIBObjects
+            FROM CISCO-UNIFIED-COMPUTING-MIB
+        cucsFaultDescription,
+        cucsFaultAffectedObjectId,
+        cucsFaultAffectedObjectDn,
+        cucsFaultCreationTime,
+        cucsFaultLastModificationTime,
+        cucsFaultCode,
+        cucsFaultType,
+        cucsFaultProbableCause,
+        cucsFaultSeverity,
+        cucsFaultOccur
+            FROM CISCO-UNIFIED-COMPUTING-FAULT-MIB
+        cucsFaultActiveNotif,
+        cucsFaultClearNotif
+            FROM CISCO-UNIFIED-COMPUTING-NOTIFS-MIB;
+
+ciscoUnifiedComputingMIBConform MODULE-IDENTITY
+        LAST-UPDATED  "201001290000Z" 
+        ORGANIZATION  "Cisco"
+        CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: savbu-snmp-dev@cisco.com"
+      DESCRIPTION
+         "Cisco UCS MIB conformance"
+      REVISION "201001290000Z" 
+      DESCRIPTION
+         "Initial version of this MIB module."
+   ::= { ciscoUnifiedComputingMIB 2 }
+
+cucsFaultMIBConform OBJECT IDENTIFIER
+    ::= { ciscoUnifiedComputingMIBConform 1 }
+
+cucsFaultMIBCompliances OBJECT IDENTIFIER
+    ::= { cucsFaultMIBConform 1 }
+
+cucsFaultMIBGroups OBJECT IDENTIFIER
+    ::= { cucsFaultMIBConform 2 }
+
+cucsFaultMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities that support
+        the Cisco UCS Fault Managed Objects."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cucsFaultsNotifGroup
+                    }
+
+    GROUP           cucsFaultsGroup
+    DESCRIPTION
+        "The UCS Fault optional group contains
+        objects for features that may not be implemented
+        on all systems."
+
+    ::= { cucsFaultMIBCompliances 1 }
+
+-- Compliance Groups
+
+cucsFaultsGroup OBJECT-GROUP
+        OBJECTS         {
+                        cucsFaultDescription,
+                        cucsFaultAffectedObjectId,
+                        cucsFaultAffectedObjectDn,
+                        cucsFaultCreationTime,
+                        cucsFaultLastModificationTime,
+                        cucsFaultCode,
+                        cucsFaultType,
+                        cucsFaultProbableCause,
+                        cucsFaultSeverity,
+                        cucsFaultOccur
+                        }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing UCS fault information."
+    ::= { cucsFaultMIBGroups 1 }
+                        
+cucsFaultsNotifGroup NOTIFICATION-GROUP
+    NOTIFICATIONS   {
+                        cucsFaultActiveNotif,
+                        cucsFaultClearNotif
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The set of UCS notifications defined by this MIB."
+    ::= { cucsFaultMIBGroups 2 }
+
+END

@@ -1,0 +1,1279 @@
+Changes in MIB support on the Catalyst 6000 and 7600 series switches 
+from Catalyst OS release to release. If not specifically mentioned, the 
+implementation is the same as the previous Catalyst OS software release.
+
+Last updated 05/09/2008. The full MIB support list is available at
+http://www.cisco.com/public/mibs/supportlists/wsc6000/wsc6000-supportlist-catos.html
+
+------------------------------------------------------------------------------------
+
+Changes in supervisor module software version 8.7(2):
+
+        CISCO-IEEE8021-CFM-EXT-MIB
+                -- New MIB
+
+        IEEE8021-CFM-MIB
+                -- New MIB
+
+        IEEE8021-CFM-V2-MIB
+                -- New MIB
+
+        CISCO-PAE-MIB
+                -- Support the following new MIB group
+                     - cpaeDot1xSuppToGuestVlanGroup
+
+Changes in supervisor module software version 8.7(1):
+
+        CISCO-CAT6K-CROSSBAR-MIB
+                -- Support the following new MIB groups
+                     - cc6kxbarTruncatedOperGroup
+                     - cc6kxbarForceBusModeGroup
+                     - cc6kxbarSwBusGroup1
+                     - cc6kxbarErrorGroup
+                     - cc6kxbarErrRcvryThresholdGroup
+                     - cc6kxbarErrRcvrySwitchoverGroup
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Support the following new MIB groups
+                     - caqDownloadClassifierGroup
+                     - caqIpOperClassifierGroup
+                     - caqSecurityDownloadAclInfoGroup
+                     - caqSecurityDownloadIpAceGroup
+                     - caqIfDownloadAclMapGroup
+                     - caqIfIpPhoneMapGroup
+                     - caqArpLoggingSourceGroup
+                     - caqIpAceTypeGroup
+
+        CISCO-DHCP-SNOOPING-MIB
+                -- Support the following new MIB groups
+                     - cdsBindingsHostnameGroup
+                     - cdsStaticBindingsGroup
+                     - cdsStatisticsExtGroup
+
+        CISCO-IF-EXTENSION-MIB
+                -- Added ciscoIfExtUtilIntervalGroup support
+
+        CISCO-NAC-NAD-MIB
+                -- Support the following new MIB groups
+                     - ciscoNacNadEouHostUrlRedir
+                     - cnnEouIfIpDevTrackConfigGrp
+
+        CISCO-PAE-MIB
+                -- Added ipAwaiting(8), policyConfig(9) for
+                   cpaeMacAuthBypassPortAuthState
+                -- Support the following new MIB groups
+                     - cpaeMabAuditInfoGroup
+                     - cpaeHostUrlRedirectGroup
+                     - cpaeMabPortIpDevTrackConfGroup
+                     - cpaePortIpDevTrackConfGroup
+                     - cpaeWebAuthIpDevTrackingGroup
+                     - cpaeWebAuthUnAuthTimeoutGroup
+                     - cpaeGlobalAuthFailVlanGroup
+                     - cpaeGlobalSecViolationGroup
+                     - cpaeCriticalEapolConfigGroup
+                     - cpaeMacAuthBypassPortEnableGroup
+                     - cpaeMacAuthBypassGroup4
+                     - cpaeAuthIabConfigGroup
+                     - cpaeAuthConfigGroup3
+                     - cpaeAuthConfigGroup4
+
+        CISCO-RADIUS-MIB
+                -- Added crmRadiusKeepAliveUserGroup support
+
+        CISCO-STACK-MIB
+                -- Add more new enum type in chassisSysType
+                -- Add more new enum type in chassisComponentType
+                -- Add more new enum type in chassisPs1Type
+                -- Add more new enum type in chassisPs2Type
+                -- Add more new enum type in moduleType
+                -- Add more new enum type in moduleSubType
+                -- Add more new enum type in moduleSubType2
+                -- Add more new enum type in portType
+                -- Added dom(46), mvrp(47) for syslogMessageFacility
+                -- Added ipPermitGroup3 support
+
+        CISCO-SYSTEM-MIB
+                -- Support the following new MIB groups
+                -- Removed default values for the following
+                     - csySummerTimeStatus
+                     - csySummerTimeOffset
+                     - csySummerTimeRecurringStart
+                     - csySummerTimeRecurringEnd
+
+
+Changes in supervisor module software version 8.6:
+
+        BRIDGE-MIB
+                -- RFC 4188
+
+        CISCO-CAT6K-CROSSBAR-MIB
+                -- Support the following new MIB groups
+                     - cc6kxbarFlowCtrlNotifCtrlGroup
+                     - cc6kxbarFlowCtrlBusThreshGroup
+                     - cc6kxbarFlowCtrlBusThrNotifGroup
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Added include(9) for caqSecurityAction
+                -- Support the following new MIB groups
+                     - caqQosL3StatsRateGroup
+                     - caqQosL3StatsPeakGroup
+                     - caqAggPolicerOctetsRateGroup
+                     - caqAggPolicerPacketsRateGroup
+                     - caqAggPolicerOctetsPeakGroup 
+                     - caqAggPolicerPacketsPeakGroup
+                     - caqQosPortRateGroup
+                     - caqQosPortPeakGroup
+                     - caqSecurityActionDnldAceGroup
+
+        CISCO-DHCP-SNOOPING-MIB
+                -- Support the following new MIB groups
+                     - cdsBindingsLimitGroup
+                     - cdsStaticBindingsGroup
+                     - cdsIfFeatureConfigGroup
+                     - cdsIfSrcGuardIpFilterGroup
+                     - cdsIfSrcGuardTrafficFilterGroup
+                     - cdsIfSrcGuardExtGroup
+                     - cdsIfSrcGuardGroupRev1
+
+        CISCO-ENHANCED-MEMPOOL-MIB
+                -- New MIB
+
+        CISCO-ENTITY-DIAG-MIB
+                -- New MIB
+
+        CISCO-L2-CONTROL-MIB
+                -- Added vlanMacLimitHigh(2) and vlanLimitHighExceededAction(3)
+                   for caqSecurityAction
+                -- Support the following new MIB groups
+                     - clcMacAddressLimitGroup
+                     - clcMacAddressLimitGroup1
+                     - clcVlanMacAddressLimitGroup
+                     - clcVlanMacAddressLimitGroup1
+                     - clcMacAddressLimitIntervalGroup
+                     - clcVlanMacLimitNotifsGroup
+                     - clcVlanMacLimitNotifsGroup1
+                     - clcVlanMacLimitEnableGroup
+                     - clcIfMacAddressLimitGroup
+                     - clcIfMacLimitEnableGroup
+                     - clcIfMacLimitNotifsGroup
+                     - clcIfVlanMacAddressLimitGroup
+                     - clcIfVlanMacLimitEnableGroup
+                     - clcIfVlanMacLimitNotifsGroup
+
+        CISCO-NAC-NAD-MIB
+                -- Added initializePostureTokenStr(23),
+                   revalidatePostureTokenStr(24), noRevalidatePostureTokenStr(25)
+                   for cnnEouHostValidateAction
+                -- Added postureTokenString(9) for cnnEouHostQueryMask
+                -- Support the following new MIB groups
+                     - ciscoNacNadEouHostGrp
+                     - ciscoNacNadEouIfAaaFailPolicyGrp
+                     - cnnIpDeviceTrackingConfigGrp
+                     - cnnEouCriticalRecoveryDelayGrp
+
+        CISCO-OPTICAL-MONITOR-MIB
+                -- New MIB
+
+        CISCO-PACKET-CAPTURE-MIB
+                -- New MIB
+
+        CISCO-PAE-MIB
+                -- Added aaaFail(7) for cpaeMacAuthBypassPortAuthState
+                -- Added aaaFail(9) for cpaeWebAuthHostState
+                -- Support the following new MIB groups
+                     - cpaeAuthConfigGroup2
+                     - cpaeWebAuthAaaFailGroup
+                     - cpaeMacAuthBypassGroup2
+                     - cpaePortEapolTestGroup
+                     - cpaePortAuthFailVlanGroup2
+                     - cpaeMacAuthBypassCriticalGroup
+                     - cpaeWebAuthCriticalGroup
+                     - cpaeHostInfoGroup2
+
+        CISCO-POLICY-GROUP-MIB
+                -- New MIB
+
+        CISCO-POWER-ETHERNET-EXT-MIB
+                -- Added disable(5) for cpeExtPsePortEnable
+                -- Support the following new MIB groups
+                     - cpeExtPortEntityIndexGroup
+                     - cpeExtMainPseGroup2
+                     - cpeExtPseGrpPwrGroup
+
+        CISCO-RADIUS-MIB
+                -- Support the following new MIB groups
+                     - crmAttributesGroup2
+                     - crmKeepAliveGroup
+                     - crmAutoInitializeConfigGroup
+
+        CISCO-SNMP-USM-OIDS-MIB
+                -- New MIB
+
+        SNMP-USM-AES-MIB
+                -- RFC 3826
+
+        SNMPv2-MIB
+                -- RFC 3418
+
+Changes in supervisor module software version 8.5:
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Added matchEapoudp(7) and matchUrlRedirect(8)
+                  for caqIpAceProtocolMatchCriteria
+
+        CISCO-ENTITY-FRU-CONTROL-MIB
+                -- Support the following new MIB groups
+                     - cefcMIBNotificationEnablesGroup2
+                     - cefcMgmtNotificationsGroup3
+                     - cefcPowerCapacityGroup
+                     - cefcCoolingGroup
+                     - cefcConnectorRatingGroup
+                     - cefcMIBInLinePowerControlGroupRev1
+                -- Add powerCycle(5) for PowerAdminType
+                -- Add the following values for PowerOperType
+                     - offCooling(10)
+                     - offConnectorRating(11)
+
+        CISCO-FLEX-LINKS-MIB
+                -- New MIB
+
+        CISCO-L2-TUNNEL-CONFIG-MIB
+                -- Add eoam(3) for cltcTunneledProtocolType
+                -- Add eoam(5) for cltcTunnelThresholdProtocolIndex
+                -- Add eoam(5) for cltcTunneledProtocolIndex
+
+        CISCO-NAC-NAD-MIB
+                -- New MIB
+
+        CISCO-PAE-MIB
+                -- Support the following new MIB groups
+                     - cpaeGuestVlanGroup3
+                     - cpaePortAuthFailVlanGroup
+                     - cpaePortOperVlanGroup
+                     - cpaeNoGuestVlanNotifEnableGrp
+                     - cpaeNoAuthFailVlanNotifEnableGrp
+                     - cpaeNoGuestVlanNotifGroup
+                     - cpaeNoAuthFailVlanNotifGroup
+                     - cpaeMacAuthBypassGroup
+                     - cpaeWebAuthGroup
+                     - cpaeAuthConfigGroup
+                     - cpaeHostInfoGroup
+
+        CISCO-POWER-ETHERNET-EXT-MIB
+                -- Support the following new MIB groups
+                     - cpeExtPsePortPwrMonitorGroup
+                     - cpeExtMainPseGroup
+                -- Add limit(3) for cpeExtPsePortEnable
+                -- Add overdraw(1) for cpeExtPsePortAdditionalStatus
+
+        CISCO-RMON-CONFIG-MIB
+                -- Support the following new MIB groups
+                     - crcSpanDstPermitListGroup
+
+        CISCO-STP-EXTENSIONS-MIB
+                -- Support the following new MIB groups
+                     - stpxPathCostOperModeGroup
+                     - stpxRSTPTransmitHoldCountGroup
+                     - stpxSMSTPortMSTModeGroup
+                     - stpxSMSTMaxHopCountGroup
+                     - stpxSMSTConfigDigestGroup
+
+        CISCO-SWITCH-ENGINE-MIB
+                -- Add null(7) for cseFlowIPFlowMask
+
+        CISCO-SYS-INFO-LOG-MIB
+                -- Add ftp(3) for csilServerProtocol
+                -- Add ftpError(10) to csilServerLastStatus
+
+        ENTITY-SENSOR-MIB
+                -- RFC 3433
+                -- New MIB
+
+Changes in supervisor module software version 8.4:
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Added caqVlanAclHitCountGroup
+                -- Added caqPortAclHitCountGroup
+                -- Added caqAclFeatureGroup
+                -- Added caqMacPktClassifyVlanGroup
+                -- Added caqMacAceExtGroup
+                -- Added caqAclHitCountGroup
+
+        CISCO-CONFIG-COPY-MIB
+                -- New MIB
+
+        CISCO-LINK-ERROR-MONITOR-MIB
+                -- New MIB
+
+        CISCO-NETFLOW-MIB
+                -- New MIB
+
+        CISCO-MAU-EXT-MIB
+                -- New MIB
+
+        CISCO-POWER-ETHERNET-EXT-MIB
+                -- New MIB
+
+        CISCO-QOS-PIB-MIB
+                -- Added oneP3Q8t(34) for QosInterfaceQueueType.
+
+        CISCO-RADIUS-MIB
+                -- New MIB
+
+        CISCO-RMON-CONFIG-MIB
+                -- Allow multiple portCopyDest for same portCopySource.
+
+        CISCO-SECURE-SHELL-MIB
+                -- New MIB
+
+        CISCO-STP-EXTENSIONS-MIB
+                -- Added stpxSMSTInstanceCISTGroup
+                -- Add the following BITS for stpxNotificationEnable
+                     inconsistency(2)
+                     rootInconsistency(3)
+                     loopInconsistency(4)
+
+        CISCO-SWITCH-ENGINE-MIB
+                -- Added cseNetflowASInfoExportGroup support
+                -- Added cseNetflowPerVlanIfGroup support
+
+        CISCO-VLAN-TRANSLATION-MIB
+                -- New MIB
+
+        CISCO-VMPS-MIB
+                -- Added ciscoVlanMemberPolicyServerRcpGroup2 support
+
+        HC-ALARM-MIB
+                -- New MIB
+
+        MAU-MIB
+                -- New MIB
+
+        POWER-ETHERNET-MIB
+                -- New MIB
+
+        RMON-MIB
+                -- Added RFC 2819 support
+
+        SMON-MIB
+                -- Allow multiple portCopyDest for same portCopySource.
+
+
+Changes in supervisor module software version 8.3:
+
+        CISCO-CABLE-DIAG-MIB
+                -- New MIB
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Added caqIpAceSrcGroup support
+                -- Added caqIpAceDestGroup support
+                -- Added caqIfSecurityAclConfigGroup support
+                -- Added dhcpSnooping(2) for caqSecurityRateLimitFeatures
+
+        CISCO-DHCP-SNOOPING-MIB
+                -- New MIB
+
+        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+                -- New MIB
+
+        CISCO-ENTITY-DISPLAY-MIB
+                -- New MIB
+
+        CISCO-ENTITY-EXT-MIB
+                -- New MIB
+
+        CISCO-ENTITY-FRU-CONTROL-MIB
+                -- Added cefcIntelliModuleGroup support
+
+        CISCO-FLASH-MIB
+                -- Added ciscoFlashCopyVerify support
+
+        CISCO-IF-EXTENSIONS-MIB
+                -- New MIB
+
+        CISCO-L2-CONTROL-MIB
+                -- New MIB
+
+        CISCO-MAC-NOTIFICATION-MIB
+                -- Added cmnMACMoveGroup support
+                -- Added cmnMACThresholdGroup support
+                -- Added cmnMACMoveNotifGroup support
+                -- Added cmnMACThresholdNotifGroup support
+                -- Added cmnMacMoveNotification support
+                -- Added cmnMacThresholdExceedNotif support
+
+        CISCO-MODULE-AUTO-SHUTDOWN-MIB
+                -- New MIB
+
+        CISCO-NDE-MIB
+                -- New MIB
+
+        CISCO-PAE-MIB
+                -- Added cpaeRadiusConfigGroup support
+                -- Added cpaeUserGroupGroup support
+
+        CISCO-PING-MIB
+                -- New MIB
+
+        CISCO-PORT-SECURITY-MIB
+                -- New MIB
+
+        CISCO-STACK-MIB
+                -- Added enabledForNewRootOnly(3) and enabledForTopoChangeOnly(4)
+                   for sysEnableBridgeTraps
+                -- Add more new enum type in moduleType
+                -- Add more new enum type in moduleSubType
+                -- Add more new enum type in moduleSubType2
+                -- Add more new enum type in portType
+                -- Added autoDetect10100(2) for portAdminSpeed
+                -- Added dhcpsnooping(38) for syslogMessageFacility
+
+        CISCO-STP-EXTENSIONS-MIB
+                -- Added stpxMSTGroup3 support
+                -- Added stpxSMSTGroup support
+                -- Added stpxSMSTInstanceGroup support
+                -- Added stpxSMSTInstanceEditGroup support
+                -- Added stpxSMSTPortStatusGroup support
+                -- Added stpxSMSTPortHelloTimeGroup support
+                -- Added stpxExtendedSysIDGroup support
+                -- Added stpxNotificationEnableGroup support
+                -- Added stpxFastStartOperModeGroup support
+                -- Added master(7) for stpxMSTPortRoleValue
+                -- Added master(7) for stpxRSTPPortRoleValue
+
+        CISCO-SVI-AUTOSTATE-MIB
+                -- New MIB
+
+        CISCO-SWITCH-ENGINE-MIB
+                -- Added cseCefFibAdjacencyGroup support
+                -- Added cseCefAdjacencyEncapGroup support
+                -- Added cseTcamUsageGroup support
+
+        CISCO-VLAN-MEMBERSHIP-MIB
+                -- Added vmVoiceVlanCdpVerifyEnable support
+
+        CISCO-VMPS-MIB
+                -- Added ciscoVmpsAutoBackupGroup support
+
+        CISCO-VTP-MIB
+                -- Added dynamicGvrp(4) for VlanTypeExt
+                -- Added vtpServerDisabled support
+                -- Added vtpInternalVlanGrp support
+
+        ENTITY-MIB
+                -- Changed entPhysicalHwVersion to contain VID info
+
+        IEEE8021-PAE-MIB
+                -- Added in(1) for dot1xAuthAdminControlledDirections
+
+        IF-MIB
+                -- Added ifTable and ifXTable support for inband port
+                -- Added ifTable and ifXTable statistics support for layer 2 vlans
+
+        P-BRIDGE-MIB
+                -- New MIB
+
+        Q-BRIDGE-MIB
+                -- New MIB
+
+        SNMPv2-MIB
+                -- New MIB
+ 
+Changes in supervisor module software version 8.2:
+
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Added caqSecurityRedirect2kPortList support
+
+        CISCO-VLAN-BRIDGING-MIB
+                -- Added cvbStoForwardingMap2k support
+
+        CISCO-VLAN-MEMBERSHIP-MIB
+                -- Added vmMembershipSummaryMemberPorts support
+
+
+Changes in supervisor module software version 8.1:
+
+        CISCO-CALLHOME-MIB
+                -- New MIB
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Added oneP7Q8t(33) for QosInterfaceQueueType
+                -- Added caqClassifierMapDirection support
+                -- Added caqDscpRewriteEnabled support
+                -- Added caqDscpMutationMapTable support
+                -- Added caqVlanMutationIdMapTable support
+                -- Added caqQosDefaultActionTable support
+
+        CISCO-CAT6k-CROSSBAR-MIB
+                -- Added cc6kxbarModuleChannelSpeed support
+
+        CISCO-ENTITY-ASSET-MIB
+                -- New MIB
+
+        CISCO-IGMP-SNOOPING-MIB
+                -- Added cisAdminMode support
+                -- Added cisOperMode support
+                -- Added cisLeaveQueryType support
+                -- Added cisAddressAliasingMode support
+                -- Added cisFallbackTime support
+                -- Added cisRateLimitGroup support
+                -- Added cisIgmpQuerierTable support
+
+        CISCO-L2-TUNNEL-CONFIG-MIB
+                -- Added support for trunking interfaces
+
+        CISCO-LAG-MIB
+                -- Added vlanIpPort(4) for ClagDistributionProtocol
+
+        CISCO-PAE-MIB
+                -- Added cpaeGuestVlanNumber support
+                -- Added cpaeInGuestVlan support
+
+        CISCO-PAGP-MIB
+                -- Added vlanIpPort(4) for pagpDistributionProtocol
+
+        CISCO-RF-MIB
+                -- New MIB
+
+        CISCO-SWITCH-ENGINE-MIB
+                -- Added cseFlowLongAgingTime support
+                -- Added cseNetFlowIfIndexEnable support
+                -- Added cseFlowStatsTable support
+                -- Added cseFlowExcludeTable support
+                -- Added cseL3VlanInPkts support
+                -- Added cseL3VlanInOctets support
+
+        CISCO-SYS-INFO-LOG-MIB
+                -- New MIB
+
+        CISCO-UDLDP-MIB
+                -- Added cudldpGlobalMode support
+                -- Added cudldpInterfaceAdminMode support
+                -- Added cudldpInterfaceOperMode support
+
+        CISCO-VTP-MIB
+                -- Added vtpAuthGroup support
+                -- Added vtpDiscoverGroup support
+                -- Added vtpDatabaseGroup support
+                -- Modify the following existing MIB objects:
+                     -- vtpVersion
+                     -- managementDomainLocalMode
+                     -- managementDomainConfigRevNumber
+                     -- managementDomainLastUpdater
+                     -- managementDomainLastChange
+                     -- managementDomainVersionInUse
+
+        ENTITY-MIB
+                -- Added entAliasMappingTable support
+
+
+Changes in supervisor module software version 7.6:
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Added oneP1Q0t(27), oneP1Q4t(28), oneP1Q8t(29),
+                   oneP2Q1t(30), oneP2Q2t(31), oneP3Q1t(32) support for
+                   QosInterfaceQueueType.
+                -- Added dot1xDHCP(1) for caqSecurityRateLimitFeatures.
+
+        CISCO-ENVMON-MIB
+                -- Add ciscoEnvMonEnableStatChangeNotif support
+                -- Add ciscoEnvMonFanStatusChangeNotif support
+                -- Add ciscoEnvMonSuppStatusChangeNotif support
+                -- Add ciscoEnvMonTempStatusChangeNotif support
+
+        CISCO-IP-IF-MIB
+                -- New MIB
+
+        CISCO-PAE-MIB
+                -- Added cpaeShutdownTimeout support
+                -- Added cpaeShutdownTimeoutEnable support
+
+        CISCO-QOS-PIB-MIB
+                -- Added oneP1Q0t(27), oneP1Q4t(28), oneP1Q8t(29),
+                   oneP2Q1t(30), oneP2Q2t(31), oneP3Q1t(32),
+                   oneP7Q8t(33) for QosInterfaceQueueType.
+
+Changes in supervisor module software version 7.5:
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Added caqSecurityRateLimitFeatures support
+                -- Added caqSecurityAclRateLimit support
+                -- Added denyWithLog(5), denyArpInspection(6),
+                   denyArpInspWithLog(7) for caqSecurityAction
+                -- Added caqSecurityArpMacAddress support
+                -- Added caqAclLogMaxFlow support
+                -- Added caqAclSecurityLoggingRateLimit support
+                -- Added caqAclRouterAclRateLimit support
+                -- Added caqIpFlowLoggingTable support
+                -- Added caqAclArpInspMatchMac support
+                -- Added caqArpInspGlobalForwardedPkts support
+                -- Added caqArpInspGlobalDroppedPkts support
+                -- Added caqRARPForwardedPkts support
+                -- Added caqArpInspStatsTable support
+                -- Added caqIfArpInspConfigTable support
+
+        CISCO-FLASH-MIB
+                -- Added ciscoFlashCfgDevInsNotifEnable
+                -- Added ciscoFlashCfgDevRemNotifEnable
+                -- Added ciscoFlashDeviceInsertedNotif support
+                -- Added ciscoFlashDeviceRemovedNotif support
+
+        CISCO-IGMP-SNOOPING-MIB
+                -- New MIB
+
+        CISCO-L2-TUNNEL-CONFIG-MIB
+                -- Added cltcDot1qAllTaggedEnabled support
+                -- Added cltcDot1qAllTaggedIfTable support
+
+        CISCO-MAC-NOTIFICATION-MIB
+                -- New MIB
+
+        CISCO-PAE-MIB
+                -- Added cpaePortMode support
+                -- Added cpaeGuestVlanId support
+
+        CISCO-STACK-MIB
+                -- Added broadcast(2) for filterPortSuppressionOption
+
+        CISCO-STP-EXTENSIONS-MIB
+                -- Added stpxUplinkFastOperEnabled support
+                -- Added rapidPvstPlus(5) for stpxPVSTVlanEnable
+                -- Added stpxBackboneFastOperEnabled support
+                -- Added rapidPvstPlus(5) for stpxSpanningTreeType
+                -- Added stpxRSTPPortTable support
+                -- Added stpxRSTPPortRoleTable support
+                -- Added stpxRPVSTPortTable support
+
+        CISCO-SWITCH-ENGINE-MIB
+                -- Added support for the following:
+                      cseBridgedFlowStatsCtrlTable
+                      cseErrorStatsTable
+                      cseL3VlanInUnicastPkts
+                      cseL3VlanInUnicastOctets
+                      cseL3VlanOutUnicastPkts
+                      cseL3VlanOutUnicastOctets
+                      cseFlowIPFlowMask
+                      cseFlowIPXFlowMask
+                      cseProtocolFilterEnable
+
+        CISCO-SYSLOG-MIB
+                -- Modify implementation for clogMaxSeverity,
+                   clogMsgIgnores, and clogMsgDrops.
+
+        CISCO-VLAN-MEMBERSHIP-MIB
+                -- Added vmVoiceVlanTable support
+
+        CISCO-VMPS-MIB
+                -- Added vmpsRcpRemoteUserName support
+
+        CISCO-VTP-MIB
+                -- Added vtpVlanCreatedNotifEnabled support
+                -- Added vtpVlanDeletedNotifEnabled support
+                -- Added vtpLocalModeChanged support
+                -- Added vtpVerionInUseChanged support
+                -- Added vtpVlanCreated support
+                -- Added vtpVlanDeleted support
+
+        ENTITY-MIB
+                -- Added entPhysicalHardwareRev support
+                -- Added entPhysicalFirmwareRev support
+                -- Added entPhysicalSoftwareRev support
+                -- Added entPhysicalSerialNum support
+                -- Added entPhysicalMfgName support
+                -- Added entPhysicalModelName support
+                -- Added entPhysicalAlias support
+                -- Added entPhysicalIsFRU support
+
+        EtherLike-MIB
+                -- Added dot3StatsSymbolErrors support
+                -- Added dot3StatsDuplexStatus support
+
+        IF-MIB
+                -- Added ifTableLastChange support
+                -- Added ifStackLastChange support
+                -- Added lowerLayerDown(7) for ifOperStatus
+                -- Added ifAlias support
+                -- Added ifCounterDiscontinuityTime support
+
+        RFC1213-MIB
+                -- Added sc1 support
+
+Changes in supervisor module software version 7.2:
+
+        CISCO-AAA-CLIENT-MIB
+                -- Added cacLockoutPeriodExt
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- add the extended Trust for CDP Devices
+                -- added the Burst Size/Rate Limit Enhancement
+
+        CISCO-CDP-MIB
+                -- Added cdpInterfaceExtTable support
+
+        CISCO-ENVMON-MIB
+                -- Add ciscoEnvMonTemperatureStatusTable support
+                -- Add ciscoEnvMonEnableTemperatureNotification support
+                -- Add power supply fan in ciscoEnvMonFanStatusTable
+
+        CISCO-L2-TUNNEL-CONFIG-MIB
+                -- New MIB
+
+        CISCO-PAGP-MIB
+                -- Added port(3) to pagpDistributionProtocol
+
+        CISCO-PROCESS-MIB
+                -- Support latest version of MIB
+
+        CISCO-STACK-MIB
+                -- Added portErrDisableTimeOutEnable support
+                -- Added filterPortSuppressionViolation support
+                -- Added more bits in sysErrDisableTimeoutEnable
+        
+        CISCO-STP-EXTENSIONS-MIB
+                -- Added per port Bpdu Guard configuration support
+                -- Added per port Filter mode configuration support
+
+        CISCO-SWITCH-ENGINE-MIB
+                -- Added cseFlowQueryTotalFlows
+
+-------------------------------------------------------------------------------
+Changes in supervisor module software version 7.1:
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Add the caqPbfObjects group support
+                -- Modify caqSecurityActionTable to support policy based forwarding
+
+        CISCO-ENTITY-FRU-CONTROL-MIB
+                -- Add the following MIB objects support:
+                        cefcModuleTable
+                        cefcMIBEnableStatusNotification
+
+                -- Add the following traps support:
+                        cefcModuleStatusChange
+                        cefcPowerStatusChange
+                        cefcFRUInserted
+                        cefcFRURemoved
+
+        CISCO-ENVMON-MIB
+                -- New MIB
+
+        CISCO-LAG-MIB
+                -- New MIB
+
+        CISCO-MEMORY-POOL-MIB
+                -- Add ciscoMemoryPoolUtilizationTable support
+
+        CISCO-PAE-MIB
+                -- New MIB
+
+        CISCO-STACK-MIB
+                -- Add the following MIB objects support;
+                       portCpbDot1x 
+                       portCpbIgmpFilter
+                -- Add a new enum type portTopN10GigaEthernet(8)
+                       in portTopNType;
+
+        CISCO-STP-EXTENSIONS-MIB
+                -- Add the following MIB objects support;
+                       stpxLoopGuardGlobalDefaultMode
+                       stpxLoopGuardConfigMode
+                       stpxFastStartGlobalDefaultMode
+                       stpxFastStartPortMode
+                -- Add a new enum type mst(4) in stpxSpanningTreeType;
+                -- Add the objects under stpxMSTObjects support;
+                -- Deprecated the following MIB objects:
+                       stpxFastStartPortEnable
+                       stpxLoopGuardConfigEnabled
+
+        CISCO-SWITCH-ENGINE-MIB
+                -- Add the following MIB objects support:
+                       cseL3VlanOutPkts
+                       cseL3VlanOutOctets
+
+        IEEE8021-PAE-MIB
+                -- New MIB
+
+        IEEE8023-LAG-MIB
+                -- New MIB
+
+        SMON-MIB
+                -- Add the following MIB objects support:
+                       dataSourceCapsTable
+                       smonVlanStatsControlTable
+                       smonVlanIdStatsTable
+
+Changes in supervisor module software version 6.3:
+        CISCO-AAA-CLIENT-MIB
+                -- New MIB
+
+        CISCO-CAT6k-CROSSBAR-MIB
+                -- New MIB
+
+        CISCO-CATOS-ACL-QOS-MIB
+                -- Add the following MIB objects support:
+                         caqAggPolicerName
+                         caqAggPolicerPackets
+                         caqAggPolicerNRExceedPackets
+                         caqAggPolicerERExceedPackets
+
+        CISCO-CDP-MIB
+                -- Support the additional MIB objects added in REVISION
+                   200104230000Z and REVISION 200011220000Z;
+
+        CISCO-PRIVATE-VLAN-MIB
+            -- Add sc0 interface support 
+
+        CISCO-RMON-CONFIG-MIB
+                -- Add the following new MIB objects support:
+                        portCopyMaxIngressSessions
+                        portCopyMaxEgressSessions
+                        portCopySessionType
+                        portCopyOption
+
+        CISCO-STACK-MIB
+                -- Add the configGrp support
+                -- Add the sysStatus (under systemGrp) support
+
+        CISCO-STP-EXTENSIONS-MIB
+                -- Add stpxBpduSkewingOjbects support
+
+        CISCO-SYSTEM-MIB
+                -- Add csySnmpAuthentication support
+                -- Add csyGeneral support
+                -- Add ciscoSystemClockChanged trap support
+
+        CISCO-VTP-MIB 
+                -- Add the following two traps 
+                         vtpConfigDigestError   
+                         vtpConfigRevNumberError 
+
+        SNMP-COMMUNITY-MIB
+                -- New MIB
+
+        SNMP-FRAMEWORK-MIB
+                -- Upgrade from RFC2271 to RFC2571
+
+        SNMP-MPD-MIB
+                -- Upgrade from RFC2272 to RFC2572
+
+        SNMP-NOTIFICATION-MIB
+                -- Upgrade from RFC2273 to RFC2573
+
+        SNMP-TARGET-MIB
+                -- Upgrade from RFC2273 to RFC2573
+
+        SNMP-USM-MIB
+                -- Upgrade from RFC2274 to RFC2574
+
+        SNMP-VACM-MIB
+                -- Upgrade from RFC2274 to RFC2575
+
+-------------------------------------------------------------------------------
+
+Changes in supervisor module software version 6.2:
+        CISCO-CATOS-ACL-QOS-MIB
+                -- New mib
+
+        CISCO-FLASH-MIB
+                -- Add support for ciscoFlashDeviceChangeTrap
+
+        CISCO-PRIVATE-VLAN-MIB
+                -- New mib
+
+        CISCO-QOS-POLICY-CONFIG-MIB
+                -- New mib
+
+        CISCO-STACK-MIB
+                -- added the following MIB objects under systemGrp:
+                        sysMaxRmonMemory
+                        sysMacReductionAdminEnable
+                        sysMacReductionOperEnable
+                        syslogTelnetEnable
+                -- added the following MIB object under fileCopyGrp:
+                        fileCopyRuntimeConfigPart
+                -- added the following MIB object under filterPortTable:
+                        filterPortSuppressionOption
+
+        CISCO-STP-EXTENSIONS-MIB  
+                -- added stpxPVSTVlanTable
+                -- added stpxLoopGuardConfigTable  
+                -- added stpxLoopInconsistencyTable   
+                -- added the following MIB objects in stpxMISTPInstanceTable 
+                         stpxMISTPInstanceVlansMapped
+                         stpxMISTPInstanceVlansMapped2k
+                         stpxMISTPInstanceVlansMapped3k
+                         stpxMISTPInstanceVlansMapped4k     
+                -- added the following MIB objects under stpxFastStartObjects
+                         stpxFastStartBpduGuardEnable 
+                         stpxFastStartBpduFilterEnable
+                         stpxFastStartPortTable      
+                -- added stpxLoopInconsistencyUpdate support
+
+
+        CISCO-SWITCH-ENGINE-MIB  
+                -- added the following MIB objects:
+                        cseFlowOperEstablishedAgingTime
+                        cseFlowOperFastAgingTime
+                        cseFlowOperFastAgePktThreshold
+                        cseFlowOperIPXAgingTime
+
+        CISCO-VTP-MIB
+                -- added the following MIB objects:
+                        vtpVlanIfIndex
+                        vtpVlanEditTypeExt2
+                -- added the following trap:
+                        vlanTrunkPortDynamicStatusChange
+
+        HC-RMON-MIB
+                -- added mediaIndependentTable support 
+
+-------------------------------------------------------------------------------
+Changes in supervisor module software version 6.1:
+        BRIDGE-MIB
+                -- modified the implementation of dot1dStaticTable to support
+                   MAC Filter feature;
+                -- When spantree type is in MISTP mode, this MIB can be accessed 
+                   for a particular vlanNo and/or MISPT instanceNo.
+
+        CISCO-COPS-CLIENT-MIB
+                -- added support for optional role configuration
+
+        CISCO-STACK-MIB
+                -- added portJumboFrameGrp MIB objects
+                -- added sshPublicKeySize MIB object under systemGrp
+                -- added copyTechReportFromRuntimToHost(12) in fileCopyAction
+                   MIB object;
+                -- added trunk VLAN mapping configuration MIB objects under
+                   vlanGrp;
+                -- modified moduleStandbyStatus implementation to be also used
+                   for reporting the redundant status for the multiple 128Crux 
+                   modules in the chassis.
+                -- added 4k vlan range support for the following MIB objects: 
+                         sysIpVlan
+                         moduleIPAddressVlan
+                         vlanTable
+                         vlanPortVlan 
+                         vlanPortAuxiliaryVlan
+
+        CISCO-STP-EXTENSIONS-MIB
+                -- added stpxRootGuardGroup MIB objects and
+                   stpxRootInconsistencyNotificationsGroup;
+                -- added stpxLongPathCostModeGroup MIB objects; 
+                -- added MIB objects for supporting MISTP feature;
+                -- added MIB objects for supporting 4k Vlans; 
+
+        CISCO-SWITCH-ENGINE-MIB
+                -- added the support for cseL2StatsHCTable;
+       
+        CISCO-VLAN-MEMBERSHIP-MIB
+                -- Added 4k VLAN support;
+
+        CISCO-VMPS-MIB
+                -- Added this MIB support;
+
+        CISCO-VTP-MIB
+                -- Added 4k VLAN editing and Dot1qTunnel support;
+
+-------------------------------------------------------------------------------
+Changes in supervisor module software version 5.5(1):
+        CISCO-ENTITY-FRU-CONTROL-MIB.my
+                -- add the MIB objects for configuring port inline
+                   power and inline default allocation
+
+        CISCO-STACK-MIB
+                -- added sysExtendedRmonNetflowModuleMask under
+                   systemGrp
+                -- added moduleAdditionalStatus MIB object under
+                   moduleGrp
+                -- added vlanPortAuxiliaryVlan MIB object under
+                   vlanGrp
+                -- added portCpbInlinePower and portCpbAuxiliaryVlan
+                   under portCpbGrp
+                -- added portInlinePowerDetect in portTable.
+                -- added voiceGrp.
+
+        CISCO-UDLDP-MIB
+                -- added the support for ciscoUdldpAggreModeOptionalGroup
+
+
+-------------------------------------------------------------------------------
+Changes in supervisor module software version 5.4(1):
+        CISCO-STACK-MIB
+                -- added the following MIB objects under systemGrp
+                        sysPortFastBpduGuard
+                        sysErrDisableTimeoutEnable
+                        sysErrDisableTimeoutInterval
+                        sysTrafficMonitorHighWaterMark
+                        sysHighAvailabilityEnable
+                        sysHighAvailabilityVersioningEnable
+                        sysHighAvailabilityOperStatus
+                        sysHighAvailabilityNotRunningReason
+                -- added the following MIB object under moduleTable
+                        moduleEntPhysicalIndex
+                -- added the following MIB objects under portTable
+                        portAdditionalOperStatus
+                        portEntPhysicalIndex
+                -- added the following MIB object under filterPortTable
+                        filterPortBroadcastThresholdFraction              
+                -- added the following MIB object under multicastGrp
+                        mcastEnableRgmp
+                -- modified ipPermitGrp for supporting IP Permit Enhancement
+                        -- added ipPermitAccessType
+                        -- modified ipPermitEnable
+                -- added the following MIB object under portCpbGrp
+                        portCpbSpan   
+                
+                -- modified sysReset to add resetMinDown option 
+                -- modified securityGrp for port security enhancements
+                -- modified portCpbGrp for covering the new features
+                -- added fileCopyGrp, sysStartupConfigSource,
+                   sysStartupConfigSourceFile and modified sysConfigRegister
+                   for support 'rcp' and 'startup config from flash' features
+                -- added sysConfigSupervisorModuleNo
+                -- added sysStandbyPortEnble to configure standbyport feature
+
+        CISCO-SWITCH-ENGINE-MIB
+                -- added the following MIB objects under cseNetflowLS
+                        cseNetflowLSExportDataProtocol
+                        cseNetflowLSExportDataFilterSelection
+                        cseNetflowLSExportNDEVersionNumber 
+
+        CISCO-SYSTEM-MIB
+                -- New mib
+
+        SNMP-FRAMEWORK-MIB      
+                -- New SNMPv3 mib
+
+        SNMP-MPD-MIB  
+                -- New SNMPv3 mib
+
+        SNMP-TARGET-MIB       
+                -- New SNMPv3 mib
+
+        SNMP-NOTIFICATION-MIB
+                -- New SNMPv3 mib
+
+        SNMP-USM-MIB
+                -- New SNMPv3 mib
+
+        SNMP-VACM-MIB
+                -- New SNMPv3 mib
+
+
+-------------------------------------------------------------------------------
+Changes in supervisor module software version 5.3(3)CSX
+
+        CISCO-COPS-CLIENT-MIB
+                -- New mib
+
+        CISCO-QOS-PIB-MIB
+                -- New mib
+
+
+-------------------------------------------------------------------------------
+Changes in supervisor module software version 5.3(1)CSX
+        CISCO-SWITCH-ENGINE-MIB
+                -- New mib for Catalyst 6000
+
+        CISCO-RMON-CONFIG-MIB
+                -- New mib
+
+        CISCO-STACK-MIB
+                -- added sysConsolePrimaryLoginAuthentication
+                         sysConsolePrimaryEnableAuthentication
+                         sysTelnetPrimaryLoginAuthentication
+                         sysTelnetPrimaryEnableAuthentication
+                         radiusGrp
+
+        CISCO-VLAN-MEMBERSHIP-MIB
+                -- allow VQP/Dynamic Vlans Client
+
+
+-------------------------------------------------------------------------------
+Changes in supervisor module software version 5.2(1)CSX
+The additional new MIB objects supported are:
+
+1: traceRouteGrp in CISCO-STACK-MIB
+
+2: pagpDistributionProtocol and pagpDistributionType in CISCO-PAGP-MIB
+
+3: smonCapabilities in SMON-MIB
+
+
+-------------------------------------------------------------------------------
+Changes in supervisor module software version 5.1(1)CSX
+1: The following MIBs are supported in the current Catalyst 5000 series 
+   switches software release and will also be supported in Catalyst 6000 
+   series switches 5.1 release with some MIB definition and implementation 
+   changes.
+
+        BRIDGE-MIB              (RFC 1493)
+                -- For FEC & GEC bridge port, the channel bridge port id 
+                   (13/1 to 14/64) will be reported and used in this MIB. 
+
+        CISCO-CDP-MIB
+                -- the latest version of CISCO-CDP-MIB is supported and the
+                   the difference between cat5000 currently supported version
+                   and the latest version of this MIB are:
+                -- obsoleted cdpInterfaceMessageInterval in cdpInterfaceTable
+                -- support the following additional MIB objects under 
+                   cdpCacheTable:
+                        --- cdpCacheVTPMgmtDomain   
+                        --- cdpCacheNativeVLAN      
+                        --- cdpCacheDuplex         
+                -- support all the mib objects under cdpGlobal group
+
+        CISCO-FLASH-MIB
+
+        CISCO-MEMORY-POOL-MIB
+
+        CISCO-STACK-MIB (This MIB has been converted to v2 version for
+                         supporting 64 bit COUNTER)
+                -- The following MIB groups have been added for supporting
+                   the existing and the new software features:
+                -- port capabilitity feature         -- portCpbGrp           
+                -- config File Management MIB   -- tftpGrp        
+                        -- some MIB objects in tftpGrp has been modified
+                           to support upload/download configuration file
+                           to flash devices. 
+                -- port TopN feature                 -- portTopNGrp          
+                -- trace Route feature                -- traceRouteGrp        
+                -- multiple default gateway        -- mdgGrp
+                        -- ipRouteTable defined in rfc1213 will include
+                            primary default gateway if multiple default
+                           is configured in the switch
+
+                -- The following MIB groups or objects will not be supported. 
+                -- sysEnableRepeaterTraps and sysExtendedRMONXXX under 
+                   systemGrp
+                -- brouterGrp
+                -- the MIB objects (except filterPortTable) under filterGrp
+                -- monitorGrp        
+                        -- replaced by portCopyTable in SMON-MIB 
+                -- vmpsTable, vmpsAction and vmpsAccessed under vmpsGrp
+                -- portChannelGrp -- replaced by CISCO-PAGP-MIB 
+                -- tokenRingGrp
+                --sysTrafficMeterTable
+ 
+        CISCO-STP-EXTENSIONS-MIB
+          - support additional MIB objects under stpxBackboneFastObjects 
+            for supporting backbone fast capability feature
+          - The updated MIB is under /auto/wbu-sw/dev/snmpmibs/old/6000-5.1/
+
+        CISCO-VLAN-BRIDGING-MIB
+
+        CISCO-VTP-MIB
+          - For FEC & GEC trunk capable interfaces, the ifIndex assigned
+            to FEC and GEC will be used in vlanTrunkPortTable. 
+
+        ENTITY-MIB              (RFC 2037)
+          - entityPhysical group 
+                -- it will contain all the physical components, such as CPU,
+                   module, ports, power supplys etc. For more detail info, 
+                   read ENG-20620 
+          - only entPhysicalContainsTable in entityMapping group 
+          - entityGeneral group
+
+        EtherLike-MIB           (RFC 1643)
+
+        IF-MIB                  (RFC 1573)
+
+        RFC1213-MIB             (MIB-II)
+
+        RMON-MIB                (RFC 1757)
+          - the following RMON groups in RMON-MIB will be supported
+                -- statistics (rmon 1)        
+                -- history group (rmon 2)
+                -- alarm group (rmon 3)
+                -- event group (rmon 9)
+          NOTE for dev-test people:  
+                -- the above RMON groups are re-implemented in this
+                   software release, please treat it like a new feature
+                   during your testing.
+
+        RMON2-MIB               (RFC 2021)
+          - supports the following MIB objects under probeConfig(rmon 19):
+                -- probeCapabilities
+                -- probeSoftwareRev
+                -- probeHardwareRev
+                -- trapDestTable
+          - supports usrHistory (rmon 18)
+                -- will allow the user to configure the usrHistory on any
+                   MIB objects supported in the switch.
+         
+The following MIBs are not supported in the Catalyst 5000 pre-Boulder 
+software releases, but will be supported in Catalyst 6000 series switches 
+5.1 release.
+        CISCO-SYSLOG-MIB        
+                -- for detail information, read ENG-8400
+
+        CISCO-PROCESS-MIB        
+                -- the latest copy of mib is located at
+
+        CISCO-IMAGE-MIB
+                -- contain the image related information for the supervisor
+                   module runtime image, and the supervisor images in the
+                   flash devices. 
+                -- for more detail information, read ENG-25342
+
+        CISCO-PAGP-MIB
+                -- this MIB will be used to configure FEC and GEC.
+
+        SMON-MIB
+                -- only supports portCopyTable for configuring multiple
+                   SPAN sessions features 
+        
+        HC-RMON-MIB
+                -- supports the following MIB groups in HC-RMON:
+                        -- etherStatsHighCapacityTable (statistics 7)
+                        -- etherHistoryHighCapacityTable (history 6)
+                  
+The following new MIBs have not been finalized and approved by the 
+mib-police. But we will still try to support them in the Catalyst 6000
+5.1 software release:
+
+        CISCO-ENTITY-FRU-CONTROL-MIB
+                -- will cover power management features.
+
+        CISCO-ENTITY-SENSOR-MIB
+                -- provide the environment monitor feature
+
+The following MIBs are supported in Catalyst 5000 series switches, but
+will not be supported in Catalyst 6000 series switches 5.1 release.
+        CISCO-SWITCH-ENGINE-MIB                
+        CISCO-VLAN-MEMBERSHIP-MIB
+        CISCO-VMPS-MIB
+        FDDI-SMT73-MIB          (RFC 1512)
+        SNMP-REPEATER-MIB       (RFC 1516)
+        SOURCE-ROUTING-MIB      (RFC 1525)
+        TOKEN-RING-RMON-MIB     (RFC 1513)
+        TOKENRING-MIB           (RFC 1748)
+        NETSCOUT-MIB
+
+
+Traps supported in initial supervisor module software version 5.1:
+
+        coldStart                 RFC1157-SNMP
+        warmStart                 RFC1157-SNMP
+        authenticationFailure     RFC1157-SNMP
+        linkDown                  IF-MIB
+        linkUp                    IF-MIB
+        newRoot                   BRIDGE-MIB
+        topologyChange            BRIDGE-MIB
+        stpxInconsistencyUpdate   CISCO-STP-EXTENSTIONS-MIB
+        moduleUp                  CISCO-STACK-MIB
+        moduleDown                CISCO-STACK-MIB
+        chassisAlarmOn            CISCO-STACK-MIB
+        chassisAlarmOff           CISCO-STACK-MIB
+        ipPermitDeniedTrap        CISCO-STACK-MIB
+        sysConfigChangeTrap       CISCO-STACK-MIB
+        clogMessageGenerated      CISCO-SYSLOG-MIB
+        entConfigChange           ENTITY-MIB
+
+The following traps are supported in Catalyst 5000 series switches, but
+will not be supported in Catalyst 6000 series switches 5.1 release.
+        rptrHealth                SNMP-REPEATER-MIB
+        rptrResetEvent            SNMP-REPEATER-MIB
+        lerAlarmOn                CISCO-STACK-MIB
+        lerAlarmOff               CISCO-STACK-MIB

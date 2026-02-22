@@ -1,0 +1,1358 @@
+-- *****************************************************************
+-- CISCO-FC-TUNNEL-MIB
+--
+-- March 2002, Frank Chao
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+ 
+CISCO-FC-TUNNEL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE, 
+    Unsigned32,
+    Counter32,
+    Counter64
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE, 
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InterfaceIndex
+        FROM IF-MIB
+    RowStatus,
+    TruthValue
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI
+    InetAddressType,
+    InetAddress
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB;
+
+ciscoFiberChannelTunnelMIB MODULE-IDENTITY
+        LAST-UPDATED "200203081700Z"
+        ORGANIZATION "Cisco Systems, Inc."
+        CONTACT-INFO
+         "Postal: Cisco Systems, Inc.
+             170 West Tasman Drive
+             San Jose, CA 95134-1706
+             USA
+
+             Tel: +1 408 526 4000
+
+             E-mail: cs-cat6000@cisco.com"
+        DESCRIPTION
+            "The CISCO-FC-TUNNEL-MIB is used to configure Fiber Channel
+             (FC) tunneled by other protocols, i.e. TCP (Transmision
+             Control Protocol) or UDP (User Datagram Protocol), and
+             monitor the status of the tunnels.  And Fiber Channel
+             Command and Data messages can be tunneled by those
+             protocols through the internet to extend the Fiber Channel
+             network."
+        REVISION "200203081700Z"
+        DESCRIPTION
+            "Initial version. Only supports Fiber Channel TCP
+             tunneling."
+        ::= { ciscoMgmt 9999 }
+
+ciscoFCTunnelMIBNotifi
+        OBJECT IDENTIFIER ::= { ciscoFiberChannelTunnelMIB 0 }
+
+ciscoFCTunnelMIBObjects
+        OBJECT IDENTIFIER ::= { ciscoFiberChannelTunnelMIB 1 }
+
+ciscoFCTunnelMIBConform
+        OBJECT IDENTIFIER ::= { ciscoFiberChannelTunnelMIB 2 }
+
+--
+--
+-- FC to TCP tunnel objects
+--
+--
+
+cftTcpTunnelObjects
+        OBJECT IDENTIFIER ::= { ciscoFCTunnelMIBObjects 1 }
+
+--
+--
+-- Global Objects for TCP tunnel
+--
+--
+
+cftMaxTcpTunnels OBJECT-TYPE
+    SYNTAX        Unsigned32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Maximum number of Fiber Channel TCP tunnels that can be built
+         per Fiber Channel interface."
+    ::= { cftTcpTunnelObjects 1 }
+
+--
+--
+-- Fiber Channel TCP tunnel configuration and status table
+--
+--
+
+cftTcpTunnelTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF CftTcpTunnelEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "This table contains TCP tunnels' information for FC interfaces.
+         FC can use these TCP tunnels to communicate with each other
+         through the internet.  The TCP tunnels will help to build up
+         reliable connections between FC interfaces to exchange FC
+         Command and Data information.
+
+         This table is for configuring the TCP tunnels and monitoring
+         the status of tunnels.  And the number of entries in this
+         table is decided by the MIB object cftMaxTcpTunnels."
+    REFERENCE
+         "RFC 793, Transmission Control Protocol.
+          RFC 2581, TCP Congestion Control"
+    ::= { cftTcpTunnelObjects 2 }
+
+cftTcpTunnelEntry OBJECT-TYPE
+    SYNTAX        CftTcpTunnelEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "An entry contains the configuration and status objects of a
+         TCP tunnel.  The configuration includes the TCP connection
+         4-tuples, source IP, destination IP, source port , destination
+         port, and some other TCP connection's options.  The status
+         includes the TCP connections and Tunnel's administration and
+         operation.
+
+         For each TCP tunnel, there are 2 TCP connections that will be
+         built up in the tunneling.  One is for FC Command
+         communication and the other is for FC Data communication."
+    INDEX    { cftFiberChannelIf, IMPLIED cftTcpTunnelName }
+    ::= { cftTcpTunnelTable 1 }
+
+CftTcpTunnelEntry ::= SEQUENCE {
+    cftFiberChannelIf                InterfaceIndex,
+    cftTcpTunnelName                 SnmpAdminString,
+    cftTcpTunnelSrcIpType            InetAddressType,
+    cftTcpTunnelSrcIp                InetAddress,
+    cftTcpTunnelDestIpType           InetAddressType,
+    cftTcpTunnelDestIp               InetAddress,
+    cftTcpTunnelCmdSrcPort           Unsigned32,
+    cftTcpTunnelCmdDestPort          Unsigned32,
+    cftTcpTunnelDataSrcPort          Unsigned32,
+    cftTcpTunnelDataDestPort         Unsigned32,
+    cftTcpTunnelCmdMWS               INTEGER,
+    cftTcpTunnelDataMWS              INTEGER,
+    cftTcpTunnelCmdKeepAliveTime     Unsigned32,
+    cftTcpTunnelDataKeepAliveTime    Unsigned32,
+    cftTcpTunnelCmdSelectiveAck      TruthValue,
+    cftTcpTunnelDataSelectiveAck     TruthValue,
+    cftTcpTunnelCmdConnectStatus     INTEGER,
+    cftTcpTunnelDataConnectStatus    INTEGER,
+    cftTcpTunnelOperStatus           INTEGER,
+    cftTcpTunnelStatus               RowStatus
+}
+
+cftFiberChannelIf    OBJECT-TYPE
+    SYNTAX        InterfaceIndex
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "The interface index of the FC interface with TCP tunneling
+         capable."
+    ::= { cftTcpTunnelEntry 1 }
+
+cftTcpTunnelName    OBJECT-TYPE
+    SYNTAX        SnmpAdminString (SIZE (1..20))
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "The name of the FC TCP tunnel."
+    ::= { cftTcpTunnelEntry 2 }
+
+cftTcpTunnelSrcIpType    OBJECT-TYPE
+    SYNTAX        InetAddressType
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The source IP address type of the FC TCP tunnel."
+    ::= { cftTcpTunnelEntry 3 }
+
+cftTcpTunnelSrcIp    OBJECT-TYPE
+    SYNTAX        InetAddress
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The source IP address of the FC TCP tunnel.  The type of the
+         IP address is determined by the object cftTcpTunnelSrcIpType in
+         the same entry."
+    ::= { cftTcpTunnelEntry 4 }
+
+cftTcpTunnelDestIpType    OBJECT-TYPE
+    SYNTAX        InetAddressType
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The destination IP address type of the FC TCP tunnel."
+    ::= { cftTcpTunnelEntry 5 }
+
+cftTcpTunnelDestIp    OBJECT-TYPE
+    SYNTAX        InetAddress
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The destination IP address of the FC TCP tunnel.  The type of
+         the IP address is determined by the object
+         cftTcpTunnelDestIpType in the same entry."
+    ::= { cftTcpTunnelEntry 6 }
+
+cftTcpTunnelCmdSrcPort    OBJECT-TYPE
+    SYNTAX        Unsigned32 (1025..65535)
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The source port of the TCP connection for FC Command
+         communication."
+    ::= { cftTcpTunnelEntry 7 }
+
+cftTcpTunnelCmdDestPort    OBJECT-TYPE
+    SYNTAX        Unsigned32 (1025..65535)
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The destination port of the TCP connection for FC Command
+         communication."
+    ::= { cftTcpTunnelEntry 8 }
+
+cftTcpTunnelDataSrcPort    OBJECT-TYPE
+    SYNTAX        Unsigned32 (1025..65535)
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The source port of the TCP connection for FC Data
+         communication."
+    ::= { cftTcpTunnelEntry 9 }
+
+cftTcpTunnelDataDestPort    OBJECT-TYPE
+    SYNTAX        Unsigned32 (1025..65535)
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The destination port of the TCP connection for FC Data
+         communication."
+    ::= { cftTcpTunnelEntry 10 }
+
+cftTcpTunnelCmdMWS    OBJECT-TYPE
+    SYNTAX        INTEGER {
+                      ws32kbytes(1),
+                      ws128kbytes(2),
+                      ws256kbytes(3),
+                      ws512kbytes(4)
+                  }
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The maximum window size of the TCP connection for FC Command
+         communication.
+         ws32kbytes : means the window size is 32 kilo-bytes.
+         ws128kbytes : means the window size is 128 kilo-bytes.
+         ws256kbytes : means the window size is 256 kilo-bytes.
+         ws512kbytes : means the window size is 512 kilo-bytes."
+    DEFVAL { ws32kbytes }
+    ::= { cftTcpTunnelEntry 11 }
+
+cftTcpTunnelDataMWS    OBJECT-TYPE
+    SYNTAX        INTEGER {
+                      ws32kbytes(1),
+                      ws128kbytes(2),
+                      ws256kbytes(3),
+                      ws512kbytes(4)
+                  }
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The maximum window size of the TCP connection for FC Data
+         communication.
+         ws32kbytes : means the window size is 32 kilo-bytes.
+         ws128kbytes : means the window size is 128 kilo-bytes.
+         ws256kbytes : means the window size is 256 kilo-bytes.
+         ws512kbytes : means the window size is 512 kilo-bytes."
+    DEFVAL { ws32kbytes }
+    ::= { cftTcpTunnelEntry 12 }
+
+cftTcpTunnelCmdKeepAliveTime    OBJECT-TYPE
+    SYNTAX        Unsigned32 (3600..10800)
+    UNITS         "seconds"
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The keep alive time of the TCP connection for FC Command
+         communication."
+    DEFVAL { 7200 }
+    ::= { cftTcpTunnelEntry 13 }
+
+cftTcpTunnelDataKeepAliveTime    OBJECT-TYPE
+    SYNTAX        Unsigned32 (3600..10800)
+    UNITS         "seconds"
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The keep alive time of the TCP connection for FC Data
+         communication."
+    DEFVAL { 7200 }
+    ::= { cftTcpTunnelEntry 14 }
+
+cftTcpTunnelCmdSelectiveAck    OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The selective acknowledge option of the TCP connection for FC
+         Command communication."
+    DEFVAL { false }
+    ::= { cftTcpTunnelEntry 15 }
+
+cftTcpTunnelDataSelectiveAck    OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The selective acknowledge option of the TCP connection for FC
+         Data communication."
+    DEFVAL { true }
+    ::= { cftTcpTunnelEntry 16 }
+
+cftTcpTunnelCmdConnectStatus    OBJECT-TYPE
+    SYNTAX        INTEGER {
+                      connected(1),
+                      notConnected(2)
+                  }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The status of the TCP connection for FC Command communication.
+
+         connected(1) means the TCP connection for FC Command
+         has been connected for communication.
+         notConnected(2) means the TCP connection for FC Command is not
+         successful."
+    ::= { cftTcpTunnelEntry 17 }
+
+cftTcpTunnelDataConnectStatus    OBJECT-TYPE
+    SYNTAX        INTEGER {
+                      connected(1),
+                      notConnected(2)
+                  }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The status of the TCP connection for FC Data communication.
+
+         connected(1) means the TCP connection for FC Data has been
+         connected for communication.
+         notConnected(2) means the TCP connection for FC Data is not
+         successful."
+    ::= { cftTcpTunnelEntry 18 }
+
+cftTcpTunnelOperStatus     OBJECT-TYPE
+    SYNTAX        INTEGER {
+                      up(1),
+                      down(2)
+                  }
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "The operational status of this TCP tunnel.
+
+         up(1) means this TCP tunnel is up and active.
+         down(2) means this TCP tunnel is not active."
+    ::= { cftTcpTunnelEntry 19 }
+
+cftTcpTunnelStatus     OBJECT-TYPE
+    SYNTAX        RowStatus
+    MAX-ACCESS    read-create
+    STATUS        current
+    DESCRIPTION
+        "The status of this TCP tunnel entry.  If this object is active,
+         the other objects in the same row cannot be modified by the
+         management station."
+    ::= { cftTcpTunnelEntry 20 }
+
+
+--
+--
+-- Fiber Channel TCP tunneling statitics
+--
+--
+
+cftTcpTunnelStatsTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF CftTcpTunnelStatsEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "The table of traffic statistics information for FC tunnels. The
+         entries in this table are shown only if the cftTcpTunnelStatus
+         object of the corresponding entries are active in the
+         cftTcpTunnelTable."
+    ::= { cftTcpTunnelObjects 3 }
+
+cftTcpTunnelStatsEntry OBJECT-TYPE
+    SYNTAX        CftTcpTunnelStatsEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "The entry is indexed by the same index in the
+         cftTcpTunnelTable. And this entry contains statistics
+         information of FC Command TCP connection and FC Data TCP
+         connection."
+    INDEX    { cftFiberChannelIf, IMPLIED cftTcpTunnelName }
+    ::= { cftTcpTunnelStatsTable 1 }
+
+CftTcpTunnelStatsEntry ::= SEQUENCE {
+    cftTcpTunnelCmdRxSegmentOctets      Counter64,
+    cftTcpTunnelDataRxSegmentOctets     Counter64,
+    cftTcpTunnelCmdRxPrestufOctets      Counter64,
+    cftTcpTunnelDataRxPrestufOctets     Counter64,
+    cftTcpTunnelCmdRxPoststufOctets     Counter64,
+    cftTcpTunnelDataRxPoststufOctets    Counter64,
+    cftTcpTunnelCmdTxOctets             Counter64,
+    cftTcpTunnelDataTxOctets            Counter64,
+    cftTcpTunnelCmdTxPkts               Counter32,
+    cftTcpTunnelDataTxPkts              Counter32,
+    cftTcpTunnelCmdTxDrops              Counter32,
+    cftTcpTunnelDataTxDrops             Counter32 
+}
+
+cftTcpTunnelCmdRxSegmentOctets    OBJECT-TYPE
+    SYNTAX        Counter64
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP segment bytes received in the FC TCP Command
+         connection."
+    ::= { cftTcpTunnelStatsEntry 1 }
+
+cftTcpTunnelDataRxSegmentOctets    OBJECT-TYPE
+    SYNTAX        Counter64
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP segment bytes received in the FC TCP Data
+         connection."
+    ::= { cftTcpTunnelStatsEntry 2 }
+
+cftTcpTunnelCmdRxPrestufOctets     OBJECT-TYPE
+    SYNTAX        Counter64
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of bytes received before stuffing the internal hardware
+         bus header in the FC TCP Command connection."
+    ::= { cftTcpTunnelStatsEntry 3 }
+
+cftTcpTunnelDataRxPrestufOctets    OBJECT-TYPE
+    SYNTAX        Counter64
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of bytes received before stuffing the internal hardware
+         bus header in the FC TCP Data connection."
+    ::= { cftTcpTunnelStatsEntry 4 }
+
+cftTcpTunnelCmdRxPoststufOctets    OBJECT-TYPE
+    SYNTAX        Counter64
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of bytes received after stuffing the internal hardward
+         bus header in the FC TCP Command connection."
+    ::= { cftTcpTunnelStatsEntry 5 }
+
+cftTcpTunnelDataRxPoststufOctets   OBJECT-TYPE
+    SYNTAX        Counter64
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of bytes received after stuffing the internal hardward
+         bus header in the FC TCP Data connection."
+    ::= { cftTcpTunnelStatsEntry 6 }
+
+cftTcpTunnelCmdTxOctets     OBJECT-TYPE
+    SYNTAX        Counter64
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of bytes sent in the FC TCP Command connection."
+    ::= { cftTcpTunnelStatsEntry 7 }
+
+cftTcpTunnelDataTxOctets    OBJECT-TYPE
+    SYNTAX        Counter64
+    UNITS         "bytes"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of bytes sent in the FC TCP Data connection."
+    ::= { cftTcpTunnelStatsEntry 8 }
+
+cftTcpTunnelCmdTxPkts    OBJECT-TYPE
+    SYNTAX        Counter32
+    UNITS         "packets"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of packets sent in the FC TCP Command
+         connection."
+    ::= { cftTcpTunnelStatsEntry 9 }
+
+cftTcpTunnelDataTxPkts    OBJECT-TYPE
+    SYNTAX        Counter32
+    UNITS         "packets"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of packets sent in the FC TCP Data
+         connection."
+    ::= { cftTcpTunnelStatsEntry 10 }
+
+cftTcpTunnelCmdTxDrops    OBJECT-TYPE
+    SYNTAX        Counter32
+    UNITS         "packets"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of packets dropped in the FC TCP Command
+         connection."
+    ::= { cftTcpTunnelStatsEntry 11 }
+
+cftTcpTunnelDataTxDrops    OBJECT-TYPE
+    SYNTAX        Counter32
+    UNITS         "packets"
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of packets dropped in the FC TCP Data
+         connection."
+    ::= { cftTcpTunnelStatsEntry 12 }
+
+
+--
+--
+--  Fiber Channel Interface TCP table.
+--
+--
+
+cftIfTcpTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF CftIfTcpEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "This table contains the statistics information of the Fiber
+         Channel interface with the ability of TCP tunneling."
+    REFERENCE
+         "RFC 793, Transmission Control Protocol."
+    ::= { cftTcpTunnelObjects 4 }
+
+cftIfTcpEntry OBJECT-TYPE
+    SYNTAX        CftIfTcpEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "This entry contains TCP statistics information for a given
+         FC interface with the ability of TCP tunneling."
+    INDEX    { cftIfTcpIndex }
+    ::= { cftIfTcpTable 1 }
+
+CftIfTcpEntry ::= SEQUENCE {
+    cftIfTcpIndex                        InterfaceIndex,
+    cftIfTcpConnInit                     Counter32,
+    cftIfTcpConnAccepted                 Counter32,
+    cftIfTcpConnEstablished              Counter32,
+    cftIfTcpConnDrops                    Counter32,
+    cftIfTcpConnClosed                   Counter32,
+    cftIfTcpTxPkts                       Counter32,
+    cftIfTcpTxDataPkts                   Counter32,
+    cftIfTcpTxDataOctets                 Counter32,
+    cftIfTcpRetxDataPkts                 Counter32,
+    cftIfTcpRetxDataOctets               Counter32,
+    cftIfTcpRxPkts                       Counter32,
+    cftIfTcpRxInSequencePkts             Counter32,
+    cftIfTcpRxInSequenceOctets           Counter32,
+    cftIfTcpRxCcksumErrPkts              Counter32,
+    cftIfTcpRxBadOffsetPkts              Counter32,
+    cftIfTcpRxOutOfOrderPkts             Counter32,
+    cftIfTcpRxOutOfOrderOctets           Counter32
+}    
+
+cftIfTcpIndex                  OBJECT-TYPE
+    SYNTAX        InterfaceIndex
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "The interface index of the FC interface capable of
+         carrying TCP tunnels."
+    ::= { cftIfTcpEntry 1 }
+
+cftIfTcpConnInit               OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP connections initiated."
+    ::= { cftIfTcpEntry 2 }
+
+cftIfTcpConnAccepted           OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP requested connections accepted."
+    ::= { cftIfTcpEntry 3 }
+
+cftIfTcpConnEstablished        OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP connections established."
+    ::= { cftIfTcpEntry 4 }
+
+cftIfTcpConnDrops              OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP connections dropped."
+    ::= { cftIfTcpEntry 5 }
+
+cftIfTcpConnClosed             OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP connections closed.  This includes those
+         connections dropped."
+    ::= { cftIfTcpEntry 6 }
+
+cftIfTcpTxPkts                 OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP transmitting packets.  This includes
+         TCP control and data packets."
+    ::= { cftIfTcpEntry 7 }
+
+cftIfTcpTxDataPkts              OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP transmitting data packets.
+         This doesn't include those TCP control traffic."
+    ::= { cftIfTcpEntry 8 }
+
+cftIfTcpTxDataOctets            OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP transmitting data octets.
+         This doesn't include those TCP control traffic."
+    ::= { cftIfTcpEntry 9 }
+
+cftIfTcpRetxDataPkts            OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP re-transmitting data packets.
+         This doesn't include those TCP control traffic."
+    ::= { cftIfTcpEntry 10 }
+
+cftIfTcpRetxDataOctets          OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP re-transmitting data octets.
+         This doesn't include those TCP control traffic."
+    ::= { cftIfTcpEntry 11 }
+
+cftIfTcpRxPkts             OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets received."
+    ::= { cftIfTcpEntry 12 }
+
+cftIfTcpRxInSequencePkts        OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets received in sequence."
+    ::= { cftIfTcpEntry 13 }
+
+cftIfTcpRxInSequenceOctets      OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP octets received in sequence."
+    ::= { cftIfTcpEntry 14 }
+
+cftIfTcpRxCcksumErrPkts         OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets received with checksum error."
+    ::= { cftIfTcpEntry 15 }
+
+cftIfTcpRxBadOffsetPkts         OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets received with bad offset."
+    ::= { cftIfTcpEntry 16 }
+
+cftIfTcpRxOutOfOrderPkts        OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of out-of-order TCP packets received."
+    ::= { cftIfTcpEntry 17 }
+
+cftIfTcpRxOutOfOrderOctets      OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of out-of-order TCP octets received."
+    ::= { cftIfTcpEntry 18 }
+
+--
+--
+--  Fiber Channel Interface TCP extension table.
+--
+--
+
+cftIfTcpExtTable OBJECT-TYPE
+    SYNTAX        SEQUENCE OF CftIfTcpExtEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "This table contains the statistics information of the Fiber
+         Channel interface with the ability of TCP tunneling.  This
+         table is an extension of cftIfTcpTable and this table
+         provides more specific counters that not all TCP protocol
+         stack will support."
+    REFERENCE
+         "RFC 793, Transmission Control Protocol.
+          RFC 2581, TCP Congestion Control"
+    ::= { cftTcpTunnelObjects 5 }
+
+cftIfTcpExtEntry OBJECT-TYPE
+    SYNTAX        CftIfTcpExtEntry
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "This entry contains TCP statistics information for a given
+         FC interface with the ability of TCP tunneling."
+    INDEX    { cftIfTcpIndex }
+    ::= { cftIfTcpExtTable 1 }
+
+CftIfTcpExtEntry ::= SEQUENCE {
+    cftIfTcpEmbryonicConnDrops           Counter32,
+    cftIfTcpSegsTryToGetRTT              Counter32,
+    cftIfTcpSegsSucceedToGetRTT          Counter32,
+    cftIfTcpDelayedAcksSent              Counter32,
+    cftIfTcpConnDroppedRxTimeout         Counter32,
+    cftIfTcpRetransmitTimeout            Counter32,
+    cftIfTcpPersistTimeout               Counter32,
+    cftIfTcpKeepaliveTimeout             Counter32,
+    cftIfTcpKeepaliveProbesSent          Counter32,
+    cftIfTcpConnDroppedInKeepalive       Counter32,
+    cftIfTcpConnDroppedInPersist         Counter32,
+    cftIfTcpConnDrainedByNoMemory        Counter32,
+    cftIfTcpAckOnlyPkts                  Counter32,
+    cftIfTcpTxWindowProbes               Counter32,
+    cftIfTcpTxURGPkts                    Counter32,
+    cftIfTcpTxWindowUpdateOnlyPkts       Counter32,
+    cftIfTcpTxControlPkts                Counter32,
+    cftIfTcpRxDroppedByNoMemory          Counter32,
+    cftIfTcpRxTooShort                   Counter32,
+    cftIfTcpRxDupOnlyPkts                Counter32,
+    cftIfTcpRxDupOnlyOctets              Counter32,
+    cftIfTcpRxDupDataPkts                Counter32,
+    cftIfTcpRxDupOctetsInPartDupPkts     Counter32,
+    cftIfTcpRxDataAfterWindowPkts        Counter32,
+    cftIfTcpRxDataAfterWindowOctets      Counter32,
+    cftIfTcpRxPktsAfterConnClose         Counter32,
+    cftIfTcpRxWindowProbesPkts           Counter32,
+    cftIfTcpRxDupAcks                    Counter32,
+    cftIfTcpRxAcksForUnsentData          Counter32,
+    cftIfTcpRxAcksPkts                   Counter32,
+    cftIfTcpOctetAckedByRxAcks           Counter32,
+    cftIfTcpRxWindowUpdatePkts           Counter32,
+    cftIfTcpSegDropByPAWS                Counter32,
+    cftIfTcpTxSackFackDataPkts           Counter32,
+    cftIfTcpTxSackFackDataOctets         Counter32,
+    cftIfTcpRetxSackFackDataPkts         Counter32,
+    cftIfTcpRetxSackFackDataOctets       Counter32,
+    cftIfTcpSackFackConnClosed           Counter32,
+    cftIfTcpRetxSackFackTimeouts         Counter32,
+    cftIfTcpHdrPredictOkForAcks          Counter32,
+    cftIfTcpHdrPredictOkForDataPkts      Counter32
+}
+
+cftIfTcpEmbryonicConnDrops     OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP embryonic connections dropped.  The embryonic
+         drop counter tells the user how many times the connections
+         did not go through because of not receiving a reply for the
+         SYN packets - which gives a measure for the quality of the
+         path between the two peers."
+    ::= { cftIfTcpExtEntry 1 }
+
+cftIfTcpSegsTryToGetRTT        OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP segments which try to get RTT (Round Trip Time)."
+    ::= { cftIfTcpExtEntry 2 }
+
+cftIfTcpSegsSucceedToGetRTT     OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP segments which get RTT (Round Trip Time)
+         successfully."
+    ::= { cftIfTcpExtEntry 3 }
+
+cftIfTcpDelayedAcksSent         OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+         "number of TCP delayed ACKs sent."
+    REFERENCE
+         "RFC 1072, TCP Extensions for Long-Delay Paths,
+          Section 4.2 (A)"
+    ::= { cftIfTcpExtEntry 4 }
+
+cftIfTcpConnDroppedRxTimeout    OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP connections dropped because of receiving
+         timeout."
+    ::= { cftIfTcpExtEntry 5 }
+
+cftIfTcpRetransmitTimeout       OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP retransmitting timeouts."
+    ::= { cftIfTcpExtEntry 6 }
+
+cftIfTcpPersistTimeout          OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP persisting timeouts."
+    ::= { cftIfTcpExtEntry 7 }
+
+cftIfTcpKeepaliveTimeout        OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP keepalive timeouts."
+    ::= { cftIfTcpExtEntry 8 }
+
+cftIfTcpKeepaliveProbesSent     OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP keep-alive probes sent."
+    ::= { cftIfTcpExtEntry 9 }
+
+cftIfTcpConnDroppedInKeepalive  OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP connections dropped in keepalive."
+    ::= { cftIfTcpExtEntry 10 }
+
+cftIfTcpConnDroppedInPersist    OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP connections dropped in persisting."
+    ::= { cftIfTcpExtEntry 11 }
+
+cftIfTcpConnDrainedByNoMemory   OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP connections drained dut to memory shortage."
+    ::= { cftIfTcpExtEntry 12 }
+
+cftIfTcpAckOnlyPkts             OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets sent with only ACK flag on."
+    ::= { cftIfTcpExtEntry 13 }
+
+cftIfTcpTxWindowProbes          OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP window probing packets sent."
+    ::= { cftIfTcpExtEntry 14 }
+
+cftIfTcpTxURGPkts               OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets sent with URG flag on."
+    ::= { cftIfTcpExtEntry 15 }
+
+cftIfTcpTxWindowUpdateOnlyPkts  OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets sent only for only updating the window
+         size."
+    ::= { cftIfTcpExtEntry 16 }
+
+cftIfTcpTxControlPkts           OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets sent with SYN, FIN, or RST flags on."
+    ::= { cftIfTcpExtEntry 17 }
+
+cftIfTcpRxDroppedByNoMemory     OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of receiving TCP packets dropped because of lacking of
+         memory."
+    ::= { cftIfTcpExtEntry 18 }
+
+cftIfTcpRxTooShort              OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets received with too short length."
+    ::= { cftIfTcpExtEntry 19 }
+
+cftIfTcpRxDupOnlyPkts           OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of duplicated TCP packets received."
+    ::= { cftIfTcpExtEntry 20 }
+
+cftIfTcpRxDupOnlyOctets         OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of duplicated TCP octets received."
+    ::= { cftIfTcpExtEntry 21 }
+
+cftIfTcpRxDupDataPkts           OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets received with duplicated data."
+    ::= { cftIfTcpExtEntry 22 }
+
+cftIfTcpRxDupOctetsInPartDupPkts     OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of duplicated TCP octets received in part of duplicated
+         packets."
+    ::= { cftIfTcpExtEntry 23 }
+
+cftIfTcpRxDataAfterWindowPkts   OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets with data received after window."
+    ::= { cftIfTcpExtEntry 24 }
+
+cftIfTcpRxDataAfterWindowOctets OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP octets with data received after window."
+    ::= { cftIfTcpExtEntry 25 }
+
+cftIfTcpRxPktsAfterConnClose    OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets received after the connection close."
+    ::= { cftIfTcpExtEntry 26 }
+
+cftIfTcpRxWindowProbesPkts      OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP window probing packets received."
+    ::= { cftIfTcpExtEntry 27 }
+
+cftIfTcpRxDupAcks               OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of duplicated TCP acknowledge packets received."
+    ::= { cftIfTcpExtEntry 28 }
+
+cftIfTcpRxAcksForUnsentData     OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP acknowledge packets received for unsent data."
+    ::= { cftIfTcpExtEntry 29 }
+
+cftIfTcpRxAcksPkts              OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets received with ACK flag on."
+    ::= { cftIfTcpExtEntry 30 }
+
+cftIfTcpOctetAckedByRxAcks      OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP octets received with ACK flag on."
+    ::= { cftIfTcpExtEntry 31 }
+
+cftIfTcpRxWindowUpdatePkts      OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP packets received for updating window size."
+    ::= { cftIfTcpExtEntry 32 }
+
+cftIfTcpSegDropByPAWS           OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP segments dropped due to Protection Against
+         Wrapped Sequence Number (PAWS) algorithm."
+    REFERENCE
+        "RFC 2883, An Extension to the Selective Acknowledgement (SACK)
+         Option for TCP"
+    ::= { cftIfTcpExtEntry 33 }
+
+cftIfTcpTxSackFackDataPkts     OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP data packets sent with SACK option on."
+    REFERENCE
+        "RFC 2018, TCP Selective Acknowledgment Options
+         RFC 2883, An Extension to the Selective Acknowledgement (SACK)
+         Option for TCP"
+    ::= { cftIfTcpExtEntry 34 }
+
+cftIfTcpTxSackFackDataOctets   OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP data octets sent with SACK option on."
+    ::= { cftIfTcpExtEntry 35 }
+
+cftIfTcpRetxSackFackDataPkts   OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP data packets re-sent with SACK option on."
+    ::= { cftIfTcpExtEntry 36 }
+
+cftIfTcpRetxSackFackDataOctets OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP data octets re-sent with SACK option on."
+    ::= { cftIfTcpExtEntry 37 }
+
+cftIfTcpSackFackConnClosed     OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP connections closed with SACK option on."
+    ::= { cftIfTcpExtEntry 38 }
+
+cftIfTcpRetxSackFackTimeouts   OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of TCP timeouts re-sent with SACK option on."
+    ::= { cftIfTcpExtEntry 39 }
+
+cftIfTcpHdrPredictOkForAcks     OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of times the header predication code is hit by TCP
+         packets with ACK option on."
+    ::= { cftIfTcpExtEntry 40 }
+
+cftIfTcpHdrPredictOkForDataPkts OBJECT-TYPE
+    SYNTAX        Counter32
+    MAX-ACCESS    read-only
+    STATUS        current
+    DESCRIPTION
+        "Number of times the header predication code is hit by the
+         packets of FC Data TCP connection."
+    ::= { cftIfTcpExtEntry 41 }
+
+
+--
+--
+-- conformance information
+--
+--
+
+cftTunnelMIBCompliances
+        OBJECT IDENTIFIER ::=
+            { ciscoFCTunnelMIBConform 1 }
+
+cftTunnelMIBGroups
+        OBJECT IDENTIFIER ::=
+            { ciscoFCTunnelMIBConform 2 }
+
+--
+-- compliance statements
+--
+
+cftTunnelMIBComplianceV01 MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "A Fiber Channel tunneling implementation that lists the
+         groups supporting configuration tunnels and statistics
+         information of the tunnels."
+    MODULE  -- this module
+    MANDATORY-GROUPS { 
+        cftTcpTunnelConfigGroup
+    }
+
+    OBJECT cftTcpTunnelSrcIpType
+    SYNTAX  INTEGER { ipv4(1), dns(16) }
+--  SYNTAX  InetAddressType { ipv4(1), dns(16) }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1) or DNS
+         dns(16)."
+
+    OBJECT cftTcpTunnelDestIpType
+    SYNTAX  INTEGER { ipv4(1), dns(16) }
+--  SYNTAX  InetAddressType { ipv4(1), dns(16) }
+    DESCRIPTION
+        "Some systems may only allow version 4 IP address ipv4(1) or DNS
+         dns(16)."
+
+    OBJECT cftTcpTunnelCmdSelectiveAck
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "Some systems may not allow to configure SACK option on the FC
+         Command TCP connection."
+    ::= { cftTunnelMIBCompliances 1 }
+
+--
+-- units of conformance
+--
+
+cftTcpTunnelConfigGroup OBJECT-GROUP
+    OBJECTS {
+        cftMaxTcpTunnels,
+        cftTcpTunnelSrcIpType,
+        cftTcpTunnelSrcIp,
+        cftTcpTunnelDestIpType,
+        cftTcpTunnelDestIp,
+        cftTcpTunnelCmdSrcPort,
+        cftTcpTunnelCmdDestPort,
+        cftTcpTunnelDataSrcPort,
+        cftTcpTunnelDataDestPort,
+        cftTcpTunnelCmdMWS,
+        cftTcpTunnelDataMWS,
+        cftTcpTunnelCmdKeepAliveTime,
+        cftTcpTunnelDataKeepAliveTime,
+        cftTcpTunnelCmdSelectiveAck,
+        cftTcpTunnelDataSelectiveAck,
+        cftTcpTunnelCmdConnectStatus,
+        cftTcpTunnelDataConnectStatus,
+        cftTcpTunnelOperStatus,
+        cftTcpTunnelStatus
+    }
+    STATUS  current
+    DESCRIPTION
+        "The collection of objects which are used to describe and
+         configure Fiber Channal TCP tunneling."
+    ::= { cftTunnelMIBGroups 1 }
+
+cftTcpTunnelStatGroup OBJECT-GROUP
+    OBJECTS {
+        cftTcpTunnelCmdRxSegmentOctets,
+        cftTcpTunnelDataRxSegmentOctets,
+        cftTcpTunnelCmdRxPrestufOctets,
+        cftTcpTunnelDataRxPrestufOctets,
+        cftTcpTunnelCmdRxPoststufOctets,
+        cftTcpTunnelDataRxPoststufOctets,
+        cftTcpTunnelCmdTxOctets,
+        cftTcpTunnelDataTxOctets,
+        cftTcpTunnelCmdTxPkts,
+        cftTcpTunnelDataTxPkts,
+        cftTcpTunnelCmdTxDrops,
+        cftTcpTunnelDataTxDrops
+    }
+    STATUS  current
+    DESCRIPTION
+        "The collection of objects which are used to monitor the traffic
+         of TCP tunnels."
+    ::= { cftTunnelMIBGroups 2 }
+
+cftIfTcpGroup OBJECT-GROUP
+    OBJECTS {
+        cftIfTcpConnInit,
+        cftIfTcpConnAccepted,
+        cftIfTcpConnEstablished,
+        cftIfTcpConnDrops,
+        cftIfTcpConnClosed,
+        cftIfTcpTxPkts,
+        cftIfTcpTxDataPkts,
+        cftIfTcpTxDataOctets,
+        cftIfTcpRetxDataPkts,
+        cftIfTcpRetxDataOctets,
+        cftIfTcpRxPkts,
+        cftIfTcpRxInSequencePkts,
+        cftIfTcpRxInSequenceOctets,
+        cftIfTcpRxCcksumErrPkts,
+        cftIfTcpRxBadOffsetPkts,
+        cftIfTcpRxOutOfOrderPkts,
+        cftIfTcpRxOutOfOrderOctets
+    }
+    STATUS  current
+    DESCRIPTION
+        "The collection of objects which are used to monitor the status
+         and statistics information of the TCP stack for the tunneled
+         Fiber Channel interface."
+    ::= { cftTunnelMIBGroups 3 }
+
+cftIfTcpExtGroup OBJECT-GROUP
+    OBJECTS {
+        cftIfTcpEmbryonicConnDrops,
+        cftIfTcpSegsTryToGetRTT,
+        cftIfTcpSegsSucceedToGetRTT,
+        cftIfTcpDelayedAcksSent,
+        cftIfTcpConnDroppedRxTimeout,
+        cftIfTcpRetransmitTimeout,
+        cftIfTcpPersistTimeout,
+        cftIfTcpKeepaliveTimeout,
+        cftIfTcpKeepaliveProbesSent,
+        cftIfTcpConnDroppedInKeepalive,
+        cftIfTcpConnDroppedInPersist,
+        cftIfTcpConnDrainedByNoMemory,
+        cftIfTcpAckOnlyPkts,
+        cftIfTcpTxWindowProbes,
+        cftIfTcpTxURGPkts,
+        cftIfTcpTxWindowUpdateOnlyPkts,
+        cftIfTcpTxControlPkts,
+        cftIfTcpRxDroppedByNoMemory,
+        cftIfTcpRxTooShort,
+        cftIfTcpRxDupOnlyPkts,
+        cftIfTcpRxDupOnlyOctets,
+        cftIfTcpRxDupDataPkts,
+        cftIfTcpRxDupOctetsInPartDupPkts,
+        cftIfTcpRxDataAfterWindowPkts,
+        cftIfTcpRxDataAfterWindowOctets,
+        cftIfTcpRxPktsAfterConnClose,
+        cftIfTcpRxWindowProbesPkts,
+        cftIfTcpRxDupAcks,
+        cftIfTcpRxAcksForUnsentData,
+        cftIfTcpRxAcksPkts,
+        cftIfTcpOctetAckedByRxAcks,
+        cftIfTcpRxWindowUpdatePkts,
+        cftIfTcpSegDropByPAWS,
+        cftIfTcpTxSackFackDataPkts,
+        cftIfTcpTxSackFackDataOctets,
+        cftIfTcpRetxSackFackDataPkts,
+        cftIfTcpRetxSackFackDataOctets,
+        cftIfTcpSackFackConnClosed,
+        cftIfTcpRetxSackFackTimeouts,
+        cftIfTcpHdrPredictOkForAcks,
+        cftIfTcpHdrPredictOkForDataPkts
+    }
+    STATUS  current
+    DESCRIPTION
+        "The collection of objects which are used to monitor the status
+         and statistics information of the TCP stack for the tunneled
+         Fiber Channel interface.  This extension group provides more
+         detail and specific statistics information that not all the
+         TCP stack will support."
+    ::= { cftTunnelMIBGroups 4 }
+
+END

@@ -1,0 +1,1260 @@
+-- MIB created 8/30/100 21:10:09, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-IPSEC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IPSEC-MIB.my"
+
+IMPORTS
+    Counter32, Gauge32, Integer32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    DisplayString, TruthValue
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    ciscoExperiment
+            FROM CISCO-SMI;
+
+ciscoIPsecMIB OBJECT IDENTIFIER ::= { ciscoExperiment 62 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200008071139Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--     Enterprise Business Management Unit
+--    
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-ipsecurity@cisco.com
+--  Descr
+--    The MIB module for modeling Cisco-specific 
+--     IPsec attributes
+--    
+--      Overview of Cisco IPsec MIB
+--    
+--      MIB description
+--    
+--          This MIB models the Cisco implementation-specific 
+--    attributes of a Cisco entity that implements IPsec. 
+--    This MIB is complementary to the standard IPsec MIB 
+--    proposed jointly by Tivoli and Cisco.
+--    
+--      The ciscoIPsec MIB provides the operational information 
+--    on Cisco's IPsec tunnelling implementation.  
+--    The following entities are managed:
+--       1) ISAKMP Group:
+--             a) ISAKMP global parameters
+--             b) ISAKMP Policy Table
+--    
+--       2) IPSec Group:
+--      a) IPSec Global Parameters
+--      b) IPSec Global Traffic Parameters
+--      c) Cryptomap Group
+--          - Cryptomap Set Table
+--          - Cryptomap Table
+--          - CryptomapSet Binding Table
+--    
+--       3) System Capacity & Capability Group:
+--      a) Capacity Parameters
+--      b) Capability Parameters
+--    
+--       4) Trap Control Group
+--       5) Notifications Group
+
+ciscoIPsecMIBObjects OBJECT IDENTIFIER ::= { ciscoIPsecMIB 1 }
+ciscoIPsecMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoIPsecMIB 2 }
+ciscoIPsecMIBConformance OBJECT IDENTIFIER ::= { ciscoIPsecMIB 3 }
+cipsIsakmpGroup OBJECT IDENTIFIER ::= { ciscoIPsecMIBObjects 1 }
+cipsIPsecGroup  OBJECT IDENTIFIER ::= { ciscoIPsecMIBObjects 2 }
+cipsIPsecGlobals OBJECT IDENTIFIER ::= { cipsIPsecGroup 1 }
+cipsIPsecStatistics OBJECT IDENTIFIER ::= { cipsIPsecGroup 2 }
+cipsCryptomapGroup OBJECT IDENTIFIER ::= { cipsIPsecGroup 3 }
+cipsSysCapacityGroup OBJECT IDENTIFIER ::= { ciscoIPsecMIBObjects 3 }
+cipsTrapCntlGroup OBJECT IDENTIFIER ::= { ciscoIPsecMIBObjects 4 }
+cipsMIBNotifications OBJECT IDENTIFIER ::= { ciscoIPsecMIBNotificationPrefix 0 }
+cipsMIBConformances OBJECT IDENTIFIER ::= { ciscoIPsecMIBConformance 1 }
+cipsMIBGroups   OBJECT IDENTIFIER ::= { ciscoIPsecMIBConformance 2 }
+
+CIPsecLifetime ::= Gauge32(120..86400)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Value in units of seconds
+
+CIPsecLifesize ::= Gauge32(2560..536870912)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Value in units of kilobytes
+
+CIPsecNumCryptoMaps ::= Gauge32(0..2147483647)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Integral units representing count of cryptomaps
+
+CryptomapType ::= INTEGER {
+--        cryptomapTypeNONE(0),
+        cryptomapTypeMANUAL(1),
+        cryptomapTypeISAKMP(2),
+        cryptomapTypeCET(3),
+        cryptomapTypeDYNAMIC(4),
+        cryptomapTypeDYNAMICDISCOVERY(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of a cryptomap entry. Cryptomap 
+--    is a unit of IOS IPSec policy specification.
+
+CryptomapSetBindStatus ::= INTEGER {
+--        unknown(0),
+        attached(1),
+        detached(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The status of the binding of a cryptomap set 
+--    to the specified interface. The value qhen queried
+--    is always 'attached'. When set to 'detached', the 
+--    cryptomap set if detached from the specified interface.
+--    Setting the value to 'attached' will result in 
+--    SNMP General Error.
+
+IPSIpAddress ::= OCTET STRING(SIZE(4 | 16))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An IP V4 or V6 Address.
+
+IkeHashAlgo ::= INTEGER {
+        none(1),
+        md5(2),
+        sha(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The hash algorithm used in IPsec Phase-1 
+--    IKE negotiations.
+
+IkeAuthMethod ::= INTEGER {
+        none(1),
+        preSharedKey(2),
+        rsaSig(3),
+        rsaEncrypt(4),
+        revPublicKey(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The authentication method used in IPsec Phase-1 IKE
+--     negotiations.
+
+IkeIdentityType ::= INTEGER {
+--        isakmpIdTypeUNKNOWN(0),
+        isakmpIdTypeADDRESS(1),
+        isakmpIdTypeHOSTNAME(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of identity used by the local entity to
+--    identity itself to the peer with which it performs
+--    IPSec Main Mode negotiations. This type decides the
+--    content of the Identification payload in the
+--    Main Mode of IPSec tunnel setup.
+
+DiffHellmanGrp ::= INTEGER {
+        none(1),
+        dhGroup1(2),
+        dhGroup2(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The Diffie Hellman Group used in negotiations.
+
+EncryptAlgo ::= INTEGER {
+        none(1),
+        des(2),
+        des3(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The encryption algorithm used in negotiations.
+
+TrapStatus ::= INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The administrative status for sending a TRAP.
+
+cipsIsakmpEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object is TRUE if ISAKMP
+        has been enabled on the managed entity. Otherise
+        the value of this object is FALSE."
+    ::= { cipsIsakmpGroup 1 }
+
+cipsIsakmpIdentity OBJECT-TYPE
+    SYNTAX IkeIdentityType
+--    Rsyntax INTEGER {
+--        isakmpIdTypeUNKNOWN(0),
+--        isakmpIdTypeADDRESS(1),
+--        isakmpIdTypeHOSTNAME(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object is shows the type of
+        identity used by the managed entity in ISAKMP
+        negotiations with another peer."
+    ::= { cipsIsakmpGroup 2 }
+
+cipsIsakmpKeepaliveInterval OBJECT-TYPE
+    SYNTAX Integer32(10..3600)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object is time interval in
+        seconds between successive ISAKMP keepalive
+        heartbeats issued to the peers to which IKE
+        tunnels have been setup."
+    ::= { cipsIsakmpGroup 3 }
+
+cipsNumIsakmpPolicies OBJECT-TYPE
+    SYNTAX Integer32(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object is the number of
+        ISAKMP policies that have been configured on the 
+        managed entity."
+    ::= { cipsIsakmpGroup 4 }
+
+cipsIsakmpPolicyTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipsIsakmpPolicyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table containing the list of all
+        ISAKMP policy entries configured by the operator."
+    ::= { cipsIsakmpGroup 5 }
+
+cipsIsakmpPolicyEntry OBJECT-TYPE
+    SYNTAX CipsIsakmpPolicyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the attributes 
+        associated with a single ISAKMP
+        Policy entry."
+    INDEX { cipsIsakmpPolPriority }
+    ::= { cipsIsakmpPolicyTable 1 }
+
+CipsIsakmpPolicyEntry ::= SEQUENCE {
+    cipsIsakmpPolPriority Integer32,
+    cipsIsakmpPolEncr EncryptAlgo,
+    cipsIsakmpPolHash IkeHashAlgo,
+    cipsIsakmpPolAuth IkeAuthMethod,
+    cipsIsakmpPolGroup DiffHellmanGrp,
+    cipsIsakmpPolLifetime Integer32
+    }
+
+cipsIsakmpPolPriority OBJECT-TYPE
+    SYNTAX Integer32(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The priotity of this ISAKMP Policy entry.
+        This is also the index of this table."
+    ::= { cipsIsakmpPolicyEntry 1 }
+
+cipsIsakmpPolEncr OBJECT-TYPE
+    SYNTAX EncryptAlgo
+--    Rsyntax INTEGER {
+--        none(1),
+--        des(2),
+--        des3(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The encryption transform specified by this 
+        ISAKMP policy specification. The Internet Key Exchange
+        (IKE) tunnels setup using this policy item would
+        use the specified encryption transform to protect the
+        ISAKMP PDUs."
+    ::= { cipsIsakmpPolicyEntry 2 }
+
+cipsIsakmpPolHash OBJECT-TYPE
+    SYNTAX IkeHashAlgo
+--    Rsyntax INTEGER {
+--        none(1),
+--        md5(2),
+--        sha(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The hash transform specified by this 
+        ISAKMP policy specification. The IKE tunnels
+        setup using this policy item would use the 
+        specified hash transform to protect the
+        ISAKMP PDUs."
+    ::= { cipsIsakmpPolicyEntry 3 }
+
+cipsIsakmpPolAuth OBJECT-TYPE
+    SYNTAX IkeAuthMethod
+--    Rsyntax INTEGER {
+--        none(1),
+--        preSharedKey(2),
+--        rsaSig(3),
+--        rsaEncrypt(4),
+--        revPublicKey(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The peer authentication mthod specified by
+        this ISAKMP policy specification. If this policy
+        entity is selected for negotiation with a peer,
+        the local entity would authenticate the peer using 
+        the method specified by this object."
+    ::= { cipsIsakmpPolicyEntry 4 }
+
+cipsIsakmpPolGroup OBJECT-TYPE
+    SYNTAX DiffHellmanGrp
+--    Rsyntax INTEGER {
+--        none(1),
+--        dhGroup1(2),
+--        dhGroup2(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the Oakley group used 
+        for Diffie Hellman exchange in the Main Mode. 
+        If this policy item is selected to negotiate
+        Main Mode with an IKE peer, the local entity 
+        chooses the group specified by this object to
+        perform Diffie Hellman exchange with the
+        peer."
+    ::= { cipsIsakmpPolicyEntry 5 }
+
+cipsIsakmpPolLifetime OBJECT-TYPE
+    SYNTAX Integer32(60..86400)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the lifetime in seconds
+        of the IKE tunnels generated using this 
+        policy specification."
+    ::= { cipsIsakmpPolicyEntry 6 }
+
+cipsSALifetime OBJECT-TYPE
+    SYNTAX CIPsecLifetime
+--    Rsyntax Gauge32(120..86400)
+--  Units
+--    Seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The default lifetime (in seconds) assigned 
+        to an SA as a global policy (maybe overridden 
+        in specific cryptomap definitions)."
+    ::= { cipsIPsecGlobals 1 }
+
+cipsSALifesize OBJECT-TYPE
+    SYNTAX CIPsecLifesize
+--    Rsyntax Gauge32(2560..536870912)
+--  Units
+--    KBytes
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The default lifesize in KBytes assigned to an SA 
+        as a global policy (unless overridden in cryptomap 
+        definition)"
+    ::= { cipsIPsecGlobals 2 }
+
+cipsNumStaticCryptomapSets OBJECT-TYPE
+    SYNTAX CIPsecNumCryptoMaps
+--    Rsyntax Gauge32(0..2147483647)
+--  Units
+--    Integral Units
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Cryptomap Sets that are are fully
+        configured. Statically defined cryptomap sets 
+        are ones where the operator has fully specified
+        all the parameters required set up IPSec 
+        Virtual Private Networks (VPNs)."
+    ::= { cipsIPsecGlobals 3 }
+
+cipsNumCETCryptomapSets OBJECT-TYPE
+    SYNTAX CIPsecNumCryptoMaps
+--    Rsyntax Gauge32(0..2147483647)
+--  Units
+--    Integral Units
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of static Cryptomap Sets that have 
+        at least one CET cryptomap element
+        as a member of the set."
+    ::= { cipsIPsecGlobals 4 }
+
+cipsNumDynamicCryptomapSets OBJECT-TYPE
+    SYNTAX CIPsecNumCryptoMaps
+--    Rsyntax Gauge32(0..2147483647)
+--  Units
+--    Integral Units
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of dynamic IPSec Policy templates
+         (called 'dynamic cryptomap templates') configured
+         on the managed entity."
+    ::= { cipsIPsecGlobals 5 }
+
+cipsNumTEDCryptomapSets OBJECT-TYPE
+    SYNTAX CIPsecNumCryptoMaps
+--    Rsyntax Gauge32(0..2147483647)
+--  Units
+--    Integral Units
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of static Cryptomap Sets that have 
+        at least one dynamic cryptomap template 
+        bound to them which has the Tunnel Endpoint Discovery
+        (TED) enabled."
+    ::= { cipsIPsecGlobals 6 }
+
+cipsNumTEDProbesReceived OBJECT-TYPE
+    SYNTAX Counter32
+--  Units
+--    Integral Units
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of TED probes that were received by this 
+        managed entity since bootup. Not affected by any 
+        CLI operation."
+    ::= { cipsIPsecStatistics 1 }
+
+cipsNumTEDProbesSent OBJECT-TYPE
+    SYNTAX Counter32
+--  Units
+--    Integral Units
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of TED probes that were dispatched by all
+        the dynamic cryptomaps in this managed entity since 
+        bootup. Not affected by any CLI operation."
+    ::= { cipsIPsecStatistics 2 }
+
+cipsNumTEDFailures OBJECT-TYPE
+    SYNTAX Counter32
+--  Units
+--    Integral Units
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of TED probes that were dispatched by 
+        the local entity and that failed to locate crypto 
+        endpoint.  Not affected by any CLI operation."
+    ::= { cipsIPsecStatistics 3 }
+
+cipsMaxSAs OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+--  Units
+--    Integral Units
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of IPsec Security Associations
+        that can be established on this managed entity.
+        If no theoretical limit exists, this
+        returns value 0.
+        
+        Not affected by any CLI operation."
+    ::= { cipsSysCapacityGroup 1 }
+
+cips3DesCapable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object is TRUE if the 
+        managed entity has the hardware nad software 
+        features to support 3DES encryption algorithm.
+        
+        Not affected by any CLI operation."
+    ::= { cipsSysCapacityGroup 2 }
+
+cipsStaticCryptomapSetTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipsStaticCryptomapSetEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table containing the list of all
+        cryptomap sets that are fully specified
+        and are not wild-carded.
+        
+        The operator may include different types of
+        cryptomaps in such a set - manual, CET,
+        ISAKMP or dynamic."
+    ::= { cipsCryptomapGroup 1 }
+
+cipsStaticCryptomapSetEntry OBJECT-TYPE
+    SYNTAX CipsStaticCryptomapSetEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the attributes 
+        associated with a single static 
+        cryptomap set."
+    INDEX { cipsStaticCryptomapSetName }
+    ::= { cipsStaticCryptomapSetTable 1 }
+
+CipsStaticCryptomapSetEntry ::= SEQUENCE {
+    cipsStaticCryptomapSetName DisplayString,
+    cipsStaticCryptomapSetSize Gauge32,
+    cipsStaticCryptomapSetNumIsakmp Gauge32,
+    cipsStaticCryptomapSetNumManual Gauge32,
+    cipsStaticCryptomapSetNumCET Gauge32,
+    cipsStaticCryptomapSetNumDynamic Gauge32,
+    cipsStaticCryptomapSetNumDisc Gauge32,
+    cipsStaticCryptomapSetNumSAs Gauge32
+    }
+
+cipsStaticCryptomapSetName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index of the static cryptomap table. The value 
+        of the string is the name string assigned by the 
+        operator in defining the cryptomap set."
+    ::= { cipsStaticCryptomapSetEntry 1 }
+
+cipsStaticCryptomapSetSize OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of cryptomap entries contained in
+        this cryptomap set. "
+    ::= { cipsStaticCryptomapSetEntry 2 }
+
+cipsStaticCryptomapSetNumIsakmp OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of cryptomaps associated with this 
+        cryptomap set that use ISAKMP protocol to do key
+        exchange."
+    ::= { cipsStaticCryptomapSetEntry 3 }
+
+cipsStaticCryptomapSetNumManual OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of cryptomaps associated with this 
+        cryptomap set that require the operator to manually
+        setup the keys and SPIs."
+    ::= { cipsStaticCryptomapSetEntry 4 }
+
+cipsStaticCryptomapSetNumCET OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of cryptomaps of type 'ipsec-cisco' 
+         associated with this cryptomap set. Such
+         cryptomap elements implement Cisco Encryption Technology
+         based Virtual Private Networks."
+    ::= { cipsStaticCryptomapSetEntry 5 }
+
+cipsStaticCryptomapSetNumDynamic OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of dynamic cryptomap templates
+         linked to this cryptomap set."
+    ::= { cipsStaticCryptomapSetEntry 6 }
+
+cipsStaticCryptomapSetNumDisc OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of dynamic cryptomap templates
+         linked to this cryptomap set that have Tunnel Endpoint
+         Discovery (TED) enabled."
+    ::= { cipsStaticCryptomapSetEntry 7 }
+
+cipsStaticCryptomapSetNumSAs OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of and IPsec Security Associations
+         that are active and were setup using this cryptomap.  "
+    ::= { cipsStaticCryptomapSetEntry 8 }
+
+cipsDynamicCryptomapSetTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipsDynamicCryptomapSetEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table containing the list of all dynamic
+         cryptomaps that use IKE, defined on 
+        the managed entity."
+    ::= { cipsCryptomapGroup 2 }
+
+cipsDynamicCryptomapSetEntry OBJECT-TYPE
+    SYNTAX CipsDynamicCryptomapSetEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the attributes associated
+        with a single dynamic cryptomap template."
+    INDEX { cipsDynamicCryptomapSetName }
+    ::= { cipsDynamicCryptomapSetTable 1 }
+
+CipsDynamicCryptomapSetEntry ::= SEQUENCE {
+    cipsDynamicCryptomapSetName DisplayString,
+    cipsDynamicCryptomapSetSize Gauge32,
+    cipsDynamicCryptomapSetNumAssoc Gauge32
+    }
+
+cipsDynamicCryptomapSetName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The index of the dynamic cryptomap table. 
+        The value of the string is the one assigned 
+        by the operator in defining the cryptomap set."
+    ::= { cipsDynamicCryptomapSetEntry 1 }
+
+cipsDynamicCryptomapSetSize OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of cryptomap entries in this cryptomap."
+    ::= { cipsDynamicCryptomapSetEntry 2 }
+
+cipsDynamicCryptomapSetNumAssoc OBJECT-TYPE
+    SYNTAX Gauge32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of static cryptomap sets with which
+        this dynamic cryptomap is associated.  "
+    ::= { cipsDynamicCryptomapSetEntry 3 }
+
+cipsStaticCryptomapTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipsStaticCryptomapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table ilisting the member cryptomaps
+        of the cryptomap sets that are configured
+        on the managed entity."
+    ::= { cipsCryptomapGroup 3 }
+
+cipsStaticCryptomapEntry OBJECT-TYPE
+    SYNTAX CipsStaticCryptomapEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the attributes 
+        associated with a single static 
+        (fully specified) cryptomap entry.
+        This table does not include the members 
+        of dynamic cryptomap sets that may be
+        linked with the parent static cryptomap set."
+    INDEX { cipsStaticCryptomapSetName, cipsStaticCryptomapPriority }
+    ::= { cipsStaticCryptomapTable 1 }
+
+CipsStaticCryptomapEntry ::= SEQUENCE {
+    cipsStaticCryptomapPriority Integer32,
+    cipsStaticCryptomapType CryptomapType,
+    cipsStaticCryptomapDescr DisplayString,
+    cipsStaticCryptomapPeer IPSIpAddress,
+    cipsStaticCryptomapNumPeers Integer32,
+    cipsStaticCryptomapPfs DiffHellmanGrp,
+    cipsStaticCryptomapLifetime Integer32,
+    cipsStaticCryptomapLifesize Integer32,
+    cipsStaticCryptomapLevelHost TruthValue
+    }
+
+cipsStaticCryptomapPriority OBJECT-TYPE
+    SYNTAX Integer32(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The priority of the cryptomap entry in the 
+        cryptomap set. This is the second index component
+        of this table."
+    ::= { cipsStaticCryptomapEntry 1 }
+
+cipsStaticCryptomapType OBJECT-TYPE
+    SYNTAX CryptomapType
+--    Rsyntax INTEGER {
+--        cryptomapTypeNONE(0),
+--        cryptomapTypeMANUAL(1),
+--        cryptomapTypeISAKMP(2),
+--        cryptomapTypeCET(3),
+--        cryptomapTypeDYNAMIC(4),
+--        cryptomapTypeDYNAMICDISCOVERY(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the cryptomap entry. This can be an ISAKMP
+        cryptomap, CET or manual. Dynamic cryptomaps are not
+        counted in this table."
+    ::= { cipsStaticCryptomapEntry 2 }
+
+cipsStaticCryptomapDescr OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The description string entered by the operatoir
+        while creating this cryptomap. The string generally
+        identifies a description and the purpose of this
+        policy."
+    ::= { cipsStaticCryptomapEntry 3 }
+
+cipsStaticCryptomapPeer OBJECT-TYPE
+    SYNTAX IPSIpAddress
+--    Rsyntax OCTET STRING(SIZE(4 | 16))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the current peer associated with 
+        this IPSec policy item. Traffic that is protected by
+        this cryptomap is protected by a tunnel that terminates
+        at the device whose IP address is specified by this
+        object."
+    ::= { cipsStaticCryptomapEntry 4 }
+
+cipsStaticCryptomapNumPeers OBJECT-TYPE
+    SYNTAX Integer32(0..40)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of peers associated with this cryptomap 
+         entry. The peers other than the one identified by 
+        'cipsStaticCryptomapPeer' are backup peers. 
+        
+        Manual cryptomaps may have only one peer."
+    ::= { cipsStaticCryptomapEntry 5 }
+
+cipsStaticCryptomapPfs OBJECT-TYPE
+    SYNTAX DiffHellmanGrp
+--    Rsyntax INTEGER {
+--        none(1),
+--        dhGroup1(2),
+--        dhGroup2(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies if the tunnels instantiated
+        due to this policy item should use Perfect Forward Secrecy 
+        (PFS) and if so, what group of Oakley they should use."
+    ::= { cipsStaticCryptomapEntry 6 }
+
+cipsStaticCryptomapLifetime OBJECT-TYPE
+    SYNTAX Integer32(0 | 120..86400)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the lifetime of the IPSec
+        Security Associations (SA) created using this IPSec policy
+        entry. If this value is zero, the lifetime assumes the 
+        value specified by the global lifetime parameter."
+    ::= { cipsStaticCryptomapEntry 7 }
+
+cipsStaticCryptomapLifesize OBJECT-TYPE
+    SYNTAX Integer32(0 | 2560..536870912)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the lifesize (maximum traffic
+        in bytes that may be carried) of the IPSec SAs
+        created using this IPSec policy entry. 
+        If this value is zero, the lifetime assumes the 
+        value specified by the global lifesize parameter."
+    ::= { cipsStaticCryptomapEntry 8 }
+
+cipsStaticCryptomapLevelHost OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the granularity of the
+        IPSec SAs created using this IPSec policy entry. 
+        If this value is TRUE, distinct SA bundles are created
+        for distinct hosts at the end of the application traffic."
+    ::= { cipsStaticCryptomapEntry 9 }
+
+cipsCryptomapSetIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CipsCryptomapSetIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table lists the binding of cryptomap sets
+        to the interfaces of the managed entity."
+    ::= { cipsCryptomapGroup 4 }
+
+cipsCryptomapSetIfEntry OBJECT-TYPE
+    SYNTAX CipsCryptomapSetIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry contains the record of
+        the association between an interface
+        and a cryptomap set (static) that is defined
+        on the managed entity.
+        
+        Note that the cryptomap set identified in 
+        this binding must static. Dynamic cryptomaps cannot
+        be bound to interfaces."
+    INDEX { ifIndex, cipsStaticCryptomapSetName }
+    ::= { cipsCryptomapSetIfTable 1 }
+
+CipsCryptomapSetIfEntry ::= SEQUENCE {
+    cipsCryptomapSetIfVirtual TruthValue,
+    cipsCryptomapSetIfStatus CryptomapSetBindStatus
+    }
+
+cipsCryptomapSetIfVirtual OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies if the
+        interface to which the cryptomap set is attached
+        is a tunnel (such as a GRE or PPTP tunnel)."
+    ::= { cipsCryptomapSetIfEntry 1 }
+
+cipsCryptomapSetIfStatus OBJECT-TYPE
+    SYNTAX CryptomapSetBindStatus
+--    Rsyntax INTEGER {
+--        unknown(0),
+--        attached(1),
+--        detached(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the status of the binding 
+        of the specified cryptomap set with the specified
+        interface. The value when queried is always 'attached'. 
+        When set to 'detached', the cryptomap set if detached 
+        from the specified interface. The effect of this is same 
+        as the CLI command
+        
+        config-if# no crypto map cryptomapSetName
+        
+        Setting the value to 'attached' will result in 
+        SNMP General Error."
+    ::= { cipsCryptomapSetIfEntry 2 }
+
+cipsCntlIsakmpPolicyAdded OBJECT-TYPE
+    SYNTAX TrapStatus
+--    Rsyntax INTEGER {
+--        enabled(1),
+--        disabled(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the administrative state of 
+        sending the IOS IPsec ISAKMP Policy Add trap."
+    DEFVAL { disabled }
+    ::= { cipsTrapCntlGroup 1 }
+
+cipsCntlIsakmpPolicyDeleted OBJECT-TYPE
+    SYNTAX TrapStatus
+--    Rsyntax INTEGER {
+--        enabled(1),
+--        disabled(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the administrative state of 
+        sending the IOS IPsec ISAKMP Policy Delete trap."
+    DEFVAL { disabled }
+    ::= { cipsTrapCntlGroup 2 }
+
+cipsCntlCryptomapAdded OBJECT-TYPE
+    SYNTAX TrapStatus
+--    Rsyntax INTEGER {
+--        enabled(1),
+--        disabled(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the administrative state of 
+        sending the IOS IPsec Cryptomap Add trap."
+    DEFVAL { disabled }
+    ::= { cipsTrapCntlGroup 3 }
+
+cipsCntlCryptomapDeleted OBJECT-TYPE
+    SYNTAX TrapStatus
+--    Rsyntax INTEGER {
+--        enabled(1),
+--        disabled(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the administrative state of 
+        sending the IOS IPsec Cryptomap Delete trap."
+    DEFVAL { disabled }
+    ::= { cipsTrapCntlGroup 4 }
+
+cipsCntlCryptomapSetAttached OBJECT-TYPE
+    SYNTAX TrapStatus
+--    Rsyntax INTEGER {
+--        enabled(1),
+--        disabled(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the administrative state of 
+        sending the IOS IPsec trap that is issued
+        when a cryptomap set is attached to an interface."
+    DEFVAL { disabled }
+    ::= { cipsTrapCntlGroup 5 }
+
+cipsCntlCryptomapSetDetached OBJECT-TYPE
+    SYNTAX TrapStatus
+--    Rsyntax INTEGER {
+--        enabled(1),
+--        disabled(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the administrative state of 
+        sending the IOS IPsec trap that is issued
+        when a cryptomap set is detached from an interface.
+        to which it was earlier bound."
+    DEFVAL { disabled }
+    ::= { cipsTrapCntlGroup 6 }
+
+cipsCntlTooManySAs OBJECT-TYPE
+    SYNTAX TrapStatus
+--    Rsyntax INTEGER {
+--        enabled(1),
+--        disabled(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the administrative state of 
+        sending the IOS IPsec trap that is issued
+        when the number of SAs crosses the maximum
+        number of SAs that may be supported on
+        the managed entity."
+    DEFVAL { disabled }
+    ::= { cipsTrapCntlGroup 7 }
+
+cipsIsakmpPolicyAdded TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIPsecMIBNotificationPrefix
+    VARIABLES {
+        cipsNumIsakmpPolicies }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap is generated when a new ISAKMP
+        policy element is defined on the managed entity.
+        The context of the event includes the updated
+        number of ISAKMP policy elements currently available."
+    ::= 1
+
+cipsIsakmpPolicyDeleted TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIPsecMIBNotificationPrefix
+    VARIABLES {
+        cipsNumIsakmpPolicies }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap is generated when an existing ISAKMP
+        policy element is deleted on the managed entity.
+        The context of the event includes the updated
+        number of ISAKMP policy elements currently available."
+    ::= 2
+
+cipsCryptomapAdded TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIPsecMIBNotificationPrefix
+    VARIABLES {
+        cipsStaticCryptomapType, cipsStaticCryptomapSetSize }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap is generated when a new cryptomap is
+        added to the specified cryptomap set."
+    ::= 3
+
+cipsCryptomapDeleted TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIPsecMIBNotificationPrefix
+    VARIABLES {
+        cipsStaticCryptomapSetSize }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap is generated when a cryptomap is
+        removed from the specified cryptomap set."
+    ::= 4
+
+cipsCryptomapSetAttached TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIPsecMIBNotificationPrefix
+    VARIABLES {
+        cipsStaticCryptomapSetSize, cipsStaticCryptomapSetNumIsakmp, 
+        cipsStaticCryptomapSetNumDynamic }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cryptomap set must be attached to an interface
+        of the device in order for it to be operational.
+        This trap is generated when the cryptomap set 
+        attached to an active interface of the managed entity.
+        
+        The context of the notification includes:
+        Size of the attached cryptomap set,
+        Number of ISAKMP cryptomaps in the set and
+        Number of Dynamic cryptomaps in the set."
+    ::= 5
+
+cipsCryptomapSetDetached TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIPsecMIBNotificationPrefix
+    VARIABLES {
+        cipsStaticCryptomapSetSize }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap is generated when a cryptomap set is
+        detached from an interafce to which it was
+        bound earlier. The context of the event identifies the
+        size of the cryptomap set."
+    ::= 6
+
+cipsTooManySAs TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoIPsecMIBNotificationPrefix
+    VARIABLES {
+        cipsMaxSAs }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This trap is generated when a new SA is attempted 
+        to be setup while the number of currently active SAs 
+        equals the maximum configurable.  The variables are:
+        cipsMaxSAs"
+    ::= 7
+
+cipsMIBConfIsakmpGroup OBJECT IDENTIFIER ::= { cipsMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Global
+--            ISAKMP policy monitoring capability to a 
+--     Cisco IPsec capable VPN router.
+--  objects
+--    cipsIsakmpEnabled, cipsIsakmpIdentity, 
+--    cipsIsakmpKeepaliveInterval, cipsNumIsakmpPolicies
+
+cipsMIBConfIPSecGlobalsGroup OBJECT IDENTIFIER ::= { cipsMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing Global
+--            IPSec policy monitoring capability to a 
+--     Cisco IPsec capable VPN router.
+--  objects
+--    cipsSALifetime, cipsSALifesize
+
+cipsMIBConfCapacityGroup OBJECT IDENTIFIER ::= { cipsMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing IPsec
+--                  System Capacity monitoring capability to
+--    a Cisco IPsec capable VPN router.
+--  objects
+--    cipsMaxSAs, cips3DesCapable
+
+cipsMIBStaticCryptomapGroup OBJECT IDENTIFIER ::= { cipsMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects instrumenting
+--                  the properties of the Static (fully specified) 
+--                  Cryptomap Sets on an IPsec-capable 
+--                  IOS router.
+--  objects
+--    cipsStaticCryptomapSetSize, cipsStaticCryptomapSetNumIsakmp, 
+--    cipsStaticCryptomapSetNumCET, cipsStaticCryptomapSetNumSAs
+
+cipsMIBManualCryptomapGroup OBJECT IDENTIFIER ::= { cipsMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects instrumenting
+--                  the properties of the Manual Cryptomap entries
+--    on a Cisco IPsec capable IOS router.
+--  objects
+--    cipsStaticCryptomapSetNumManual
+
+cipsMIBDynamicCryptomapGroup OBJECT IDENTIFIER ::= { cipsMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects instrumenting
+--                  the properties of the Dynamic Cryptomap group
+--    on a Cisco IPsec capable IOS router.
+--  objects
+--    cipsNumTEDProbesReceived, cipsNumTEDProbesSent, 
+--    cipsNumTEDFailures, cipsStaticCryptomapSetNumDynamic, 
+--    cipsStaticCryptomapSetNumDisc, cipsNumTEDCryptomapSets, 
+--    cipsDynamicCryptomapSetSize, cipsDynamicCryptomapSetNumAssoc
+
+cipsMIBMandatoryNotifCntlGroup OBJECT IDENTIFIER ::= { cipsMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing IPsec
+--           Notification capability to a IPsec-capable
+--    IOS router. It is mandatory to implement
+--    this set of objects pertaining to
+--    IOS notifications about IPSec activity.
+--  objects
+--    cipsCntlIsakmpPolicyAdded, cipsCntlIsakmpPolicyDeleted, 
+--    cipsCntlCryptomapAdded, cipsCntlCryptomapDeleted, 
+--    cipsCntlCryptomapSetAttached, cipsCntlCryptomapSetDetached, 
+--    cipsCntlTooManySAs
+
+cipsMIBCompliance OBJECT IDENTIFIER ::= { cipsMIBConformances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the Cisco IPsec MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cipsMIBConfIsakmpGroup
+--   MandGroup
+--    cipsMIBConfIPSecGlobalsGroup
+--   MandGroup
+--    cipsMIBConfCapacityGroup
+--   MandGroup
+--    cipsMIBStaticCryptomapGroup
+--   MandGroup
+--    cipsMIBMandatoryNotifCntlGroup
+--   ObjVar
+--    cipsCntlIsakmpPolicyAdded
+--   ObjVar
+--    cipsCntlIsakmpPolicyDeleted
+--   ObjVar
+--    cipsCntlCryptomapAdded
+--   ObjVar
+--    cipsCntlCryptomapDeleted
+--   ObjVar
+--    cipsCntlCryptomapSetAttached
+--   ObjVar
+--    cipsCntlCryptomapSetDetached
+--   ObjVar
+--    cipsCntlTooManySAs
+
+
+END
+

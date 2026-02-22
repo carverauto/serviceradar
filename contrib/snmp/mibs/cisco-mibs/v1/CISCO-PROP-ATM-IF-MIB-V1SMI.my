@@ -1,0 +1,691 @@
+-- MIB file created 10-Sep-2004 14:57:10, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-PROP-ATM-IF-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-PROP-ATM-IF-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoPropAtmIfMIB OBJECT IDENTIFIER ::= { ciscoMgmt 319 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200212040000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-voice-gateway@cisco.com
+--  Descr
+--    This MIB is designed for Propietary ATM (propAtm) 
+--     interfaces.              
+--     The propAtm interfaces are identified in the ifTable 
+--     entries with ifType 197 (as defined in IANAifType-MIB).
+--     This interface is a switch virtual interface which does 
+--     not have any physical connector(jack).
+--  RevDate
+--    200212040000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoPropAtmIfMIBNotifs OBJECT IDENTIFIER ::= { ciscoPropAtmIfMIB 0 }
+ciscoPropAtmIfMIBObjects OBJECT IDENTIFIER ::= { ciscoPropAtmIfMIB 1 }
+cpAtmIfConfig   OBJECT IDENTIFIER ::= { ciscoPropAtmIfMIBObjects 1 }
+cpAtmIfVirtualPortStats OBJECT IDENTIFIER ::= { ciscoPropAtmIfMIBObjects 2 }
+cpAtmIfMIBConformance OBJECT IDENTIFIER ::= { ciscoPropAtmIfMIB 2 }
+cpAtmIfMIBCompliances OBJECT IDENTIFIER ::= { cpAtmIfMIBConformance 1 }
+cpAtmIfMIBGroups OBJECT IDENTIFIER ::= { cpAtmIfMIBConformance 2 }
+
+cpAtmIfConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpAtmIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table is used to configure propAtm interfaces.
+         Each entry in this table has a corresponding ifTable
+         entry with ifType propAtm(197).  The ifIndex value
+         of that associated ifTable entry is used to index
+         this this table.
+         The entry of this table is added after its associated  
+         ifEntry is added in the ifTable of IF-MIB.
+         It is impossible to add/delete entry to/from this table."
+    ::= { cpAtmIfConfig 1 }
+
+cpAtmIfConfigEntry OBJECT-TYPE
+    SYNTAX CpAtmIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cpAtmIfConfigTable table for 
+         each propAtm port interface.
+        ."
+    INDEX { ifIndex }
+    ::= { cpAtmIfConfigTable 1 }
+
+CpAtmIfConfigEntry ::= SEQUENCE {
+    cpAtmIfMaxBandwidth Gauge
+    }
+
+cpAtmIfMaxBandwidth OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+--  Units
+--    cells-per-second
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The propATM interface's maximum cell rate."
+    DEFVAL { 7000000 }
+    ::= { cpAtmIfConfigEntry 1 }
+
+cpAtmIfStatsEgressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpAtmIfStatsEgressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table reflects real-time statistics associated with
+         each of propAtm interfaces on the egress side.
+        
+         Ingress terminology is used for the cells that are generated
+         by the voice gateway on the TDM side and are going toward
+         the ATM switch.
+        
+         Egress terminology means the cells that are coming from the
+         ATM switch into the TDM side. This table contains
+         statistics from this egress point of view."
+    ::= { cpAtmIfVirtualPortStats 1 }
+
+cpAtmIfStatsEgressEntry OBJECT-TYPE
+    SYNTAX CpAtmIfStatsEgressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cpAtmIfStatsEgressTable table for 
+         each propAtm port interface.
+        
+         CLP-0 means Cell Loss Priority = 0, 
+         CLP-1 means Cell Loss Priority = 1."
+    INDEX { ifIndex }
+    ::= { cpAtmIfStatsEgressTable 1 }
+
+CpAtmIfStatsEgressEntry ::= SEQUENCE {
+    cpAtmIfEgrRcvClp0Cells Counter,
+    cpAtmIfEgrRcvClp1Cells Counter,
+    cpAtmIfEgrClp0DiscCells Counter,
+    cpAtmIfEgrClp1DiscCells Counter,
+    cpAtmIfEgrRcvOAMCells Counter,
+    cpAtmIfEgrRcvEFCICells Counter,
+    cpAtmIfHCEgrRcvClp0Cells Counter,
+    cpAtmIfHCEgrRcvClp1Cells Counter,
+    cpAtmIfHCEgrClp0DiscCells Counter,
+    cpAtmIfHCEgrClp1DiscCells Counter,
+    cpAtmIfHCEgrRcvOAMCells Counter,
+    cpAtmIfHCEgrRcvEFCICells Counter
+    }
+
+cpAtmIfEgrRcvClp0Cells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-0 cells received from switch
+         at the traffic management and policing device."
+    ::= { cpAtmIfStatsEgressEntry 1 }
+
+cpAtmIfEgrRcvClp1Cells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-1 cells received from switch
+         at the traffic management and policing device."
+    ::= { cpAtmIfStatsEgressEntry 2 }
+
+cpAtmIfEgrClp0DiscCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-0 cells discarded due to policing."
+    ::= { cpAtmIfStatsEgressEntry 3 }
+
+cpAtmIfEgrClp1DiscCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-1 cells discarded due to policing."
+    ::= { cpAtmIfStatsEgressEntry 4 }
+
+cpAtmIfEgrRcvOAMCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of OAM cells received from the switch
+         at the traffic management and policing device."
+    ::= { cpAtmIfStatsEgressEntry 5 }
+
+cpAtmIfEgrRcvEFCICells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of EFCI cells received from the switch
+         at traffic management and policing device."
+    ::= { cpAtmIfStatsEgressEntry 6 }
+
+cpAtmIfHCEgrRcvClp0Cells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-0 cells received from switch
+         at the traffic management and policing device.
+         This object is a 64-bit version of 
+         cpAtmIfEgrRcvClp0Cells."
+    ::= { cpAtmIfStatsEgressEntry 7 }
+
+cpAtmIfHCEgrRcvClp1Cells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-1 cells received from switch
+         at the traffic management and policing device.
+         This object is a 64-bit version of 
+         cpAtmIfEgrRcvClp1Cells."
+    ::= { cpAtmIfStatsEgressEntry 8 }
+
+cpAtmIfHCEgrClp0DiscCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-0 cells discarded due to policing.
+         This object is a 64-bit version of 
+         cpAtmIfEgrClp0DiscCells."
+    ::= { cpAtmIfStatsEgressEntry 9 }
+
+cpAtmIfHCEgrClp1DiscCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-1 cells discarded due to policing.
+         This object is a 64-bit version of 
+         cpAtmIfEgrClp1DiscCells."
+    ::= { cpAtmIfStatsEgressEntry 10 }
+
+cpAtmIfHCEgrRcvOAMCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of OAM cells received from the switch
+         at the traffic management and policing device.
+         This object is a 64-bit version of 
+         cpAtmIfEgrRcvOAMCells."
+    ::= { cpAtmIfStatsEgressEntry 11 }
+
+cpAtmIfHCEgrRcvEFCICells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of EFCI cells received from the switch
+         at traffic management and policing device.
+         This object is a 64-bit version of 
+         cpAtmIfEgrRcvEFCICells."
+    ::= { cpAtmIfStatsEgressEntry 12 }
+
+cpAtmIfEgressIntervalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpAtmIfEgressIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table reflects interval(each 15 minute) statistics
+         associated witheach of the propAtm interfaces on egress side."
+    ::= { cpAtmIfVirtualPortStats 2 }
+
+cpAtmIfEgressIntervalEntry OBJECT-TYPE
+    SYNTAX CpAtmIfEgressIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cpAtmIfEgressIntervalTable table 
+         for each propAtm port interface.
+        
+         CLP-0 means Cell Loss Priority = 0, 
+         CLP-1 means Cell Loss Priority = 1."
+    INDEX { ifIndex, cpAtmIfEgressIntervalNumber }
+    ::= { cpAtmIfEgressIntervalTable 1 }
+
+CpAtmIfEgressIntervalEntry ::= SEQUENCE {
+    cpAtmIfEgressIntervalNumber INTEGER,
+    cpAtmIfIntEgrRcvClp0Cells Counter,
+    cpAtmIfIntEgrRcvClp1Cells Counter,
+    cpAtmIfIntEgrClp0DiscCells Counter,
+    cpAtmIfIntEgrClp1DiscCells Counter,
+    cpAtmIfIntEgrRcvOAMCells Counter,
+    cpAtmIfIntEgrRcvEFCICells Counter,
+    cpAtmIfHCIntEgrRcvClp0Cells Counter,
+    cpAtmIfHCIntEgrRcvClp1Cells Counter,
+    cpAtmIfHCIntEgrClp0DiscCells Counter,
+    cpAtmIfHCIntEgrClp1DiscCells Counter,
+    cpAtmIfHCIntEgrRcvOAMCells Counter,
+    cpAtmIfHCIntEgrRcvEFCICells Counter
+    }
+
+cpAtmIfEgressIntervalNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..96)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Index of the table which represents the interval number.
+         An interval number between 1 and 96, where 1 is the
+         most recently completed 15 minute interval and 96 is 
+         the 15 minutes interval completed 23 hours an 45
+         minutes prior to interval 1."
+    ::= { cpAtmIfEgressIntervalEntry 1 }
+
+cpAtmIfIntEgrRcvClp0Cells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-0 cells received from switch
+         at the traffic management and policing device
+         during a 15 minute interval."
+    ::= { cpAtmIfEgressIntervalEntry 2 }
+
+cpAtmIfIntEgrRcvClp1Cells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-1 cells received from switch
+         at the traffic management and policing device 
+         during a 15 minute interval."
+    ::= { cpAtmIfEgressIntervalEntry 3 }
+
+cpAtmIfIntEgrClp0DiscCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-0 cells discarded due to policing
+         during a 15 minute interval."
+    ::= { cpAtmIfEgressIntervalEntry 4 }
+
+cpAtmIfIntEgrClp1DiscCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-1 cells discarded due to policing
+         during a 15 minute interval."
+    ::= { cpAtmIfEgressIntervalEntry 5 }
+
+cpAtmIfIntEgrRcvOAMCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of OAM cells received from the switch
+         at the traffic management and policing device 
+         during a 15 minute interval."
+    ::= { cpAtmIfEgressIntervalEntry 6 }
+
+cpAtmIfIntEgrRcvEFCICells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of EFCI cells received from the switch
+         at traffic management and policing device during a 15
+         minute interval."
+    ::= { cpAtmIfEgressIntervalEntry 7 }
+
+cpAtmIfHCIntEgrRcvClp0Cells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-0 cells received from switch
+         at the traffic management and policing device
+         during a 15 minute interval.
+         This object is a 64-bit version of 
+         cpAtmIfIntEgrRcvClp0Cells."
+    ::= { cpAtmIfEgressIntervalEntry 8 }
+
+cpAtmIfHCIntEgrRcvClp1Cells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-1 cells received from switch
+         at the traffic management and policing device 
+         during a 15 minute interval.
+         This object is a 64-bit version of 
+         cpAtmIfIntEgrRcvClp1Cells."
+    ::= { cpAtmIfEgressIntervalEntry 9 }
+
+cpAtmIfHCIntEgrClp0DiscCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-0 cells discarded due to policing
+         during a 15 minute interval.
+         This object is a 64-bit version of 
+         cpAtmIfIntEgrClp0DiscCells."
+    ::= { cpAtmIfEgressIntervalEntry 10 }
+
+cpAtmIfHCIntEgrClp1DiscCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-1 cells discarded due to policing
+         during a 15 minute interval.
+         This object is a 64-bit version of 
+         cpAtmIfIntEgrClp1DiscCells."
+    ::= { cpAtmIfEgressIntervalEntry 11 }
+
+cpAtmIfHCIntEgrRcvOAMCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of OAM cells received from the switch
+         at the traffic management and policing device 
+         during a 15 minute interval.
+         This object is a 64-bit version of 
+         cpAtmIfIntEgrRcvOAMCells."
+    ::= { cpAtmIfEgressIntervalEntry 12 }
+
+cpAtmIfHCIntEgrRcvEFCICells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of EFCI cells received from the switch
+         at traffic management and policing device during a 15
+         minute interval.
+         This object is a 64-bit version of 
+         cpAtmIfIntEgrRcvEFCICells."
+    ::= { cpAtmIfEgressIntervalEntry 13 }
+
+cpAtmIfStatsIngressTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CpAtmIfStatsIngressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table reflects real time statistics associated with
+         each of the the propAtm interfaces on the ingress side.
+        
+         Ingress terminology is used for the cells that are generated
+         by the voice gateway on the TDM side and are going toward
+         the ATM switch.
+        
+         Egress terminology means the cells that are coming from the
+         ATM switch into TDM side. This table contains statistics
+         from this ingress point of view."
+    ::= { cpAtmIfVirtualPortStats 3 }
+
+cpAtmIfStatsIngressEntry OBJECT-TYPE
+    SYNTAX CpAtmIfStatsIngressEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cpAtmIfStatsIngressTable table for 
+         each propAtm port interface.
+        
+         CLP-0 means Cell Loss Priority = 0, 
+         CLP-1 means Cell Loss Priority = 1."
+    INDEX { ifIndex }
+    ::= { cpAtmIfStatsIngressTable 1 }
+
+CpAtmIfStatsIngressEntry ::= SEQUENCE {
+    cpAtmIfIngXmtClp0Cells Counter,
+    cpAtmIfIngXmtClp1Cells Counter,
+    cpAtmIfIngXmtEFCICells Counter,
+    cpAtmIfIngXmtOAMCells Counter,
+    cpAtmIfHCIngXmtClp0Cells Counter,
+    cpAtmIfHCIngXmtClp1Cells Counter,
+    cpAtmIfHCIngXmtEFCICells Counter,
+    cpAtmIfHCIngXmtOAMCells Counter
+    }
+
+cpAtmIfIngXmtClp0Cells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-0 cells transmitted to the switch
+         after traffic management and policing in
+         ingress direction."
+    ::= { cpAtmIfStatsIngressEntry 1 }
+
+cpAtmIfIngXmtClp1Cells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-1 cells transmitted to the switch
+         after traffic management and policing in
+         ingress direction."
+    ::= { cpAtmIfStatsIngressEntry 2 }
+
+cpAtmIfIngXmtEFCICells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of EFCI cells transmitted to the switch 
+         after traffic management and policing in
+         ingress direction."
+    ::= { cpAtmIfStatsIngressEntry 3 }
+
+cpAtmIfIngXmtOAMCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of OAM loopback cells transmitted to switch
+         after traffic management and policing in
+         ingress direction."
+    ::= { cpAtmIfStatsIngressEntry 4 }
+
+cpAtmIfHCIngXmtClp0Cells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-0 cells transmitted to the switch
+         after traffic management and policing in
+         ingress direction.
+         This object is a 64-bit version of 
+         cpAtmIfIngXmtClp0Cells."
+    ::= { cpAtmIfStatsIngressEntry 5 }
+
+cpAtmIfHCIngXmtClp1Cells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of CLP-1 cells transmitted to the switch
+         after traffic management and policing in
+         ingress direction.
+         This object is a 64-bit version of 
+         cpAtmIfIngXmtClp1Cells."
+    ::= { cpAtmIfStatsIngressEntry 6 }
+
+cpAtmIfHCIngXmtEFCICells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of EFCI cells transmitted to the switch 
+         after traffic management and policing in
+         ingress direction.
+         This object is a 64-bit version of 
+         cpAtmIfIngXmtEFCICells."
+    ::= { cpAtmIfStatsIngressEntry 7 }
+
+cpAtmIfHCIngXmtOAMCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of OAM loopback cells transmitted to switch
+         after traffic management and policing in
+         ingress direction.
+         This object is a 64-bit version of 
+         cpAtmIfIngXmtOAMCells."
+    ::= { cpAtmIfStatsIngressEntry 8 }
+
+cpAtmIfConfigGroup OBJECT IDENTIFIER ::= { cpAtmIfMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are objects related to configuration of propAtm 
+--     Interface.
+--  objects
+--    cpAtmIfMaxBandwidth
+
+cpAtmIfEgressStatMIBGroup OBJECT IDENTIFIER ::= { cpAtmIfMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are objects related to Egress Statistics of propAtm 
+--     interfaces.
+--  objects
+--    cpAtmIfEgrRcvClp0Cells, cpAtmIfEgrRcvClp1Cells, 
+--    cpAtmIfEgrClp0DiscCells, cpAtmIfEgrClp1DiscCells, 
+--    cpAtmIfEgrRcvOAMCells, cpAtmIfEgrRcvEFCICells
+
+cpAtmIfEgressIntervalMIBGroup OBJECT IDENTIFIER ::= { cpAtmIfMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are objects related to Egress Interval Statistics of  
+--     propAtm Interfaces.
+--  objects
+--    cpAtmIfIntEgrRcvClp0Cells, cpAtmIfIntEgrRcvClp1Cells, 
+--    cpAtmIfIntEgrClp0DiscCells, cpAtmIfIntEgrClp1DiscCells, 
+--    cpAtmIfIntEgrRcvOAMCells, cpAtmIfIntEgrRcvEFCICells
+
+cpAtmIfIngressStatMIBGroup OBJECT IDENTIFIER ::= { cpAtmIfMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are objects related to Ingress Statistics of propAtm 
+--     interfaces.
+--  objects
+--    cpAtmIfIngXmtClp0Cells, cpAtmIfIngXmtClp1Cells, 
+--    cpAtmIfIngXmtEFCICells, cpAtmIfIngXmtOAMCells
+
+cpAtmIfHCEgressStatMIBGroup OBJECT IDENTIFIER ::= { cpAtmIfMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are objects related to Egress Statistics of propAtm 
+--     interfaces.
+--     This group is a 64-bit version of cpAtmIfEgressStatMIBGroup.
+--  objects
+--    cpAtmIfHCEgrRcvClp0Cells, cpAtmIfHCEgrRcvClp1Cells, 
+--    cpAtmIfHCEgrClp0DiscCells, cpAtmIfHCEgrClp1DiscCells, 
+--    cpAtmIfHCEgrRcvOAMCells, cpAtmIfHCEgrRcvEFCICells
+
+cpAtmIfHCEgressIntervalMIBGroup OBJECT IDENTIFIER ::= { cpAtmIfMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are objects related to Egress Interval Statistics of  
+--     propAtm Interfaces.
+--     This group is a 64-bit version of 
+--     cpAtmIfEgressIntervalMIBGroup.
+--  objects
+--    cpAtmIfHCIntEgrRcvClp0Cells, cpAtmIfHCIntEgrRcvClp1Cells, 
+--    cpAtmIfHCIntEgrClp0DiscCells, cpAtmIfHCIntEgrClp1DiscCells, 
+--    cpAtmIfHCIntEgrRcvOAMCells, cpAtmIfHCIntEgrRcvEFCICells
+
+cpAtmIfHCIngressStatMIBGroup OBJECT IDENTIFIER ::= { cpAtmIfMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These are objects related to Ingress Statistics of propAtm 
+--     interfaces.
+--     This group is a 64-bit version of cpAtmIfIngressStatMIBGroup.
+--  objects
+--    cpAtmIfHCIngXmtClp0Cells, cpAtmIfHCIngXmtClp1Cells, 
+--    cpAtmIfHCIngXmtEFCICells, cpAtmIfHCIngXmtOAMCells
+
+cpAtmIfMIBCompliance OBJECT IDENTIFIER ::= { cpAtmIfMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities which implement
+--     ciscoPropAtmIfMIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cpAtmIfConfigGroup
+--   OptGroup
+--    cpAtmIfEgressStatMIBGroup
+--   OptGroup
+--    cpAtmIfEgressIntervalMIBGroup
+--   OptGroup
+--    cpAtmIfIngressStatMIBGroup
+--   OptGroup
+--    cpAtmIfHCEgressStatMIBGroup
+--   OptGroup
+--    cpAtmIfHCEgressIntervalMIBGroup
+--   OptGroup
+--    cpAtmIfHCIngressStatMIBGroup
+
+
+END
+

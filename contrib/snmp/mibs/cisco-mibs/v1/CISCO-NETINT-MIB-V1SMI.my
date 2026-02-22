@@ -1,0 +1,109 @@
+-- MIB file created 28-Aug-2007 00:18:44, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-NETINT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-NETINT-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    entPhysicalIndex
+            FROM ENTITY-MIB
+    Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoNetintMIB OBJECT IDENTIFIER ::= { ciscoMgmt 490 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200509260000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    This MIB module is for Network Interrupt information
+--     on Cisco device.
+--  RevDate
+--    200509260000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoNetintMIBNotifs OBJECT IDENTIFIER ::= { ciscoNetintMIB 0 }
+ciscoNetintMIBObjects OBJECT IDENTIFIER ::= { ciscoNetintMIB 1 }
+ciscoNetintMIBConformance OBJECT IDENTIFIER ::= { ciscoNetintMIB 2 }
+cniThrottle     OBJECT IDENTIFIER ::= { ciscoNetintMIBObjects 1 }
+ciscoNetintMIBCompliances OBJECT IDENTIFIER ::= { ciscoNetintMIBConformance 1 }
+ciscoNetintMIBGroups OBJECT IDENTIFIER ::= { ciscoNetintMIBConformance 2 }
+
+cniThrottleTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CniThrottleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides the network interrupt throttle
+        counter information. An entry in this table is populated
+        for each physical entity in the managed system capable
+        of providing this information."
+    ::= { cniThrottle 1 }
+
+cniThrottleEntry OBJECT-TYPE
+    SYNTAX CniThrottleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing information about network interrupt
+        throttle counter."
+    INDEX { entPhysicalIndex }
+    ::= { cniThrottleTable 1 }
+
+CniThrottleEntry ::= SEQUENCE {
+    cniThrottleCount Counter
+    }
+
+cniThrottleCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of times network
+        interrupt throttle has become active."
+    ::= { cniThrottleEntry 1 }
+
+ciscoThrottleGroup OBJECT IDENTIFIER ::= { ciscoNetintMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object providing network interrupt throttle
+--     count.
+--  objects
+--    cniThrottleCount
+
+ciscoNetintMIBCompliance OBJECT IDENTIFIER ::= { ciscoNetintMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Netint MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoThrottleGroup
+
+
+END
+

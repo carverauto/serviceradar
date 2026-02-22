@@ -1,0 +1,197 @@
+-- MIB created 6/25/99 12:57:40, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-SWITCH-CGMP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SWITCH-CGMP-MIB.my"
+
+IMPORTS
+    RowStatus, MacAddress
+            FROM SNMPv2-TC-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    dot1dBasePort
+            FROM BRIDGE-MIB
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoSwitchCgmpMIB OBJECT IDENTIFIER ::= { ciscoMgmt 101 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9805070000Z
+--  OrgName
+--    Cisco Systems, Inc
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA 95134
+--            USA
+--    
+--            Tel: +1 800 553-NETS
+--    
+--    Email: cs-ipmulticast@cisco.com
+--  Descr
+--    Switch-side Cisco Group Management Protocol MIB for  
+--     Layer 2 Switch devices.
+--  RevDate
+--    9805070000Z
+--  RevDescr
+--    Initial version of this MIB module
+
+ciscoSwitchCgmpMIBObjects OBJECT IDENTIFIER ::= { ciscoSwitchCgmpMIB 1 }
+sCgmpInfo       OBJECT IDENTIFIER ::= { ciscoSwitchCgmpMIBObjects 1 }
+ciscoSwitchCgmpMIBConformance OBJECT IDENTIFIER ::= { ciscoSwitchCgmpMIB 3 }
+ciscoSwitchCgmpMIBCompliances OBJECT IDENTIFIER ::= { ciscoSwitchCgmpMIBConformance 1 }
+ciscoSwitchCgmpMIBGroups OBJECT IDENTIFIER ::= { ciscoSwitchCgmpMIBConformance 2 }
+
+SCgmpVlanIndex ::= INTEGER(0..1023)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The VLAN-id of a VLAN on either ISL trunk, 802.1q trunk
+--     or port-based VLAN implementations.
+
+sCgmpEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable allows user to enable or disable Cisco
+         Group Management Protocol (CGMP)."
+    ::= { sCgmpInfo 1 }
+
+sCgmpFastLeaveEnable OBJECT-TYPE
+    SYNTAX INTEGER {
+        enabled(1),
+        disabled(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable allows user to enable or disable Cisco
+         Group Management Protocol (CGMP) Fast Leave processing."
+    ::= { sCgmpInfo 2 }
+
+sCgmpRouterHoldTime OBJECT-TYPE
+    SYNTAX INTEGER(10..6000)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Multicast routers that support CGMP will send CGMP
+         join message to advertise themselves to switches within
+         a network. A switch that receives a CGMP message will save
+         the information and set a timer equal to this router hold
+         time. When the router hold time expires, the switch will
+         remove the Router entry from CGMP. The default value 
+         is 300 seconds."
+    ::= { sCgmpInfo 3 }
+
+sCgmpRouterTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SCgmpRouterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "List of Router entries present on the switch."
+    ::= { sCgmpInfo 4 }
+
+sCgmpRouterEntry OBJECT-TYPE
+    SYNTAX SCgmpRouterEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry containing multicast router information for
+        a particular router. These entries are created when a
+        router sends a CGMP join for itself on a particular
+        vlan. Entries may be removed when a router entry's
+        sCgmpRouterHoldTime expires, or when explicitly 
+        removed by a user."
+    INDEX { sCgmpRouterVlanIndex, dot1dBasePort, sCgmpRouterMacAddress }
+    ::= { sCgmpRouterTable 1 }
+
+SCgmpRouterEntry ::= SEQUENCE {
+    sCgmpRouterVlanIndex SCgmpVlanIndex,
+    sCgmpRouterMacAddress MacAddress,
+    sCgmpRouterEntryStatus RowStatus
+    }
+
+sCgmpRouterVlanIndex OBJECT-TYPE
+    SYNTAX SCgmpVlanIndex
+--    Rsyntax INTEGER(0..1023)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An index value that uniquely identifies the 
+        vlan on which the router identified by this router entry
+        is located. This value may be the same as used in the 
+        CISCO-VLAN-MEMBERSHIP-MIB and the CISCO-VTP-MIB for
+        the same given vlan, if VTP is present and in use
+        on the switch."
+    ::= { sCgmpRouterEntry 1 }
+
+sCgmpRouterMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An 802 MAC Address in canonical format. This is the 
+        MAC address of the router itself."
+    ::= { sCgmpRouterEntry 3 }
+
+sCgmpRouterEntryStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used by a management station to
+         delete the row entry in sCgmpRouterTable following 
+         the RowStatus textual convention. The managment
+         station may remove this entry by setting destroy (6).
+         Entries may not be created. Entries removed may 
+         reappear in normal CGMP operation when the router
+         sends another self join."
+    ::= { sCgmpRouterEntry 4 }
+
+sCgmpGroup OBJECT IDENTIFIER ::= { ciscoSwitchCgmpMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Switch-side Cisco Group Management Protocol.
+--  objects
+--    sCgmpEnable, sCgmpFastLeaveEnable, sCgmpRouterHoldTime, 
+--    sCgmpRouterEntryStatus
+
+ciscoSwitchCgmpMIBCompliance OBJECT IDENTIFIER ::= { ciscoSwitchCgmpMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for switches implementing
+--    the Cisco Group Management Protocol
+--  Module
+--    >>current<<
+--   MandGroup
+--    sCgmpGroup
+--   ObjVar
+--    sCgmpRouterHoldTime
+
+
+END
+

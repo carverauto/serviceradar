@@ -1,0 +1,271 @@
+--------------------------------------------------------------------
+-- CISCO-SONET-CAPABILITY
+--
+-- AGENT-CAPABILITIES for SONET-MIB(RFC 2558) in CISCO Products
+--
+-- February 2004, Satheesh Kandanuru
+--
+-- Copyright (c) 2002, 2003, 2004 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+--------------------------------------------------------------------
+
+CISCO-SONET-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI
+        DisplayString
+                FROM SNMPv2-TC;
+
+ciscoSonetCapability MODULE-IDENTITY
+    LAST-UPDATED    "200402190000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+                    "   Cisco Systems
+                        Customer Service
+                        
+                        Postal: 170 West Tasman Drive
+                                San Jose, CA  95134
+                                USA
+                        
+                           Tel: +1 800 553-NETS
+                        
+                        E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for SONET-MIB(RFC 2558).
+ 
+          ciscoSonetCapabilityAxsmV2R01 for AXSM module.
+
+          ciscoSonetCapabilitySrmeV3R00 for SRME module.
+
+          ciscoSonetCapabilityAxsmxgV4R00 for AXSM-XG module.
+
+          ciscoSonetCapabilityV5R00 for VXSM, SRME and MPSM module."
+
+    REVISION    "200402190000Z"
+    DESCRIPTION
+        "Added ciscoSonetCapabilityV5R00."
+
+    REVISION    "200303110000Z"
+    DESCRIPTION
+        "Added ciscoSonetCapabilityV4R00 for modules:
+         10 Gig. ATM Switch Service Module(AXSM-XG),
+         AXSM Service Module Enhanced(AXSM-E) and 
+         Processor Switch Module Enhanced(PXM1E)
+         controller card."
+
+    REVISION    "200203120000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 266 }
+
+
+ciscoSonetCapabilityAxsmV2R0100 AGENT-CAPABILITIES
+    PRODUCT-RELEASE  "MGX8850 Release 2.1.00"
+    STATUS           current
+    DESCRIPTION      "Sonet MIB Capabilities for Following Service
+                      Modules:
+                        ATM Switch Service Module(AXSM)
+                        AXSM Enhanced(AXSM-E)."
+
+    SUPPORTS SONET-MIB
+        INCLUDES { sonetMediumStuff2, sonetSectionStuff2,
+                   sonetLineStuff2, sonetPathStuff2,
+                   sonetFarEndLineStuff2,sonetFarEndPathStuff2}
+
+        VARIATION   sonetPathCurrentWidth
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+        VARIATION   sonetMediumLineCoding
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+        VARIATION   sonetMediumLineType
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+        VARIATION   sonetMediumCircuitIdentifier
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+        VARIATION   sonetMediumLoopbackConfig
+        ACCESS      not-implemented
+        DESCRIPTION "Not supported."
+
+    ::= { ciscoSonetCapability 1 }
+
+ciscoSonetCapabilitySrmeV3R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 3.00"
+    STATUS               current
+    DESCRIPTION          "Sonet MIB Capabilities for Service
+                         Resource Module Enhanced(SRME) module."
+
+    SUPPORTS SONET-MIB
+        INCLUDES { sonetMediumStuff2, sonetSectionStuff2,
+                   sonetLineStuff2, sonetPathStuff2}
+
+        VARIATION   sonetPathCurrentWidth
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+        VARIATION   sonetMediumLineCoding
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+        VARIATION   sonetMediumLineType
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+        VARIATION   sonetMediumCircuitIdentifier
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+        VARIATION   sonetMediumLoopbackConfig
+        ACCESS      not-implemented
+        DESCRIPTION "Not supported."
+
+        ::= { ciscoSonetCapability 2 }
+
+ciscoSonetCapabilityV4R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE  "MGX8950  and MGX8850 Release 4.0.00"
+    STATUS           current
+    DESCRIPTION      "Sonet MIB Capabilities for Service Module:
+                      10 Gig. ATM Switch Service Module(AXSM-XG),
+                      AXSM Service Module Enhanced(AXSM-E) and 
+                      Processor Switch Module Enhanced(PXM1E)
+                      controller card."
+
+    SUPPORTS SONET-MIB
+        INCLUDES { sonetMediumStuff2, sonetSectionStuff2,
+                   sonetLineStuff2, sonetPathStuff2,
+                   sonetFarEndLineStuff2,sonetFarEndPathStuff2}
+
+        VARIATION   sonetMediumLineCoding
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+        VARIATION   sonetMediumLineType
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+        VARIATION   sonetMediumLoopbackConfig
+        ACCESS      not-implemented
+        DESCRIPTION "Not supported."
+
+        VARIATION   sonetMediumCircuitIdentifier
+        SYNTAX      DisplayString (SIZE (0..64))
+        DESCRIPTION "Restricted length supported."
+
+        --
+        -- Variations applicable for AXSM-E, PXM1E.
+        --
+
+        VARIATION   sonetPathCurrentWidth
+        ACCESS      read-only
+        DESCRIPTION "Write access is not supported."
+
+    ::= { ciscoSonetCapability 3}
+
+ciscoSonetCapabilityV5R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 5.0.0"
+    STATUS               current
+    DESCRIPTION          "Sonet MIB capabilities for Voice Switch 
+                          Service Module(VXSM), SRME and MPSM in 
+                          release 5.0.0"
+
+--
+-- VXSM, SRME Variation
+--
+    SUPPORTS    SONET-MIB
+    INCLUDES    { sonetMediumStuff2, 
+                  sonetSectionStuff2, 
+                  sonetLineStuff2, 
+                  sonetPathStuff2
+                }
+
+--
+-- MPSM Variation
+--
+    SUPPORTS    SONET-MIB
+    INCLUDES    { sonetMediumStuff2, 
+                  sonetSectionStuff2, 
+                  sonetLineStuff2, 
+                  sonetPathStuff2,
+                  sonetFarEndLineStuff2,
+                  sonetFarEndPathStuff2
+                }
+
+--
+-- VXSM Variation
+--
+    VARIATION   sonetMediumLineCoding
+    ACCESS      not-implemented
+    DESCRIPTION "Not supported."
+
+--
+-- MPSM, SRME Variation
+--
+    VARIATION   sonetMediumLineCoding
+    ACCESS      read-only
+    DESCRIPTION "Write access is not supported."
+
+--
+-- VXSM Variation
+--
+    VARIATION   sonetMediumLineType
+    ACCESS      not-implemented
+    DESCRIPTION "Not supported."
+
+--
+-- MPSM, SRME Variation
+--
+    VARIATION   sonetMediumLineType
+    ACCESS      read-only
+    DESCRIPTION "Write access is not supported."
+
+    VARIATION   sonetMediumLoopbackConfig
+    ACCESS      not-implemented
+    DESCRIPTION "Not supported."
+
+--
+-- VXSM, MPSM Variation
+--
+    VARIATION   sonetMediumCircuitIdentifier
+    ACCESS      not-implemented
+    DESCRIPTION "Not supported."
+
+--
+-- SRME Variation
+--
+    VARIATION   sonetMediumCircuitIdentifier
+    ACCESS      read-only
+    DESCRIPTION "Write access is not supported."
+
+--
+-- VXSM Variation
+--
+    VARIATION   sonetSESthresholdSet
+    ACCESS      not-implemented
+    DESCRIPTION "Not supported."
+
+    VARIATION   sonetPathCurrentWidth
+    SYNTAX      INTEGER  { sts1(1) }
+    ACCESS      read-only
+    DESCRIPTION "sts3cSTM1(2),
+                 sts12cSTM4(3),
+                 sts24c(4),
+                 sts48cSTM16(5),
+                 sts192cSTM64(6),
+                 sts768cSTM256(7) are not supported.
+                 Set is not allowed."
+
+    ::= { ciscoSonetCapability 4 }
+
+END
+

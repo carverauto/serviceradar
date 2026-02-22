@@ -1,0 +1,882 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-CIMCVMEDIA-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- CIMCVMEDIA management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-CIMCVMEDIA-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsCimcvmediaAuthProtocol,
+    CucsCimcvmediaDeviceType,
+    CucsCimcvmediaErrorType,
+    CucsCimcvmediaImageNameVariable,
+    CucsCimcvmediaMountConfigRetryOnMountFail,
+    CucsCimcvmediaMountStatus,
+    CucsCimcvmediaTransport,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsCimcvmediaObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        CIMCVMEDIA management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 76 }
+
+cucsCimcvmediaActualMountEntryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCimcvmediaActualMountEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry managed object table"
+    ::= { cucsCimcvmediaObjects 1 }
+
+cucsCimcvmediaActualMountEntryEntry OBJECT-TYPE
+    SYNTAX           CucsCimcvmediaActualMountEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCimcvmediaActualMountEntryTable table."
+    INDEX { cucsCimcvmediaActualMountEntryInstanceId }
+    ::= { cucsCimcvmediaActualMountEntryTable 1 }
+
+CucsCimcvmediaActualMountEntryEntry ::= SEQUENCE {
+    cucsCimcvmediaActualMountEntryInstanceId                         CucsManagedObjectId,
+    cucsCimcvmediaActualMountEntryDn                                 CucsManagedObjectDn,
+    cucsCimcvmediaActualMountEntryRn                                 SnmpAdminString,
+    cucsCimcvmediaActualMountEntryDeviceType                         CucsCimcvmediaDeviceType,
+    cucsCimcvmediaActualMountEntryEncPwd                             SnmpAdminString,
+    cucsCimcvmediaActualMountEntryErrorType                          CucsCimcvmediaErrorType,
+    cucsCimcvmediaActualMountEntryImageFileName                      SnmpAdminString,
+    cucsCimcvmediaActualMountEntryImagePath                          SnmpAdminString,
+    cucsCimcvmediaActualMountEntryMappingName                        SnmpAdminString,
+    cucsCimcvmediaActualMountEntryMountProtocol                      CucsCimcvmediaTransport,
+    cucsCimcvmediaActualMountEntryOperMountStatus                    CucsCimcvmediaMountStatus,
+    cucsCimcvmediaActualMountEntryPassword                           SnmpAdminString,
+    cucsCimcvmediaActualMountEntryPwdSet                             TruthValue,
+    cucsCimcvmediaActualMountEntryRemoteHost                         SnmpAdminString,
+    cucsCimcvmediaActualMountEntryRemoteIpAddress                    SnmpAdminString,
+    cucsCimcvmediaActualMountEntryRemotePort                         Gauge32,
+    cucsCimcvmediaActualMountEntryUserId                             SnmpAdminString,
+    cucsCimcvmediaActualMountEntryVirtualDiskId                      Gauge32,
+    cucsCimcvmediaActualMountEntryAuthOption                         CucsCimcvmediaAuthProtocol,
+    cucsCimcvmediaActualMountEntryImageNameVariable                  CucsCimcvmediaImageNameVariable,
+    cucsCimcvmediaActualMountEntryRemapOnEject                       TruthValue
+}
+
+cucsCimcvmediaActualMountEntryInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCimcvmediaActualMountEntryEntry 1 }
+
+cucsCimcvmediaActualMountEntryDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:dn managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 2 }
+
+cucsCimcvmediaActualMountEntryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:rn managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 3 }
+
+cucsCimcvmediaActualMountEntryDeviceType OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaDeviceType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:deviceType
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 4 }
+
+cucsCimcvmediaActualMountEntryEncPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:encPwd managed
+        object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 5 }
+
+cucsCimcvmediaActualMountEntryErrorType OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaErrorType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:errorType
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 6 }
+
+cucsCimcvmediaActualMountEntryImageFileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:imageFileName
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 7 }
+
+cucsCimcvmediaActualMountEntryImagePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:imagePath
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 8 }
+
+cucsCimcvmediaActualMountEntryMappingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:mappingName
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 9 }
+
+cucsCimcvmediaActualMountEntryMountProtocol OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:mountProtocol
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 10 }
+
+cucsCimcvmediaActualMountEntryOperMountStatus OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaMountStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:operMountStatus
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 11 }
+
+cucsCimcvmediaActualMountEntryPassword OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:password
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 12 }
+
+cucsCimcvmediaActualMountEntryPwdSet OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:pwdSet managed
+        object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 13 }
+
+cucsCimcvmediaActualMountEntryRemoteHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:remoteHost
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 14 }
+
+cucsCimcvmediaActualMountEntryRemoteIpAddress OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:remoteIpAddress
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 15 }
+
+cucsCimcvmediaActualMountEntryRemotePort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:remotePort
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 16 }
+
+cucsCimcvmediaActualMountEntryUserId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:userId managed
+        object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 17 }
+
+cucsCimcvmediaActualMountEntryVirtualDiskId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:virtualDiskId
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 18 }
+
+cucsCimcvmediaActualMountEntryAuthOption OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaAuthProtocol
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:authOption
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 19 }
+
+cucsCimcvmediaActualMountEntryImageNameVariable OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaImageNameVariable
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:imageNameVariable
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 20 }
+
+cucsCimcvmediaActualMountEntryRemapOnEject OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountEntry:remapOnEject
+        managed object property"
+    ::= { cucsCimcvmediaActualMountEntryEntry 21 }
+
+cucsCimcvmediaActualMountListTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCimcvmediaActualMountListEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountList managed object table"
+    ::= { cucsCimcvmediaObjects 2 }
+
+cucsCimcvmediaActualMountListEntry OBJECT-TYPE
+    SYNTAX           CucsCimcvmediaActualMountListEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCimcvmediaActualMountListTable table."
+    INDEX { cucsCimcvmediaActualMountListInstanceId }
+    ::= { cucsCimcvmediaActualMountListTable 1 }
+
+CucsCimcvmediaActualMountListEntry ::= SEQUENCE {
+    cucsCimcvmediaActualMountListInstanceId                          CucsManagedObjectId,
+    cucsCimcvmediaActualMountListDn                                  CucsManagedObjectDn,
+    cucsCimcvmediaActualMountListRn                                  SnmpAdminString
+}
+
+cucsCimcvmediaActualMountListInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCimcvmediaActualMountListEntry 1 }
+
+cucsCimcvmediaActualMountListDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountList:dn managed object property"
+    ::= { cucsCimcvmediaActualMountListEntry 2 }
+
+cucsCimcvmediaActualMountListRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ActualMountList:rn managed object property"
+    ::= { cucsCimcvmediaActualMountListEntry 3 }
+
+cucsCimcvmediaConfigMountEntryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCimcvmediaConfigMountEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry managed object table"
+    ::= { cucsCimcvmediaObjects 3 }
+
+cucsCimcvmediaConfigMountEntryEntry OBJECT-TYPE
+    SYNTAX           CucsCimcvmediaConfigMountEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCimcvmediaConfigMountEntryTable table."
+    INDEX { cucsCimcvmediaConfigMountEntryInstanceId }
+    ::= { cucsCimcvmediaConfigMountEntryTable 1 }
+
+CucsCimcvmediaConfigMountEntryEntry ::= SEQUENCE {
+    cucsCimcvmediaConfigMountEntryInstanceId                         CucsManagedObjectId,
+    cucsCimcvmediaConfigMountEntryDn                                 CucsManagedObjectDn,
+    cucsCimcvmediaConfigMountEntryRn                                 SnmpAdminString,
+    cucsCimcvmediaConfigMountEntryDescription                        SnmpAdminString,
+    cucsCimcvmediaConfigMountEntryDeviceType                         CucsCimcvmediaDeviceType,
+    cucsCimcvmediaConfigMountEntryEncPwd                             SnmpAdminString,
+    cucsCimcvmediaConfigMountEntryImageFileName                      SnmpAdminString,
+    cucsCimcvmediaConfigMountEntryImagePath                          SnmpAdminString,
+    cucsCimcvmediaConfigMountEntryMappingName                        SnmpAdminString,
+    cucsCimcvmediaConfigMountEntryMountProtocol                      CucsCimcvmediaTransport,
+    cucsCimcvmediaConfigMountEntryPassword                           SnmpAdminString,
+    cucsCimcvmediaConfigMountEntryPwdSet                             TruthValue,
+    cucsCimcvmediaConfigMountEntryRemoteHost                         SnmpAdminString,
+    cucsCimcvmediaConfigMountEntryRemoteIpAddress                    SnmpAdminString,
+    cucsCimcvmediaConfigMountEntryRemotePort                         Gauge32,
+    cucsCimcvmediaConfigMountEntryUserId                             SnmpAdminString,
+    cucsCimcvmediaConfigMountEntryAuthOption                         CucsCimcvmediaAuthProtocol,
+    cucsCimcvmediaConfigMountEntryImageNameVariable                  CucsCimcvmediaImageNameVariable,
+    cucsCimcvmediaConfigMountEntryRemapOnEject                       TruthValue
+}
+
+cucsCimcvmediaConfigMountEntryInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCimcvmediaConfigMountEntryEntry 1 }
+
+cucsCimcvmediaConfigMountEntryDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:dn managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 2 }
+
+cucsCimcvmediaConfigMountEntryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:rn managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 3 }
+
+cucsCimcvmediaConfigMountEntryDescription OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:description
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 4 }
+
+cucsCimcvmediaConfigMountEntryDeviceType OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaDeviceType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:deviceType
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 5 }
+
+cucsCimcvmediaConfigMountEntryEncPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:encPwd managed
+        object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 6 }
+
+cucsCimcvmediaConfigMountEntryImageFileName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:imageFileName
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 7 }
+
+cucsCimcvmediaConfigMountEntryImagePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:imagePath
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 8 }
+
+cucsCimcvmediaConfigMountEntryMappingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:mappingName
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 9 }
+
+cucsCimcvmediaConfigMountEntryMountProtocol OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:mountProtocol
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 10 }
+
+cucsCimcvmediaConfigMountEntryPassword OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:password
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 11 }
+
+cucsCimcvmediaConfigMountEntryPwdSet OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:pwdSet managed
+        object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 12 }
+
+cucsCimcvmediaConfigMountEntryRemoteHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:remoteHost
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 13 }
+
+cucsCimcvmediaConfigMountEntryRemoteIpAddress OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:remoteIpAddress
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 14 }
+
+cucsCimcvmediaConfigMountEntryRemotePort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:remotePort
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 15 }
+
+cucsCimcvmediaConfigMountEntryUserId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:userId managed
+        object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 16 }
+
+cucsCimcvmediaConfigMountEntryAuthOption OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaAuthProtocol
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:authOption
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 17 }
+
+cucsCimcvmediaConfigMountEntryImageNameVariable OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaImageNameVariable
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:imageNameVariable
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 18 }
+
+cucsCimcvmediaConfigMountEntryRemapOnEject OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ConfigMountEntry:remapOnEject
+        managed object property"
+    ::= { cucsCimcvmediaConfigMountEntryEntry 19 }
+
+cucsCimcvmediaExtMgmtRuleEntryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCimcvmediaExtMgmtRuleEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ExtMgmtRuleEntry managed object table"
+    ::= { cucsCimcvmediaObjects 4 }
+
+cucsCimcvmediaExtMgmtRuleEntryEntry OBJECT-TYPE
+    SYNTAX           CucsCimcvmediaExtMgmtRuleEntryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCimcvmediaExtMgmtRuleEntryTable table."
+    INDEX { cucsCimcvmediaExtMgmtRuleEntryInstanceId }
+    ::= { cucsCimcvmediaExtMgmtRuleEntryTable 1 }
+
+CucsCimcvmediaExtMgmtRuleEntryEntry ::= SEQUENCE {
+    cucsCimcvmediaExtMgmtRuleEntryInstanceId                         CucsManagedObjectId,
+    cucsCimcvmediaExtMgmtRuleEntryDn                                 CucsManagedObjectDn,
+    cucsCimcvmediaExtMgmtRuleEntryRn                                 SnmpAdminString,
+    cucsCimcvmediaExtMgmtRuleEntryExtMgmtIpAddr                      InetAddressIPv4,
+    cucsCimcvmediaExtMgmtRuleEntryMappingName                        SnmpAdminString,
+    cucsCimcvmediaExtMgmtRuleEntryMgmtIfIpAddr                       InetAddressIPv4,
+    cucsCimcvmediaExtMgmtRuleEntryMountProtocol                      CucsCimcvmediaTransport,
+    cucsCimcvmediaExtMgmtRuleEntryRemoteIpAddr                       InetAddressIPv4,
+    cucsCimcvmediaExtMgmtRuleEntryRemotePort                         Gauge32
+}
+
+cucsCimcvmediaExtMgmtRuleEntryInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCimcvmediaExtMgmtRuleEntryEntry 1 }
+
+cucsCimcvmediaExtMgmtRuleEntryDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ExtMgmtRuleEntry:dn managed object property"
+    ::= { cucsCimcvmediaExtMgmtRuleEntryEntry 2 }
+
+cucsCimcvmediaExtMgmtRuleEntryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ExtMgmtRuleEntry:rn managed object property"
+    ::= { cucsCimcvmediaExtMgmtRuleEntryEntry 3 }
+
+cucsCimcvmediaExtMgmtRuleEntryExtMgmtIpAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ExtMgmtRuleEntry:extMgmtIpAddr
+        managed object property"
+    ::= { cucsCimcvmediaExtMgmtRuleEntryEntry 4 }
+
+cucsCimcvmediaExtMgmtRuleEntryMappingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ExtMgmtRuleEntry:mappingName
+        managed object property"
+    ::= { cucsCimcvmediaExtMgmtRuleEntryEntry 5 }
+
+cucsCimcvmediaExtMgmtRuleEntryMgmtIfIpAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ExtMgmtRuleEntry:mgmtIfIpAddr
+        managed object property"
+    ::= { cucsCimcvmediaExtMgmtRuleEntryEntry 6 }
+
+cucsCimcvmediaExtMgmtRuleEntryMountProtocol OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaTransport
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ExtMgmtRuleEntry:mountProtocol
+        managed object property"
+    ::= { cucsCimcvmediaExtMgmtRuleEntryEntry 7 }
+
+cucsCimcvmediaExtMgmtRuleEntryRemoteIpAddr OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ExtMgmtRuleEntry:remoteIpAddr
+        managed object property"
+    ::= { cucsCimcvmediaExtMgmtRuleEntryEntry 8 }
+
+cucsCimcvmediaExtMgmtRuleEntryRemotePort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:ExtMgmtRuleEntry:remotePort
+        managed object property"
+    ::= { cucsCimcvmediaExtMgmtRuleEntryEntry 9 }
+
+cucsCimcvmediaMountConfigDefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCimcvmediaMountConfigDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigDef managed object table"
+    ::= { cucsCimcvmediaObjects 5 }
+
+cucsCimcvmediaMountConfigDefEntry OBJECT-TYPE
+    SYNTAX           CucsCimcvmediaMountConfigDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCimcvmediaMountConfigDefTable table."
+    INDEX { cucsCimcvmediaMountConfigDefInstanceId }
+    ::= { cucsCimcvmediaMountConfigDefTable 1 }
+
+CucsCimcvmediaMountConfigDefEntry ::= SEQUENCE {
+    cucsCimcvmediaMountConfigDefInstanceId                           CucsManagedObjectId,
+    cucsCimcvmediaMountConfigDefDn                                   CucsManagedObjectDn,
+    cucsCimcvmediaMountConfigDefRn                                   SnmpAdminString,
+    cucsCimcvmediaMountConfigDefDescr                                SnmpAdminString,
+    cucsCimcvmediaMountConfigDefIntId                                SnmpAdminString,
+    cucsCimcvmediaMountConfigDefName                                 SnmpAdminString,
+    cucsCimcvmediaMountConfigDefPolicyLevel                          Gauge32,
+    cucsCimcvmediaMountConfigDefPolicyOwner                          CucsPolicyPolicyOwner,
+    cucsCimcvmediaMountConfigDefRetryOnMountFail                     CucsCimcvmediaMountConfigRetryOnMountFail
+}
+
+cucsCimcvmediaMountConfigDefInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCimcvmediaMountConfigDefEntry 1 }
+
+cucsCimcvmediaMountConfigDefDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigDef:dn managed object property"
+    ::= { cucsCimcvmediaMountConfigDefEntry 2 }
+
+cucsCimcvmediaMountConfigDefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigDef:rn managed object property"
+    ::= { cucsCimcvmediaMountConfigDefEntry 3 }
+
+cucsCimcvmediaMountConfigDefDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigDef:descr managed
+        object property"
+    ::= { cucsCimcvmediaMountConfigDefEntry 4 }
+
+cucsCimcvmediaMountConfigDefIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigDef:intId managed
+        object property"
+    ::= { cucsCimcvmediaMountConfigDefEntry 5 }
+
+cucsCimcvmediaMountConfigDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigDef:name managed object property"
+    ::= { cucsCimcvmediaMountConfigDefEntry 6 }
+
+cucsCimcvmediaMountConfigDefPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigDef:policyLevel
+        managed object property"
+    ::= { cucsCimcvmediaMountConfigDefEntry 7 }
+
+cucsCimcvmediaMountConfigDefPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigDef:policyOwner
+        managed object property"
+    ::= { cucsCimcvmediaMountConfigDefEntry 8 }
+
+cucsCimcvmediaMountConfigDefRetryOnMountFail OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaMountConfigRetryOnMountFail
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigDef:retryOnMountFail
+        managed object property"
+    ::= { cucsCimcvmediaMountConfigDefEntry 9 }
+
+cucsCimcvmediaMountConfigPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsCimcvmediaMountConfigPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigPolicy managed object table"
+    ::= { cucsCimcvmediaObjects 6 }
+
+cucsCimcvmediaMountConfigPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsCimcvmediaMountConfigPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsCimcvmediaMountConfigPolicyTable table."
+    INDEX { cucsCimcvmediaMountConfigPolicyInstanceId }
+    ::= { cucsCimcvmediaMountConfigPolicyTable 1 }
+
+CucsCimcvmediaMountConfigPolicyEntry ::= SEQUENCE {
+    cucsCimcvmediaMountConfigPolicyInstanceId                        CucsManagedObjectId,
+    cucsCimcvmediaMountConfigPolicyDn                                CucsManagedObjectDn,
+    cucsCimcvmediaMountConfigPolicyRn                                SnmpAdminString,
+    cucsCimcvmediaMountConfigPolicyDescr                             SnmpAdminString,
+    cucsCimcvmediaMountConfigPolicyIntId                             SnmpAdminString,
+    cucsCimcvmediaMountConfigPolicyName                              SnmpAdminString,
+    cucsCimcvmediaMountConfigPolicyPolicyLevel                       Gauge32,
+    cucsCimcvmediaMountConfigPolicyPolicyOwner                       CucsPolicyPolicyOwner,
+    cucsCimcvmediaMountConfigPolicyRetryOnMountFail                  CucsCimcvmediaMountConfigRetryOnMountFail
+}
+
+cucsCimcvmediaMountConfigPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsCimcvmediaMountConfigPolicyEntry 1 }
+
+cucsCimcvmediaMountConfigPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigPolicy:dn managed
+        object property"
+    ::= { cucsCimcvmediaMountConfigPolicyEntry 2 }
+
+cucsCimcvmediaMountConfigPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigPolicy:rn managed
+        object property"
+    ::= { cucsCimcvmediaMountConfigPolicyEntry 3 }
+
+cucsCimcvmediaMountConfigPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigPolicy:descr managed
+        object property"
+    ::= { cucsCimcvmediaMountConfigPolicyEntry 4 }
+
+cucsCimcvmediaMountConfigPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigPolicy:intId managed
+        object property"
+    ::= { cucsCimcvmediaMountConfigPolicyEntry 5 }
+
+cucsCimcvmediaMountConfigPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigPolicy:name managed
+        object property"
+    ::= { cucsCimcvmediaMountConfigPolicyEntry 6 }
+
+cucsCimcvmediaMountConfigPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigPolicy:policyLevel
+        managed object property"
+    ::= { cucsCimcvmediaMountConfigPolicyEntry 7 }
+
+cucsCimcvmediaMountConfigPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigPolicy:policyOwner
+        managed object property"
+    ::= { cucsCimcvmediaMountConfigPolicyEntry 8 }
+
+cucsCimcvmediaMountConfigPolicyRetryOnMountFail OBJECT-TYPE
+    SYNTAX       CucsCimcvmediaMountConfigRetryOnMountFail
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS cimcvmedia:MountConfigPolicy:retryOnMountFail
+        managed object property"
+    ::= { cucsCimcvmediaMountConfigPolicyEntry 9 }
+
+END

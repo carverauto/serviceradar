@@ -1,0 +1,1685 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-STATS-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- STATS management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-STATS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApConditionRemoteInvRslt,
+    CfprApConditionSeverity,
+    CfprApFsmCompletion,
+    CfprApFsmFlags,
+    CfprApFsmFsmStageStatus,
+    CfprApPolicyPolicyOwner,
+    CfprApStatsCollectionDomain,
+    CfprApStatsCollectionInterval,
+    CfprApStatsCollectionPolicyFsmCurrentFsm,
+    CfprApStatsCollectionPolicyFsmStageName,
+    CfprApStatsCollectionPolicyFsmTaskItem,
+    CfprApStatsReportingInterval,
+    CfprApStatsThr32DefinitionPropType,
+    CfprApStatsThr32ValuePropType,
+    CfprApStatsThr64DefinitionPropType,
+    CfprApStatsThr64ValuePropType,
+    CfprApStatsThrFloatDefinitionPropType,
+    CfprApStatsThrFloatValuePropType,
+    CfprApStatsThresholdDirection
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApStatsObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        STATS management information model package"
+    ::= { ciscoFirepowerApMIBObjects 73 }
+
+cfprApStatsCollectionPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsCollectionPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy managed object table"
+    ::= { cfprApStatsObjects 1 }
+
+cfprApStatsCollectionPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsCollectionPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsCollectionPolicyTable table."
+    INDEX { cfprApStatsCollectionPolicyInstanceId }
+    ::= { cfprApStatsCollectionPolicyTable 1 }
+
+CfprApStatsCollectionPolicyEntry ::= SEQUENCE {
+    cfprApStatsCollectionPolicyInstanceId                            CfprApManagedObjectId,
+    cfprApStatsCollectionPolicyDn                                    CfprApManagedObjectDn,
+    cfprApStatsCollectionPolicyRn                                    SnmpAdminString,
+    cfprApStatsCollectionPolicyCollectionInterval                    CfprApStatsCollectionInterval,
+    cfprApStatsCollectionPolicyFsmDescr                              SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmPrev                               SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmProgr                              Gauge32,
+    cfprApStatsCollectionPolicyFsmRmtInvErrCode                      Gauge32,
+    cfprApStatsCollectionPolicyFsmRmtInvErrDescr                     SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmRmtInvRslt                         CfprApConditionRemoteInvRslt,
+    cfprApStatsCollectionPolicyFsmStageDescr                         SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmStamp                              DateAndTime,
+    cfprApStatsCollectionPolicyFsmStatus                             SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmTry                                Gauge32,
+    cfprApStatsCollectionPolicyId                                    Gauge32,
+    cfprApStatsCollectionPolicyName                                  CfprApStatsCollectionDomain,
+    cfprApStatsCollectionPolicyReportingInterval                     CfprApStatsReportingInterval
+}
+
+cfprApStatsCollectionPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsCollectionPolicyEntry 1 }
+
+cfprApStatsCollectionPolicyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:dn managed
+        object property"
+    ::= { cfprApStatsCollectionPolicyEntry 2 }
+
+cfprApStatsCollectionPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:rn managed
+        object property"
+    ::= { cfprApStatsCollectionPolicyEntry 3 }
+
+cfprApStatsCollectionPolicyCollectionInterval OBJECT-TYPE
+    SYNTAX       CfprApStatsCollectionInterval
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:collectionInterval
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 4 }
+
+cfprApStatsCollectionPolicyFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:fsmDescr
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 5 }
+
+cfprApStatsCollectionPolicyFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:fsmPrev
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 6 }
+
+cfprApStatsCollectionPolicyFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:fsmProgr
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 7 }
+
+cfprApStatsCollectionPolicyFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 8 }
+
+cfprApStatsCollectionPolicyFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 9 }
+
+cfprApStatsCollectionPolicyFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:fsmRmtInvRslt
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 10 }
+
+cfprApStatsCollectionPolicyFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:fsmStageDescr
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 11 }
+
+cfprApStatsCollectionPolicyFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:fsmStamp
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 12 }
+
+cfprApStatsCollectionPolicyFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:fsmStatus
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 13 }
+
+cfprApStatsCollectionPolicyFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:fsmTry
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 14 }
+
+cfprApStatsCollectionPolicyId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:id managed
+        object property"
+    ::= { cfprApStatsCollectionPolicyEntry 15 }
+
+cfprApStatsCollectionPolicyName OBJECT-TYPE
+    SYNTAX       CfprApStatsCollectionDomain
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:name managed
+        object property"
+    ::= { cfprApStatsCollectionPolicyEntry 16 }
+
+cfprApStatsCollectionPolicyReportingInterval OBJECT-TYPE
+    SYNTAX       CfprApStatsReportingInterval
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicy:reportingInterval
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyEntry 17 }
+
+cfprApStatsCollectionPolicyFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsCollectionPolicyFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm managed object table"
+    ::= { cfprApStatsObjects 2 }
+
+cfprApStatsCollectionPolicyFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsCollectionPolicyFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsCollectionPolicyFsmTable table."
+    INDEX { cfprApStatsCollectionPolicyFsmInstanceId }
+    ::= { cfprApStatsCollectionPolicyFsmTable 1 }
+
+CfprApStatsCollectionPolicyFsmEntry ::= SEQUENCE {
+    cfprApStatsCollectionPolicyFsmInstanceId                         CfprApManagedObjectId,
+    cfprApStatsCollectionPolicyFsmDn                                 CfprApManagedObjectDn,
+    cfprApStatsCollectionPolicyFsmRn                                 SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmCompletionTime                     DateAndTime,
+    cfprApStatsCollectionPolicyFsmCurrentFsm                         CfprApStatsCollectionPolicyFsmCurrentFsm,
+    cfprApStatsCollectionPolicyFsmDescrData                          SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmFsmStatus                          CfprApFsmFsmStageStatus,
+    cfprApStatsCollectionPolicyFsmProgress                           Gauge32,
+    cfprApStatsCollectionPolicyFsmRmtErrCode                         Gauge32,
+    cfprApStatsCollectionPolicyFsmRmtErrDescr                        SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmRmtRslt                            CfprApConditionRemoteInvRslt
+}
+
+cfprApStatsCollectionPolicyFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsCollectionPolicyFsmEntry 1 }
+
+cfprApStatsCollectionPolicyFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm:dn managed
+        object property"
+    ::= { cfprApStatsCollectionPolicyFsmEntry 2 }
+
+cfprApStatsCollectionPolicyFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm:rn managed
+        object property"
+    ::= { cfprApStatsCollectionPolicyFsmEntry 3 }
+
+cfprApStatsCollectionPolicyFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm:completionTime
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmEntry 4 }
+
+cfprApStatsCollectionPolicyFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApStatsCollectionPolicyFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm:currentFsm
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmEntry 5 }
+
+cfprApStatsCollectionPolicyFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm:descr
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmEntry 6 }
+
+cfprApStatsCollectionPolicyFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm:fsmStatus
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmEntry 7 }
+
+cfprApStatsCollectionPolicyFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm:progress
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmEntry 8 }
+
+cfprApStatsCollectionPolicyFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm:rmtErrCode
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmEntry 9 }
+
+cfprApStatsCollectionPolicyFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm:rmtErrDescr
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmEntry 10 }
+
+cfprApStatsCollectionPolicyFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsm:rmtRslt
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmEntry 11 }
+
+cfprApStatsCollectionPolicyFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsCollectionPolicyFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmStage
+        managed object table"
+    ::= { cfprApStatsObjects 3 }
+
+cfprApStatsCollectionPolicyFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsCollectionPolicyFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsCollectionPolicyFsmStageTable table."
+    INDEX { cfprApStatsCollectionPolicyFsmStageInstanceId }
+    ::= { cfprApStatsCollectionPolicyFsmStageTable 1 }
+
+CfprApStatsCollectionPolicyFsmStageEntry ::= SEQUENCE {
+    cfprApStatsCollectionPolicyFsmStageInstanceId                    CfprApManagedObjectId,
+    cfprApStatsCollectionPolicyFsmStageDn                            CfprApManagedObjectDn,
+    cfprApStatsCollectionPolicyFsmStageRn                            SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmStageDescrData                     SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmStageLastUpdateTime                DateAndTime,
+    cfprApStatsCollectionPolicyFsmStageName                          CfprApStatsCollectionPolicyFsmStageName,
+    cfprApStatsCollectionPolicyFsmStageOrder                         Gauge32,
+    cfprApStatsCollectionPolicyFsmStageRetry                         Gauge32,
+    cfprApStatsCollectionPolicyFsmStageStageStatus                   CfprApFsmFsmStageStatus
+}
+
+cfprApStatsCollectionPolicyFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsCollectionPolicyFsmStageEntry 1 }
+
+cfprApStatsCollectionPolicyFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmStage:dn
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmStageEntry 2 }
+
+cfprApStatsCollectionPolicyFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmStage:rn
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmStageEntry 3 }
+
+cfprApStatsCollectionPolicyFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmStage:descr
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmStageEntry 4 }
+
+cfprApStatsCollectionPolicyFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmStageEntry 5 }
+
+cfprApStatsCollectionPolicyFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApStatsCollectionPolicyFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmStage:name
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmStageEntry 6 }
+
+cfprApStatsCollectionPolicyFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmStage:order
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmStageEntry 7 }
+
+cfprApStatsCollectionPolicyFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmStage:retry
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmStageEntry 8 }
+
+cfprApStatsCollectionPolicyFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmStage:stageStatus
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmStageEntry 9 }
+
+cfprApStatsCollectionPolicyFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsCollectionPolicyFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmTask
+        managed object table"
+    ::= { cfprApStatsObjects 4 }
+
+cfprApStatsCollectionPolicyFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsCollectionPolicyFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsCollectionPolicyFsmTaskTable table."
+    INDEX { cfprApStatsCollectionPolicyFsmTaskInstanceId }
+    ::= { cfprApStatsCollectionPolicyFsmTaskTable 1 }
+
+CfprApStatsCollectionPolicyFsmTaskEntry ::= SEQUENCE {
+    cfprApStatsCollectionPolicyFsmTaskInstanceId                     CfprApManagedObjectId,
+    cfprApStatsCollectionPolicyFsmTaskDn                             CfprApManagedObjectDn,
+    cfprApStatsCollectionPolicyFsmTaskRn                             SnmpAdminString,
+    cfprApStatsCollectionPolicyFsmTaskCompletion                     CfprApFsmCompletion,
+    cfprApStatsCollectionPolicyFsmTaskFlags                          CfprApFsmFlags,
+    cfprApStatsCollectionPolicyFsmTaskItem                           CfprApStatsCollectionPolicyFsmTaskItem,
+    cfprApStatsCollectionPolicyFsmTaskSeqId                          Gauge32
+}
+
+cfprApStatsCollectionPolicyFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsCollectionPolicyFsmTaskEntry 1 }
+
+cfprApStatsCollectionPolicyFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmTask:dn
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmTaskEntry 2 }
+
+cfprApStatsCollectionPolicyFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmTask:rn
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmTaskEntry 3 }
+
+cfprApStatsCollectionPolicyFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmTask:completion
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmTaskEntry 4 }
+
+cfprApStatsCollectionPolicyFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmTask:flags
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmTaskEntry 5 }
+
+cfprApStatsCollectionPolicyFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApStatsCollectionPolicyFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmTask:item
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmTaskEntry 6 }
+
+cfprApStatsCollectionPolicyFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:CollectionPolicyFsmTask:seqId
+        managed object property"
+    ::= { cfprApStatsCollectionPolicyFsmTaskEntry 7 }
+
+cfprApStatsHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:Holder managed object table"
+    ::= { cfprApStatsObjects 5 }
+
+cfprApStatsHolderEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsHolderTable table."
+    INDEX { cfprApStatsHolderInstanceId }
+    ::= { cfprApStatsHolderTable 1 }
+
+CfprApStatsHolderEntry ::= SEQUENCE {
+    cfprApStatsHolderInstanceId                                      CfprApManagedObjectId,
+    cfprApStatsHolderDn                                              CfprApManagedObjectDn,
+    cfprApStatsHolderRn                                              SnmpAdminString,
+    cfprApStatsHolderName                                            SnmpAdminString
+}
+
+cfprApStatsHolderInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsHolderEntry 1 }
+
+cfprApStatsHolderDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Holder:dn managed object property"
+    ::= { cfprApStatsHolderEntry 2 }
+
+cfprApStatsHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Holder:rn managed object property"
+    ::= { cfprApStatsHolderEntry 3 }
+
+cfprApStatsHolderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Holder:name managed object property"
+    ::= { cfprApStatsHolderEntry 4 }
+
+cfprApStatsThr32DefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsThr32DefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition managed object table"
+    ::= { cfprApStatsObjects 6 }
+
+cfprApStatsThr32DefinitionEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsThr32DefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsThr32DefinitionTable table."
+    INDEX { cfprApStatsThr32DefinitionInstanceId }
+    ::= { cfprApStatsThr32DefinitionTable 1 }
+
+CfprApStatsThr32DefinitionEntry ::= SEQUENCE {
+    cfprApStatsThr32DefinitionInstanceId                             CfprApManagedObjectId,
+    cfprApStatsThr32DefinitionDn                                     CfprApManagedObjectDn,
+    cfprApStatsThr32DefinitionRn                                     SnmpAdminString,
+    cfprApStatsThr32DefinitionDescr                                  SnmpAdminString,
+    cfprApStatsThr32DefinitionIntId                                  SnmpAdminString,
+    cfprApStatsThr32DefinitionName                                   SnmpAdminString,
+    cfprApStatsThr32DefinitionNormalValue                            Gauge32,
+    cfprApStatsThr32DefinitionPolicyLevel                            Gauge32,
+    cfprApStatsThr32DefinitionPolicyOwner                            CfprApPolicyPolicyOwner,
+    cfprApStatsThr32DefinitionPropId                                 SnmpAdminString,
+    cfprApStatsThr32DefinitionPropType                               CfprApStatsThr32DefinitionPropType
+}
+
+cfprApStatsThr32DefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsThr32DefinitionEntry 1 }
+
+cfprApStatsThr32DefinitionDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition:dn managed object property"
+    ::= { cfprApStatsThr32DefinitionEntry 2 }
+
+cfprApStatsThr32DefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition:rn managed object property"
+    ::= { cfprApStatsThr32DefinitionEntry 3 }
+
+cfprApStatsThr32DefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition:descr managed
+        object property"
+    ::= { cfprApStatsThr32DefinitionEntry 4 }
+
+cfprApStatsThr32DefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition:intId managed
+        object property"
+    ::= { cfprApStatsThr32DefinitionEntry 5 }
+
+cfprApStatsThr32DefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition:name managed
+        object property"
+    ::= { cfprApStatsThr32DefinitionEntry 6 }
+
+cfprApStatsThr32DefinitionNormalValue OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition:normalValue
+        managed object property"
+    ::= { cfprApStatsThr32DefinitionEntry 7 }
+
+cfprApStatsThr32DefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition:policyLevel
+        managed object property"
+    ::= { cfprApStatsThr32DefinitionEntry 8 }
+
+cfprApStatsThr32DefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition:policyOwner
+        managed object property"
+    ::= { cfprApStatsThr32DefinitionEntry 9 }
+
+cfprApStatsThr32DefinitionPropId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition:propId managed
+        object property"
+    ::= { cfprApStatsThr32DefinitionEntry 10 }
+
+cfprApStatsThr32DefinitionPropType OBJECT-TYPE
+    SYNTAX       CfprApStatsThr32DefinitionPropType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Definition:propType
+        managed object property"
+    ::= { cfprApStatsThr32DefinitionEntry 11 }
+
+cfprApStatsThr32ValueTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsThr32ValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value managed object table"
+    ::= { cfprApStatsObjects 7 }
+
+cfprApStatsThr32ValueEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsThr32ValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsThr32ValueTable table."
+    INDEX { cfprApStatsThr32ValueInstanceId }
+    ::= { cfprApStatsThr32ValueTable 1 }
+
+CfprApStatsThr32ValueEntry ::= SEQUENCE {
+    cfprApStatsThr32ValueInstanceId                                  CfprApManagedObjectId,
+    cfprApStatsThr32ValueDn                                          CfprApManagedObjectDn,
+    cfprApStatsThr32ValueRn                                          SnmpAdminString,
+    cfprApStatsThr32ValueDeescalating                                Gauge32,
+    cfprApStatsThr32ValueDescr                                       SnmpAdminString,
+    cfprApStatsThr32ValueDirection                                   CfprApStatsThresholdDirection,
+    cfprApStatsThr32ValueEscalating                                  Gauge32,
+    cfprApStatsThr32ValueIntId                                       SnmpAdminString,
+    cfprApStatsThr32ValueName                                        SnmpAdminString,
+    cfprApStatsThr32ValuePolicyLevel                                 Gauge32,
+    cfprApStatsThr32ValuePolicyOwner                                 CfprApPolicyPolicyOwner,
+    cfprApStatsThr32ValuePropType                                    CfprApStatsThr32ValuePropType,
+    cfprApStatsThr32ValueSeverity                                    CfprApConditionSeverity
+}
+
+cfprApStatsThr32ValueInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsThr32ValueEntry 1 }
+
+cfprApStatsThr32ValueDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:dn managed object property"
+    ::= { cfprApStatsThr32ValueEntry 2 }
+
+cfprApStatsThr32ValueRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:rn managed object property"
+    ::= { cfprApStatsThr32ValueEntry 3 }
+
+cfprApStatsThr32ValueDeescalating OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:deescalating
+        managed object property"
+    ::= { cfprApStatsThr32ValueEntry 4 }
+
+cfprApStatsThr32ValueDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:descr managed object property"
+    ::= { cfprApStatsThr32ValueEntry 5 }
+
+cfprApStatsThr32ValueDirection OBJECT-TYPE
+    SYNTAX       CfprApStatsThresholdDirection
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:direction managed
+        object property"
+    ::= { cfprApStatsThr32ValueEntry 6 }
+
+cfprApStatsThr32ValueEscalating OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:escalating managed
+        object property"
+    ::= { cfprApStatsThr32ValueEntry 7 }
+
+cfprApStatsThr32ValueIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:intId managed object property"
+    ::= { cfprApStatsThr32ValueEntry 8 }
+
+cfprApStatsThr32ValueName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:name managed object property"
+    ::= { cfprApStatsThr32ValueEntry 9 }
+
+cfprApStatsThr32ValuePolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:policyLevel managed
+        object property"
+    ::= { cfprApStatsThr32ValueEntry 10 }
+
+cfprApStatsThr32ValuePolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:policyOwner managed
+        object property"
+    ::= { cfprApStatsThr32ValueEntry 11 }
+
+cfprApStatsThr32ValuePropType OBJECT-TYPE
+    SYNTAX       CfprApStatsThr32ValuePropType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:propType managed
+        object property"
+    ::= { cfprApStatsThr32ValueEntry 12 }
+
+cfprApStatsThr32ValueSeverity OBJECT-TYPE
+    SYNTAX       CfprApConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr32Value:severity managed
+        object property"
+    ::= { cfprApStatsThr32ValueEntry 13 }
+
+cfprApStatsThr64DefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsThr64DefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition managed object table"
+    ::= { cfprApStatsObjects 8 }
+
+cfprApStatsThr64DefinitionEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsThr64DefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsThr64DefinitionTable table."
+    INDEX { cfprApStatsThr64DefinitionInstanceId }
+    ::= { cfprApStatsThr64DefinitionTable 1 }
+
+CfprApStatsThr64DefinitionEntry ::= SEQUENCE {
+    cfprApStatsThr64DefinitionInstanceId                             CfprApManagedObjectId,
+    cfprApStatsThr64DefinitionDn                                     CfprApManagedObjectDn,
+    cfprApStatsThr64DefinitionRn                                     SnmpAdminString,
+    cfprApStatsThr64DefinitionDescr                                  SnmpAdminString,
+    cfprApStatsThr64DefinitionIntId                                  SnmpAdminString,
+    cfprApStatsThr64DefinitionName                                   SnmpAdminString,
+    cfprApStatsThr64DefinitionNormalValue                            Unsigned64,
+    cfprApStatsThr64DefinitionPolicyLevel                            Gauge32,
+    cfprApStatsThr64DefinitionPolicyOwner                            CfprApPolicyPolicyOwner,
+    cfprApStatsThr64DefinitionPropId                                 SnmpAdminString,
+    cfprApStatsThr64DefinitionPropType                               CfprApStatsThr64DefinitionPropType
+}
+
+cfprApStatsThr64DefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsThr64DefinitionEntry 1 }
+
+cfprApStatsThr64DefinitionDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition:dn managed object property"
+    ::= { cfprApStatsThr64DefinitionEntry 2 }
+
+cfprApStatsThr64DefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition:rn managed object property"
+    ::= { cfprApStatsThr64DefinitionEntry 3 }
+
+cfprApStatsThr64DefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition:descr managed
+        object property"
+    ::= { cfprApStatsThr64DefinitionEntry 4 }
+
+cfprApStatsThr64DefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition:intId managed
+        object property"
+    ::= { cfprApStatsThr64DefinitionEntry 5 }
+
+cfprApStatsThr64DefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition:name managed
+        object property"
+    ::= { cfprApStatsThr64DefinitionEntry 6 }
+
+cfprApStatsThr64DefinitionNormalValue OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition:normalValue
+        managed object property"
+    ::= { cfprApStatsThr64DefinitionEntry 7 }
+
+cfprApStatsThr64DefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition:policyLevel
+        managed object property"
+    ::= { cfprApStatsThr64DefinitionEntry 8 }
+
+cfprApStatsThr64DefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition:policyOwner
+        managed object property"
+    ::= { cfprApStatsThr64DefinitionEntry 9 }
+
+cfprApStatsThr64DefinitionPropId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition:propId managed
+        object property"
+    ::= { cfprApStatsThr64DefinitionEntry 10 }
+
+cfprApStatsThr64DefinitionPropType OBJECT-TYPE
+    SYNTAX       CfprApStatsThr64DefinitionPropType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Definition:propType
+        managed object property"
+    ::= { cfprApStatsThr64DefinitionEntry 11 }
+
+cfprApStatsThr64ValueTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsThr64ValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value managed object table"
+    ::= { cfprApStatsObjects 9 }
+
+cfprApStatsThr64ValueEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsThr64ValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsThr64ValueTable table."
+    INDEX { cfprApStatsThr64ValueInstanceId }
+    ::= { cfprApStatsThr64ValueTable 1 }
+
+CfprApStatsThr64ValueEntry ::= SEQUENCE {
+    cfprApStatsThr64ValueInstanceId                                  CfprApManagedObjectId,
+    cfprApStatsThr64ValueDn                                          CfprApManagedObjectDn,
+    cfprApStatsThr64ValueRn                                          SnmpAdminString,
+    cfprApStatsThr64ValueDeescalating                                Unsigned64,
+    cfprApStatsThr64ValueDescr                                       SnmpAdminString,
+    cfprApStatsThr64ValueDirection                                   CfprApStatsThresholdDirection,
+    cfprApStatsThr64ValueEscalating                                  Unsigned64,
+    cfprApStatsThr64ValueIntId                                       SnmpAdminString,
+    cfprApStatsThr64ValueName                                        SnmpAdminString,
+    cfprApStatsThr64ValuePolicyLevel                                 Gauge32,
+    cfprApStatsThr64ValuePolicyOwner                                 CfprApPolicyPolicyOwner,
+    cfprApStatsThr64ValuePropType                                    CfprApStatsThr64ValuePropType,
+    cfprApStatsThr64ValueSeverity                                    CfprApConditionSeverity
+}
+
+cfprApStatsThr64ValueInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsThr64ValueEntry 1 }
+
+cfprApStatsThr64ValueDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:dn managed object property"
+    ::= { cfprApStatsThr64ValueEntry 2 }
+
+cfprApStatsThr64ValueRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:rn managed object property"
+    ::= { cfprApStatsThr64ValueEntry 3 }
+
+cfprApStatsThr64ValueDeescalating OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:deescalating
+        managed object property"
+    ::= { cfprApStatsThr64ValueEntry 4 }
+
+cfprApStatsThr64ValueDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:descr managed object property"
+    ::= { cfprApStatsThr64ValueEntry 5 }
+
+cfprApStatsThr64ValueDirection OBJECT-TYPE
+    SYNTAX       CfprApStatsThresholdDirection
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:direction managed
+        object property"
+    ::= { cfprApStatsThr64ValueEntry 6 }
+
+cfprApStatsThr64ValueEscalating OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:escalating managed
+        object property"
+    ::= { cfprApStatsThr64ValueEntry 7 }
+
+cfprApStatsThr64ValueIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:intId managed object property"
+    ::= { cfprApStatsThr64ValueEntry 8 }
+
+cfprApStatsThr64ValueName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:name managed object property"
+    ::= { cfprApStatsThr64ValueEntry 9 }
+
+cfprApStatsThr64ValuePolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:policyLevel managed
+        object property"
+    ::= { cfprApStatsThr64ValueEntry 10 }
+
+cfprApStatsThr64ValuePolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:policyOwner managed
+        object property"
+    ::= { cfprApStatsThr64ValueEntry 11 }
+
+cfprApStatsThr64ValuePropType OBJECT-TYPE
+    SYNTAX       CfprApStatsThr64ValuePropType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:propType managed
+        object property"
+    ::= { cfprApStatsThr64ValueEntry 12 }
+
+cfprApStatsThr64ValueSeverity OBJECT-TYPE
+    SYNTAX       CfprApConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:Thr64Value:severity managed
+        object property"
+    ::= { cfprApStatsThr64ValueEntry 13 }
+
+cfprApStatsThrFloatDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsThrFloatDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition managed object table"
+    ::= { cfprApStatsObjects 10 }
+
+cfprApStatsThrFloatDefinitionEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsThrFloatDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsThrFloatDefinitionTable table."
+    INDEX { cfprApStatsThrFloatDefinitionInstanceId }
+    ::= { cfprApStatsThrFloatDefinitionTable 1 }
+
+CfprApStatsThrFloatDefinitionEntry ::= SEQUENCE {
+    cfprApStatsThrFloatDefinitionInstanceId                          CfprApManagedObjectId,
+    cfprApStatsThrFloatDefinitionDn                                  CfprApManagedObjectDn,
+    cfprApStatsThrFloatDefinitionRn                                  SnmpAdminString,
+    cfprApStatsThrFloatDefinitionDescr                               SnmpAdminString,
+    cfprApStatsThrFloatDefinitionIntId                               SnmpAdminString,
+    cfprApStatsThrFloatDefinitionName                                SnmpAdminString,
+    cfprApStatsThrFloatDefinitionNormalValue                         INTEGER,
+    cfprApStatsThrFloatDefinitionPolicyLevel                         Gauge32,
+    cfprApStatsThrFloatDefinitionPolicyOwner                         CfprApPolicyPolicyOwner,
+    cfprApStatsThrFloatDefinitionPropId                              SnmpAdminString,
+    cfprApStatsThrFloatDefinitionPropType                            CfprApStatsThrFloatDefinitionPropType
+}
+
+cfprApStatsThrFloatDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsThrFloatDefinitionEntry 1 }
+
+cfprApStatsThrFloatDefinitionDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition:dn managed
+        object property"
+    ::= { cfprApStatsThrFloatDefinitionEntry 2 }
+
+cfprApStatsThrFloatDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition:rn managed
+        object property"
+    ::= { cfprApStatsThrFloatDefinitionEntry 3 }
+
+cfprApStatsThrFloatDefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition:descr
+        managed object property"
+    ::= { cfprApStatsThrFloatDefinitionEntry 4 }
+
+cfprApStatsThrFloatDefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition:intId
+        managed object property"
+    ::= { cfprApStatsThrFloatDefinitionEntry 5 }
+
+cfprApStatsThrFloatDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition:name
+        managed object property"
+    ::= { cfprApStatsThrFloatDefinitionEntry 6 }
+
+cfprApStatsThrFloatDefinitionNormalValue OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition:normalValue
+        managed object property"
+    ::= { cfprApStatsThrFloatDefinitionEntry 7 }
+
+cfprApStatsThrFloatDefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition:policyLevel
+        managed object property"
+    ::= { cfprApStatsThrFloatDefinitionEntry 8 }
+
+cfprApStatsThrFloatDefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition:policyOwner
+        managed object property"
+    ::= { cfprApStatsThrFloatDefinitionEntry 9 }
+
+cfprApStatsThrFloatDefinitionPropId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition:propId
+        managed object property"
+    ::= { cfprApStatsThrFloatDefinitionEntry 10 }
+
+cfprApStatsThrFloatDefinitionPropType OBJECT-TYPE
+    SYNTAX       CfprApStatsThrFloatDefinitionPropType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatDefinition:propType
+        managed object property"
+    ::= { cfprApStatsThrFloatDefinitionEntry 11 }
+
+cfprApStatsThrFloatValueTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsThrFloatValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue managed object table"
+    ::= { cfprApStatsObjects 11 }
+
+cfprApStatsThrFloatValueEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsThrFloatValueEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsThrFloatValueTable table."
+    INDEX { cfprApStatsThrFloatValueInstanceId }
+    ::= { cfprApStatsThrFloatValueTable 1 }
+
+CfprApStatsThrFloatValueEntry ::= SEQUENCE {
+    cfprApStatsThrFloatValueInstanceId                               CfprApManagedObjectId,
+    cfprApStatsThrFloatValueDn                                       CfprApManagedObjectDn,
+    cfprApStatsThrFloatValueRn                                       SnmpAdminString,
+    cfprApStatsThrFloatValueDeescalating                             INTEGER,
+    cfprApStatsThrFloatValueDescr                                    SnmpAdminString,
+    cfprApStatsThrFloatValueDirection                                CfprApStatsThresholdDirection,
+    cfprApStatsThrFloatValueEscalating                               INTEGER,
+    cfprApStatsThrFloatValueIntId                                    SnmpAdminString,
+    cfprApStatsThrFloatValueName                                     SnmpAdminString,
+    cfprApStatsThrFloatValuePolicyLevel                              Gauge32,
+    cfprApStatsThrFloatValuePolicyOwner                              CfprApPolicyPolicyOwner,
+    cfprApStatsThrFloatValuePropType                                 CfprApStatsThrFloatValuePropType,
+    cfprApStatsThrFloatValueSeverity                                 CfprApConditionSeverity
+}
+
+cfprApStatsThrFloatValueInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsThrFloatValueEntry 1 }
+
+cfprApStatsThrFloatValueDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:dn managed object property"
+    ::= { cfprApStatsThrFloatValueEntry 2 }
+
+cfprApStatsThrFloatValueRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:rn managed object property"
+    ::= { cfprApStatsThrFloatValueEntry 3 }
+
+cfprApStatsThrFloatValueDeescalating OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:deescalating
+        managed object property"
+    ::= { cfprApStatsThrFloatValueEntry 4 }
+
+cfprApStatsThrFloatValueDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:descr managed
+        object property"
+    ::= { cfprApStatsThrFloatValueEntry 5 }
+
+cfprApStatsThrFloatValueDirection OBJECT-TYPE
+    SYNTAX       CfprApStatsThresholdDirection
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:direction
+        managed object property"
+    ::= { cfprApStatsThrFloatValueEntry 6 }
+
+cfprApStatsThrFloatValueEscalating OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:escalating
+        managed object property"
+    ::= { cfprApStatsThrFloatValueEntry 7 }
+
+cfprApStatsThrFloatValueIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:intId managed
+        object property"
+    ::= { cfprApStatsThrFloatValueEntry 8 }
+
+cfprApStatsThrFloatValueName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:name managed object property"
+    ::= { cfprApStatsThrFloatValueEntry 9 }
+
+cfprApStatsThrFloatValuePolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:policyLevel
+        managed object property"
+    ::= { cfprApStatsThrFloatValueEntry 10 }
+
+cfprApStatsThrFloatValuePolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:policyOwner
+        managed object property"
+    ::= { cfprApStatsThrFloatValueEntry 11 }
+
+cfprApStatsThrFloatValuePropType OBJECT-TYPE
+    SYNTAX       CfprApStatsThrFloatValuePropType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:propType managed
+        object property"
+    ::= { cfprApStatsThrFloatValueEntry 12 }
+
+cfprApStatsThrFloatValueSeverity OBJECT-TYPE
+    SYNTAX       CfprApConditionSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThrFloatValue:severity managed
+        object property"
+    ::= { cfprApStatsThrFloatValueEntry 13 }
+
+cfprApStatsThresholdClassTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsThresholdClassEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdClass managed object table"
+    ::= { cfprApStatsObjects 12 }
+
+cfprApStatsThresholdClassEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsThresholdClassEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsThresholdClassTable table."
+    INDEX { cfprApStatsThresholdClassInstanceId }
+    ::= { cfprApStatsThresholdClassTable 1 }
+
+CfprApStatsThresholdClassEntry ::= SEQUENCE {
+    cfprApStatsThresholdClassInstanceId                              CfprApManagedObjectId,
+    cfprApStatsThresholdClassDn                                      CfprApManagedObjectDn,
+    cfprApStatsThresholdClassRn                                      SnmpAdminString,
+    cfprApStatsThresholdClassDescr                                   SnmpAdminString,
+    cfprApStatsThresholdClassIntId                                   SnmpAdminString,
+    cfprApStatsThresholdClassName                                    SnmpAdminString,
+    cfprApStatsThresholdClassPolicyLevel                             Gauge32,
+    cfprApStatsThresholdClassPolicyOwner                             CfprApPolicyPolicyOwner,
+    cfprApStatsThresholdClassStatsClassId                            SnmpAdminString
+}
+
+cfprApStatsThresholdClassInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsThresholdClassEntry 1 }
+
+cfprApStatsThresholdClassDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdClass:dn managed object property"
+    ::= { cfprApStatsThresholdClassEntry 2 }
+
+cfprApStatsThresholdClassRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdClass:rn managed object property"
+    ::= { cfprApStatsThresholdClassEntry 3 }
+
+cfprApStatsThresholdClassDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdClass:descr managed
+        object property"
+    ::= { cfprApStatsThresholdClassEntry 4 }
+
+cfprApStatsThresholdClassIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdClass:intId managed
+        object property"
+    ::= { cfprApStatsThresholdClassEntry 5 }
+
+cfprApStatsThresholdClassName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdClass:name managed
+        object property"
+    ::= { cfprApStatsThresholdClassEntry 6 }
+
+cfprApStatsThresholdClassPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdClass:policyLevel
+        managed object property"
+    ::= { cfprApStatsThresholdClassEntry 7 }
+
+cfprApStatsThresholdClassPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdClass:policyOwner
+        managed object property"
+    ::= { cfprApStatsThresholdClassEntry 8 }
+
+cfprApStatsThresholdClassStatsClassId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdClass:statsClassId
+        managed object property"
+    ::= { cfprApStatsThresholdClassEntry 9 }
+
+cfprApStatsThresholdPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApStatsThresholdPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdPolicy managed object table"
+    ::= { cfprApStatsObjects 13 }
+
+cfprApStatsThresholdPolicyEntry OBJECT-TYPE
+    SYNTAX           CfprApStatsThresholdPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApStatsThresholdPolicyTable table."
+    INDEX { cfprApStatsThresholdPolicyInstanceId }
+    ::= { cfprApStatsThresholdPolicyTable 1 }
+
+CfprApStatsThresholdPolicyEntry ::= SEQUENCE {
+    cfprApStatsThresholdPolicyInstanceId                             CfprApManagedObjectId,
+    cfprApStatsThresholdPolicyDn                                     CfprApManagedObjectDn,
+    cfprApStatsThresholdPolicyRn                                     SnmpAdminString,
+    cfprApStatsThresholdPolicyDescr                                  SnmpAdminString,
+    cfprApStatsThresholdPolicyIntId                                  SnmpAdminString,
+    cfprApStatsThresholdPolicyName                                   SnmpAdminString,
+    cfprApStatsThresholdPolicyPolicyLevel                            Gauge32,
+    cfprApStatsThresholdPolicyPolicyOwner                            CfprApPolicyPolicyOwner
+}
+
+cfprApStatsThresholdPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApStatsThresholdPolicyEntry 1 }
+
+cfprApStatsThresholdPolicyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdPolicy:dn managed object property"
+    ::= { cfprApStatsThresholdPolicyEntry 2 }
+
+cfprApStatsThresholdPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdPolicy:rn managed object property"
+    ::= { cfprApStatsThresholdPolicyEntry 3 }
+
+cfprApStatsThresholdPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdPolicy:descr managed
+        object property"
+    ::= { cfprApStatsThresholdPolicyEntry 4 }
+
+cfprApStatsThresholdPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdPolicy:intId managed
+        object property"
+    ::= { cfprApStatsThresholdPolicyEntry 5 }
+
+cfprApStatsThresholdPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdPolicy:name managed
+        object property"
+    ::= { cfprApStatsThresholdPolicyEntry 6 }
+
+cfprApStatsThresholdPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdPolicy:policyLevel
+        managed object property"
+    ::= { cfprApStatsThresholdPolicyEntry 7 }
+
+cfprApStatsThresholdPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower stats:ThresholdPolicy:policyOwner
+        managed object property"
+    ::= { cfprApStatsThresholdPolicyEntry 8 }
+
+END

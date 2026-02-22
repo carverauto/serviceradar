@@ -1,0 +1,333 @@
+-- *******************************************************************
+-- CISCO-LWAPP-U3INTERFACE-MIB.my 
+-- This MIB helps in managing u3-interface on a WLAN.
+-- SEPTEMBER 2017, Hari Krishna Mitta
+--
+-- Copyright (c) 2016-2017 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+--
+CISCO-LWAPP-U3INTERFACE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS 
+    MODULE-IDENTITY, 
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE, 
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue      
+        FROM SNMPv2-TC
+    cLWlanIndex
+        FROM CISCO-LWAPP-WLAN-MIB
+    cldcClientMacAddress
+        FROM CISCO-LWAPP-DOT11-CLIENT-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+                                
+--********************************************************************
+--*  MODULE IDENTITY
+--********************************************************************
+
+ciscoLwappU3InterfaceMIB        MODULE-IDENTITY
+        LAST-UPDATED   "201710100000Z"
+        ORGANIZATION   "Cisco Systems Inc."
+        CONTACT-INFO  
+               "        Cisco Systems,
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                 Email: cs-snmp@cisco.com"
+
+        DESCRIPTION             
+            "U3 Interface between WLC and CWC(Cellular WLAN Controller) 
+            is present to support Real-Time Traffic Steering(RTTS) of 
+            client between 3GPP networks and WLAN. Throughput needs to
+            be calculated at WLC and shared with the CWC to take decision 
+            to steer the traffic to WLAN or not. It is also defined to 
+            reject client in case if throughput is not satisfactory 
+            along with periodic updation of throughput.
+            
+                       GLOSSARY
+
+             Access Point ( AP )
+
+             An entity that contains an 802.11 medium access
+             control ( MAC ) and physical layer ( PHY ) interface
+             and provides access to the distribution services via
+             the wireless medium for associated clients.  
+
+             LWAPP APs encapsulate all the 802.11 frames in
+             LWAPP frames and sends it to the controller to which
+             it is logically connected to.
+
+             Central Controller ( CC )
+
+             The central entity that terminates the LWAPP protocol
+             tunnel from the LWAPP APs.  Throughout this MIB,
+             this entity also referred to as 'controller'.
+
+             Light Weight Access Point Protocol ( LWAPP ) 
+
+             This is a generic protocol that defines the
+             communication between the Access Points and the
+             controllers.
+             
+             Cellular WLAN Controller ( CWC )
+
+             A decision making entity to steer traffic over LTE or
+             WLAN." 
+
+        REVISION      "201710100000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 852 }
+
+
+ciscoLwappU3InterfaceMIBNotifs  OBJECT IDENTIFIER 
+        ::= { ciscoLwappU3InterfaceMIB 0 }
+ciscoLwappU3InterfaceMIBObjects OBJECT IDENTIFIER 
+        ::= { ciscoLwappU3InterfaceMIB 1 }
+ciscoLwappU3InterfaceMIBConform OBJECT IDENTIFIER 
+        ::= { ciscoLwappU3InterfaceMIB 2 }
+ciscoLwappU3InterfaceMIBTableObjects OBJECT IDENTIFIER 
+        ::= { ciscoLwappU3InterfaceMIBObjects 1 }
+
+-- *******************************************************************
+-- u3-interface WLAN Configuration Table
+-- *******************************************************************
+
+cLU3InterfaceWlanTable  OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CLU3InterfaceWlanEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "This table represents the information about 
+            u3-interface on a WLAN."
+        ::= { ciscoLwappU3InterfaceMIBTableObjects 1 }
+
+cLU3InterfaceWlanEntry OBJECT-TYPE
+        SYNTAX         CLU3InterfaceWlanEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+            "Each entry in this table represents the configuration   
+            attributes of u3-interface on a WLAN."
+        INDEX   { cLWlanIndex }
+        ::= { cLU3InterfaceWlanTable 1 }
+    
+CLU3InterfaceWlanEntry ::= SEQUENCE {
+      cLU3InterfaceWlanStatus           TruthValue,   
+      cLU3InterfaceReportingInterval    Unsigned32
+}
+
+cLU3InterfaceWlanStatus OBJECT-TYPE
+        SYNTAX         TruthValue
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+                "This object specifies the status of u3-interface on a
+                particular WLAN.
+                A value of 'true' indicates that u3-interface is 
+                enabled on a WLAN. 
+                A value of 'false' indicates that u3-interface is 
+                disabled on a WLAN."
+        DEFVAL         {false}
+        ::= { cLU3InterfaceWlanEntry 1 }
+
+cLU3InterfaceReportingInterval OBJECT-TYPE
+        SYNTAX         Unsigned32
+        UNITS          "seconds"
+        MAX-ACCESS     read-write
+        STATUS         current
+        DESCRIPTION
+                "This object specifies the interval at which AP needs 
+                 to send throughput details of all the U3 interface 
+                 clients on a particular WLAN to the WLC. Reporting 
+                 interval range is 30 - 90 seconds."
+        DEFVAL         {30}
+        ::= { cLU3InterfaceWlanEntry 2 }
+    
+-- *******************************************************************
+-- U3interface Client Details Table
+-- *******************************************************************
+
+cLU3InterfaceClientTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CLU3InterfaceClientEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "This table represents the information about 
+             U3 interface clients."
+        ::= { ciscoLwappU3InterfaceMIBTableObjects 2 }
+
+cLU3InterfaceClientEntry OBJECT-TYPE
+        SYNTAX     CLU3InterfaceClientEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "Each entry in this table represents the U3 interface 
+             clients attributes.
+             Some of these attributes will be sent by the CWC
+             and some of them will be evaluated at the WLC."
+        INDEX   { cldcClientMacAddress }
+        ::= { cLU3InterfaceClientTable 1 }
+    
+CLU3InterfaceClientEntry ::= SEQUENCE {
+            cLU3InterfaceClientSkipCount            Unsigned32,
+            cLU3InterfaceClientKeepAliveCount       Unsigned32,
+            cLU3InterfaceClientEstimatePeriod       Unsigned32,
+            cLU3InterfaceClientBackoffTimer         Unsigned32,
+            cLU3InterfaceClientThroughput           Unsigned32,
+            cLU3InterfaceClientThreshold            Unsigned32,
+            cLU3InterfaceClientEarlyLift            Unsigned32
+}
+
+cLU3InterfaceClientSkipCount OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object represents the number of times WLC can 
+                 skip informing about estimated throughput of 
+                 a U3 interface client to CWC."
+        DEFVAL      {0}
+        ::= { cLU3InterfaceClientEntry 1 }
+    
+cLU3InterfaceClientKeepAliveCount OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object represents the maximum number of times
+                 WLC can skip reporting throughput of a U3 interface 
+                 client to CWC when throughput is greater than the 
+                 threshold represented by cLU3InterfaceClientThreshold."
+        DEFVAL      {0}
+        ::= { cLU3InterfaceClientEntry 2 }
+    
+cLU3InterfaceClientEstimatePeriod OBJECT-TYPE
+        SYNTAX      Unsigned32
+        UNITS       "seconds"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object represents the interval at which WLC has 
+                 to report the estimated throughput of a U3 interface 
+                 client to CWC. This value is sent by CWC to WLC."
+        DEFVAL      {0}
+        ::= { cLU3InterfaceClientEntry 3 }
+    
+cLU3InterfaceClientBackoffTimer OBJECT-TYPE
+        SYNTAX      Unsigned32
+        UNITS       "seconds"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object represents the time for which U3 interface 
+                client will not be allowed after U3 interface client 
+                getting rejected for throughput below threshold."
+        DEFVAL      {0}
+        ::= { cLU3InterfaceClientEntry 4 }
+    
+cLU3InterfaceClientThroughput OBJECT-TYPE
+        SYNTAX      Unsigned32
+        UNITS       "kbps"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object represents the calculated throughput of 
+                 a U3 interface client."
+        DEFVAL      {0}
+        ::= { cLU3InterfaceClientEntry 5 }
+    
+cLU3InterfaceClientThreshold OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object represents the minimum threshold throughput
+                of a U3 interface client. The value of this object 
+                is sent by CWC to WLC.
+                If the calculated throughput values of the Client is 
+                below the cLU3InterfaceClientThreshold have to be 
+                reported at every time interval specified in 
+                cLU3InterfaceClientEstimatePeriod."
+        DEFVAL      {0}
+        ::= { cLU3InterfaceClientEntry 6 }
+    
+cLU3InterfaceClientEarlyLift OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "This object represents the minimum throughput of 
+                U3 interface client to join the WLAN. The value of this
+                object is sent by CWC to WLC." 
+        DEFVAL      {0}
+        ::= { cLU3InterfaceClientEntry 7 }
+    
+
+--*******************************************************************
+--*    Compliance statements  
+--*******************************************************************
+
+ciscoLwappU3InterfaceMIBCompliances OBJECT IDENTIFIER
+        ::= { ciscoLwappU3InterfaceMIBConform 1 }
+
+ciscoLwappU3InterfaceMIBGroups OBJECT IDENTIFIER
+        ::= { ciscoLwappU3InterfaceMIBConform 2 }
+
+ciscoLwappU3InterfaceMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappU3interfaceMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cLU3InterfaceConfigGroup,
+                       cLU3InterfaceClientMonitorGroup
+                     }
+    ::= { ciscoLwappU3InterfaceMIBCompliances 1 }
+
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+cLU3InterfaceConfigGroup OBJECT-GROUP
+    OBJECTS         { cLU3InterfaceWlanStatus,
+                      cLU3InterfaceReportingInterval }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can
+        be configured to control u3-interface parameters."
+    ::= { ciscoLwappU3InterfaceMIBGroups 1 }
+
+cLU3InterfaceClientMonitorGroup OBJECT-GROUP
+    OBJECTS {
+        cLU3InterfaceClientSkipCount,
+        cLU3InterfaceClientKeepAliveCount,
+        cLU3InterfaceClientEstimatePeriod,
+        cLU3InterfaceClientBackoffTimer,
+        cLU3InterfaceClientThroughput,
+        cLU3InterfaceClientThreshold,
+        cLU3InterfaceClientEarlyLift
+    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can
+        be used to monitor the U3 interface clients parameters."
+    ::= { ciscoLwappU3InterfaceMIBGroups 2 }
+
+
+
+END
+
+
+
+

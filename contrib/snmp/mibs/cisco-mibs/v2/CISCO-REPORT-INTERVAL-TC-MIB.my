@@ -1,0 +1,202 @@
+-- *****************************************************************
+-- CISCO-REPORT-INTERVAL-TC-MIB
+-- Definition of textual conventions describing report intervals.
+--   
+-- August 2008, Patrick R. Gili
+--   
+-- Copyright (c) 2008 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-REPORT-INTERVAL-TC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Gauge32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoReportIntervalTcMIB MODULE-IDENTITY
+    LAST-UPDATED    "200808220000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines textual conventions used by MIB
+        modules that define objects describing performance history
+        data based on a configurable reporting interval.
+
+        Use of these textual conventions assumes the following:
+
+            - The SNMP entity supports performance history data
+              collection based on a configurable interval.
+
+            - The SNMP entity is capable of maintaining a history of N
+              report intervals.  A MIB module using these textual
+              conventions defines the value of N, which may be
+              configurable.
+
+            - The SNMP entity may optionally support aggregation of
+              performance data maintained by historic report intervals.
+
+            - A MIB module using these textual conventions may define
+              separate tables for the current interval, historic
+              intervals, and the aggregation of historic performance
+              data.
+
+            - A MIB module using these textual conventions must define
+              the following objects:
+
+              xxxReportInterval OBJECT-TYPE
+                  SYNTAX      Unsigned32 (0..4294967295)
+                  UNITS       'xxx-units'
+                  MAX-ACCESS  read-only
+                  STATUS      current
+                  DESCRIPTION
+                      'This object indicates the duration of a report
+                      interval.'
+                  ::= { xxx }
+
+              xxxReportMaxIntervals OBJECT-TYPE
+                  SYNTAX      Unsigned32 (0..4294967295)
+                  UNITS       'report intervals'
+                  MAX-ACCESS  read-only
+                  STATUS      current
+                  DESCRIPTION
+                      'This object indicates the maximum number of
+                      report intervals.'
+                  ::= { xxx }
+
+              xxxReportElapsedTime OBJECT-TYPE
+                  SYNTAX      Gauge32
+                  UNITS       'xxx-units'
+                  MAX-ACCESS  read-only
+                  STATUS      current
+                  DESCRIPTION
+                      'This object indicates the time that has elapsed
+                      since the beginning of the current report
+                      interval.'
+                  ::= { xxx }
+
+              xxxReportIntervals OBJECT-TYPE
+                  SYNTAX      Gauge32
+                  UNITS       'report intervals'
+                  MAX-ACCESS  read-only
+                  STATUS      current
+                  DESCRIPTION
+                      'This object indicates the number of report
+                      intervals for which data has been collected.  The
+                      value of this column starts at 0 and increments
+                      at the end of each report interval until the 
+                      number of report intervals is equal to the 
+                      corresponding value of xxxReportMaxIntervals.'
+                  ::= { xxx }
+
+              xxxReportInvalidIntervals OBJECT-TYPE
+                  SYNTAX      Gauge32
+                  UNITS       'report intervals'
+                  MAX-ACCESS  read-only
+                  STATUS      current
+                  DESCRIPTION
+                      'This object indicates the number of report
+                      intervals, in the range of 0 to the value of the
+                      corresponding instance of xxxReportValidIntervals,
+
+                      for which no data is available.  The value of this
+                      column will typically be 0, except in certain
+                      circumstances when some intervals are not
+                      available.
+                  ::= { xxx }
+
+              Observe that if the MIB module defines tables that
+              maintain performance data for multiple instances of a
+              measured entity (e.g., an interface), then the definition
+              of these objects need to allow for the maintenance of
+              these objects per instance of the measured entity.
+
+              A MIB module may choose to provide the write-access to
+              xxxReportInterval and xxxReportMaxIntervals.  In this 
+              case, the MIB module must consider the following:
+
+              - The MIB module may want to refine the data type to
+                something more concise.  Alternatively, an 
+                implementation may specify variations in an agent
+                capabilities.
+
+              - If the definition of either of these objects specifies
+                '0' as an acceptable value, then the descriptive text
+                should describe the semantics of this value.
+
+              - The descriptive text of xxxReportInterval must explain,
+                'When this value changes, the SNMP entity should discard
+                any previously collected report interval data.'
+
+              - The descriptive text of xxxReportMaxIntervals must
+                explain, 'When this value changes to a value less than
+                its current value, the SNMP entity should discard older
+                report intervals to comply with the new value.'"
+    REVISION        "200808220000Z"
+    DESCRIPTION
+        "The initial version of the MIB module."
+    ::= { ciscoMgmt 670 }
+
+
+
+ReportCurrentCount ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "An integer-value representing a counter associated with
+        measurement in the current report interval.  The length of
+        the report interval is configured previous to the measurement.
+        The value of this counter starts from '0' and increases when
+        associated events occur, until the end of the report interval.
+        At that time, the system optionally stores the value of the
+        counter in the first history interval, after which the value of
+        the counter is set to '0'."
+    SYNTAX          Gauge32
+
+ReportIntervalCount ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "An integer-value representing the value of a counter
+        associated with the measurement taken during a previous report
+        interval.  An implementation supporting a history of N report
+        intervals with IntervalCount(1) and IntervalCount(N)
+        representing the most and least recent intervals, respectively,
+        the following applies at the end of each report interval:
+
+        - Discards the value of IntervalCount(N).
+
+        - The value of IntervalCount(i) becomes that of
+          IntervalCount(i-1) for N >= i > 1.
+
+        - The value of IntervalCount(1) becomes that of
+          CurrentCount."
+    SYNTAX          Gauge32
+
+END
+
+
+
+
+
+
+
+
+
+
+

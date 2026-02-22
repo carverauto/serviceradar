@@ -1,0 +1,224 @@
+-- MIB file created 25-Oct-2002 13:00:13, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-OPTICAL-MONITORING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-OPTICAL-MONITORING-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoExperiment
+            FROM CISCO-SMI
+    ifIndex
+            FROM IF-MIB
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoOpticalMonitoringMIB OBJECT IDENTIFIER ::= { ciscoExperiment 83 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200112041130Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems  
+--                 Customer Service  
+--    
+--                 Postal: 170 W Tasman Drive  
+--                 San Jose, CA 95134  
+--    
+--                 Tel: +1 800 553-NETS  
+--    
+--                 E-mail: gsr-netman@cisco.com
+--  Descr
+--    This MIB module is used to monitor optical parameters  
+--    of a network element.This MIB deals with the operating  
+--    parameters of the optical layer. The optical layer is a  
+--    term that defines all the devices/systems that deal with  
+--    the conversion of data in it's electrical form to optical  
+--    form, transmission of the optical data, reception, and   
+--    finally re-conversion to electrical signals.
+--  RevDate
+--    200112041130Z
+--  RevDescr
+--    Initial version of the MIB.
+
+ciscoOpticalMonMIBObjects OBJECT IDENTIFIER ::= { ciscoOpticalMonitoringMIB 1 }
+comParameters   OBJECT IDENTIFIER ::= { ciscoOpticalMonMIBObjects 1 }
+ciscoOpticalMonMIBNotifPrefix OBJECT IDENTIFIER ::= { ciscoOpticalMonitoringMIB 2 }
+ciscoOpticalMonMIBNotifications OBJECT IDENTIFIER ::= { ciscoOpticalMonMIBNotifPrefix 0 }
+ciscoOpticalMonMIBConformance OBJECT IDENTIFIER ::= { ciscoOpticalMonitoringMIB 3 }
+ciscoOpticalMonMIBCompliances OBJECT IDENTIFIER ::= { ciscoOpticalMonMIBConformance 1 }
+ciscoOpticalMonMIBGroups OBJECT IDENTIFIER ::= { ciscoOpticalMonMIBConformance 2 }
+
+comParametersTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ComParametersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists the instrumented parameters of all  
+        interfaces on the network element whose optical  
+        parameters are to be monitored."
+    REFERENCE
+        "ITU recommendations G.783, G.784, G.953"
+    ::= { comParameters 1 }
+
+comParametersEntry OBJECT-TYPE
+    SYNTAX ComParametersEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Only the ifIndices of optical interfaces  
+        whose parameters need to be monitored will  
+        be used to index this table."
+    INDEX { ifIndex }
+    ::= { comParametersTable 1 }
+
+ComParametersEntry ::= SEQUENCE {
+    comTxBiasCurrent INTEGER,
+    comTxPowerSupported TruthValue,
+    comTxPower INTEGER,
+    comTxLaserTempSupported TruthValue,
+    comTxLaserTemp INTEGER,
+    comRxPowerACDC INTEGER,
+    comRxPowerACSupported TruthValue,
+    comRxPowerAC INTEGER
+    }
+
+comTxBiasCurrent OBJECT-TYPE
+    SYNTAX INTEGER(0..100000)
+--  Units
+--    milliamps
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This  holds the value of the laser diode forward  
+         bias current for the interface being instrumented,  
+         and is an indication of the Tx optical power."
+    ::= { comParametersEntry 1 }
+
+comTxPowerSupported OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean to indicate if the interface being instrumented  
+         supports comTxPower. comTxPowerSupported is set to true  
+         if the interface supports the comTxPower object, and set  
+         to false otherwise."
+    ::= { comParametersEntry 2 }
+
+comTxPower OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    microWatts
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object holds the value of the transmitter optical  
+         power for the interface being instrumented. The optical  
+         is proportional to the laser diode current. This object  
+         makes sense only if comTxPowerSupported is true. All   
+         values must be converted to microWatts."
+    ::= { comParametersEntry 3 }
+
+comTxLaserTempSupported OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean to indicate if the interface being instrumented  
+         supports comTxLaserTemp. comTxLaserTempSupported is set   
+         to true if the interface supports the comTxLaserTemp   
+         object, and set to false otherwise."
+    ::= { comParametersEntry 4 }
+
+comTxLaserTemp OBJECT-TYPE
+    SYNTAX INTEGER(-253..200)
+--  Units
+--     Degree Centigrade
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object holds the value of the transmitter laser   
+         diode temperature for the interface being instrumented.  
+         This object indicates the health of the transmitter."
+    ::= { comParametersEntry 5 }
+
+comRxPowerACDC OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    microWatts
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object holds the value of the total power  
+         (AC + DC) at the optical  Rx of the interface.  
+         All values must be converted to microWatts."
+    ::= { comParametersEntry 6 }
+
+comRxPowerACSupported OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Boolean to indicate if comRxPowerAC is supported by   
+         the interface being instrumented. comRxPowerACSupported  
+         is set to true if the interface supports the comRxPowerAC   
+         object,and set to false otherwise."
+    ::= { comParametersEntry 7 }
+
+comRxPowerAC OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    microWatts
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object holds the value of the AC power at  
+         the optical Receiver of the interface. Not all  
+         interfaces support this object.This object makes  
+         sense only if comRxPowerACSupported is true. All  
+         values must be converted to microWatts."
+    ::= { comParametersEntry 8 }
+
+ciscoOpticalMonMIBParamGroup OBJECT IDENTIFIER ::= { ciscoOpticalMonMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Parameters of the optical interfaces.
+--  objects
+--    comTxBiasCurrent, comTxPowerSupported, comTxPower, 
+--    comTxLaserTempSupported, comTxLaserTemp, comRxPowerACDC, 
+--    comRxPowerACSupported, comRxPowerAC
+
+ciscoOpticalMonMIBCompliance OBJECT IDENTIFIER ::= { ciscoOpticalMonMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement  
+--     the Cisco Optical Monitoring MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoOpticalMonMIBParamGroup
+
+
+END
+

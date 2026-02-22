@@ -1,0 +1,567 @@
+-- *****************************************************************
+-- CISCO-WAN-BBIF-ILMI-MIB: ILMI(Integrated Local Management Interface)
+--  MIB for broad band Interface in MGX82xx series products.
+--
+-- December 2002, Subra Hegde
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-WAN-BBIF-ILMI-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE, 
+        Integer32,
+        Counter32       FROM    SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP    FROM    SNMPv2-CONF
+        AtmIlmiNetworkPrefix 
+                        FROM   ATM-TC-MIB
+        bbIfCnf, 
+        bbIfCnt         FROM    BASIS-MIB
+        ciscoWan        FROM    CISCOWAN-SMI;
+
+ciscoWanBbifIlmiMIB MODULE-IDENTITY
+        LAST-UPDATED    "200212200000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module for ILMI configuration and 
+        ILMI statistics for broad band interface ports
+        in PXM1 service module. PXM1 service module is supported
+        in MGX82xx series products.
+        The broadband interface referred to in this mib is for
+        ATM logical ports."
+
+    REVISION    "200212200000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+        The applicable objects from CISCO-WAN-AXIPOP-MIB
+        are defined using SMIv2 in this MIB. Also the
+        descriptions of some of the objects have been 
+        modified."
+    ::= { ciscoWan 33 }
+
+
+bbIfCnfSigILMIGrp       OBJECT IDENTIFIER ::= { bbIfCnf 2}
+bbIfCntSigILMIGrp       OBJECT IDENTIFIER ::= { bbIfCnt 2}
+
+-- **********************************************************************
+--
+-- bbIfCnfSigILMI group
+-- Port configurable signalling parameters,
+-- when the logical interface is used as a UNI port
+--
+-- **********************************************************************
+
+bbIfCnfSigILMIGrpTable    OBJECT-TYPE
+    SYNTAX       SEQUENCE OF BbIfCnfSigILMIGrpEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "This table contains ILMI configuration parameters
+        for a broadband interface."
+    ::= { bbIfCnfSigILMIGrp 1 }
+
+bbIfCnfSigILMIGrpEntry    OBJECT-TYPE
+    SYNTAX     BbIfCnfSigILMIGrpEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry for a boradband interface used as a UNI port. 
+        Each entry contains ILMI configuration parameters and
+        variables for a broadband interface."
+    INDEX    { bbIfSigPortNum }
+    ::= { bbIfCnfSigILMIGrpTable 1 }
+
+BbIfCnfSigILMIGrpEntry ::=
+    SEQUENCE {
+        bbIfSigPortNum                Integer32,
+        bbIfIlmiEnable                INTEGER,
+        bbIfSignallingProtocolType    INTEGER, 
+        bbIfSignallingVpi             Integer32, 
+        bbIfSignallingVci             Integer32, 
+        bbIfAddrPrefix                AtmIlmiNetworkPrefix,
+        bbIfCustomerId                Integer32,
+        bbIfProtocolRevNo             Integer32,
+        bbIfIlmiTrapEnable            INTEGER,
+        bbIfMinTrapInterval           Integer32,
+        bbIfKeepAlivePollingEnable    INTEGER,
+        bbIfErrorThresholdN491        Integer32,
+        bbIfEventThresholdN492        Integer32,
+        bbIfPollingIntervalT491       INTEGER,
+        bbIfMinEnquiryIntervalT493    Integer32,
+        bbIfAddrRegEnable             INTEGER
+    }
+
+
+bbIfSigPortNum OBJECT-TYPE
+    SYNTAX     Integer32 (1..32)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION 
+        "This object refers to the broadband interface.
+        The value for this object is same as value specified
+       in bbIfNum object from bbIfCnfGrpTable."
+    REFERENCE
+        "CISCO-WAN-BBIF-PORT-MIB"
+    ::= { bbIfCnfSigILMIGrpEntry 1 }
+
+bbIfIlmiEnable OBJECT-TYPE
+    SYNTAX  INTEGER {
+        disable (1),
+        enable  (2)
+    }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "The logical interface is a generic entity, it can 
+        be used as either a virtual trunk, or user port with 
+        UNI support. 
+
+        This variable is provided to enable/disable ILMI.
+
+        ILMI should only be enabled on 'user ports' and not on
+        'virtual trunks'
+            1 - disable
+            2 - enable"
+    DEFVAL { disable }
+    ::= { bbIfCnfSigILMIGrpEntry 2}
+
+bbIfSignallingProtocolType  OBJECT-TYPE
+    SYNTAX    INTEGER {
+        other        (1),
+        noSignalling (2),
+        iLMI         (3)
+    }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This will set the signalling protocol
+         other(1)        : other
+         noSignalling(2) : noSignalling
+         iLMI(3)         : ILMI"
+    ::= { bbIfCnfSigILMIGrpEntry 3}
+
+bbIfSignallingVpi   OBJECT-TYPE
+    SYNTAX     Integer32 (0..4095 )
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object specifies the VPI on which signalling
+        cells received."
+    ::= { bbIfCnfSigILMIGrpEntry 4}
+
+bbIfSignallingVci   OBJECT-TYPE
+    SYNTAX     Integer32 (0..'ffff'h )
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object specifies the VPI on which signalling
+        cells received."
+    ::= { bbIfCnfSigILMIGrpEntry 5}
+
+bbIfAddrPrefix    OBJECT-TYPE
+    SYNTAX     AtmIlmiNetworkPrefix   
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "Network Prefix for the ATM address."
+    ::= { bbIfCnfSigILMIGrpEntry 6}
+
+bbIfCustomerId    OBJECT-TYPE
+    SYNTAX     Integer32
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This represents the customer Id."
+    ::= { bbIfCnfSigILMIGrpEntry 7}
+                     
+bbIfProtocolRevNo    OBJECT-TYPE
+    SYNTAX     Integer32
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object represents the protocol revision number."
+    ::= { bbIfCnfSigILMIGrpEntry 8}
+                     
+bbIfIlmiTrapEnable OBJECT-TYPE
+    SYNTAX    INTEGER {
+        disable (1),
+        enable  (2)
+    } 
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object is used for enabling/disabling
+        the sending of ILMI traps."
+    ::= { bbIfCnfSigILMIGrpEntry 9}
+                     
+bbIfMinTrapInterval    OBJECT-TYPE
+    SYNTAX     Integer32 (1..10)
+    UNITS      "seconds"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object specifies the minimum throttling
+        period of notification generation. The notificaton
+        events should be suppressed by the agent until the
+        current throttling period expires."
+    ::= { bbIfCnfSigILMIGrpEntry 10}
+                     
+bbIfKeepAlivePollingEnable    OBJECT-TYPE
+    SYNTAX    INTEGER {
+        disable (1),
+        enable  (2)
+    } 
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "Enable/disable Keep Alive Polling."
+    ::= { bbIfCnfSigILMIGrpEntry 11}
+                     
+bbIfErrorThresholdN491    OBJECT-TYPE
+    SYNTAX     Integer32 (1..10)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object specifies Error Threshold (N491) value.
+        The number of keep alive polls that must fail within
+        a window of N491 polls, before the port is placed
+       in the failed state. This attribute is applicable only
+       when bbIfSignallingProtocolType set to iLMI(3)."
+    ::= { bbIfCnfSigILMIGrpEntry 12}
+                     
+bbIfEventThresholdN492    OBJECT-TYPE
+    SYNTAX     Integer32 (1..10)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION 
+        "This object specifies Error Threshold (N492) value.
+        The number of keep alive polls that must fail within
+        a window of N492 polls, before the port is placed
+       in the failed state. This attribute is applicable only
+       when bbIfSignallingProtocolType set to iLMI(3)."
+    ::= { bbIfCnfSigILMIGrpEntry 13}
+                     
+bbIfPollingIntervalT491    OBJECT-TYPE
+    SYNTAX    INTEGER {
+        v1(5),
+        v2(10),
+        v3(15),
+        v4(20),
+        v5(25),
+        v6(30),
+        v7(35),
+        v8(40),
+        v9(45),
+        v10(50),
+        v11(55),
+        v12(60)
+        }
+    UNITS      "seconds"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object specifies Polling Interval (T491) value.
+        The T491 value is the number of seconds between
+        each keep alive poll transmitted by port.
+        This attribute is applicable only
+        when bbIfSignallingProtocolType set to iLMI(3)."
+    ::= { bbIfCnfSigILMIGrpEntry 14}
+                     
+bbIfMinEnquiryIntervalT493    OBJECT-TYPE
+    SYNTAX     Integer32 (1..20)
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object specifies minimum Enquiry Interval(T493)
+        value. The T493 value is the number of seconds between
+        each keep alive poll transmitted by port.
+        This attribute is applicable only when 
+        bbIfSignallingProtocolType set to iLMI(3)."
+    ::= { bbIfCnfSigILMIGrpEntry 15}
+                     
+bbIfAddrRegEnable OBJECT-TYPE
+    SYNTAX  INTEGER {
+        disable (1),
+        enable  (2)
+    }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "Enable/disable ILMI Address Registration."
+    DEFVAL { disable }
+    ::= { bbIfCnfSigILMIGrpEntry 16}
+   
+ 
+-- **********************************************************************
+--
+-- bbIfCntSigILMI group
+-- ILMI and signalling counts, when the logical interface is
+-- used as a UNI port
+--
+-- **********************************************************************
+
+bbIfCntSigILMIGrpTable OBJECT-TYPE
+	SYNTAX     SEQUENCE OF BbIfCntSigILMIGrpEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+            "This table contains statistics related to
+            ILMI."
+	::= { bbIfCntSigILMIGrp 1 }
+
+bbIfCntSigILMIGrpEntry      OBJECT-TYPE
+	SYNTAX     BbIfCntSigILMIGrpEntry
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION 
+            "An entry for a boradband  interface used as a UNI port."
+	INDEX  { sigCntBbIfNum }
+    ::= { bbIfCntSigILMIGrpTable 1 }
+ 
+BbIfCntSigILMIGrpEntry ::=
+    SEQUENCE {
+        sigCntBbIfNum                 Integer32,
+        bbIfSnmpPduReceived           Counter32,
+        bbIfGetRequestReceived        Counter32,
+        bbIfGetNextRequestReceived    Counter32,
+        bbIfSetRequestReceived        Counter32,
+        bbIfTrapReceived              Counter32,
+        bbIfGetResponseReceived       Counter32,
+        bbIfGetResponseTransmitted    Counter32,
+        bbIfGetRequestTransmitted     Counter32,
+        bbIfTrapTransmitted           Counter32,
+        bbIfInvalidPDUReceived        Counter32,
+        bbIfAsn1ParseError            Counter32,
+        bbIfNoSuchNameError           Counter32,
+        bbIfTooBigError               Counter32,
+        bbIfSigCntClrButton           INTEGER
+    }
+
+sigCntBbIfNum OBJECT-TYPE
+    SYNTAX     Integer32 (1..32)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object refers to the broadband interface.
+        The value for this object is same as value specified
+        in bbIfSigPortNum object from bbIfCnfSigILMIGrpTable."
+    ::= { bbIfCntSigILMIGrpEntry 1}
+
+bbIfSnmpPduReceived OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+            "The number of snmp packets received on this 
+            logical interface."
+	::= { bbIfCntSigILMIGrpEntry 2 }
+
+bbIfGetRequestReceived  OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+            "The number of get request messages received."
+	::= { bbIfCntSigILMIGrpEntry 3 }
+
+bbIfGetNextRequestReceived  OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+            "The number of get-next messages received."
+	::= { bbIfCntSigILMIGrpEntry 4 }
+
+bbIfSetRequestReceived  OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+            "The number of set messages received."
+	::= { bbIfCntSigILMIGrpEntry 5 }
+
+bbIfTrapReceived  OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION 
+	    "The number of traps received."
+	::= { bbIfCntSigILMIGrpEntry 6 }
+
+bbIfGetResponseReceived OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+            "The number of Keep Alive response messages received."
+	::= { bbIfCntSigILMIGrpEntry 7 }
+
+bbIfGetResponseTransmitted  OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+            "The number of response messages transmitted."
+	::= { bbIfCntSigILMIGrpEntry 8 }
+
+bbIfGetRequestTransmitted   OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+            "The number of Keep Alive get request messages transmitted."
+	::= { bbIfCntSigILMIGrpEntry 9 }
+
+bbIfTrapTransmitted     OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+            "The number of trap messages transmitted."
+	::= { bbIfCntSigILMIGrpEntry 10 }
+
+bbIfInvalidPDUReceived  OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+	    "The number of invalid PDUs received."
+	::= { bbIfCntSigILMIGrpEntry 11 }
+
+bbIfAsn1ParseError OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+            "The number of parse errors on ASN.1."
+	::= { bbIfCntSigILMIGrpEntry 12 }
+
+bbIfNoSuchNameError     OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+            "The number of errors for name not present."
+	::= { bbIfCntSigILMIGrpEntry 13 }
+
+bbIfTooBigError     OBJECT-TYPE
+	SYNTAX     Counter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+	    "The number of messages received with len > 484."
+	::= { bbIfCntSigILMIGrpEntry 14 }
+
+bbIfSigCntClrButton OBJECT-TYPE
+    SYNTAX  INTEGER {
+		noAction      (1),
+		resetCounters (2)
+    }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "Writing a value of 2 resets all the counters
+        from bbIfCntSigILMIGrpTable."
+    ::= { bbIfCntSigILMIGrpEntry 15 }
+ 
+-- conformance information
+
+cwbIlmiMIBConformance  OBJECT IDENTIFIER ::= { ciscoWanBbifIlmiMIB 2 }
+
+cwbIlmiMIBGroups       OBJECT IDENTIFIER ::= { cwbIlmiMIBConformance 1 }
+
+cwbIlmiMIBCompliances  OBJECT IDENTIFIER ::= { cwbIlmiMIBConformance 2 }
+
+-- compliance statements
+
+cwbIlmiCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for objects related
+        to SRM MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS {
+        cwbIlmiConfGroup,
+        cwbIlmiStatsGroup
+    }
+
+    OBJECT bbIfCustomerId
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "For INS(Intelligent Network Server) read-write
+        needs to be supported."
+
+    OBJECT bbIfProtocolRevNo
+    MIN-ACCESS read-only
+    DESCRIPTION
+        "For INS(Intelligent Network Server) read-write
+        needs to be supported."
+    ::= { cwbIlmiMIBCompliances 1 }
+
+cwbIlmiConfGroup OBJECT-GROUP
+    OBJECTS {
+        bbIfSigPortNum,
+        bbIfIlmiEnable,
+        bbIfSignallingProtocolType,
+        bbIfSignallingVpi,
+        bbIfSignallingVci,
+        bbIfAddrPrefix,
+        bbIfCustomerId,
+        bbIfProtocolRevNo,
+        bbIfIlmiTrapEnable,
+        bbIfMinTrapInterval,
+        bbIfKeepAlivePollingEnable,
+        bbIfErrorThresholdN491,
+        bbIfEventThresholdN492,
+        bbIfPollingIntervalT491,
+        bbIfMinEnquiryIntervalT493,
+        bbIfAddrRegEnable
+      }
+      STATUS current
+      DESCRIPTION
+          "The collection of objects which are used for
+          configuring ILMI on broad band interface ports."
+      ::= { cwbIlmiMIBGroups 1 }
+
+cwbIlmiStatsGroup OBJECT-GROUP
+    OBJECTS {
+        sigCntBbIfNum,
+        bbIfSnmpPduReceived,
+        bbIfGetRequestReceived,
+        bbIfGetNextRequestReceived,
+        bbIfSetRequestReceived,
+        bbIfTrapReceived,
+        bbIfGetResponseReceived,
+        bbIfGetResponseTransmitted,
+        bbIfGetRequestTransmitted,
+        bbIfTrapTransmitted,
+        bbIfInvalidPDUReceived,
+        bbIfAsn1ParseError,
+        bbIfNoSuchNameError,
+        bbIfTooBigError,
+        bbIfSigCntClrButton
+      }
+      STATUS current
+      DESCRIPTION
+          "The collection of objects containing 
+          the ILMI statistics on broad band interface ports."
+      ::= { cwbIlmiMIBGroups 2 }
+
+END

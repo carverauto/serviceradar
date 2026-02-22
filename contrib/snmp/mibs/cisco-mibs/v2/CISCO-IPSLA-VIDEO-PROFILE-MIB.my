@@ -1,0 +1,469 @@
+-- *****************************************************************
+-- CISCO-IPSLA-VIDEO-PROFILE-MIB.my:  IP SLA Video Profile MIB file
+--   
+-- October 2010, Cheng-Jia Lai
+--   
+-- Copyright (c) 2010-2011 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-IPSLA-VIDEO-PROFILE-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    StorageType,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CvcVideoProfile
+        FROM CISCO-VIDEO-SESSION-MIB
+    CvcVideoResolution
+        FROM CISCO-VIDEO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIpslaVideoProfileMIB MODULE-IDENTITY
+    LAST-UPDATED    "201101240000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ipsla@cisco.com"
+    DESCRIPTION
+        "IP SLA is a capability which utilizes active monitoring for
+        network performance.  It can be used for network 
+        troubleshooting, network assessment and health
+        monitoring.
+
+        This MIB defines the following table as the collection of IP
+        SLA video traffic profiles that are used when generating
+        synthetic video traffic by configured IP SLA video operations.
+
+          cipslaVideoProfileTable
+
+        To run an IP SLA Video Operation, the MIB user should do the
+        following configurations:
+
+        1. Create a new or reuse the existing rttMonEchoAdminEntry with
+        valid rttMonEchoAdminProtocol, rttMonEchoAdminTargetAddress,
+        rttMonEchoAdminTargetPort, rttMonEchoAdminSourceAddress,
+        rttMonEchoAdminSourcePort, rttMonEchoAdminVideoTrafficProfile,
+        rttMonEchoAdminDscp, rttMonEchoAdminReserveDsp,
+        rttMonEchoAdminInputInterface, and other applicable objects (if
+        any) in rttMonEchoAdminTable of CISCO-RTTMON-MIB.
+
+        2. Schedule the operation to run immediately or at some
+        scheduled time(s) with optional recurrence(s) if desirable, by
+        configuring with rttMonCtrlAdminTable of CISCO-RTTMON-MIB.
+
+        3. Each occurrance of the scheduled operation generates a report
+        for the IP SLA VO statistics which are populated and available
+        in cipslaLatestVideoStatsTable and cipslaVideoAggStatsTable of
+        CISCO-IPSLA-VIDEO-MIB.
+
+        Glossary:
+          IP SLA - Cisco IOS IP Service Level Agreements
+          IP SLA operation - Refers to the 'video'
+                             operation supported by IP SLA.  
+          RTT - Round Trip Time"
+    REVISION        "201101240000Z"
+    DESCRIPTION
+        "initial version of the MIB"
+    ::= { ciscoMgmt 766 }
+
+
+ciscoIpslaVideoProfileMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoProfileMIB 0 }
+
+ciscoIpslaVideoProfileMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoProfileMIB 1 }
+
+ciscoIpslaVideoProfileMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoProfileMIB 2 }
+
+ciscoIpslaVideoProfileMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoProfileMIBConform 1 }
+
+cipslaVideoProfile  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoProfileMIBObjects 1 }
+
+
+cipslaVideoProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CipslaVideoProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the definitions of IP SLA video profiles
+        that contain descriptive parameters for synthetic video traffic
+        patterns which can be used when generating synthetic video
+        packets by IP SLA Video Operation."
+    ::= { cipslaVideoProfile 1 }
+
+cipslaVideoProfileEntry OBJECT-TYPE
+    SYNTAX          CipslaVideoProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row in the cipslaVideoProfileTable"
+    INDEX           { cipslaVideoProfileID } 
+    ::= { cipslaVideoProfileTable 1 }
+
+CipslaVideoProfileEntry ::= SEQUENCE {
+        cipslaVideoProfileID                    Unsigned32,
+        cipslaVideoProfileRowStatus             RowStatus,
+        cipslaVideoProfileStorageType           StorageType,
+        cipslaVideoProfileName                  SnmpAdminString,
+        cipslaVideoProfileDescription           SnmpAdminString,
+        cipslaVideoProfileEndpointType          INTEGER,
+        cipslaVideoProfileCodec                 CvcVideoProfile,
+        cipslaVideoProfileVideoContents         INTEGER,
+        cipslaVideoProfileFrameRate             Unsigned32,
+        cipslaVideoProfileResolution            CvcVideoResolution,
+        cipslaVideoProfileAvgBitrate            Unsigned32,
+        cipslaVideoProfileMaxBitrate            Unsigned32,
+        cipslaVideoProfileMinBitrate            Unsigned32,
+        cipslaVideoProfileBitrateWindowSize     Unsigned32,
+        cipslaVideoProfileIframeMaxSize         Unsigned32,
+        cipslaVideoProfileIframeRefreshInterval Unsigned32,
+        cipslaVideoProfileRtpAvgSize            Unsigned32,
+        cipslaVideoProfileRtpJitterPattern      INTEGER
+}
+
+cipslaVideoProfileID OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary index that uniquely identifies a video profile" 
+    ::= { cipslaVideoProfileEntry 1 }
+
+cipslaVideoProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create a new row or modify or delete an
+        existing row in this table." 
+    ::= { cipslaVideoProfileEntry 2 }
+
+cipslaVideoProfileStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual row.
+        The following columnar objects are allowed to be writable 
+        when the storageType of this conceptual row is permanent(4):
+                cipslaVideoProfileDescription
+                cipslaVideoProfileEndpointType
+                cipslaVideoProfileCodec
+                cipslaVideoProfileVideoContents
+                cipslaVideoProfileFrameRate
+                cipslaVideoProfileResolution
+                cipslaVideoProfileAvgBitrate
+                cipslaVideoProfileMaxBitrate
+                cipslaVideoProfileMinBitrate
+                cipslaVideoProfileBitrateWindowSize
+                cipslaVideoProfileIframeMaxSize
+                cipslaVideoProfileIframeRefreshInterval
+                cipslaVideoProfileRtpAvgSize
+                cipslaVideoProfileRtpJitterPattern" 
+    ::= { cipslaVideoProfileEntry 3 }
+
+cipslaVideoProfileName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of an IP SLA video profile." 
+    ::= { cipslaVideoProfileEntry 4 }
+
+cipslaVideoProfileDescription OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the detailed description string of this
+        video profile." 
+    ::= { cipslaVideoProfileEntry 5 }
+
+cipslaVideoProfileEndpointType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        custom(1),
+                        cts1k(21),
+                        cts3k(22),
+                        cp99xx(31),
+                        unknown(9999)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the sender endpoint type which determines
+        the traffic pattern according to the encoder's characteristics
+        while generating and sending video packets.
+
+        custom  - Allows flexibile endpoint behavior
+        cts1k   - Cisco Telepresence System CTS-1000
+        cts3k   - Cisco Telepresence System CTS-3000
+        cp99xx  - Cisco CP-9900 series video IP phones
+        unknown - unknown endpoint type" 
+    ::= { cipslaVideoProfileEntry 6 }
+
+cipslaVideoProfileCodec OBJECT-TYPE
+    SYNTAX          CvcVideoProfile
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the video codec and codec profile for how
+        the video contents are encoded in byte streams."
+    DEFVAL          { h264ProfileBaseline } 
+    ::= { cipslaVideoProfileEntry 7 }
+
+cipslaVideoProfileVideoContents OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        conferenceRoom(1),
+                        singlePerson(2),
+                        presentation(3),
+                        sports(4),
+                        streetView(5),
+                        other(255)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the video contents that determine the
+        amount of information to be encoded by the video sender and thus
+        have effects on the peak rate and frame size in the video
+        traffic generation. This gives a high level description of the
+        traffic patterns, and can be overwritten by the detailed
+        parameters such as cipslaVideoProfileIframeRefreshInterval.
+
+        The supported video contents are as follows.
+        conferenceRoom - conference room scene
+        singlePerson   - single person in video conferencing
+        presentation   - presentation video
+        sports         - sports activities video
+        streetView     - video scene from street views
+        other          - other scenes"
+    DEFVAL          { singlePerson } 
+    ::= { cipslaVideoProfileEntry 8 }
+
+cipslaVideoProfileFrameRate OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..120000)
+    UNITS           "fpks"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the video frame rates in the generated
+        video traffic, in unit of 'frames per 1K seconds' or fpks. For
+        example, 30000 means 30 frames per second (fps), and 7500 means
+        7.5 fps. The maximum frame rate is 120 fps or 120000 fpks." 
+    ::= { cipslaVideoProfileEntry 9 }
+
+cipslaVideoProfileResolution OBJECT-TYPE
+    SYNTAX          CvcVideoResolution
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the video frame resolution of the
+        generated video traffic." 
+    ::= { cipslaVideoProfileEntry 10 }
+
+cipslaVideoProfileAvgBitrate OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..24000)
+    UNITS           "kbps"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average bit rate of a video traffic
+        pattern in kilo-bits per second. It is used by the sender's
+        encoder to upper-limit the generated video packets." 
+    ::= { cipslaVideoProfileEntry 11 }
+
+cipslaVideoProfileMaxBitrate OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..240000)
+    UNITS           "kbps"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum bit rate or peak rate of the
+        video traffic that can be generated by the sender's encoder, in
+        kilo-bits per second.
+
+        This value is valid only in the range from the average bit rate
+        to 10 times the average bit rate, where the average bit rate is
+        specified in cipslaVideoProfileAvgBitrate object." 
+    ::= { cipslaVideoProfileEntry 12 }
+
+cipslaVideoProfileMinBitrate OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..24000)
+    UNITS           "kbps"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum bit rate in kilo-bits per
+        second, at which the video traffic can be generated even when
+        the video contents are still.
+
+        This value is valid only in the range from 1 to the average bit
+        rate as specified in cipslaVideoProfileAvgBitrate object." 
+    ::= { cipslaVideoProfileEntry 13 }
+
+cipslaVideoProfileBitrateWindowSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..10000)
+    UNITS           "ms"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the rate control window size which is
+        used by the video encoder to calculate the running average bit
+        rate.
+
+        The smaller the value of this bit rate window size, less bursty
+        of the traffic; this bitrate control window size is specified
+        in milliseconds.
+
+        Value 0 indicates no bitrate window control."
+    DEFVAL          { 500 } 
+    ::= { cipslaVideoProfileEntry 14 }
+
+cipslaVideoProfileIframeMaxSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000)
+    UNITS           "kB"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum size of an I-frame that the
+        video encoder can generate, in kilo-bytes."
+    DEFVAL          { 50 } 
+    ::= { cipslaVideoProfileEntry 15 }
+
+cipslaVideoProfileIframeRefreshInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100000)
+    UNITS           "ms"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the refresh-rate of video intra-frames,
+        in seconds.
+
+        Value 0 indicates that only the first frame is an intra-frame,
+        i.e no refresh."
+    DEFVAL          { 0 } 
+    ::= { cipslaVideoProfileEntry 16 }
+
+cipslaVideoProfileRtpAvgSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (500..1600)
+    UNITS           "byte"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the average RTP packet size in generated
+        video traffic, in bytes."
+    DEFVAL          { 1000 } 
+    ::= { cipslaVideoProfileEntry 17 }
+
+cipslaVideoProfileRtpJitterPattern OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        bursty(1),
+                        shaped(2),
+                        other(99)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the output buffering control mechanism of
+        the video encoder when generating packets.
+
+        bursty - send packets all out at once, no buffering
+        shaped - send packets evenly in a frame interval, with
+        buffering
+        other  - other patterns"
+    DEFVAL          { bursty } 
+    ::= { cipslaVideoProfileEntry 18 }
+ 
+
+ciscoIpslaVideoProfileMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoIpslaVideoProfileMIBConform 2 }
+
+
+ciscoIpslaVideoProfileMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is the module-compliance for ISR G2 with PVDM3 platforms,
+        containing object groups and notification groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoIpslaVideoProfileBaseGroup,
+                        ciscoIpslaVideoProfileIsrg2Pvdm3Group
+                    }
+    ::= { ciscoIpslaVideoProfileMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoIpslaVideoProfileBaseGroup OBJECT-GROUP
+    OBJECTS         {
+                        cipslaVideoProfileRowStatus,
+                        cipslaVideoProfileStorageType,
+                        cipslaVideoProfileDescription,
+                        cipslaVideoProfileName
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The is the base group to include those objects for all
+        platforms implementations."
+    ::= { ciscoIpslaVideoProfileMIBGroups 1 }
+
+ciscoIpslaVideoProfileIsrg2Pvdm3Group OBJECT-GROUP
+    OBJECTS         {
+                        cipslaVideoProfileEndpointType,
+                        cipslaVideoProfileCodec,
+                        cipslaVideoProfileVideoContents,
+                        cipslaVideoProfileFrameRate,
+                        cipslaVideoProfileResolution,
+                        cipslaVideoProfileAvgBitrate,
+                        cipslaVideoProfileMaxBitrate,
+                        cipslaVideoProfileMinBitrate,
+                        cipslaVideoProfileBitrateWindowSize,
+                        cipslaVideoProfileIframeMaxSize,
+                        cipslaVideoProfileIframeRefreshInterval,
+                        cipslaVideoProfileRtpAvgSize,
+                        cipslaVideoProfileRtpJitterPattern
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is the object group to include those objects that are only
+        applicable to Cisco ISR G2 platforms with PVDM3."
+    ::= { ciscoIpslaVideoProfileMIBGroups 2 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+

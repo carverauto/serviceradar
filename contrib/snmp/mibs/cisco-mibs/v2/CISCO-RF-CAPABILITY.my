@@ -1,0 +1,205 @@
+-- *****************************************************************
+-- CISCO-RF-CAPABILITY.my:  CISCO-RF-MIB AGENT-CAPABILITIES
+--
+-- January 2001, Timothy Kurnik
+--
+-- Copyright (c) 2001-2003 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+
+CISCO-RF-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+            FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+            FROM SNMPv2-CONF
+    ciscoAgentCapability
+            FROM CISCO-SMI;
+
+ciscoRFCapability MODULE-IDENTITY
+    LAST-UPDATED "200308200000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+        "Cisco Systems Customer Service
+         Postal: 170 West Tasman Drive
+                 San Jose, CA 95134
+                 USA
+         Tel: +1 800 553-NETS
+
+         E-mail: cs-rf-mib@cisco.com
+        "
+    DESCRIPTION
+        "Added agent Capabilities for CISCO-RF-MIB shipped as part of
+         the Cisco IOS 12.1 release.
+        "
+    REVISION     "200308200000Z"
+    DESCRIPTION
+        "Added ciscoRFCapabilityV12R0111bEXCat6k,
+         ciscoRFCapabilityV12R0113ECat6k, and
+         ciscoRFCapabilityCatOSV8R0101Cat6K."
+
+    REVISION     "200101041000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 999 }
+
+ciscoRFCapabilityV12R01 AGENT-CAPABILITIES
+
+    PRODUCT-RELEASE     "Cisco IOS 12.1"
+    STATUS              current
+    DESCRIPTION         "Cisco RF MIB capabilities"
+
+    SUPPORTS            CISCO-RF-MIB
+    INCLUDES            {
+                         ciscoRFStatusGroup,
+                         ciscoRFConfigGroup,
+                         ciscoRFNotifGroup
+                        }
+
+    ::= { ciscoRFCapability 1 }
+
+ciscoRFCapabilityV12R0111bEXCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS 12.1(11bEX) on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS              current
+    DESCRIPTION         "CISCO-RF-MIB capabilities."
+
+    SUPPORTS            CISCO-RF-MIB
+        INCLUDES        { ciscoRFStatusGroup,
+                          ciscoRFConfigGroup,
+                          ciscoRFNotifGroup,
+                          ciscoRFStatusRFModeCapsGroup }
+
+        VARIATION       cRFStatusLastSwactReasonCode
+            SYNTAX      INTEGER { unsupported(1) }
+            DESCRIPTION "Only support unsupported(1)."
+
+        VARIATION       cRFCfgRedundancyMode
+            SYNTAX      INTEGER { coldStandbyRedundant(6),
+                                  warmStandbyRedundant(7) }
+            DESCRIPTION "Only support coldStandbyRedundant(6),
+                        warmStandbyRedundant(7)."
+
+    ::= { ciscoRFCapability 2 }
+
+ciscoRFCapabilityV12R0113ECat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS 12.1(13E) on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS              current
+    DESCRIPTION         "CISCO-RF-MIB capabilities."
+
+    SUPPORTS            CISCO-RF-MIB
+        INCLUDES        { ciscoRFNotifGroup,
+                          ciscoRFConfigGroupRev1,
+                          ciscoRFStatusGroupRev1,
+                          ciscoRFHistoryGroup,
+                          ciscoRFStatusRFModeCapsGroup }
+
+        VARIATION       cRFStatusLastSwactReasonCode
+            SYNTAX      INTEGER { unsupported(1) }
+            DESCRIPTION "Only support unsupported(1)."
+
+        VARIATION       cRFCfgRedundancyMode
+            SYNTAX      INTEGER { coldStandbyRedundant(6),
+                                  warmStandbyRedundant(7) }
+            DESCRIPTION "Only support coldStandbyRedundant(6),
+                        warmStandbyRedundant(7)."
+
+        VARIATION       cRFHistoryColdStarts
+            ACCESS      not-implemented
+            DESCRIPTION "Not supported."
+
+    ::= { ciscoRFCapability 3 }
+
+ciscoRFCapabilityCatOSV8R0101Cat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS              current
+    DESCRIPTION         "CISCO-RF-MIB capabilities."
+
+    SUPPORTS            CISCO-RF-MIB
+        INCLUDES        { ciscoRFNotifGroup,
+                          ciscoRFConfigGroupRev1,
+                          ciscoRFStatusGroupRev1,
+                          ciscoRFHistoryGroup,
+                          ciscoRFStatusRFModeCapsGroup }
+
+        VARIATION       cRFStatusUnitState
+            SYNTAX      INTEGER { disabled(2), initialization(3),
+                                  negotiation(4), active(14) }
+            DESCRIPTION "Only support disabled(2), initialization(3),
+                        negotiation(4), active(14)."
+
+        VARIATION       cRFStatusPeerUnitState
+            SYNTAX      INTEGER { standbyCold(5),
+                                  standbyColdConfig(6),
+                                  standbyColdFileSys(7),
+                                  standbyColdBulk(8),
+                                  standbyHot(9) }
+            DESCRIPTION "Only support standbyCold(5),
+                        standbyColdConfig(6), standbyColdFileSys(7),
+                        standbyColdBulk(8), standbyHot(9)."
+
+        VARIATION       cRFStatusLastSwactReasonCode
+            SYNTAX      INTEGER { none(2),
+                                  userInitiated(4),
+                                  activeUnitFailed(6),
+                                  activeUnitRemoved(7) }
+            DESCRIPTION "Only support none(2), userInitiated(4),
+                        activeUnitFailed(6), activeUnitRemoved(7)."
+
+        VARIATION       cRFCfgKeepaliveThresh
+            ACCESS      read-only
+            DESCRIPTION "Only support read access."
+
+        VARIATION       cRFCfgKeepaliveThreshMin
+            SYNTAX      INTEGER (6)
+            DESCRIPTION "Returns only 6."
+
+        VARIATION       cRFCfgKeepaliveThreshMax
+            SYNTAX      INTEGER (6)
+            DESCRIPTION "Returns only 6."
+
+        VARIATION       cRFCfgKeepaliveTimer
+            ACCESS      read-only
+            DESCRIPTION "Only support read access."
+
+        VARIATION       cRFCfgKeepaliveTimerMin
+            SYNTAX      INTEGER (10000)
+            DESCRIPTION "Returns only 10000."
+
+        VARIATION       cRFCfgKeepaliveTimerMax
+            SYNTAX      INTEGER (10000)
+            DESCRIPTION "Returns only 10000."
+
+        VARIATION       cRFCfgNotifTimer
+            ACCESS      read-only
+            DESCRIPTION "Only support read access."
+
+        VARIATION       cRFCfgAdminAction
+            SYNTAX      INTEGER { noAction(0), reloadPeer(1),
+
+                                  reloadShelf(2), switchActivity(3) }
+            DESCRIPTION "Only support noAction(0), reloadPeer(1),
+                        reloadShelf(2), switchActivity(3)."
+
+        VARIATION       cRFCfgMaintenanceMode
+            SYNTAX      INTEGER { false(2) }
+            DESCRIPTION "Only support false(2)."
+
+        VARIATION       cRFCfgRedundancyMode
+            SYNTAX      INTEGER { warmStandbyRedundant(7),
+                                  hotStandbyRedundant(8) }
+            DESCRIPTION "Only support warmStandbyRedundant(7),
+                        hotStandbyRedundant(8)."
+
+        VARIATION       cRFHistoryTableMaxLength
+            ACCESS      read-only
+            DESCRIPTION "Only support read access."
+
+    ::= { ciscoRFCapability 4 }
+
+END

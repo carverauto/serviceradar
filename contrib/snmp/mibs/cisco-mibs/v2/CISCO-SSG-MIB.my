@@ -1,0 +1,1870 @@
+-- *****************************************************************
+-- CISCO-SSG-MIB.my:  MIB file for SSG Multi-service Gateway
+--
+-- January 2002, Thamilarasu K,  October 2003, Sheetal Tilve
+--
+-- Copyright (c) 1996, 2002, 2003, 2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SSG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Counter32,
+        Gauge32,
+        Unsigned32,
+        NOTIFICATION-TYPE
+            FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        NOTIFICATION-GROUP,
+        OBJECT-GROUP
+            FROM SNMPv2-CONF
+        TimeInterval,
+        DateAndTime,
+        TruthValue,
+        DisplayString,
+        RowStatus
+            FROM SNMPv2-TC
+        InetAddressType,
+        InetAddress
+            FROM INET-ADDRESS-MIB
+        InterfaceIndex
+            FROM IF-MIB
+        CiscoPort
+            FROM CISCO-TC
+        ciscoMgmt
+            FROM CISCO-SMI;
+
+ciscoSsgMIB MODULE-IDENTITY
+        LAST-UPDATED        "200512220000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-ssg@cisco.com"
+        DESCRIPTION
+                "The MIB Module manages Service Selection Gateway(SSG)
+                devices.
+                
+                Service Selection Gateway(SSG) is a switching solution
+                for service providers who offer intranet,extranet, and
+                Internet connections to subscribers using broadband
+                access technology such as digital subscriber lines,
+                cable modems, or wireless to allow simultaneous access
+                to network services.
+                
+                Acronyms and terms:
+                
+                SSD   Service Selection Dashboard
+                SESM  Subscriber Edge Service Manager
+                GGSN  Gateway GPRS Support Node
+                APN   Access Point Name"
+        REVISION        "200512220000Z"
+        DESCRIPTION  
+                "Imported Unsigned32 from SNMPv2-SMI instead 
+                 of CISCO-TC."
+        REVISION        "200310170000Z"
+        DESCRIPTION
+                "Added new objects for Transparent Auto-Logon
+                 feature."
+        REVISION        "200203250000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 260 }
+
+
+
+ciscoSsgMIBObjects OBJECT IDENTIFIER ::=  { ciscoSsgMIB 1 }
+
+cssgCfgObjects          OBJECT IDENTIFIER ::=  { ciscoSsgMIBObjects 1 }
+cssgStatsObjects        OBJECT IDENTIFIER ::=  { ciscoSsgMIBObjects 2 }
+cssgService             OBJECT IDENTIFIER ::=  { ciscoSsgMIBObjects 3 }
+cssgExcludedAPN         OBJECT IDENTIFIER ::=  { ciscoSsgMIBObjects 4 }
+cssgExcludedDomain      OBJECT IDENTIFIER ::=  { ciscoSsgMIBObjects 5 }
+cssgTcpRedirect         OBJECT IDENTIFIER ::=  { ciscoSsgMIBObjects 6 }
+cssgServiceIfBinds      OBJECT IDENTIFIER ::=  { ciscoSsgMIBObjects 7 }
+cssgRadiusClients       OBJECT IDENTIFIER ::=  { ciscoSsgMIBObjects 8 }
+cssgPortMap             OBJECT IDENTIFIER ::=  { ciscoSsgMIBObjects 9 }
+cssgTal                 OBJECT IDENTIFIER ::=  { ciscoSsgMIBObjects 10 }
+
+cssgCfgSsgEnabled OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "An indication of whether SSG Service is enabled."
+    ::= { cssgCfgObjects 1 }
+
+cssgCfgAutoDomainMode OBJECT-TYPE
+    SYNTAX INTEGER {
+               disabled(1),
+               basic(2),
+               extended(3)
+           }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "An indication of whether Auto-Domain feature is enabled.
+        This feature allows a user to be automatically connected
+        to a service based on the APN or structured username."
+    ::= { cssgCfgObjects 2 }
+
+
+cssgCfgLocalForwardingEnabled OBJECT-TYPE
+    SYNTAX         TruthValue
+    MAX-ACCESS     read-write
+    STATUS         current
+    DESCRIPTION
+        "An indication of whether Local Forwarding is enabled.
+        This feature enables SSG to forward packets
+        locally between connected subscribers."
+    ::= { cssgCfgObjects 3 }
+
+cssgCfgAutoLogOffMode OBJECT-TYPE
+    SYNTAX       INTEGER {
+                    disabled(1),
+                    icmp(2),
+                    arp(3)
+                 }
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "An indication of whether Auto Logoff feature is enabled.
+        This feature enables SSG to initiate logoff if connectivity
+        to a host is lost.  Connectivity to a host is checked using
+        ARP or ICMP ping mechanisms."
+    ::= { cssgCfgObjects 4 }
+
+cssgCfgRadiusProxyEnabled OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "An indication of whether Radius-Proxy feature is enabled.
+        This feature allows SSG to act as a generic Radius Proxy
+        for non-SSD clients such as GGSN."
+    ::= { cssgCfgObjects 5 }
+
+cssgCfgTcpRedirectEnabled OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "An indication of whether TCP redirect is enabled.  This
+        feature redirects certain TCP packets to captive portals."
+    ::= { cssgCfgObjects 6 }
+
+cssgCfgAutoDomainNatEnabled OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "An indication of whether NAT(Network Address Translation)
+        is enabled for autodomain users. This feature determines 
+        whether the subscriber gets the autodomain service assigned
+        IP Address."
+    ::= { cssgCfgObjects 7 }
+
+cssgCfgPortBundleHostKeyEnabled OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "An indication of whether PortBundle-Host Key feature is 
+        enabled. This feature enables SESM to identify subscribers
+        based on the PortBundle(combination of IP Address, and a
+        range of ports) assigned by the SSG."
+    ::= { cssgCfgObjects 8 }
+
+cssgCfgTransPassThroughEnabled OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "An indication of whether Transparent pass through feature is
+        enabled.  This feature allows an unauthenticated subscriber
+        traffic to be routed through SSG in either direction."
+    ::= { cssgCfgObjects 9 }
+
+cssgCfgAutoLogOffInterval OBJECT-TYPE
+    SYNTAX       TimeInterval
+    MAX-ACCESS   read-write
+    STATUS       current
+    DESCRIPTION
+        "The time-interval at which connectivity to a host is checked. 
+        If the host is not reachable, SSG logs off the host if 
+        auto-logff feature is enabled."
+    ::= { cssgCfgObjects 10 }
+
+cssgCfgAutoLogOffIcmpRetries OBJECT-TYPE
+    SYNTAX        Unsigned32 (1..65535)
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "The number of ICMP ping retries SSG does to check
+        connectivity to a host."
+    DEFVAL        { 2 }
+    ::= { cssgCfgObjects 11 }
+
+cssgCfgMaxServicesPerUser OBJECT-TYPE
+    SYNTAX        Unsigned32 (1..20)
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "The maximum number of services allowed per user."
+    ::= { cssgCfgObjects 12 }
+
+cssgCfgAccountingEnabled OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "An indication of whether Acccounting is enabled in SSG.
+        If enabled, SSG generates Accounting Records and sends to
+        AAA Server."
+    ::= { cssgCfgObjects 13 }
+
+cssgCfgDefaultNetworkType OBJECT-TYPE
+    SYNTAX        InetAddressType
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "A value that represents the type of the IP Address
+        stored in the object cssgCfgDefaultNetwork."
+    ::= { cssgCfgObjects 14 }
+
+cssgCfgDefaultNetwork OBJECT-TYPE
+    SYNTAX        InetAddress
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "The IP Address or subnet that users will be able to access
+        without authentication.  This is the address where the Cisco
+        SSD/SESM resides."
+    ::= { cssgCfgObjects 15 }
+  
+cssgCfgRadiusAuthenPort OBJECT-TYPE
+    SYNTAX        CiscoPort
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "The port on which SSG receives access request packets from
+        Radius clients."
+    ::= { cssgCfgObjects 16 }
+    
+cssgCfgRadiusAccountingPort OBJECT-TYPE
+    SYNTAX        CiscoPort
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "The port on which SSG receives accounting packets from Radius
+        clients."
+    ::= { cssgCfgObjects 17 }
+
+cssgCfgRadiusFwdAcctPktsEnabled OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "An indication of whether SSG forwards Accounting Packets
+        received from Radius Clients to AAA Server."
+    ::= { cssgCfgObjects 18 }
+
+cssgCfgAccountingInterval OBJECT-TYPE
+    SYNTAX         Unsigned32 (60..2147483647)
+    UNITS          "seconds"
+    MAX-ACCESS     read-write
+    STATUS         current
+    DESCRIPTION
+        "The interval at which Accounting records are sent to AAA
+        Server."
+    ::= { cssgCfgObjects 19 }
+
+cssgCfgTCPRedirGrpForUnAuthUsers OBJECT-TYPE
+    SYNTAX        DisplayString
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "The TCP Redirect Group to which Unauthenticated users are
+        directed."
+    ::= { cssgCfgObjects 20 }
+
+cssgCfgTCPRedirGrpForUnAuthServ OBJECT-TYPE
+    SYNTAX        DisplayString
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "The TCP Redirect Group to which unauthorized service access
+        users are directed."
+    ::= { cssgCfgObjects 21 }
+
+cssgCfgTcpRedirGrpForSMTP OBJECT-TYPE
+    SYNTAX        DisplayString
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "TCP Redirect Group to which SMTP traffic is redirected."
+    ::= { cssgCfgObjects 22 }
+
+cssgCfgTcpRedirGrpForInitialCapt OBJECT-TYPE
+    SYNTAX        DisplayString
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "The TCP Redirect Group for initial captivation."
+    ::= { cssgCfgObjects 23 }
+
+cssgCfgTcpRedirGrpForAdvCapt OBJECT-TYPE
+    SYNTAX        DisplayString
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "The TCP Redirect Group for advertising captivation."
+    ::= { cssgCfgObjects 24 }
+
+cssgCfgRadiusClntRbtNotifEnabled OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "An indication of whether SSG generates notification if a
+        Radius Client reboots."
+    DEFVAL        { false }
+    ::= { cssgCfgObjects 25 }
+
+cssgCfgAAAServerDownNotifEnabled OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "An indication of whether SSG generates notification if
+        connectivity to AAA is lost or if it goes down."
+    DEFVAL        { false }
+    ::= { cssgCfgObjects 26 }
+
+cssgCfgTalEnabled OBJECT-TYPE
+    SYNTAX        TruthValue
+    MAX-ACCESS    read-write
+    STATUS        current
+    DESCRIPTION
+        "An indication of whether Transparent Auto Logon feature
+         is enabled on SSG." 
+    DEFVAL        { false }
+    ::= { cssgCfgObjects 27 }
+
+cssgStatsLoginAttempts OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The number of login attempts onto SSG."
+    ::= { cssgStatsObjects 1 }
+
+cssgStatsLoginsSuccessful OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The number of successful logins onto SSG."
+    ::= { cssgStatsObjects 2 }
+
+cssgStatsActiveSessions OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The current number of active connections on SSG."
+    ::= { cssgStatsObjects 3 }
+
+cssgStatsActiveHosts OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The current number of active Hosts on SSG."
+    ::= { cssgStatsObjects 4 }
+    
+cssgStatsActiveServices OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The current number of active services on SSG."
+    ::= { cssgStatsObjects 5 }
+        
+cssgStatsPODs OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "The number of Packets of Death sent to Radius Client."
+    ::= { cssgStatsObjects 6 }
+
+cssgServiceTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgServiceEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of SSG Services which subscribers have logged onto.
+        A Service entry in this table is transient data and gets
+        removed when the last subscriber using this Service logs off."
+    ::= { cssgService 1 }
+
+cssgServiceEntry OBJECT-TYPE
+    SYNTAX         CssgServiceEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+            "Detailed information concerning a Service."
+    INDEX { cssgServiceName }
+    ::= { cssgServiceTable 1 }
+
+CssgServiceEntry ::= SEQUENCE {
+    cssgServiceName                 DisplayString,
+    cssgServiceMode                 INTEGER,
+    cssgServiceType                 INTEGER,
+    cssgServiceIdleTimeout          Unsigned32,
+    cssgServiceSessionTimeout       Unsigned32,
+    cssgServiceActiveSessions       Gauge32,
+    cssgServiceDNSPrimaryIpType     InetAddressType,
+    cssgServiceDNSPrimary           InetAddress,
+    cssgServiceDNSSecondaryIpType   InetAddressType,
+    cssgServiceDNSSecondary         InetAddress,
+    cssgServiceUpstreamQOSEnabled   TruthValue,
+    cssgServiceDownStreamQOSEnabled TruthValue,
+    cssgServiceOpenGarden           TruthValue,
+    cssgServicePrepaid              TruthValue
+}
+
+cssgServiceName OBJECT-TYPE
+    SYNTAX         DisplayString (SIZE(1..32))
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "The name of the service profile."
+    ::= { cssgServiceEntry 1 }
+
+cssgServiceMode OBJECT-TYPE
+    SYNTAX         INTEGER {
+                       unknown(1),
+                       concurrent(2),
+                       sequential(3)
+                   }
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "An optional attribute which defines whether the user is able
+        to log in to a service while simultaneously connected to
+        other services (concurrent) or cannot access any other
+        services while using this service (sequential).
+        The default is concurrent."
+    DEFVAL { concurrent }
+    ::= { cssgServiceEntry 2 }
+
+cssgServiceType OBJECT-TYPE
+    SYNTAX         INTEGER {
+                       unknown(1),
+                       passthrough(2),
+                       tunnel(3),
+                       proxy(4)
+                   }
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "This attribute indicates the type of service.
+
+             pass-through - Indicates that the user authentication is
+                            not done during logon to this service.
+                            This is the default.
+                            
+             tunnel       - Indicates that this is a L2TP tunneled
+                            service.
+
+             proxy        - Indicates that the SSG performs user
+                            authentication during logon to this 
+                            service."
+
+    ::= { cssgServiceEntry 3 }
+
+cssgServiceIdleTimeout OBJECT-TYPE
+    SYNTAX         Unsigned32
+    UNITS          "seconds"
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "The idle timeout of a session in seconds. A value of 0
+        indicates that there is no timeout."
+    ::= { cssgServiceEntry 4 }
+
+cssgServiceSessionTimeout OBJECT-TYPE
+    SYNTAX         Unsigned32
+    UNITS          "seconds"
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "The maximum length of a session in seconds. A value of 0
+        indicates that there is no timeout."
+    ::= { cssgServiceEntry 5 }
+
+cssgServiceActiveSessions OBJECT-TYPE
+    SYNTAX         Gauge32
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "The active number of connections to this service."
+    ::= { cssgServiceEntry 6 }
+
+cssgServiceDNSPrimaryIpType OBJECT-TYPE
+    SYNTAX         InetAddressType
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "The IP address type of Primary DNS Server for this service."
+    ::= { cssgServiceEntry 7 }
+
+cssgServiceDNSPrimary OBJECT-TYPE
+    SYNTAX         InetAddress
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "The primary DNS server for this service."
+    ::= { cssgServiceEntry 8 }
+
+cssgServiceDNSSecondaryIpType OBJECT-TYPE
+    SYNTAX         InetAddressType
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "The IP Address type of Secondary DNS Server for this service."
+    ::= { cssgServiceEntry 9 }
+
+cssgServiceDNSSecondary OBJECT-TYPE
+    SYNTAX         InetAddress
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "The Secondary DNS Server for this service."
+    ::= { cssgServiceEntry 10 }
+
+cssgServiceUpstreamQOSEnabled OBJECT-TYPE
+    SYNTAX         TruthValue
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "An indication of whether upstream policing is enabled for 
+        this service."
+    REFERENCE
+        "The rate-limit features of Committed Access Rate(CAR)."
+    ::= { cssgServiceEntry 11 }
+
+cssgServiceDownStreamQOSEnabled OBJECT-TYPE
+    SYNTAX         TruthValue
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "An indication of whether downstream policing is enabled for
+        this service."
+    REFERENCE
+        "The rate-limit features of Committed Access Rate(CAR)."
+    ::= { cssgServiceEntry 12 }
+
+cssgServiceOpenGarden OBJECT-TYPE
+    SYNTAX         TruthValue
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "An indication of whether this is a Open Garden service.  An
+        Open Garden Service is a service that can be accessed without
+        authentication."
+    ::= { cssgServiceEntry 13 }
+
+cssgServicePrepaid OBJECT-TYPE
+    SYNTAX         TruthValue
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "An indication of whether this service is a prepaid service."
+    ::= { cssgServiceEntry 14 }
+  
+cssgServiceRouteTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgServiceRouteEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of route entries that belong to a particular service."
+    ::= { cssgService 2 }
+    
+cssgServiceRouteEntry OBJECT-TYPE
+    SYNTAX         CssgServiceRouteEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "An entry in Services Route Table."
+    INDEX { cssgServiceName,
+            cssgServiceRouteType,
+            cssgServiceRouteAddr,
+            cssgServiceRouteMaskType,
+            cssgServiceRouteMask
+          }
+    ::= { cssgServiceRouteTable 1 }
+    
+CssgServiceRouteEntry ::= SEQUENCE {
+    cssgServiceRouteType             InetAddressType,
+    cssgServiceRouteAddr             InetAddress,
+    cssgServiceRouteMaskType         InetAddressType,
+    cssgServiceRouteMask             InetAddress,
+    cssgServiceRoutePermission       INTEGER
+}
+
+cssgServiceRouteType OBJECT-TYPE
+    SYNTAX         InetAddressType
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A value that represents the type of the address stored in
+        cssgServiceServRouteAddr."
+    ::= { cssgServiceRouteEntry 1 }
+
+cssgServiceRouteAddr OBJECT-TYPE
+    SYNTAX         InetAddress
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "The IP Address of the networks available to the user of
+        this service."
+    ::= { cssgServiceRouteEntry 2 }
+
+cssgServiceRouteMaskType OBJECT-TYPE
+    SYNTAX         InetAddressType
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A value that represents the type of the address stored in
+        cssgServiceServRouteMask."
+    ::= { cssgServiceRouteEntry 3 }
+
+cssgServiceRouteMask OBJECT-TYPE
+    SYNTAX         InetAddress
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "Indicate the mask to be ANDed with the destination address
+        before being compared to the value in cssgServiceRouteAddr."
+    ::= { cssgServiceRouteEntry 4 }
+
+cssgServiceRoutePermission OBJECT-TYPE
+    SYNTAX         INTEGER {
+                       permit(1),
+                       deny(2)
+                   }
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+        "Indicates the action on packets, when the destination 
+        address matches with the cssgServiceRouteAddr."
+    ::= { cssgServiceRouteEntry 5 }
+
+    
+cssgExcludedAPNTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgExcludedAPNEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of APNs excluded from using auto-main feature of SSG."
+    ::= { cssgExcludedAPN 1 }
+
+cssgExcludedAPNEntry OBJECT-TYPE
+    SYNTAX      CssgExcludedAPNEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Information concerning an APN."
+    INDEX { cssgExcludedAPNName }
+    ::= { cssgExcludedAPNTable 1 }
+
+CssgExcludedAPNEntry  ::= SEQUENCE {
+
+    cssgExcludedAPNName      DisplayString,
+    cssgExcludedAPNRowStatus RowStatus
+}
+
+cssgExcludedAPNName OBJECT-TYPE
+    SYNTAX         DisplayString (SIZE(1..32))
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "The name of the excluded APN."
+    ::= { cssgExcludedAPNEntry 1 }
+
+cssgExcludedAPNRowStatus OBJECT-TYPE
+    SYNTAX         RowStatus
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        There are no mandatory objects in a create request.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgExcludedAPNEntry 2 }
+
+cssgExcludedDomainTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgExcludedDomainEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of Domain names excluded from using auto-domain
+        feature of SSG."
+    ::= { cssgExcludedDomain 1 }
+
+cssgExcludedDomainEntry OBJECT-TYPE
+    SYNTAX      CssgExcludedDomainEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "Information concerning an excluded Domain."
+    INDEX { cssgExcludedDomainName }
+    ::= { cssgExcludedDomainTable 1 }
+
+CssgExcludedDomainEntry  ::= SEQUENCE {
+
+    cssgExcludedDomainName      DisplayString,
+    cssgExcludedDomainRowStatus RowStatus
+}
+
+cssgExcludedDomainName OBJECT-TYPE
+    SYNTAX         DisplayString (SIZE(1..32))
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "The name of the excluded Domain."
+    ::= { cssgExcludedDomainEntry 1 }
+
+cssgExcludedDomainRowStatus OBJECT-TYPE
+    SYNTAX         RowStatus
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        There are no mandatory objects in a create request.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgExcludedDomainEntry 2 }
+
+cssgServiceIfBindTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgServiceIfBindEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "In SSG, a Service can be configured to use a particular
+        interface/ip address.  This table is a list of services and
+        the interface to which they are bound."
+    ::= { cssgServiceIfBinds 1 }
+    
+cssgServiceIfBindEntry OBJECT-TYPE
+    SYNTAX         CssgServiceIfBindEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A Interface-Service Bind entry."
+    INDEX { cssgServiceName }
+    ::= { cssgServiceIfBindTable 1 }
+    
+CssgServiceIfBindEntry ::= SEQUENCE {
+    cssgServiceIfIndex     InterfaceIndex,
+    cssgServiceIfRowStatus RowStatus
+}
+
+cssgServiceIfIndex OBJECT-TYPE
+    SYNTAX       InterfaceIndex
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The interface index to which the Service is bound."
+    ::= { cssgServiceIfBindEntry 1 }
+
+cssgServiceIfRowStatus OBJECT-TYPE
+    SYNTAX       RowStatus
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        cssgServiceIfIndex is a mandatory object for a create request.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgServiceIfBindEntry 2 }
+
+cssgTcpRedirectGrpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CssgTcpRedirectGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of TCP Redirect group.  A TCP Redirect group is
+        a list of one more servers that make up a captive portal
+        group."
+    ::= { cssgTcpRedirect 1 }
+
+cssgTcpRedirectGrpEntry OBJECT-TYPE
+    SYNTAX         CssgTcpRedirectGrpEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "Detailed information concerning a TCP Redirect group."
+    INDEX { cssgTcpRedirectGrpName,
+            cssgTcpRedirectGrpServerAddrType,
+            cssgTcpRedirectGrpServerAddr,
+            cssgTcpRedirectGrpServerPort
+          }
+    ::= { cssgTcpRedirectGrpTable 1 }
+
+CssgTcpRedirectGrpEntry  ::= SEQUENCE {
+    cssgTcpRedirectGrpName  DisplayString,
+    cssgTcpRedirectGrpServerAddrType  InetAddressType,
+    cssgTcpRedirectGrpServerAddr      InetAddress,
+    cssgTcpRedirectGrpServerPort      CiscoPort,
+    cssgTcpRedirectGrpRowStatus       RowStatus
+}
+
+cssgTcpRedirectGrpName OBJECT-TYPE
+    SYNTAX         DisplayString (SIZE(1..32))
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "The name of the redirect-group."
+    ::= { cssgTcpRedirectGrpEntry 1 }
+
+cssgTcpRedirectGrpServerAddrType OBJECT-TYPE
+    SYNTAX         InetAddressType
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A value that represents the typeof the address stored in
+        cssgTcpRedirectGrpServerAddr object."
+    ::= { cssgTcpRedirectGrpEntry 2 }
+
+cssgTcpRedirectGrpServerAddr OBJECT-TYPE
+    SYNTAX         InetAddress
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "The IP address of the server in the server-group."
+    ::= { cssgTcpRedirectGrpEntry 3 }
+    
+cssgTcpRedirectGrpServerPort OBJECT-TYPE
+    SYNTAX         CiscoPort
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "The port of the server to which TCP traffic to be redirected."
+    ::= { cssgTcpRedirectGrpEntry 4 }
+
+cssgTcpRedirectGrpRowStatus OBJECT-TYPE
+    SYNTAX         RowStatus
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        There are no mandatory objects in a create request.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgTcpRedirectGrpEntry 5 }
+    
+cssgNetworkGrpTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgNetworkGrpEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of network groups.  When a network-group, a list of
+        networks, associated with a TCP Redirect group, subscribers
+        attempting to connect to these networks will be redirected to
+        the TCP redirect group."
+    ::= { cssgTcpRedirect 2 }
+    
+cssgNetworkGrpEntry OBJECT-TYPE
+    SYNTAX         CssgNetworkGrpEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "Detailed information concerning a network group entry."
+    INDEX { cssgNetworkGrpName,
+            cssgNetworkGrpNetIpType,
+            cssgNetworkGrpNetIpAddr,
+            cssgNetworkGrpNetMaskType,
+            cssgNetworkGrpNetMask
+          }
+    ::= { cssgNetworkGrpTable 1 }
+    
+CssgNetworkGrpEntry ::= SEQUENCE {
+    cssgNetworkGrpName   DisplayString,
+    cssgNetworkGrpNetIpType    InetAddressType,
+    cssgNetworkGrpNetIpAddr    InetAddress,
+    cssgNetworkGrpNetMaskType  InetAddressType,
+    cssgNetworkGrpNetMask      InetAddress,
+    cssgNetworkGrpNetRowStatus RowStatus
+}   
+
+cssgNetworkGrpName OBJECT-TYPE
+    SYNTAX       DisplayString (SIZE(1..32))
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "The name of the network group.  A network group, which is a
+        group of networks, is associated with a Server group for 
+        traffic redirection i.e., packets to the networks in the network
+        group will be directed to the servers in the server group."
+    ::= { cssgNetworkGrpEntry 1 }
+
+cssgNetworkGrpNetIpType OBJECT-TYPE
+    SYNTAX    InetAddressType
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A value that represents the type of the IP Address in the
+        object cssgNetworkGrpNetIpAddr."
+    ::= { cssgNetworkGrpEntry 2 }
+
+cssgNetworkGrpNetIpAddr OBJECT-TYPE
+    SYNTAX       InetAddress
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "The IP address of a network in this network group."
+    ::= { cssgNetworkGrpEntry 3 }
+
+cssgNetworkGrpNetMaskType OBJECT-TYPE
+    SYNTAX       InetAddressType
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A value that represents the type of the address stored in
+        cssgNetworkGrpNetMask."
+    ::= { cssgNetworkGrpEntry 4 }
+
+cssgNetworkGrpNetMask OBJECT-TYPE
+    SYNTAX       InetAddress
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Indicate the mask to be ANDed with the destination address
+        before being compared to the value in cssgNetworkGrpNetIpAddr."
+    ::= { cssgNetworkGrpEntry 5 }
+
+cssgNetworkGrpNetRowStatus OBJECT-TYPE
+    SYNTAX    RowStatus
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        There are no mandatory objects in a create request.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgNetworkGrpEntry 6 }
+
+cssgPortGrpTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgPortGrpEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of port groups."
+    ::= { cssgTcpRedirect 3 }
+    
+cssgPortGrpEntry OBJECT-TYPE
+    SYNTAX         CssgPortGrpEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A Port group entry."
+    INDEX { cssgPortGrpName, cssgPortGrpPortNo }
+    ::= { cssgPortGrpTable 1 }
+    
+CssgPortGrpEntry ::= SEQUENCE {
+    cssgPortGrpName      DisplayString,
+    cssgPortGrpPortNo    CiscoPort,
+    cssgPortGrpPortRowStatus RowStatus
+}   
+
+cssgPortGrpName  OBJECT-TYPE
+    SYNTAX    DisplayString (SIZE(1..32))
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The name of the port group.  The port group defines a list
+        of ports traffic to whom can be redirected to a TCP Redirect
+        group."
+    ::= { cssgPortGrpEntry 1 }
+
+cssgPortGrpPortNo OBJECT-TYPE
+    SYNTAX    CiscoPort
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A port in the port group."
+    ::= { cssgPortGrpEntry 2 }
+
+cssgPortGrpPortRowStatus OBJECT-TYPE
+    SYNTAX    RowStatus
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgPortGrpEntry 3 }
+
+cssgTcpRedirNetworkGrpMapTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgTcpRedirNetworkGrpMapEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of Network and Server Group associations."
+    ::= { cssgTcpRedirect 4 }
+    
+cssgTcpRedirNetworkGrpMapEntry OBJECT-TYPE
+    SYNTAX        CssgTcpRedirNetworkGrpMapEntry  
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "Detailed information concerning a Server and Network
+        group association."
+    INDEX { cssgTcpRedirectGrpName }
+    ::= { cssgTcpRedirNetworkGrpMapTable 1 }
+    
+CssgTcpRedirNetworkGrpMapEntry ::= SEQUENCE {
+    cssgTcpRedirNetworkMapGrpName DisplayString,
+    cssgTcpRedirNetworkGrpMapRowStat RowStatus
+}
+
+cssgTcpRedirNetworkMapGrpName OBJECT-TYPE
+    SYNTAX     DisplayString (SIZE(1..32))
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "A network group name.  A network group is a set of network
+        groups that can be associated with TCP Redirect for traffic
+        redirection."
+    ::= { cssgTcpRedirNetworkGrpMapEntry 1 }
+
+cssgTcpRedirNetworkGrpMapRowStat OBJECT-TYPE
+    SYNTAX         RowStatus
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        There are no mandatory objects in a create request.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgTcpRedirNetworkGrpMapEntry 2 }
+
+cssgTcpRedirPortGrpMapTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgTcpRedirPortGrpMapEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of Server and Port Group associations."
+    ::= { cssgTcpRedirect 5 }
+    
+cssgTcpRedirPortGrpMapEntry OBJECT-TYPE
+    SYNTAX        CssgTcpRedirPortGrpMapEntry  
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "An instance of Server and Port group association."
+    INDEX { cssgTcpRedirectGrpName }
+    ::= { cssgTcpRedirPortGrpMapTable 1 }
+    
+CssgTcpRedirPortGrpMapEntry ::= SEQUENCE {
+    cssgTcpRedirPortMapGrpName DisplayString,
+    cssgTcpRedirPortGrpMapRowStat RowStatus
+}
+
+cssgTcpRedirPortMapGrpName OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE(1..32))
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The name of the Port Group.  A Port Group is a set of ports
+        that can be associated with a TCP Redirect Group for traffic
+        redirection."
+    ::= { cssgTcpRedirPortGrpMapEntry 1 }
+
+cssgTcpRedirPortGrpMapRowStat OBJECT-TYPE
+    SYNTAX         RowStatus
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        There are no mandatory objects in a create request.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgTcpRedirPortGrpMapEntry 2 }
+    
+
+cssgTcpRedirPortNoMapTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgTcpRedirPortNoMapEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of Ports nos and the corresponding Server group
+        which they are associated with."
+    ::= { cssgTcpRedirect 6 }
+    
+cssgTcpRedirPortNoMapEntry OBJECT-TYPE
+    SYNTAX        CssgTcpRedirPortNoMapEntry  
+    MAX-ACCESS    not-accessible
+    STATUS        current
+    DESCRIPTION
+        "An instance of a Server group and Port association."
+    INDEX { cssgTcpRedirectGrpName }
+    ::= { cssgTcpRedirPortNoMapTable 1 }
+    
+CssgTcpRedirPortNoMapEntry ::= SEQUENCE {
+    cssgTcpRedirPortNo           CiscoPort,
+    cssgTcpRedirPortNoMapRowStat RowStatus
+}
+
+cssgTcpRedirPortNo OBJECT-TYPE
+    SYNTAX      CiscoPort
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The Port No associated with the Service Group name."
+    ::= { cssgTcpRedirPortNoMapEntry 1 }
+
+cssgTcpRedirPortNoMapRowStat OBJECT-TYPE
+    SYNTAX         RowStatus
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        cssgTcpRedirPortNo is a  mandatory object for a create request.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgTcpRedirPortNoMapEntry 2 }
+
+cssgRadiusClientTable OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CssgRadiusClientEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A list of non-SSD clients to which SSG act as Radius
+        proxy."
+    ::= { cssgRadiusClients 1 }
+
+cssgRadiusClientEntry OBJECT-TYPE
+    SYNTAX         CssgRadiusClientEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "Detailed information concerning a Radius client entry."
+    INDEX {
+            cssgRadiusClientAddrType,
+            cssgRadiusClientAddr
+          }
+    ::= { cssgRadiusClientTable 1 }
+
+CssgRadiusClientEntry ::= SEQUENCE {
+
+    cssgRadiusClientAddrType InetAddressType,
+    cssgRadiusClientAddr     InetAddress,
+    cssgRadiusClientRowStatus RowStatus
+}
+
+cssgRadiusClientAddrType OBJECT-TYPE
+    SYNTAX         InetAddressType
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "The type of the address stored in cssgRadiusClientAddr."
+    ::= { cssgRadiusClientEntry 1 }
+
+cssgRadiusClientAddr OBJECT-TYPE
+    SYNTAX         InetAddress
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "The network layer address of the Radius client to which 
+        SSG acts as Radius Proxy."
+    ::= { cssgRadiusClientEntry 2 }
+    
+cssgRadiusClientRowStatus OBJECT-TYPE    
+    SYNTAX         RowStatus
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        There are no mandatory objects in a create request.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgRadiusClientEntry 3 }
+        
+cssgPortMapLength OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The length of the port-bundle i.e, no of ports in a bundle."
+    ::= { cssgPortMap 1 }
+      
+cssgPortMapTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CssgPortMapEntry
+    MAX-ACCESS  not-accessible
+    STATUS         current
+    DESCRIPTION
+        "The list of TCP Port-maps."
+    ::= { cssgPortMap 2 }
+     
+cssgPortMapEntry OBJECT-TYPE
+    SYNTAX         CssgPortMapEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "An entry in the cssgPortMapTable."
+    INDEX {
+            cssgPortMapSourceIpType,
+            cssgPortMapSourceIp
+          }
+    ::= { cssgPortMapTable 1 }
+
+CssgPortMapEntry ::= SEQUENCE {
+
+    cssgPortMapSourceIpType InetAddressType,
+    cssgPortMapSourceIp     InetAddress,
+    cssgPortMapPortRangeFrom CiscoPort,
+    cssgPortMapPortRangeTo   CiscoPort,
+    cssgPortMapRowStatus  RowStatus
+}
+
+cssgPortMapSourceIpType OBJECT-TYPE
+    SYNTAX         InetAddressType
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "A value that represents the type of the IP address stored
+        in cssgPortMapSourceIP object."
+    ::= { cssgPortMapEntry 1 }
+
+cssgPortMapSourceIp OBJECT-TYPE
+    SYNTAX         InetAddress
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION
+        "Specifies SSG source IP addresses to be used 
+        while NATting packets from downstream traffic i.e.,
+        traffic from Subscriber to SSG."
+    ::= { cssgPortMapEntry 2 }
+    
+cssgPortMapPortRangeFrom OBJECT-TYPE
+    SYNTAX         CiscoPort
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "The lower limit of the range ports in the Port Map."
+    ::= { cssgPortMapEntry 3 }
+
+cssgPortMapPortRangeTo OBJECT-TYPE
+    SYNTAX         CiscoPort
+    MAX-ACCESS     read-create
+    STATUS         current
+    DESCRIPTION
+        "The upper limit of the range ports in the Port Map."
+    ::= { cssgPortMapEntry 4 }
+    
+    
+cssgPortMapRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The status of this table entry.
+        
+        This object can also be used to create or delete conceptual
+        row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        cssgPortMapPortRangeFrom and cssgPortMapPortRangeTo are
+        mandatory objects in a create request.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cssgPortMapEntry 5 }
+
+cssgTalWaitingForAuthUsers OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of currently existing users waiting for
+         authorization."
+    ::= { cssgTal 1 }
+
+cssgTalUnidentifiedUsers OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of currently existing unidentified users. These
+         are users for which there was no response received from AAA
+         and hence it is not clear if they are valid users."
+    ::= { cssgTal 2 }
+
+cssgTalSuspectUsers OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of currently existing Suspect Users."
+    ::= { cssgTal 3 }
+
+cssgTalPassthroughUsers OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of currently existing transparent pass-through
+         users."
+    ::= { cssgTal 4 }
+
+cssgTalMaxAuthRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Maximum rate of authorization requests per second.
+         At a given time, the maximum rate of authorization requests
+         will overwrite the previous value."
+    ::= { cssgTal 5 }
+
+cssgTalMaxAuthRateTimestamp OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is the local time on the SSG when the Maximum rate
+         of authorization requests per second, indicated by 
+         cssgTalMaxAuthRate, was recorded."
+    ::= { cssgTal 6 }
+
+cssgTalMinAuthRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Minimum rate of authorization requests per second.
+         At a given time, the minimum rate of authorization
+         requests will overwrite the previous value."
+    ::= { cssgTal 7 }
+
+cssgTalMinAuthRateTimestamp OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is the local time on the SSG when the Minimum rate
+         of authorization requests per second, indicated by 
+         cssgTalMinAuthRate, was recorded."
+    ::= { cssgTal 8 }
+
+cssgTalCurrentAuthRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The last recorded rate of authorization requests per second, 
+         on SSG." 
+    ::= { cssgTal 9 }
+
+cssgTalCurrentAuthRateTimestamp OBJECT-TYPE
+    SYNTAX      DateAndTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This is the local time on the SSG when cssgTalCurrentAuthRate,
+         was recorded."
+    ::= { cssgTal 10 }
+
+cssgTalResetAuthRates OBJECT-TYPE
+    SYNTAX      INTEGER {
+                   unknown(1),
+                   reset(2)
+                }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Setting this variable to 'reset' indicates that the Minimum
+         and Maximum rates of authorization would be reset to the 
+         last recorded rate of authorization requests per second.
+         Setting it to 'unknown' will not result in any changes.
+         An snmp-get on this value will always return 'unknown'."
+    ::= { cssgTal 11 }
+
+cssgTalMaxPendingAuthReqs OBJECT-TYPE
+    SYNTAX      Unsigned32 
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The maximum number of outstanding TAL authorization 
+         requests allowed on SSG. If the number of authorization 
+         requests goes beyond this value, SSG does a SYS log 
+         message and any packets received that would result in 
+         SSG sending a new radius request will be dropped at the 
+         CEF path itself. 
+         When this value is set, it will be applicable from that 
+         point onwards. If the number of existing requests exceeds 
+         the new values, these requests will not be discarded."
+    ::= { cssgTal 12 }
+
+cssgTalMaxAuthReqsRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The maximum number of authorization requests per second 
+         allowed on SSG. If this value is set, SSG throttles the 
+         authorization requests sent per second as per this value."
+    ::= { cssgTal 13 }
+
+cssgTalDropPakDuringAuthorization OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The value 'true' indicates that any packets that are 
+         received from the user during user authorization would 
+         be dropped. The value 'false' indicates that the packets 
+         will not be dropped." 
+    DEFVAL      { false }
+    ::= { cssgTal 14 }
+
+cssgTalUnidentifiedUserAllowTraff OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The value 'true' indicates that traffic from/to 
+         unidentified users would be allowed. A value of 'false' 
+         indicates that traffic from/to unidentified users will 
+         not be allowed."
+    DEFVAL      { false }
+    ::= { cssgTal 15 }
+
+cssgTalMaxSuspectUsers OBJECT-TYPE
+    SYNTAX      Unsigned32 
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The maximum number of suspect users allowed."
+    DEFVAL      { 5000 }
+    ::= { cssgTal 16 }
+
+cssgTalSuspectUserTimeout OBJECT-TYPE
+    SYNTAX      Unsigned32 
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The timeout value for a suspect user in minutes.
+         If a packet is received for a suspect user, then packets
+         from/to this user will be dropped/tcp-redirected, until 
+         a value of cssgTalSuspectUserTimeout is reached. 
+         After this timeout, any new traffic received by SSG from the 
+         suspect user will trigger the TAL procedure all over again."
+    DEFVAL      { 60 }
+    ::= { cssgTal 17 }
+
+cssgTalUnidentifiedUserTimeout OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "The timeout value for an unidentified user in minutes.
+         After this time expiry, authorization will be done again 
+         when a packet is received from this user."
+    DEFVAL      { 10 }
+    ::= { cssgTal 18 }
+
+cssgTalUserInfoTable OBJECT-TYPE
+         SYNTAX      SEQUENCE OF CssgTalUserInfoEntry
+         MAX-ACCESS  not-accessible
+         STATUS      current
+         DESCRIPTION
+                 "A list of all the transparent users, along with 
+                  their user-state."
+         ::= { cssgTal 19 }
+
+cssgTalUserInfoEntry OBJECT-TYPE
+         SYNTAX      CssgTalUserInfoEntry
+         MAX-ACCESS  not-accessible
+         STATUS      current
+         DESCRIPTION
+                 "A conceptual row in the TAL user info table."
+         INDEX { cssgTalUserIPAddressType, cssgTalUserIPAddress }
+         ::= { cssgTalUserInfoTable 1 }
+
+CssgTalUserInfoEntry ::=
+         SEQUENCE {
+             cssgTalUserIPAddressType InetAddressType,
+             cssgTalUserIPAddress     InetAddress,
+             cssgTalUserState         INTEGER
+         }
+
+cssgTalUserIPAddressType OBJECT-TYPE
+         SYNTAX      InetAddressType
+         MAX-ACCESS  not-accessible
+         STATUS      current
+         DESCRIPTION
+                 "This is the IP address type of a particular
+                  transparent user and is used as index (together with
+                  cssgTalUserIPAddress) to identify a unique entry in
+                  the Tal User Info table."
+         ::= { cssgTalUserInfoEntry 1 }
+
+cssgTalUserIPAddress OBJECT-TYPE
+    SYNTAX       InetAddress
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "IP Address of the transparent user."
+    ::= { cssgTalUserInfoEntry 2 }
+
+cssgTalUserState OBJECT-TYPE
+         SYNTAX      INTEGER {
+                        other(1),
+                        authorizing(2),
+                        unidentified(3),
+                        suspect(4),
+                        passthrough(5)
+                     }
+         MAX-ACCESS  read-only
+         STATUS      current
+         DESCRIPTION
+                 "The state of the transparent user."
+         ::= { cssgTalUserInfoEntry 3 }
+
+-- Notifications
+
+ciscoSsgMIBNotifications OBJECT IDENTIFIER ::= { ciscoSsgMIB 0 }
+
+ciscoSsgRadiusClientReboot NOTIFICATION-TYPE
+    STATUS    current
+    DESCRIPTION
+        "The notification is sent when the connectivity to GGSN is
+        lost."
+    ::= { ciscoSsgMIBNotifications 1 }
+
+ciscoSsgRadiusAAAServerDown NOTIFICATION-TYPE
+    STATUS    current
+    DESCRIPTION
+        "The notification is sent when the connectivity to AAA is
+        lost or when AAA Server is down."
+    ::= { ciscoSsgMIBNotifications 2 }
+
+ciscoSsgMIBConformance OBJECT IDENTIFIER ::= { ciscoSsgMIB 3 }
+ciscoSsgMIBCompliances OBJECT IDENTIFIER ::= { ciscoSsgMIBConformance 1}
+ciscoSsgMIBGroups      OBJECT IDENTIFIER ::= { ciscoSsgMIBConformance 2}
+
+
+-- Conformance
+
+ciscoSsgMIBCompliance MODULE-COMPLIANCE
+    STATUS  deprecated -- superceded by ciscoSsgMIBComplianceRev1
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        CISCO-SSG-MIB."
+    MODULE
+        MANDATORY-GROUPS {
+            ciscoSsgCfgGroup,
+            ciscoSsgStatsGroup,
+            ciscoSsgServicesGroup,
+            ciscoSsgExclusionsGroup,
+            ciscoSsgTcpRedirectGroup,
+            ciscoSsgServiceInterfaceGroup,
+            ciscoSsgRadiusClientsGroup,
+            ciscoSsgPortMapGroup,
+            ciscoSsgNotificationGroup
+
+        }
+    ::= { ciscoSsgMIBCompliances 1 }
+
+ciscoSsgMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        CISCO-SSG-MIB."
+    MODULE
+        MANDATORY-GROUPS {
+            ciscoSsgCfgGroupRev1,
+            ciscoSsgStatsGroup,
+            ciscoSsgServicesGroup,
+            ciscoSsgExclusionsGroup,
+            ciscoSsgTcpRedirectGroup,
+            ciscoSsgServiceInterfaceGroup,
+            ciscoSsgRadiusClientsGroup,
+            ciscoSsgPortMapGroup,
+            ciscoSsgNotificationGroup,
+            ciscoSsgTalUserInfoGroup
+
+        }
+    ::= { ciscoSsgMIBCompliances 2 }
+
+-- Units of Conformance
+
+ciscoSsgCfgGroup OBJECT-GROUP
+    OBJECTS {
+        cssgCfgSsgEnabled,
+        cssgCfgAutoDomainMode,
+        cssgCfgLocalForwardingEnabled,
+        cssgCfgAutoLogOffMode,
+        cssgCfgRadiusProxyEnabled,
+        cssgCfgTcpRedirectEnabled,
+        cssgCfgAutoDomainNatEnabled,
+        cssgCfgPortBundleHostKeyEnabled,
+        cssgCfgTransPassThroughEnabled,
+        cssgCfgAutoLogOffInterval,
+        cssgCfgAutoLogOffIcmpRetries,
+        cssgCfgMaxServicesPerUser,
+        cssgCfgAccountingEnabled,
+        cssgCfgDefaultNetworkType,
+        cssgCfgDefaultNetwork,
+        cssgCfgRadiusAuthenPort,
+        cssgCfgRadiusAccountingPort,
+        cssgCfgRadiusFwdAcctPktsEnabled,
+        cssgCfgAccountingInterval,
+        cssgCfgTCPRedirGrpForUnAuthUsers,
+        cssgCfgTCPRedirGrpForUnAuthServ,
+        cssgCfgTcpRedirGrpForSMTP,
+        cssgCfgTcpRedirGrpForInitialCapt,
+        cssgCfgTcpRedirGrpForAdvCapt,
+        cssgCfgRadiusClntRbtNotifEnabled,
+        cssgCfgAAAServerDownNotifEnabled
+    }
+    STATUS deprecated -- superceded by ciscoSsgCfgGroupRev1
+    DESCRIPTION
+        "A collection of configurable parameters in SSG MIB."
+    ::= { ciscoSsgMIBGroups 1 }
+
+ciscoSsgStatsGroup OBJECT-GROUP
+    OBJECTS {
+        cssgStatsLoginAttempts,
+        cssgStatsLoginsSuccessful,
+        cssgStatsActiveSessions,
+        cssgStatsActiveHosts,
+        cssgStatsActiveServices,
+        cssgStatsPODs 
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of statistics objects for SSG MIB."
+    ::= { ciscoSsgMIBGroups 2 }
+
+ciscoSsgServicesGroup OBJECT-GROUP
+    OBJECTS {
+        cssgServiceMode,
+        cssgServiceType,
+        cssgServiceIdleTimeout,
+        cssgServiceSessionTimeout,
+        cssgServiceActiveSessions,
+        cssgServiceDNSPrimaryIpType,
+        cssgServiceDNSPrimary,
+        cssgServiceDNSSecondaryIpType,
+        cssgServiceDNSSecondary,
+        cssgServiceUpstreamQOSEnabled,
+        cssgServiceDownStreamQOSEnabled,
+        cssgServiceOpenGarden,
+        cssgServicePrepaid,
+        cssgServiceRoutePermission
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects pertaining to Services."
+    ::= { ciscoSsgMIBGroups 3 }
+
+ciscoSsgExclusionsGroup OBJECT-GROUP
+    OBJECTS {
+        cssgExcludedAPNRowStatus,
+        cssgExcludedDomainRowStatus
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects pertaining to excluded APN/Domain."
+    ::= { ciscoSsgMIBGroups 4 }
+
+ciscoSsgTcpRedirectGroup OBJECT-GROUP
+    OBJECTS {
+        cssgTcpRedirectGrpRowStatus,
+        cssgNetworkGrpNetRowStatus,
+        cssgPortGrpPortRowStatus,
+        cssgTcpRedirNetworkMapGrpName,
+        cssgTcpRedirNetworkGrpMapRowStat,
+        cssgTcpRedirPortMapGrpName,
+        cssgTcpRedirPortGrpMapRowStat,
+        cssgTcpRedirPortNo,
+        cssgTcpRedirPortNoMapRowStat
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects pertaining to TCP Redirect."
+    ::= { ciscoSsgMIBGroups 5 }
+
+ciscoSsgServiceInterfaceGroup OBJECT-GROUP
+    OBJECTS {
+        cssgServiceIfIndex,
+        cssgServiceIfRowStatus
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects pertaining to Service-Interface bind."
+    ::= { ciscoSsgMIBGroups 6 }
+
+ciscoSsgRadiusClientsGroup OBJECT-GROUP
+    OBJECTS {
+        cssgRadiusClientRowStatus
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects pertaining to Radius Client."
+    ::= { ciscoSsgMIBGroups 7 }
+
+ciscoSsgPortMapGroup OBJECT-GROUP
+    OBJECTS {
+        cssgPortMapLength,
+        cssgPortMapPortRangeFrom,
+        cssgPortMapPortRangeTo,
+        cssgPortMapRowStatus
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects pertaining to Port Map Group."
+    ::= { ciscoSsgMIBGroups 8 }
+
+ciscoSsgNotificationGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        ciscoSsgRadiusClientReboot,
+        ciscoSsgRadiusAAAServerDown
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of notifications generated by SSG."
+    ::= { ciscoSsgMIBGroups 9 }
+
+ciscoSsgCfgGroupRev1 OBJECT-GROUP
+    OBJECTS {
+        cssgCfgSsgEnabled,
+        cssgCfgAutoDomainMode,
+        cssgCfgLocalForwardingEnabled,
+        cssgCfgAutoLogOffMode,
+        cssgCfgRadiusProxyEnabled,
+        cssgCfgTcpRedirectEnabled,
+        cssgCfgAutoDomainNatEnabled,
+        cssgCfgPortBundleHostKeyEnabled,
+        cssgCfgTransPassThroughEnabled,
+        cssgCfgAutoLogOffInterval,
+        cssgCfgAutoLogOffIcmpRetries,
+        cssgCfgMaxServicesPerUser,
+        cssgCfgAccountingEnabled,
+        cssgCfgDefaultNetworkType,
+        cssgCfgDefaultNetwork,
+        cssgCfgRadiusAuthenPort,
+        cssgCfgRadiusAccountingPort,
+        cssgCfgRadiusFwdAcctPktsEnabled,
+        cssgCfgAccountingInterval,
+        cssgCfgTCPRedirGrpForUnAuthUsers,
+        cssgCfgTCPRedirGrpForUnAuthServ,
+        cssgCfgTcpRedirGrpForSMTP,
+        cssgCfgTcpRedirGrpForInitialCapt,
+        cssgCfgTcpRedirGrpForAdvCapt,
+        cssgCfgRadiusClntRbtNotifEnabled,
+        cssgCfgAAAServerDownNotifEnabled,
+        cssgCfgTalEnabled
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of configurable parameters in SSG MIB."
+    ::= { ciscoSsgMIBGroups 10 }
+
+ciscoSsgTalUserInfoGroup OBJECT-GROUP
+    OBJECTS {
+        cssgTalWaitingForAuthUsers,
+        cssgTalUnidentifiedUsers,
+        cssgTalSuspectUsers,
+        cssgTalPassthroughUsers,
+        cssgTalMaxAuthRate,
+        cssgTalMaxAuthRateTimestamp,
+        cssgTalMinAuthRate,
+        cssgTalMinAuthRateTimestamp,
+        cssgTalCurrentAuthRate,
+        cssgTalCurrentAuthRateTimestamp,
+        cssgTalResetAuthRates,
+        cssgTalMaxPendingAuthReqs,
+        cssgTalMaxAuthReqsRate,
+        cssgTalDropPakDuringAuthorization,
+        cssgTalUnidentifiedUserAllowTraff,
+        cssgTalMaxSuspectUsers,
+        cssgTalSuspectUserTimeout,
+        cssgTalUnidentifiedUserTimeout,
+
+        cssgTalUserState
+    }
+    STATUS current
+    DESCRIPTION
+        "A collection of objects pertaining to 
+         Transparent Auto-Logon Group."
+    ::= { ciscoSsgMIBGroups 11 }
+
+END
+    

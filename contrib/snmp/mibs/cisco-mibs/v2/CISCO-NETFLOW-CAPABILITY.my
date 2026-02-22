@@ -1,0 +1,219 @@
+-- *****************************************************************
+-- CISCO-NETFLOW-CAPABILITY.my:
+-- Cisco CISCO-NETFLOW-MIB AGENT-CAPABILITIES
+--   
+-- June 2004, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2005-2010 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-NETFLOW-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    NfTopFlowsSortTypes
+        FROM CISCO-NETFLOW-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoNetflowCapability MODULE-IDENTITY
+    LAST-UPDATED    "201011040001Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com
+            cs-netflow-mib@cisco.com"
+    DESCRIPTION
+        "The capabilities description of CISCO-NETFLOW-MIB."
+    REVISION        "201011040001Z"
+    DESCRIPTION
+        "Added capability statement
+        ciscoNetflowCapV12R0250SYPCat6kPfc4."
+    REVISION        "200708240000Z"
+    DESCRIPTION
+        "Added ciscoNetflowCapV12R0233SXHPCat6K."
+    REVISION        "200406210000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 407 }
+
+
+
+ciscoNetflowCapCatOSV08R0401 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.4(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-NETFLOW-MIB capabilities."
+
+    SUPPORTS        CISCO-NETFLOW-MIB
+    INCLUDES        {
+                        cnfTopFlowsDataGroup1,
+                        cnfTopFlowsVlanGroup,
+                        cnfTopFlowsControlGroup2
+                    }
+    VARIATION       cnfTopFlowsTopN
+    SYNTAX          Unsigned32 (1..32)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cnfTopFlowsSortBy
+    SYNTAX          NfTopFlowsSortTypes {
+                        byPackets(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       cnfTopFlowsSrcAddressType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       cnfTopFlowsDstAddressType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    ::= { ciscoNetflowCapability 1 }
+
+ciscoNetflowCapV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-NETFLOW-MIB capabilities."
+
+    SUPPORTS        CISCO-NETFLOW-MIB
+    INCLUDES        {
+                        cnfCacheInfoGroup,
+                        cnfProtocolStatGroup,
+                        cnfExportInfoGroup,
+                        cnfExportStatisticsGroup,
+                        cnfExportTemplateGroup,
+                        cnfTopFlowsDataGroup1,
+                        cnfTopFlowsDataGroup2,
+                        cnfTopFlowsControlGroup1,
+                        cnfTopFlowsControlGroup2,
+                        cnfMcastNetflowControlGroup,
+                        cnfBridgedFlowStatsCtrlGroup,
+                        cnfTopFlowsReportGenerateGroup
+                    }
+    VARIATION       cnfEIExportVersion
+    SYNTAX          Unsigned32 (1 | 5 | 9)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cnfEICollectorAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cnfTemplateExportVer9TplTimeout
+    SYNTAX          Unsigned32 (1..600)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cnfTemplateExportVer9OptTimeout
+    SYNTAX          Unsigned32 (1..600)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cnfTemplateExportVer9TplRefreshRate
+    SYNTAX          Unsigned32 (1..3600)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cnfTemplateExportVer9OptRefreshRate
+    SYNTAX          Unsigned32 (1..3600)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cnfTopFlowsReportSource
+    SYNTAX          INTEGER  {
+                        other(1),
+                        hardware(2),
+                        software(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       cnfTopFlowsMatchSrcAddressType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       cnfTopFlowsMatchDstAddressType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       cnfTopFlowsMatchNhAddressType
+    SYNTAX          InetAddressType {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       cnfCIMcastNetflowEnable
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this in this release."
+
+    ::= { ciscoNetflowCapability 2 }
+
+ciscoNetflowCapV12R0250SYPCat6kPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500 
+                    series devices with PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-NETFLOW-MIB is not supported."
+
+    ::= { ciscoNetflowCapability 3 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+

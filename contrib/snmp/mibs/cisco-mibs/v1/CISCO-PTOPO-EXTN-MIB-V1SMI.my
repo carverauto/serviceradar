@@ -1,0 +1,332 @@
+-- MIB file created 22-Aug-2002 10:41:37, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-PTOPO-EXTN-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-PTOPO-EXTN-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    PhysicalIndex
+            FROM ENTITY-MIB
+    InterfaceIndexOrZero
+            FROM IF-MIB
+    ptopoConnTimeMark, ptopoConnLocalChassis, ptopoConnLocalPort, 
+    ptopoConnIndex
+            FROM PTOPO-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoPtopoExtnMIB OBJECT IDENTIFIER ::= { ciscoMgmt 261 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200205120000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--     Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--     Tel: +1 800 553-NETS
+--    
+--     E-mail: cs-dwdm@cisco.com
+--  Descr
+--    This MIB module contains extensions to the PTOPO-MIB that
+--    provide support to distinguish between bidirectional and
+--    unidirectional physical topology connections. It also
+--    introduces a table that allows configuration of dynamic
+--    learning of the physical topology through the Cisco
+--    Discovery Protocol (CDP).
+--  RevDate
+--    200205120000Z
+--  RevDescr
+--    Initial version of this MIB.
+
+ciscoPtopoExtnMIBObjects OBJECT IDENTIFIER ::= { ciscoPtopoExtnMIB 1 }
+cPtopoExtnConformance OBJECT IDENTIFIER ::= { ciscoPtopoExtnMIB 3 }
+cPtopoExtnCompliances OBJECT IDENTIFIER ::= { cPtopoExtnConformance 1 }
+cPtopoExtnGroups OBJECT IDENTIFIER ::= { cPtopoExtnConformance 2 }
+
+cPtopoConnExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPtopoConnExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table augments the ptopoConnTable with information
+        about the direction of physical network connections."
+    ::= { ciscoPtopoExtnMIBObjects 1 }
+
+cPtopoConnExtEntry OBJECT-TYPE
+    SYNTAX CPtopoConnExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry which contains additional information about the
+        physical network connection contained in the ptopoConnEntry.
+        It helps specify whether a remote connection endpoint is
+        connected to the local port in the transmit direction, the
+        receive direction or both directions."
+    INDEX { ptopoConnTimeMark, ptopoConnLocalChassis, ptopoConnLocalPort, ptopoConnIndex }
+-- Augments ptopoConnEntry FROM PTOPO-MIB
+    ::= { cPtopoConnExtTable 1 }
+
+CPtopoConnExtEntry ::= SEQUENCE {
+    cPtopoConnExtLinkDirection INTEGER
+    }
+
+cPtopoConnExtLinkDirection OBJECT-TYPE
+    SYNTAX INTEGER {
+        transmit(1),
+        receive(2),
+        both(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The remote connection endpoint (identified by
+        ptopoConnRemoteChassis and ptopoConnRemotePort of this row)
+        may be connected to the local port (identified by
+        ptopoConnLocalPort of this row) through either an
+        unidirectional or bidirectional link. This object is used
+        to indicate the directionality of the connection and in
+        the case of unidirectional links this object indicates
+        whether the remote connection endpoint is on the transmit
+        or the receive link.
+        
+        For example, in case of optical interfaces where the
+        transmitted and received signals travel on 2 different
+        strands of fiber, it is possible that each fiber terminates
+        at a different device. For instance, the transmit and
+        receive fibers of the local port may be connected to
+        different optical amplifiers. This object could then be
+        used to indicate whether the remote device is on the
+        transmit or the receive fiber of the local port.
+        
+        If the remote connection endpoint is connected to the
+        transmit fiber of the local port then
+        cPtopoConnExtLinkDirection is set to 'transmit'.
+        If the remote connection endpoint is connected to the
+        receive fiber of the local port then
+        cPtopoConnExtLinkDirection is set to 'receive'.
+        If both the transmit and receive fibers of the local port
+        terminate at the same remote connection endpoint then this
+        object is set to 'both'. Individual entries for 'transmit'
+        and 'receive' should not be created in this case. Note that
+        in the case of a port connected to a broadcast medium,
+        there can be multiple entries associated with the port,
+        with this object set to 'both'."
+    ::= { cPtopoConnExtEntry 1 }
+
+cPtopoExtCdpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPtopoExtCdpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains a row for each local port (identified
+        by the index of this table) for which the agent populates
+        physical topology information (ptopoConnEntry) with neighbor
+        information dynamically learned from the Cisco Discovery
+        Protocol (CDP) running on this port or a proxy port."
+    ::= { ciscoPtopoExtnMIBObjects 2 }
+
+cPtopoExtCdpEntry OBJECT-TYPE
+    SYNTAX CPtopoExtCdpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry contains objects for configuring discovery of
+        physical topology information for a local port (identified
+        by the index of this entry) via CDP."
+    INDEX { cPtopoExtCdpLocalChassis, cPtopoExtCdpLocalPort }
+    ::= { cPtopoExtCdpTable 1 }
+
+CPtopoExtCdpEntry ::= SEQUENCE {
+    cPtopoExtCdpLocalChassis PhysicalIndex,
+    cPtopoExtCdpLocalPort PhysicalIndex,
+    cPtopoExtCdpDiscoveryState INTEGER,
+    cPtopoExtCdpProxyIf InterfaceIndexOrZero,
+    cPtopoExtCdpRowStatus RowStatus
+    }
+
+cPtopoExtCdpLocalChassis OBJECT-TYPE
+    SYNTAX PhysicalIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entPhysicalIndex value used to identify the chassis
+        component associated with the local port for which
+        physical topology information is discovered via CDP."
+    ::= { cPtopoExtCdpEntry 1 }
+
+cPtopoExtCdpLocalPort OBJECT-TYPE
+    SYNTAX PhysicalIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entPhysicalIndex value used to identify the port
+        component associated with the local port for which
+        physical topology information is discovered via CDP."
+    ::= { cPtopoExtCdpEntry 2 }
+
+cPtopoExtCdpDiscoveryState OBJECT-TYPE
+    SYNTAX INTEGER {
+        cdpDisabled(1),
+        interfaceDown(2),
+        waiting(3),
+        discovered(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the state of physical topology
+        discovery via CDP for the local port for which this row
+        exists.
+        
+        The agent sets this object to 'cdpDisabled' if 
+        cPtopoExtCdpProxyIf is set to zero and CDP has not been
+        configured to run on the local port, or if CDP has not
+        been configured to run on the proxy interface whose
+        ifIndex is given by the non-zero value in
+        cPtopoExtCdpProxyIf.
+        
+        The enumeration 'interfaceDown' indicates that this
+        interface is down, when cPtopoExtCdpProxyIf is set to
+        zero, or the proxy interface is down, when
+        cPtopoExtCdpProxyIf is set to a non-zero value.
+        
+        After this row has been activated, if CDP is running (on
+        this or the proxy interface) and no neighbors have been
+        discovered yet, the agent sets this object to 'waiting'.
+        
+        The 'discovered' state indicates that one or more
+        neighbors have been discovered through CDP and the agent
+        has accordingly created ptopoConnEntry(s) in the
+        PTOPO-MIB."
+    ::= { cPtopoExtCdpEntry 3 }
+
+cPtopoExtCdpProxyIf OBJECT-TYPE
+    SYNTAX InterfaceIndexOrZero
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Physical topology information for the local port
+        (identified by cPtopoExtCdpLocalChassis and 
+        cPtopoExtCdpLocalPort of this row) can be discovered
+        from CDP running on the local port, if it is CDP capable
+        or from CDP running on a proxy interface. In the case of
+        optical ports running wavelength division multiplexing,
+        the physical connector port on which the CDP packet is
+        transmitted is different from the logical interface
+        representing the wavelength on which CDP is running. In
+        such a case, physical topology for the 'external' optical
+        port can be learned from CDP running on one of the
+        wavelengths.
+        
+        This object is set to zero if physical topology information
+        for the local port is discovered from CDP running on itself.
+        Otherwise, this object contains the ifIndex value of the CDP
+        capable interface which is being used as proxy to learn
+        physical topology information for the local port.
+        
+        Usage of this object is possible only if the local port
+        is the 'External Port', as specified in the CDP protocol,
+        for the proxy interface.
+        
+        This object may be modified when the associated
+        cPtopoExtCdpRowStatus object has a value of 'active'."
+    DEFVAL { 0 }
+    ::= { cPtopoExtCdpEntry 4 }
+
+cPtopoExtCdpRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to create and delete conceptual rows
+        in the cPtopoExtCdpTable.
+        
+        Once this object has been set to 'active' it implies
+        that physical topology discovery via CDP has been enabled
+        for the local port for which this row exists.
+        
+        This object cannot be set to 'active' when any rows that
+        were manually created for the local port exist in the
+        ptopoConnTable. After this object is set to 'active',
+        entries for this local port cannot be manually created in
+        the ptopoConnTable.
+        
+        After the entry has been activated, this object cannot be
+        set to any value other than 'destroy'. The row status
+        never changes to 'notInService' after reaching the value
+        'active'."
+    ::= { cPtopoExtCdpEntry 5 }
+
+cPtopoConnExtGroup OBJECT IDENTIFIER ::= { cPtopoExtnGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which augment the ptopoConnTable
+--    in the PTOPO-MIB.
+--  objects
+--    cPtopoConnExtLinkDirection
+
+cPtopoExtCdpGroup OBJECT IDENTIFIER ::= { cPtopoExtnGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are required for
+--    configuration of physical topology discovery via CDP.
+--  objects
+--    cPtopoExtCdpDiscoveryState, cPtopoExtCdpRowStatus
+
+cPtopoExtCdpProxyGroup OBJECT IDENTIFIER ::= { cPtopoExtnGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used to configure
+--    physical topology learning via CDP with support for use
+--    of CDP running on a proxy interface.
+--  objects
+--    cPtopoExtCdpProxyIf
+
+cPtopoExtnCompliance OBJECT IDENTIFIER ::= { cPtopoExtnCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for SNMP entities that implement
+--    the CISCO-PTOPO-EXTN-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cPtopoConnExtGroup
+--   OptGroup
+--    cPtopoExtCdpGroup
+--   OptGroup
+--    cPtopoExtCdpProxyGroup
+
+
+END
+

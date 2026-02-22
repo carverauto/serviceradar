@@ -1,0 +1,110 @@
+-- MIB file created 12-Nov-2008 15:14:56, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-QOS-TC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-QOS-TC-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI;
+
+ciscoQosTcMIB OBJECT IDENTIFIER ::= { ciscoMgmt 573 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200703050000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA 95134
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This module defines the textual conventions used within
+--     Cisco Qos MIBs.
+--  RevDate
+--    200703050000Z
+--  RevDescr
+--    Add QosPolicerType textual convention.
+--  RevDate
+--    200609181200Z
+--  RevDescr
+--    The initial version of this MIB module.
+
+QosIpPrecedence ::= Gauge(0..7)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Indicates the IP precedence.
+--  Refer
+--    RFC791 INTERNET PROTOCOL, Chapter 3.1
+
+QosQueueNumber ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An integer indicates a queue number.
+
+QosThresholdNumber ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An integer indicates a threshold number.
+
+QosMplsExpValue ::= Gauge(0..7)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An integer indicates a MPLS-EXP (experimental) value.
+
+QosMutationMapName ::= OCTET STRING(SIZE(1..99))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    99a
+--  Status
+--    mandatory
+--  Descr
+--    An octet string, preferably in human-readable form,
+--    describes the name of a mutation map.
+
+QosMutationMapNameOrEmpty ::= OCTET STRING(SIZE(0..99))
+-- TEXTUAL-CONVENTION
+--  DspHint
+--    99a
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention is an extension of the
+--    QosMutationMapName convention. The latter defines a
+--    non-empty mutation map name. This extension permits
+--    the addtional value of empty string.
+
+QosPolicerType ::= INTEGER {
+        microflow(1),
+        aggregate(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An integer indicating the type of a QoS policer.
+--    
+--     microflow(1):     a microflow policer.
+--     aggregate(2):     an aggregate policer.
+
+
+END
+

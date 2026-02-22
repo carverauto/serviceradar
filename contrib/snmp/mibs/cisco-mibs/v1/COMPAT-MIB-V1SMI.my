@@ -1,0 +1,226 @@
+-- MIB file created 28-May-2002 12:47:05, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+COMPAT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "COMPAT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    enterprises, IpAddress, Counter, Gauge, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+compatible      OBJECT IDENTIFIER ::= { enterprises 255 }
+compatVars      OBJECT IDENTIFIER ::= { compatible 1 }
+compatVPN       OBJECT IDENTIFIER ::= { compatible 2 }
+vpnLoginTable   OBJECT IDENTIFIER ::= { compatVPN 1 }
+vPNTunnelTable  OBJECT IDENTIFIER ::= { compatVPN 2 }
+
+DisplayString ::= OCTET STRING
+
+failedLogins OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failed logins since boot time."
+    ::= { vpnLoginTable 1 }
+
+failedSecurID OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failed Secure ID logins since boot time."
+    ::= { vpnLoginTable 2 }
+
+failedRadiusAuth OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of failed RADIUS logins since boot time."
+    ::= { vpnLoginTable 3 }
+
+processorUtilizationPercentage OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The percentage of time the processor is spending not idle."
+    ::= { compatVars 1 }
+
+vpnTunnelTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF VpnTunnelTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information useful
+         when tracking vpn tunnels currently active for this NAS."
+    ::= { vPNTunnelTable 1 }
+
+vpnTunnelTableEntry OBJECT-TYPE
+    SYNTAX VpnTunnelTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The tunnel active table. An entry in this table is
+               uniquely identified by the value of the
+               vpnTunnelTableIndex variable to which the entry refers."
+    INDEX { vpnTunnelTableIndex }
+    ::= { vpnTunnelTable 1 }
+
+VpnTunnelTableEntry ::= SEQUENCE {
+    vpnTunnelTableIndex INTEGER,
+    vpnTunnelTableUserName DisplayString,
+    vpnTunnelTableGroupName DisplayString,
+    vpnTunnelTableIpAddress IpAddress,
+    vpnTunnelTableAssignedIpAddress IpAddress,
+    vpnTunnelTableIpBytesRcvd Counter,
+    vpnTunnelTableIpBytesSent Counter,
+    vpnTunnelTableIpxBytesRcvd Counter,
+    vpnTunnelTableIpxBytesSent Counter,
+    vpnTunnelTableAppletalkBytesRcvd Counter,
+    vpnTunnelTableAppletalkBytesSent Counter,
+    vpnTunnelTableUptime TimeTicks,
+    vpnTunnelTableLatency INTEGER,
+    vpnTunnelTableBandwidthOut INTEGER,
+    vpnTunnelTableBandwidthReturn INTEGER
+    }
+
+vpnTunnelTableIndex OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, for each tunnel
+         interface."
+    ::= { vpnTunnelTableEntry 1 }
+
+vpnTunnelTableUserName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the VPN user"
+    ::= { vpnTunnelTableEntry 2 }
+
+vpnTunnelTableGroupName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the VPN group"
+    ::= { vpnTunnelTableEntry 3 }
+
+vpnTunnelTableIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The VPN partner's IP Address."
+    ::= { vpnTunnelTableEntry 4 }
+
+vpnTunnelTableAssignedIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Client's dynamically assigned IP Address."
+    ::= { vpnTunnelTableEntry 5 }
+
+vpnTunnelTableIpBytesRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of inbound IP bytes 
+         handled by this tunnel as counted by the STEP layer."
+    ::= { vpnTunnelTableEntry 6 }
+
+vpnTunnelTableIpBytesSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of outbound IP bytes 
+         handled by this tunnel as counted by the STEP layer."
+    ::= { vpnTunnelTableEntry 7 }
+
+vpnTunnelTableIpxBytesRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of inbound IPX bytes 
+         handled by this tunnel as counted by the STEP layer."
+    ::= { vpnTunnelTableEntry 8 }
+
+vpnTunnelTableIpxBytesSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of outbound IPX bytes 
+         handled by this tunnel as counted by the STEP layer."
+    ::= { vpnTunnelTableEntry 9 }
+
+vpnTunnelTableAppletalkBytesRcvd OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of inbound Appletalk bytes 
+         handled by this tunnel as counted by the STEP layer."
+    ::= { vpnTunnelTableEntry 10 }
+
+vpnTunnelTableAppletalkBytesSent OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of outbound Appletalk bytes 
+         handled by this tunnel as counted by the STEP layer."
+    ::= { vpnTunnelTableEntry 11 }
+
+vpnTunnelTableUptime OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time since the tunnel was established."
+    ::= { vpnTunnelTableEntry 12 }
+
+vpnTunnelTableLatency OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "SLA latency metric."
+    ::= { vpnTunnelTableEntry 13 }
+
+vpnTunnelTableBandwidthOut OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "SLA metric for measuring outbound
+         data bandwidth through this tunnel."
+    ::= { vpnTunnelTableEntry 14 }
+
+vpnTunnelTableBandwidthReturn OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "SLA metric for measuring inbound
+         data bandwidth through this tunnel."
+    ::= { vpnTunnelTableEntry 15 }
+
+
+END
+

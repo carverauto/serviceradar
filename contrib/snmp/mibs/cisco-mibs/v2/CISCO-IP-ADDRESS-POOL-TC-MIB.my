@@ -1,0 +1,147 @@
+-- *****************************************************************
+-- CISCO-IP-ADDRESS-POOL-TC-MIB
+-- Definition of textual conventions describing IP address pools.
+--   
+-- February 2010, Patrick R. Gili
+--   
+-- Copyright (c) 2010 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IP-ADDRESS-POOL-TC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoIpAddressPoolTcMIB MODULE-IDENTITY
+    LAST-UPDATED    "201005030000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines textual conventions used by MIB
+        modules defining objects describing IP address pools."
+    REVISION        "201002020000Z"
+    DESCRIPTION
+        "The initial version of the MIB module."
+    ::= { ciscoMgmt 742 }
+
+
+
+IpAddrPoolInstanceIdentifier ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary integer-value that uniquely identifies a row in a
+        table defined by a MIB module defining objects describing data
+        relating to IP address pool."
+    SYNTAX          Unsigned32 (1..4294967295)
+
+IpAddrPoolInstanceIdentifierOrZero ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "d"
+    STATUS          current
+    DESCRIPTION
+        "This textual convention serves as an extension of the
+        IpAddressPoolIdentifier textual convention, which permits the
+        value '0'.  The use of the value '0' is specific to an object,
+        thus requiring the descriptive text associated with the object
+        to describe the semantics of its use."
+    SYNTAX          Unsigned32 (0..4294967295)
+
+IpAddressPoolName ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "255a"
+    STATUS          current
+    DESCRIPTION
+        "A string-value that denotes the name assigned to an IP address
+        pool.  The semantics of the string-value are the same as those
+        specified by the SnmpAdminString textual convention defined by
+        the SNMP-FRAMEWORK-MIB [RFC3411]."
+
+    REFERENCE
+        "D. Harrington, R. Resuhn, B. Wijnen, 'An Architecture for
+        Describing Simple Network Management Protocol (SNMP)
+        Management Frameworks', RFC-3411, December 2002."
+    SYNTAX          OCTET STRING (SIZE (1..255))
+
+IpAddressPoolNameOrNull ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "255a"
+    STATUS          current
+    DESCRIPTION
+        "This textual convention serves as an extension of the
+        IpAddressPoolName textual convention, which permits the null
+        string.  The use of the null string is specific to an object,
+        thus requiring the descriptive text associated with the object
+        to describe the semantics of its use."
+    SYNTAX          OCTET STRING (SIZE (0..255))
+
+IpAddressPoolGroupName ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "255a"
+    STATUS          current
+    DESCRIPTION
+        "A string-value that denotes the name assigned to an IP address
+        pool group.  The semantics of the string-value are the same as
+        those specified by the SnmpAdminString textual convention
+        defined by the SNMP-FRAMEWORK-MIB [RFC3411]."
+
+    REFERENCE
+        "D. Harrington, R. Resuhn, B. Wijnen, 'An Architecture for
+        Describing Simple Network Management Protocol (SNMP)
+        Management Frameworks', RFC-3411, December 2002."
+    SYNTAX          OCTET STRING (SIZE (1..255))
+
+IpAddressPoolGroupNameOrNull ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT    "255a"
+    STATUS          current
+    DESCRIPTION
+        "This textual convention serves as an extension of the
+        IpAddressPoolGroupName textual convention, which permits the
+        null string.  The use of the null string is specific to an
+        object, thus requiring the descriptive text associated with the
+        object to describe the semantics of the its use."
+    SYNTAX          OCTET STRING (SIZE (0..255))
+
+IpAddressPoolThresholdUnits ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "An enumerated integer-value that denotes the units used when
+        specifying an IP address pool threshold:
+
+            'other'
+                The implementation of the MIB module using this textual
+                convention does not recognize the IP address pool
+                threshold units.
+
+            'absolute'
+                The value of the corresponding IP address pool threshold
+                is an absolute number of IP addresses or IP prefixes,
+                depending on the context.
+
+            'percent'
+                The value of the corresponding IP address pool threshold
+                is a percentage of the total number of free and in-use
+                IP addresses or IP prefixes contained by a pool."
+    SYNTAX          INTEGER  {
+                        other(1),
+                        absolute(2),
+                        percent(3)
+                    }
+
+END
+
+
+

@@ -1,0 +1,216 @@
+-- MIB created 4/23/97 15:38:17, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-COMPRESSION-SERVICE-ADAPTER-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-COMPRESSION-SERVICE-ADAPTER-MIB.my"
+
+IMPORTS
+    Counter32, Gauge32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    cardIndex
+            FROM OLD-CISCO-CHASSIS-MIB;
+
+ciscoCompressionServiceAdapterMIB OBJECT IDENTIFIER ::= { ciscoMgmt 57 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9608150000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    Used to manage the compression service adapter.
+
+ciscoCSAMIBObjects OBJECT IDENTIFIER ::= { ciscoCompressionServiceAdapterMIB 1 }
+csaStats        OBJECT IDENTIFIER ::= { ciscoCSAMIBObjects 1 }
+ciscoCSAMIBConformance OBJECT IDENTIFIER ::= { ciscoCompressionServiceAdapterMIB 3 }
+csaMIBCompliances OBJECT IDENTIFIER ::= { ciscoCSAMIBConformance 1 }
+csaMIBGroups    OBJECT IDENTIFIER ::= { ciscoCSAMIBConformance 2 }
+
+csaStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsaStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table describing performance statistics and status of 
+        compression service adapter."
+    ::= { csaStats 1 }
+
+csaStatsEntry OBJECT-TYPE
+    SYNTAX CsaStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry in this table describes performance statistics 
+         for a compression service. A new entry is created or removed
+         when compression service adapter is physically added or 
+         removed from the device.
+         Each entry is indexed by cardIndex object, which is an
+         index for cardTable in chassis mib. Every card of type
+         sa-compression in cardTable will have corresponding entry
+         in csaStatsTable."
+    INDEX { cardIndex }
+    ::= { csaStatsTable 1 }
+
+CsaStatsEntry ::= SEQUENCE {
+    csaInOctets Counter32,
+    csaOutOctets Counter32,
+    csaInPackets Counter32,
+    csaOutPackets Counter32,
+    csaInPacketsDrop Counter32,
+    csaOutPacketsDrop Counter32,
+    csaNumberOfRestarts Counter32,
+    csaCompressionRatio Gauge32,
+    csaDecompressionRatio Gauge32,
+    csaEnable TruthValue
+    }
+
+csaInOctets OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of compressed octets received by the compression
+        service adaptor."
+    ::= { csaStatsEntry 1 }
+
+csaOutOctets OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of compressed octets sent by the compression
+        service adaptor."
+    ::= { csaStatsEntry 2 }
+
+csaInPackets OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of compressed packets received by the compression
+        service adaptor."
+    ::= { csaStatsEntry 3 }
+
+csaOutPackets OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of compressed packets sent by the compression
+        service adaptor."
+    ::= { csaStatsEntry 4 }
+
+csaInPacketsDrop OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of output packets dropped.
+                       A large number of packets dropped by a compression adaptor
+                       would indicate, amount of data being passed to the adaptor
+                       for processing, exceeds its capacity."
+    ::= { csaStatsEntry 5 }
+
+csaOutPacketsDrop OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total number of input packets dropped.
+                       A large number of packets dropped by a compression adaptor
+                       would indicate, amount of data being passed to the adaptor
+                       for processing, exceeds its capacity."
+    ::= { csaStatsEntry 6 }
+
+csaNumberOfRestarts OBJECT-TYPE
+    SYNTAX Counter32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of compression session restarts. A large number of 
+        restarts could indicate incompatible remote router, data being
+        corrupted in transmission or packet order not being 
+        maintained."
+    ::= { csaStatsEntry 7 }
+
+csaCompressionRatio OBJECT-TYPE
+    SYNTAX Gauge32(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current Compression ratio, the percentage the data was 
+        compressed.  This is an instantaneous value. 
+        Compression ratio of 0% would indicate no 
+        compression, a compression ratio of 90% could mean 100 
+        octets were compressed into 10 octets."
+    ::= { csaStatsEntry 8 }
+
+csaDecompressionRatio OBJECT-TYPE
+    SYNTAX Gauge32(0..100)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current decompression ratio, the percentage the data was 
+        decompressed.  This is an instantaneous value. 
+        Decompression ratio of 0% would indicate no decompression, 
+        a decompression ratio of 90% could mean 10 octets were 
+        decompressed into 100 octets."
+    ::= { csaStatsEntry 9 }
+
+csaEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether compression service adapter is currently
+         active.  Also allows users to set status via SNMP."
+    ::= { csaStatsEntry 10 }
+
+csaMIBGroup OBJECT IDENTIFIER ::= { csaMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing information about 
+--    Cisco compression service adapter.
+--  objects
+--    csaInOctets, csaOutOctets, csaInPackets, csaOutPackets, 
+--    csaInPacketsDrop, csaOutPacketsDrop, csaNumberOfRestarts, 
+--    csaCompressionRatio, csaDecompressionRatio, csaEnable
+
+csaMIBCompliance OBJECT IDENTIFIER ::= { csaMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The Cisco Compression Service Adapter MIB is required in all 
+--    systems supporting such an adaptor.
+--  Module
+--    >>current<<
+--   MandGroup
+--    csaMIBGroup
+
+
+END
+

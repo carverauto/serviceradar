@@ -1,0 +1,172 @@
+-- *****************************************************************
+-- CISCO-DS0BUNDLE-MIB definition
+--
+-- Vasmi Abidi, July 1998
+--
+-- Copyright (c) 1998 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+-- This mib was extracted from draft-ietf-trunkmib-ds0-mib-06.txt
+
+
+
+
+CISCO-DS0BUNDLE-MIB DEFINITIONS ::= BEGIN 
+ 
+IMPORTS 
+	MODULE-IDENTITY, OBJECT-TYPE     FROM SNMPv2-SMI 
+        MODULE-COMPLIANCE, OBJECT-GROUP  FROM SNMPv2-CONF 
+        RowStatus, TestAndIncr           FROM SNMPv2-TC
+	ciscoExperiment                  FROM CISCO-SMI 
+        InterfaceIndex                   FROM IF-MIB; 
+ 
+ 
+ds0Bundle MODULE-IDENTITY 
+	LAST-UPDATED "9805242010Z"    -- from the ietf draft
+	ORGANIZATION "Cisco Systems, Inc." 
+        CONTACT-INFO 
+                "        Cisco Systems
+                         Customer Service
+
+              Postal: 170 W Tasman Drive
+                       San Jose, CA  95134
+                       USA
+
+                 Tel: +1 800 553-NETS
+
+              E-mail: cs-snmp@cisco.com" 
+	DESCRIPTION 
+		"The MIB module to describe DS0 Bundle interfaces
+		objects.
+
+
+		Note: This contains a subset of the MIB objects
+		defined in DS0BUNDLE-MIB of
+		draft-ietf-trunkmib-ds0-mib-06.txt, section 6; it does
+		not include the DS0 Bonding group."
+
+                ::= { ciscoExperiment 32 }
+
+
+dsx0BundleNextIndex OBJECT-TYPE
+	SYNTAX  TestAndIncr
+        MAX-ACCESS  read-write
+        STATUS  current
+        DESCRIPTION
+		"This object is used to assist the manager in
+                selecting a value for dsx0BundleIndex.  Because
+                this object is of syntax TestAndIncr (see the
+                SNMPv2-TC document, RFC1903) it can also be used to
+                avoid race conditions with multiple managers trying to
+                create rows in the table. 
+
+		If the result of the SET for dsx0BundleNextIndex is
+		not success, this means the value has been changed
+		from index (i.e. another manager used the value), so a
+		new value is required.
+
+		The algorithm is:
+		done = false
+                while done == false 
+                      index = GET (dsx0BundleNextIndex.0) 
+                      SET (dsx0BundleNextIndex.0=index)
+		      if (set failed)
+			done = false
+		      else
+			SET(dsx0BundleRowStatus.index=createAndGo) 
+			if (set failed)
+			  done = false
+			else
+                          done = true 
+                          other error handling" 
+	::= { ds0Bundle 2 } 
+ 
+dsx0BundleTable OBJECT-TYPE 
+	SYNTAX  SEQUENCE OF Dsx0BundleEntry 
+        MAX-ACCESS  not-accessible 
+        STATUS  current 
+        DESCRIPTION 
+		"There is a row in this table for each ds0Bundle in
+		the system.  This table can be used to (indirectly)
+		create rows in the ifTable with ifType =
+		'ds0Bundle(82)'."
+		::= { ds0Bundle 3 } 
+ 
+dsx0BundleEntry OBJECT-TYPE 
+	SYNTAX  Dsx0BundleEntry 
+        MAX-ACCESS  not-accessible 
+        STATUS  current 
+        DESCRIPTION 
+		"There is a row in this table for each ds0Bundle
+		interface."
+                INDEX   { dsx0BundleIndex } 
+        ::= { dsx0BundleTable 1 } 
+ 
+Dsx0BundleEntry ::= 
+	SEQUENCE { 
+		  dsx0BundleIndex		INTEGER, 
+                  dsx0BundleIfIndex	InterfaceIndex, 
+                  dsx0BundleRowStatus	RowStatus 
+        } 
+ 
+dsx0BundleIndex OBJECT-TYPE 
+	SYNTAX  INTEGER (0..2147483647) 
+        MAX-ACCESS  not-accessible 
+        STATUS  current 
+        DESCRIPTION 
+		"A unique identifier for a ds0Bundle. This is not the
+		same value as ifIndex. This table is not indexed by
+		ifIndex because the manager has to choose the index in
+		a createable row and the agent must be allowed to
+		select ifIndex values."
+	::= { dsx0BundleEntry 1 } 
+ 
+dsx0BundleIfIndex OBJECT-TYPE 
+	SYNTAX  InterfaceIndex 
+        MAX-ACCESS  read-only 
+        STATUS  current 
+        DESCRIPTION 
+		"The ifIndex value the agent selected for the (new) 
+                ds0Bundle interface." 
+	::= { dsx0BundleEntry 2 } 
+ 
+dsx0BundleRowStatus OBJECT-TYPE 
+	SYNTAX  RowStatus 
+        MAX-ACCESS  read-create 
+        STATUS  current 
+        DESCRIPTION 
+		"This object is used to create and delete rows in 
+                this table." 
+	::= { dsx0BundleEntry 3 }
+
+-- conformance information 
+ 
+ds0BundleConformance OBJECT IDENTIFIER ::= { ds0Bundle 4} 
+ 
+ds0BundleGroups      OBJECT IDENTIFIER ::= { ds0BundleConformance 1 } 
+ 
+ds0BundleCompliances OBJECT IDENTIFIER ::= { ds0BundleConformance 2 } 
+ 
+ 
+-- compliance statements 
+ 
+ds0BundleCompliance MODULE-COMPLIANCE 
+	STATUS  current 
+        DESCRIPTION 
+		"The compliance statement for DS0Bundle interfaces." 
+        MODULE  -- this module 
+        MANDATORY-GROUPS       { ds0BundleConfigGroup } 
+	::= { ds0BundleCompliances 1 } 
+ 
+ 
+ds0BundleConfigGroup  OBJECT-GROUP 
+	OBJECTS { dsx0BundleNextIndex, 
+                  dsx0BundleIfIndex, 
+                  dsx0BundleRowStatus } 
+              STATUS  current 
+              DESCRIPTION 
+                      "A collection of objects providing the ability to 
+                      create a new ds0Bundle in the ifTable." 
+	::= { ds0BundleGroups 2 } 
+END 

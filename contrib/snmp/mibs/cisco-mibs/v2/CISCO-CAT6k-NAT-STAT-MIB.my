@@ -1,0 +1,206 @@
+-- *****************************************************************
+-- CISCO-CAT6k-NAT-STAT-MIB.my
+--   
+--   
+-- Copyright (c) 2019 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CAT6k-NAT-STAT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoCat6kNatStatMIB MODULE-IDENTITY
+    LAST-UPDATED "201906110000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+                "Cisco Systems
+                Customer Service
+                Postal: 170 W Tasman Drive
+                San Jose, CA  95134
+                USA
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-cat6000@cisco.com"
+
+DESCRIPTION 
+    "The cisco catalyst 6000 Nat stat mib provides information about NAT
+     platform specific statistics in the system"
+  
+REVISION "201906110000Z"
+DESCRIPTION
+    "Inital version of ciscoNatMib"
+    
+    ::= { ciscoMgmt 861 }
+
+ciscoCat6kNatStatMIBObjects OBJECT IDENTIFIER
+    ::= { ciscoCat6kNatStatMIB 1}
+
+ciscoCat6kNatStatus OBJECT IDENTIFIER
+    ::= { ciscoCat6kNatStatMIBObjects 2 }
+    
+--Conformances
+ciscoCat6kNatStatMIBConformance OBJECT IDENTIFIER
+    ::= {ciscoCat6kNatStatMIB 2}
+    
+ciscoCat6kNatStatMIBCompliances OBJECT IDENTIFIER
+    ::= {ciscoCat6kNatStatMIBConformance 1}
+
+ciscoCat6kNatStatMIBGroups OBJECT IDENTIFIER
+    ::= {ciscoCat6kNatStatMIBConformance 2}
+    
+--Units of Conformances
+ciscoCat6kNatStatGroup OBJECT-GROUP
+    OBJECTS     {
+                    ciscoCat6kNatType,
+                    ciscoCat6kNatNetFlowType,
+                    ciscoCat6kNatFlowRecord,
+                    ciscoCat6kNatDynamicEntryUtilization,
+                    ciscoCat6kNatStaticEntryUtilization,
+                    ciscoCat6kNatOtherEntryUtilization,
+                    ciscoCat6kNatTotalEntryCount,
+                    ciscoCat6kNatResourceUtilization
+                }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects providing
+        status of NAT statistics"
+    ::= {ciscoCat6kNatStatMIBGroups 1}
+
+ciscoCat6kNatStatMIBComplianceVer1 MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+        "The compliance statement for
+        CISCO-CAT6k-NAT-STAT-MIB"
+    MODULE      -- This module
+    MANDATORY-GROUPS {
+                     ciscoCat6kNatStatGroup
+                     }
+    ::= {ciscoCat6kNatStatMIBCompliances 1}
+   
+NatType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Type of NAT"
+    SYNTAX          INTEGER {
+                    static(1),
+                    dynamic(2),
+                    mixed(3),
+                    other(4)
+                    }
+NetFlowType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Type of Netflow"
+    SYNTAX      INTEGER {
+                layer3(1),
+                mixed(2)
+                }
+NatBool ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "Boolean type in this mib"
+    SYNTAX     INTEGER {
+                disabled(0),
+                enabled(1)
+                }
+
+
+ciscoCat6kNatType OBJECT-TYPE
+    SYNTAX NatType
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION 
+    "NAT type can be Static, Dynamic,  Mixed and other. Static 
+	should be displayed when static rules are hit. 
+    Dynamic should be displayed when dynamic rules are hit. 
+    If traffic hits rmap/pat rules, it should display as Other."   
+    ::= { ciscoCat6kNatStatus 1 }
+
+ciscoCat6kNatNetFlowType OBJECT-TYPE
+    SYNTAX NetFlowType
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "Netflow type will be Layer-3 or Mixed. 
+    If the rules are hit based only on Layer 3 information, 
+    it should display as Layer-3.For static/dynamic nat it is L3,rmap
+    and Pat uses L4 info and it is considered as Mixed."
+
+    ::= { ciscoCat6kNatStatus 2 }
+
+ciscoCat6kNatFlowRecord OBJECT-TYPE
+    SYNTAX NatBool
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object shows whether ip nat create flow config is 
+        enabled or not.
+        By default it will be in enabled state only."
+
+    ::= { ciscoCat6kNatStatus 3 }
+
+
+ciscoCat6kNatDynamicEntryUtilization OBJECT-TYPE
+    SYNTAX OCTET STRING
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object gives total utilization of dynamic NAT entries 
+        present in the system."
+
+    ::= { ciscoCat6kNatStatus 4 }
+
+ciscoCat6kNatStaticEntryUtilization OBJECT-TYPE
+    SYNTAX OCTET STRING
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION 
+        "This object gives total utilization of static NAT entries 
+        present in the system."
+
+    ::= { ciscoCat6kNatStatus 5 }
+
+ciscoCat6kNatOtherEntryUtilization OBJECT-TYPE
+    SYNTAX OCTET STRING
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object gives total utilization of other 
+        NAT (PAT,RMAP,Etc.)
+        entries present in the system."
+
+    ::= { ciscoCat6kNatStatus 6 }
+
+ciscoCat6kNatTotalEntryCount OBJECT-TYPE
+    SYNTAX Counter32
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "This object gives consolidated count of static as well as 
+        dynamic entries present in the system."
+
+    ::= { ciscoCat6kNatStatus 7 }
+
+ciscoCat6kNatResourceUtilization OBJECT-TYPE
+    SYNTAX OCTET STRING
+    MAX-ACCESS read-only
+    STATUS current
+    DESCRIPTION
+        "Total system resource used by the system"
+
+::= { ciscoCat6kNatStatus 8 }
+
+END
+

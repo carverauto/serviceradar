@@ -1,0 +1,200 @@
+-- MIB file created 11-May-2004 09:26:11, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SVI-AUTOSTATE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SVI-AUTOSTATE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoSVIAutostateMIB OBJECT IDENTIFIER ::= { ciscoMgmt 376 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200404060000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--            Cisco Systems
+--             Customer Service
+--    
+--     Postal: 170 W Tasman Drive
+--             San Jose, CA 95134
+--             USA
+--    
+--        Tel: +1 800 553-NETS
+--    
+--     E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    The MIB module is for configuration of the switch virtual
+--     interface (SVI) autostate feature. Autostate feature
+--     is a mechanism to calculate the state of a SVI dynamically
+--     when some condition occurs such as a failure of 
+--     a participating interface in that SVI.
+--  RevDate
+--    200404060000Z
+--  RevDescr
+--    Initial revision of this MIB module.
+
+ciscoSVIAutostateMIBNotifs OBJECT IDENTIFIER ::= { ciscoSVIAutostateMIB 0 }
+ciscoSVIAutostateMIBObjects OBJECT IDENTIFIER ::= { ciscoSVIAutostateMIB 1 }
+ciscoSVIAutostateMIBConformance OBJECT IDENTIFIER ::= { ciscoSVIAutostateMIB 2 }
+csaGlobal       OBJECT IDENTIFIER ::= { ciscoSVIAutostateMIBObjects 1 }
+csaInterface    OBJECT IDENTIFIER ::= { ciscoSVIAutostateMIBObjects 2 }
+csaMIBCompliances OBJECT IDENTIFIER ::= { ciscoSVIAutostateMIBConformance 1 }
+csaMIBGroups    OBJECT IDENTIFIER ::= { ciscoSVIAutostateMIBConformance 2 }
+
+csaFeatureEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the autostate feature is
+         enabled. If it is set to 'false', the feature is disabled
+         in the device and the value of csaInterfaceMode does not
+         take effect."
+    ::= { csaGlobal 1 }
+
+csaTrackedVlansLow OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..256))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for 
+         VLANs with VlanIndex value of 0 to 2047. The first
+         octet corresponds to VLANs with VlanIndex values
+         of 0 through 7; the second octet to VLANs 8 through
+         15; etc.  The most significant bit of each octet
+         corresponds to the lowest value VlanIndex in that octet.
+        
+         For each VLAN, if it is tracked by the SVI autostate
+         feature then the bit corresponding to that VLAN is set
+         to '1'. A tracked VLAN, whose all interfaces having their
+         cdsInterfaceMode object value of 'track' and not in 
+         forwarding state, will go down."
+    ::= { csaGlobal 2 }
+
+csaTrackedVlansHigh OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..256))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for 
+         VLANs with VlanIndex value of 2048 to 4095. The first
+         octet corresponds to VLANs with VlanIndex values
+         of 2048 through 2055; the second octet to VLANs 2056
+         through 2063; etc.  The most significant bit of each
+         octet corresponds to the lowest value VlanIndex in that
+         octet.
+        
+         For each VLAN, if it is tracked by the SVI autostate
+         feature then the bit corresponding to that VLAN is set
+         to '1'. A tracked VLAN, whose all interfaces having their
+         cdsInterfaceMode object value of 'track' and not in   
+         forwarding state, will go down."
+    ::= { csaGlobal 3 }
+
+csaIfConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsaIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information and configuration
+         of interface mode regarding the SVI autostate
+         feature."
+    ::= { csaInterface 1 }
+
+csaIfConfigEntry OBJECT-TYPE
+    SYNTAX CsaIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "There will be an entry for each interface that supports 
+         SVI autostate feature. A row instance contains the
+         configured mode at each interface for Autostate purpose."
+    INDEX { ifIndex }
+    ::= { csaIfConfigTable 1 }
+
+CsaIfConfigEntry ::= SEQUENCE {
+    csaInterfaceMode INTEGER
+    }
+
+csaInterfaceMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        normal(1),
+        exclude(2),
+        track(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the interface mode regarding
+         SVI autostate feature. This object only takes effect if
+         the value of csaFeatureEnable object is 'true'.
+        
+         'normal' indicates that when SVI autostate feature is
+         enabled, this interface will participate normally
+         in the autostate calculation of the SVI which it
+         associates.
+        
+         'exclude' indicates that when SVI autostate feature is
+         enabled, this interface will be excluded from the autostate
+         calculation of the SVI which it associates.
+        
+         'track' indicates that when SVI autostate feature is
+         enabled, this interface will be tracked in the autostate
+         calculation of the tracked SVI which it associates. If all
+         tracked interfaces of this SVI go down, the corresponding
+         SVI goes down."
+    ::= { csaIfConfigEntry 1 }
+
+ciscoSVIAutostateGroup OBJECT IDENTIFIER ::= { csaMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which are used to configure as
+--     well as show information regarding the SVI autostate 
+--     feature.
+--  objects
+--    csaFeatureEnable, csaInterfaceMode
+
+ciscoSVITrackedVlanGroup OBJECT IDENTIFIER ::= { csaMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which are used to configure as
+--     well as show information regarding VLANs tracked by the
+--     SVI autostate feature.
+--  objects
+--    csaTrackedVlansLow, csaTrackedVlansHigh
+
+csaMIBCompliance OBJECT IDENTIFIER ::= { csaMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the CISCO-SVI-AUTOSTATE-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoSVIAutostateGroup
+--   OptGroup
+--    ciscoSVITrackedVlanGroup
+
+
+END
+

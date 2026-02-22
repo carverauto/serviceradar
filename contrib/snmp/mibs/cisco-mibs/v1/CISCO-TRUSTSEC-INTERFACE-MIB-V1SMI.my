@@ -1,0 +1,2035 @@
+-- MIB file created 17-Feb-2014 11:11:39, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-TRUSTSEC-INTERFACE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-TRUSTSEC-INTERFACE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    StorageType, RowStatus, TruthValue, DateAndTime
+            FROM SNMPv2-TC-v1
+    ifIndex, ifName
+            FROM IF-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    CtsSecurityGroupTag
+            FROM CISCO-TRUSTSEC-TC-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoTrustSecIfMIB OBJECT IDENTIFIER ::= { ciscoMgmt 740 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201401280000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    This MIB module defines management objects for
+--    configuration and monitoring of the interfaces in Cisco
+--    Trusted Security environment.
+--    
+--    Glossary: 
+--    
+--    ACS      - Cisco Secure Access Control Server
+--    
+--    IFC      - TrustSec Interface Controller
+--    
+--    MACSec   - Media Access Control (MAC) Security
+--    
+--    PMK      - Pairwise Master Key
+--    
+--    SAP      - Security Association Protocol
+--    
+--    SGT      - Security Group Tag. A tag identifying its source,
+--               assigned to a packet on ingress to a TrustSec cloud,
+--               and used to determine security and other policy
+--               to be applied to it along its path through the
+--               cloud.
+--    
+--    TrustSec - Cisco Trusted Security
+--  RevDate
+--    201401280000Z
+--  RevDescr
+--    Added following OBJECT-GROUP
+--    - ciscoTrustSecIfMIBCriticalAuthStatusGrp
+--    Added new compliance
+--    - ciscoTrustSecIfMIBCompliance3
+--  RevDate
+--    201204060000Z
+--  RevDescr
+--    Added following OBJECT-GROUP
+--    - ciscoTrustSecIfMIBNotifsCtrlGrp
+--    - ciscoTrustSecIfMIBNotifsOnlyInfoGrp
+--    - ciscoTrustSecIfMIBNotifsGrp
+--    Added new compliance
+--    - ciscoTrustSecIfMIBCompliance2
+--    Modified DEFVAL
+--    - ctsiIfManualSapModeList.
+--  RevDate
+--    201005280000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoTrustSecIfMIBNotifs OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIB 0 }
+ciscoTrustSecIfMIBObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIB 1 }
+ciscoTrustSecIfMIBConform OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIB 2 }
+ctsiIfConfigObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 1 }
+ctsiIfDot1xObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 2 }
+ctsiIfManualObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 3 }
+ctsiIfL3ForwardObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 4 }
+ctsiIfStatusObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 5 }
+ctsiIfStatsObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 6 }
+ctsiAuthorizationObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 7 }
+ctsiIfcStatsObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 8 }
+ctsiEventsStatsObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 9 }
+ctsiIfModeStatsObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 10 }
+ctsiIfNotifsControlObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 11 }
+ctsiIfNotifsOnlyInfoObjects OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBObjects 12 }
+ciscoTrustSecIfMIBCompliances OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBConform 1 }
+ciscoTrustSecIfMIBGroups OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBConform 2 }
+
+CtsiCasheDataSource ::= INTEGER {
+        unknown(1),
+        acs(2),
+        dram(3),
+        nvram(4),
+        all(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The source of cached authorization data.
+--    
+--    unknown     - cache source type not covered by
+--                  any of the follow enumerations.
+--    acs         - authorization data is loaded from ACS 
+--    dram        - authorization data is loaded from DRAM.
+--    nvram       - authorization data is loaded from NVRAM.
+--    dramOrNvram - authorization data is loaded from DRAM or NVRAM.
+
+CtsSapNegMode ::= INTEGER {
+        encapNoAuthenNoEncrypt(1),
+        gcmAuthenNoEncrypt(2),
+        gcmAuthenGcmEncrypt(3),
+        noEncap(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The SAP negotiation modes supported in TrustSec system.
+--    
+--    encapNoAuthenNoEncrypt - Encapsulation present, 
+--                             no authentication, no encryption.
+--    gcmAuthenNoEncrypt     - GCM authentication, no encryption.
+--    gcmAuthenGcmEncrypt    - GCM authentication, GCM encryption.
+--    noEncap                - No encapsulation.
+
+CtsSapNegModeList ::= OCTET STRING
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The list of SAP negotiation modes provided within
+--    TrustSec (Cisco Trusted Security) system.
+--    
+--    Each octet represents a SAP negotiation mode which
+--    is defined in CtsSapNegMode.
+--    
+--    The DESCRIPTION clause of CtsSapNegModeList objects
+--    must fully describe the relationship between modes.
+
+CtsiInterfaceControllerState ::= INTEGER {
+        unknown(1),
+        initialize(2),
+        authenticating(3),
+        authorizing(4),
+        sapNegotiating(5),
+        open(6),
+        held(7),
+        disconnecting(8),
+        invalid(9),
+        licenseError(10)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The state of the TrustSec Interface Controller state
+--    machine.
+--    
+--        unknown        - none of the following states.
+--    
+--        initializing   - the TrustSec interface controller state
+--                         machine enter the initialize state when
+--                         TrustSec is enabled on this interface.
+--    
+--        authenticating - the peer is being authenticated if the
+--                         dot1x mode is enabled.
+--    
+--        authorizing    - the peer is being authorized.
+--    
+--        sapNegotiating - the SA(Security Association) is being
+--                         negotiated with the peer.
+--    
+--        open           - the line is up from TrustSec perspective. 
+--    
+--        held           - a hold down timer is set. 
+--    
+--        disconnecting  - a failure has occurred, or the TrustSec
+--                         link is going down, or TrustSec is
+--                         being disabled.
+--    
+--        invalid        - unable to start the TrustSec state
+--                         machine.
+--    
+--        licenseError   - No MACSec software license.
+
+ctsiIfConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsiIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of the TrustSec capable interfaces."
+    ::= { ctsiIfConfigObjects 1 }
+
+ctsiIfConfigEntry OBJECT-TYPE
+    SYNTAX CtsiIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry contains the configuration information for a
+        particular TrustSec interface."
+    INDEX { ifIndex }
+    ::= { ctsiIfConfigTable 1 }
+
+CtsiIfConfigEntry ::= SEQUENCE {
+    ctsiIfModeCapability OCTET STRING,
+    ctsiIfConfiguredMode INTEGER,
+    ctsiIfCacheClear TruthValue,
+    ctsiIfRekey TruthValue
+    }
+
+ctsiIfModeCapability OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   dot1x(0)
+        --   manual(1)
+        --   l3Forward(2)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the supported TrustSec mode on
+        this interface."
+    ::= { ctsiIfConfigEntry 1 }
+
+ctsiIfConfiguredMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        none(2),
+        dot1x(3),
+        manual(4),
+        l3Forward(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the TrustSec mode currently configured
+        on the interface.  Each mode may have a corresponding
+        entry in its corresponding configuration table.
+        
+        unknown       - The configured TrustSec mode is none of the
+                        following.
+        
+        none          - TrustSec is not configured in any mode.
+        
+        dot1x         - TrustSec dot1x mode is configured for this
+                        interface.
+                        TrustSec system will use 802.1x for
+                        authentication, RADIUS for authorization and
+                        SAP negotiation for SA parameter.
+        
+        manual        - TrustSec manual mode is configured for this
+                        interface.
+                        The authentication was bypassed in manual mode.
+                        User needs to manually to configure the policy
+                        and the SAP negotiation parameter.
+        
+        l3Forward     - TrustSec L3 forwarding mode is configured
+                        for this interface."
+    ::= { ctsiIfConfigEntry 2 }
+
+ctsiIfCacheClear OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows user to clear the cache for the specific
+        TrustSec interface by setting the value to 'true'.
+        Setting the value to 'false' has no effect.
+        
+        When read, this object always returns 'false'."
+    ::= { ctsiIfConfigEntry 3 }
+
+ctsiIfRekey OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows user to re-generate the SAP key for the
+        specific TrustSec interface by setting the value to 'true'.
+        Setting the value to 'false' has no effect.
+        
+        When read, this object always returns 'false'."
+    ::= { ctsiIfConfigEntry 4 }
+
+ctsiIfDot1xTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsiIfDot1xEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of the interfaces which have TrustSec dot1x mode
+        configuration information."
+    ::= { ctsiIfDot1xObjects 1 }
+
+ctsiIfDot1xEntry OBJECT-TYPE
+    SYNTAX CtsiIfDot1xEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the TrustSec dot1x configuration
+        for a particular interface.
+        
+        An entry can be created or deleted by using
+        ctsiIfDot1xRowStatus.
+        
+        An entry can only be created if the value of corresponding
+        instance of ctsiIfConfiguredMode is 'none' and the 'dot1x'
+        BIT of corresponding instance ctsiIfModeCapability is set."
+    INDEX { ifIndex }
+    ::= { ctsiIfDot1xTable 1 }
+
+CtsiIfDot1xEntry ::= SEQUENCE {
+    ctsiIfDot1xSgtPropagateEnabled TruthValue,
+    ctsiIfDot1xReauthInterval INTEGER,
+    ctsiIfDot1xSapModeList CtsSapNegModeList,
+    ctsiIfDot1xDownloadReauthInterval INTEGER,
+    ctsiIfDot1xOperReauthInterval INTEGER,
+    ctsiIfDot1xReauthTimeLeft INTEGER,
+    ctsiIfDot1xStorageType StorageType,
+    ctsiIfDot1xRowStatus RowStatus
+    }
+
+ctsiIfDot1xSgtPropagateEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the SGT propagation is
+        enabled on this interface."
+    DEFVAL { false }
+    ::= { ctsiIfDot1xEntry 1 }
+
+ctsiIfDot1xReauthInterval OBJECT-TYPE
+    SYNTAX INTEGER
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the re-authentication interval
+        applied to this interface when it is not provided from
+        the ACS."
+    DEFVAL { 86400 }
+    ::= { ctsiIfDot1xEntry 2 }
+
+ctsiIfDot1xSapModeList OBJECT-TYPE
+    SYNTAX CtsSapNegModeList
+--    Rsyntax OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the advertised modes for the SAP
+        negotiation on this interface.  Modes are executed in
+        the order as specified in the mode list.
+        
+        Mode which is at the beginning of the method list will be
+        executed first.  Method which is at the end of mode list
+        will be executed last.
+        
+        This object is not allowed to be set to a zero length
+        string."
+    DEFVAL { '04000000'H }
+    ::= { ctsiIfDot1xEntry 3 }
+
+ctsiIfDot1xDownloadReauthInterval OBJECT-TYPE
+    SYNTAX INTEGER(-1..2147483647)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the re-authentication interval which
+        is downloaded from ACS.
+        
+        A value of zero indicates no re-authentication interval is
+        downloaded from ACS.
+        
+        A value of -1 indicates that this object is not applicable
+        on this interface."
+    ::= { ctsiIfDot1xEntry 4 }
+
+ctsiIfDot1xOperReauthInterval OBJECT-TYPE
+    SYNTAX INTEGER(-1..2147483647)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational re-authentication
+        interval of the interface.
+        
+        A value of zero indicates that dot1x re-authentication is
+        disabled on this interface.
+        
+        A value of -1 indicates that this object is not applicable
+        on this interface."
+    ::= { ctsiIfDot1xEntry 5 }
+
+ctsiIfDot1xReauthTimeLeft OBJECT-TYPE
+    SYNTAX INTEGER(-1..2147483647)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the leftover time of the current
+        authentication session.
+        
+        A value of zero indicates the re-authentication is in
+        progress.
+        
+        A value of -1 indicates that this object is not applicable
+        on this interface."
+    ::= { ctsiIfDot1xEntry 6 }
+
+ctsiIfDot1xStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { volatile }
+    ::= { ctsiIfDot1xEntry 7 }
+
+ctsiIfDot1xRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        All writable objects in this row may be modified at any time."
+    ::= { ctsiIfDot1xEntry 8 }
+
+ctsiIfManualTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsiIfManualEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of the interfaces which have TrustSec manual mode
+        configuration information."
+    ::= { ctsiIfManualObjects 1 }
+
+ctsiIfManualEntry OBJECT-TYPE
+    SYNTAX CtsiIfManualEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the TrustSec manual configuration
+        information for a particular interface.
+        
+        An entry can be created or deleted by using
+        ctsiIfManualRowStatus.
+        
+        An entry can only be created if the value of corresponding
+        instance of ctsiIfConfiguredMode is 'none' and the 'manual'
+        BIT of corresponding instance ctsiIfModeCapability is set."
+    INDEX { ifIndex }
+    ::= { ctsiIfManualTable 1 }
+
+CtsiIfManualEntry ::= SEQUENCE {
+    ctsiIfManualDynamicPeerId SnmpAdminString,
+    ctsiIfManualStaticSgt CtsSecurityGroupTag,
+    ctsiIfManualStaticSgtTrusted TruthValue,
+    ctsiIfManualSgtPropagateEnabled TruthValue,
+    ctsiIfManualSapPmk OCTET STRING,
+    ctsiIfManualSapModeList CtsSapNegModeList,
+    ctsiIfManualStorageType StorageType,
+    ctsiIfManualRowStatus RowStatus
+    }
+
+ctsiIfManualDynamicPeerId OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the peer's device identity which is
+        used to obtain the desired policy for authorization request.
+        
+        Setting a none-zero value on this object is not allowed if
+        the value of ctsiIfManualStaticSgt is not set to zero.
+        
+        A zero length string indicates that the policy acquisition
+        from the ACS using the peer's identity is disabled on this
+        interface."
+    DEFVAL { "" }
+    ::= { ctsiIfManualEntry 1 }
+
+ctsiIfManualStaticSgt OBJECT-TYPE
+    SYNTAX CtsSecurityGroupTag
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the statically configured SGT for
+        tagging the ingress traffic from the peer.
+        
+        Setting a none-zero value on this object is not allowed if
+        the value of ctsiIfManualDynamicPeerId is not set to a zero
+        length string.
+        
+        A value of zero indicates that no statically SGT tagging."
+    DEFVAL { 0 }
+    ::= { ctsiIfManualEntry 2 }
+
+ctsiIfManualStaticSgtTrusted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the peer's SGT assignment trust
+        state.
+        
+        This object only can be set when ctsiIfManualStaticSgt
+        is none-zero."
+    DEFVAL { false }
+    ::= { ctsiIfManualEntry 3 }
+
+ctsiIfManualSgtPropagateEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the SGT propagation is
+        enabled on this interface."
+    DEFVAL { false }
+    ::= { ctsiIfManualEntry 4 }
+
+ctsiIfManualSapPmk OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..32))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the PMK used by SAP.
+        
+        A zero length string for this object indicates the SAP
+        negotiation is disabled on this interface."
+    DEFVAL { "" }
+    ::= { ctsiIfManualEntry 5 }
+
+ctsiIfManualSapModeList OBJECT-TYPE
+    SYNTAX CtsSapNegModeList
+--    Rsyntax OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specified the advertised modes for the SAP
+        negotiation on this interface.  Modes are executed in
+        the order as specified in the mode list.
+        
+        Mode which is at the beginning of the mode list will be
+        executed first.  Mode which is at the end of mode list
+        will be executed last.
+        
+        Value of this object will becomes zero length octet if
+        SAP negotiation is disabled.
+        
+        This object is not allowed to be set to a zero length
+        string."
+    DEFVAL { "" }
+    ::= { ctsiIfManualEntry 6 }
+
+ctsiIfManualStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { volatile }
+    ::= { ctsiIfManualEntry 7 }
+
+ctsiIfManualRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        All writable objects in this row may be modified at any time."
+    ::= { ctsiIfManualEntry 8 }
+
+ctsiIfL3ForwardTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsiIfL3ForwardEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of the interfaces which have TrustSec L3 forwarding
+        configuration information."
+    ::= { ctsiIfL3ForwardObjects 1 }
+
+ctsiIfL3ForwardEntry OBJECT-TYPE
+    SYNTAX CtsiIfL3ForwardEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the TrustSec L3 forwarding configuration
+        information for a particular interface.
+        
+        An entry can be created or deleted by using
+        ctsiIfL3ForwardRowStatus.
+        
+        An entry can only be created if the value of corresponding
+        instance of ctsiIfConfiguredMode is 'none' and the 'l3Forward'
+        BIT of corresponding instance ctsiIfModeCapability is set."
+    INDEX { ifIndex }
+    ::= { ctsiIfL3ForwardTable 1 }
+
+CtsiIfL3ForwardEntry ::= SEQUENCE {
+    ctsiIfL3ForwardMode INTEGER,
+    ctsiIfL3ForwardStorageType StorageType,
+    ctsiIfL3ForwardRowStatus RowStatus
+    }
+
+ctsiIfL3ForwardMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        l3Ipv4Forward(1),
+        l3Ipv6Forward(2),
+        l3IpForward(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of L3 forwarding for
+        the interface.
+        
+        l3Ipv4Forward - TrustSec L3 IPv4 forwarding.
+        
+        l3Ipv6Forward - TrustSec L3 IPv6 forwarding. 
+        
+        l3IpForward   - TrustSec L3 IPv6 and IPv4 forwarding."
+    DEFVAL { l3Ipv4Forward }
+    ::= { ctsiIfL3ForwardEntry 1 }
+
+ctsiIfL3ForwardStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The storage type for this conceptual row."
+    DEFVAL { volatile }
+    ::= { ctsiIfL3ForwardEntry 2 }
+
+ctsiIfL3ForwardRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.
+        
+        All writable objects in this row may be modified at any time."
+    ::= { ctsiIfL3ForwardEntry 3 }
+
+ctsiIfStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsiIfStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of TrustSec enabled interfaces."
+    ::= { ctsiIfStatusObjects 1 }
+
+ctsiIfStatusEntry OBJECT-TYPE
+    SYNTAX CtsiIfStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry contains the information of the specific TrustSec
+        interface.
+        
+        A entry is created by system when TrustSec is enabled for
+        an interface.  An entry is deleted by system if TrustSec
+        is disabled for an interface."
+    INDEX { ifIndex }
+    ::= { ctsiIfStatusTable 1 }
+
+CtsiIfStatusEntry ::= SEQUENCE {
+    ctsiIfControllerState CtsiInterfaceControllerState,
+    ctsiIfAuthenticationStatus INTEGER,
+    ctsiIfPeerId SnmpAdminString,
+    ctsiIfPeerAdvCapability OCTET STRING,
+    ctsiIfAuthorizationStatus INTEGER,
+    ctsiIfPeerSgt CtsSecurityGroupTag,
+    ctsiIfPeerSgtTrusted TruthValue,
+    ctsiIfSapNegotiationStatus INTEGER,
+    ctsiIfSapNegModeList CtsSapNegModeList,
+    ctsiIfCacheExpirationTime DateAndTime,
+    ctsiIfCacheDataSource CtsiCasheDataSource,
+    ctsiIfCriticalAuthStatus INTEGER
+    }
+
+ctsiIfControllerState OBJECT-TYPE
+    SYNTAX CtsiInterfaceControllerState
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        initialize(2),
+--        authenticating(3),
+--        authorizing(4),
+--        sapNegotiating(5),
+--        open(6),
+--        held(7),
+--        disconnecting(8),
+--        invalid(9),
+--        licenseError(10)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current IFC state of this
+        interface."
+    ::= { ctsiIfStatusEntry 1 }
+
+ctsiIfAuthenticationStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        succeeded(2),
+        rejected(3),
+        logOff(4),
+        noRespond(5),
+        notApplicable(6),
+        incomplete(7),
+        failed(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current TrustSec authentication
+        status of this interface.
+        
+        unknown          - status not covered by any of
+                           the follow enumerations.
+        
+        succeeded        - authentication is succeeded.
+        
+        rejected         - authentication is rejected.
+        
+        logOff           - peer logged off.
+        
+        noRespond        - peer no respond.
+        
+        notApplicable    - bypassing the authentication.
+        
+        incomplete       - authentication is not completed.
+        
+        failed           - authentication failed."
+    ::= { ctsiIfStatusEntry 2 }
+
+ctsiIfPeerId OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the device identity or symbolic
+        group name of the remote peer."
+    ::= { ctsiIfStatusEntry 3 }
+
+ctsiIfPeerAdvCapability OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   sap(0)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the advertised capabilities of the
+        remote peer associated with this interface."
+    ::= { ctsiIfStatusEntry 4 }
+
+ctsiIfAuthorizationStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        inProgress(2),
+        succeeded(3),
+        failed(4),
+        fallBackPolicy(5),
+        incomplete(6),
+        peerSucceeded(7),
+        rbaclSucceeded(8),
+        policySucceeded(9)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current TrustSec authorization
+        status of the interface.
+        
+            unknown           - status not covered by any of
+                                the follow enumerations.
+        
+            inProgress        - authorization in progress.
+        
+            succeeded         - authorization succeeded.
+        
+            failed            - authorization failed. 
+        
+            fallBackPolicy    - apply the fallback policy.
+        
+            incomplete        - authorization aborted.
+        
+            peerSucceeded     - apply the peer policy succeeded.
+        
+            rbaclSucceeded    - apply the RBACL policy succeeded.
+        
+            policySucceeded   - apply the all policy succeeded."
+    ::= { ctsiIfStatusEntry 5 }
+
+ctsiIfPeerSgt OBJECT-TYPE
+    SYNTAX CtsSecurityGroupTag
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the SGT value of the remote peer."
+    ::= { ctsiIfStatusEntry 6 }
+
+ctsiIfPeerSgtTrusted OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the SGT of the remote peer
+        is trusted."
+    ::= { ctsiIfStatusEntry 7 }
+
+ctsiIfSapNegotiationStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        notApplicable(1),
+        unknown(2),
+        inProgress(3),
+        succeeded(4),
+        failed(5),
+        licenseError(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the SAP negotiation status on
+        this interface.
+        
+            notApplicable  - SAP disabled on local or remote peer
+                             is not SAP capable.
+        
+            unknown        - status not covered by any
+                             of the follow enumerations.
+        
+            inProgress     - SAP negotiation in progress.
+        
+            succeeded      - SAP negotiation completed.
+        
+            failed         - SAP negotiation failed.
+        
+            licenseError   - No MACSec software license."
+    ::= { ctsiIfStatusEntry 8 }
+
+ctsiIfSapNegModeList OBJECT-TYPE
+    SYNTAX CtsSapNegModeList
+--    Rsyntax OCTET STRING
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the operational SAP negotiation
+        mode list on this interface."
+    ::= { ctsiIfStatusEntry 9 }
+
+ctsiIfCacheExpirationTime OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time when the current cached data
+        applied on the interface will be expired. 
+        
+        A value of zero indicates that the cached data will never be
+        expired."
+    ::= { ctsiIfStatusEntry 10 }
+
+ctsiIfCacheDataSource OBJECT-TYPE
+    SYNTAX CtsiCasheDataSource
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        acs(2),
+--        dram(3),
+--        nvram(4),
+--        all(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the source of cached data applied to the
+        interface."
+    ::= { ctsiIfStatusEntry 11 }
+
+ctsiIfCriticalAuthStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        disable(1),
+        cache(2),
+        default(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the CTS Critical-Auth status
+        of interface.
+        
+        disable - link is not in Critical-Auth mode.
+        
+        cache   - link is in Critical-Auth cached mode.
+        
+        default - link is in Critical-Auth default mode."
+    ::= { ctsiIfStatusEntry 12 }
+
+ctsiIfStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsiIfStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of Cisco Trusted Security capable interface."
+    ::= { ctsiIfStatsObjects 1 }
+
+ctsiIfStatsEntry OBJECT-TYPE
+    SYNTAX CtsiIfStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry contains the statistics information of a
+        particular TrustSec interface.
+        
+        An entry created by system for each interface is TrustSec
+        enabled.  An entry deleted by system for each interface is
+        TrustSec disabled."
+    INDEX { ifIndex }
+    ::= { ctsiIfStatsTable 1 }
+
+CtsiIfStatsEntry ::= SEQUENCE {
+    ctsiIfAuthenticationSuccess Counter,
+    ctsiIfAuthenticationReject Counter,
+    ctsiIfAuthenticationFailure Counter,
+    ctsiIfAuthenticationNoResponse Counter,
+    ctsiIfAuthenticationLogoff Counter,
+    ctsiIfAuthorizationSuccess Counter,
+    ctsiIfAuthorizationPolicyFail Counter,
+    ctsiIfAuthorizationFail Counter,
+    ctsiIfSapSuccess Counter,
+    ctsiIfSapFail Counter
+    }
+
+ctsiIfAuthenticationSuccess OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that peer has been successfully
+        authenticated on this interface."
+    ::= { ctsiIfStatsEntry 1 }
+
+ctsiIfAuthenticationReject OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that peer has been rejected
+        in authentication on this interface."
+    ::= { ctsiIfStatsEntry 2 }
+
+ctsiIfAuthenticationFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that peer has been failed in
+        authentication on this interface."
+    ::= { ctsiIfStatsEntry 3 }
+
+ctsiIfAuthenticationNoResponse OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that no authentication respond
+        received from the remote peer associated with this 
+        interface."
+    ::= { ctsiIfStatsEntry 4 }
+
+ctsiIfAuthenticationLogoff OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that received authentication log
+        off from the peer associated with this interface."
+    ::= { ctsiIfStatsEntry 5 }
+
+ctsiIfAuthorizationSuccess OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that the peer entity successfully
+        passed the TrustSec authorization challenge on this
+        interface."
+    ::= { ctsiIfStatsEntry 6 }
+
+ctsiIfAuthorizationPolicyFail OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of time that fail to access policy or refresh
+        the policy for TrustSec authorization on this interface."
+    ::= { ctsiIfStatsEntry 7 }
+
+ctsiIfAuthorizationFail OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that peer has been failed in TrustSec
+        authorization on this interface."
+    ::= { ctsiIfStatsEntry 8 }
+
+ctsiIfSapSuccess OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that SAP negotiation is succeed on this
+        interface."
+    ::= { ctsiIfStatsEntry 9 }
+
+ctsiIfSapFail OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times that SAP negotiation has failed on this
+        interface."
+    ::= { ctsiIfStatsEntry 10 }
+
+ctsiAuthorizationTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsiAuthorizationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of authorized remote peers on this device."
+    ::= { ctsiAuthorizationObjects 1 }
+
+ctsiAuthorizationEntry OBJECT-TYPE
+    SYNTAX CtsiAuthorizationEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the management information for a
+        particular authorized peer.
+        
+        An entry is created when the policy acquired from the ACS
+        for a new peer.
+        
+        An entry is deleted when the authorization of the peer has
+        expired or fails to refresh its policy."
+    INDEX { --?? IMPLIED may cause problems
+            IMPLIED ctsiAuthorizationPeerId }
+    ::= { ctsiAuthorizationTable 1 }
+
+CtsiAuthorizationEntry ::= SEQUENCE {
+    ctsiAuthorizationPeerId SnmpAdminString,
+    ctsiAuthorizationPeerSgt CtsSecurityGroupTag,
+    ctsiAuthorizationState INTEGER,
+    ctsiAuthorizationLastRefresh DateAndTime,
+    ctsiAuthorizationTimeLeft INTEGER,
+    ctsiAuthorizationTimeToRefresh INTEGER,
+    ctsiAuthorizationCacheDataSource CtsiCasheDataSource,
+    ctsiAuthorizationStatus INTEGER
+    }
+
+ctsiAuthorizationPeerId OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..64))
+--    Rsyntax OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the device identity or symbolic group
+        name of the remote peer."
+    ::= { ctsiAuthorizationEntry 1 }
+
+ctsiAuthorizationPeerSgt OBJECT-TYPE
+    SYNTAX CtsSecurityGroupTag
+--    Rsyntax Gauge(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the SGT of the remote peer."
+    ::= { ctsiAuthorizationEntry 2 }
+
+ctsiAuthorizationState OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        start(2),
+        waitingRespond(3),
+        assessing(4),
+        complete(5),
+        failure(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current state of the
+        authorization entity.
+        
+        unknown            - none of the following states.
+        
+        start              - authorization entity created and
+                             initialized.
+        
+        waitingRespond     - a policy request has been made by 
+                             remote peer to the ACS and
+                             waiting for the response.
+        
+        assessing          - the policy been received from ACS 
+                             and is being assessed.
+        
+        complete           - policy has been received and assessed.
+        
+        failure            - failed to download the policy from the
+                             ACS."
+    ::= { ctsiAuthorizationEntry 3 }
+
+ctsiAuthorizationLastRefresh OBJECT-TYPE
+    SYNTAX DateAndTime
+--    Rsyntax OCTET STRING(SIZE(8|11))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the date and time when the authorized
+        peer was last refreshed."
+    ::= { ctsiAuthorizationEntry 4 }
+
+ctsiAuthorizationTimeLeft OBJECT-TYPE
+    SYNTAX INTEGER(-1..2147483647)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the leftover time for the current
+        policy.
+        
+        A value of zero indicates that policy refresh is in progress.
+        
+        A value of -1 indicates that this object is not applicable
+        on this authorization entry."
+    ::= { ctsiAuthorizationEntry 5 }
+
+ctsiAuthorizationTimeToRefresh OBJECT-TYPE
+    SYNTAX INTEGER(-1..2147483647)
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time left to start the policy
+        refresh.
+        
+        A value of zero indicates that policy refresh is in progress.
+        
+        A value of -1 indicates that this object is not applicable
+        on this authorization entry."
+    ::= { ctsiAuthorizationEntry 6 }
+
+ctsiAuthorizationCacheDataSource OBJECT-TYPE
+    SYNTAX CtsiCasheDataSource
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        acs(2),
+--        dram(3),
+--        nvram(4),
+--        all(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the source of cached data."
+    ::= { ctsiAuthorizationEntry 7 }
+
+ctsiAuthorizationStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        inProgress(2),
+        succeeded(3),
+        failed(4),
+        fallbackPolicy(5),
+        incomplete(6)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the status of this authorization peer.
+        unknown           - status not covered by any of
+                            the follow enumerations.
+        
+        inProgress        - new authorization link created or add
+                            a new policy request for an existing
+                            link.
+        
+        succeeded         - policy received successful.
+        
+        failed            - policy download failed.
+        
+        fallbackPolicy    - download policy failed apply fallback
+                            policy.
+        
+        incomplete        - policy received incomplete."
+    ::= { ctsiAuthorizationEntry 8 }
+
+ctsiIfcStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CtsiIfcStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of IFC state statistic on this device."
+    ::= { ctsiIfcStatsObjects 1 }
+
+ctsiIfcStatsEntry OBJECT-TYPE
+    SYNTAX CtsiIfcStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the total number of interfaces which
+        are currently belong to a particular IFC state."
+    INDEX { ctsiIfcState }
+    ::= { ctsiIfcStatsTable 1 }
+
+CtsiIfcStatsEntry ::= SEQUENCE {
+    ctsiIfcState CtsiInterfaceControllerState,
+    ctsiIfcStatsIfCount Gauge
+    }
+
+ctsiIfcState OBJECT-TYPE
+    SYNTAX CtsiInterfaceControllerState
+--    Rsyntax INTEGER {
+--        unknown(1),
+--        initialize(2),
+--        authenticating(3),
+--        authorizing(4),
+--        sapNegotiating(5),
+--        open(6),
+--        held(7),
+--        disconnecting(8),
+--        invalid(9),
+--        licenseError(10)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the IFC state."
+    ::= { ctsiIfcStatsEntry 1 }
+
+ctsiIfcStatsIfCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of interfaces on the device which is
+        currently in the IFC state."
+    ::= { ctsiIfcStatsEntry 2 }
+
+ctsiAuthenticationSuccess OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of times that remote peers authentication
+        succeed on this device."
+    ::= { ctsiEventsStatsObjects 1 }
+
+ctsiAuthenticationReject OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of times that remote peers authentication
+        rejected on this device."
+    ::= { ctsiEventsStatsObjects 2 }
+
+ctsiAuthenticationFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of times that remote peers authentication
+        failed on this device"
+    ::= { ctsiEventsStatsObjects 3 }
+
+ctsiAuthenticationLogoff OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of times that remote peer log off on this
+        device."
+    ::= { ctsiEventsStatsObjects 4 }
+
+ctsiAuthenticationNoRespond OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of times that not received authentication
+        respond from remote peer on this device."
+    ::= { ctsiEventsStatsObjects 5 }
+
+ctsiAuthorizationSuccess OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of times that remote peer authorization
+        succeed on this device."
+    ::= { ctsiEventsStatsObjects 6 }
+
+ctsiAuthorizationFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of times that remote peer TrustSec
+        authorization failed on this device."
+    ::= { ctsiEventsStatsObjects 7 }
+
+ctsiAuthorizationPolicyFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of time that fail to access policy or refresh
+        the policy for TrustSec authorization on this device."
+    ::= { ctsiEventsStatsObjects 8 }
+
+ctsiSapNegotiationSuccess OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of times that TrustSec SAP negotiation
+        succeed on this device."
+    ::= { ctsiEventsStatsObjects 9 }
+
+ctsiSapNegotiationFailure OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of times that TrustSec SAP negotiation
+        failure on this device."
+    ::= { ctsiEventsStatsObjects 10 }
+
+ctsiInDot1xModeIfCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of interfaces on the device which is
+        in TrustSec 802.1X mode."
+    ::= { ctsiIfModeStatsObjects 1 }
+
+ctsiInManualModeIfCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of interfaces on the device which is
+        in TrustSec Manual mode."
+    ::= { ctsiIfModeStatsObjects 2 }
+
+ctsiInL3ForwardModeIfCount OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of interfaces on the device which is
+        in TrustSec Layer 3 forwarding mode."
+    ::= { ctsiIfModeStatsObjects 3 }
+
+ctsiAuthorizationFailNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the system generates the
+        ctsiAuthorizationFailNotif.
+        
+        A value of 'false' will prevent
+        ctsiAuthorizationFailNotif notifications from being
+        generated by this system."
+    ::= { ctsiIfNotifsControlObjects 1 }
+
+ctsiIfAddSupplicantFailNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the system generates the
+        ctsiIfAddSupplicantFailNotif.
+        
+        A value of 'false' will prevent 
+        ctsiIfAddSupplicantFailNotif notifications from being
+        generated by this system."
+    ::= { ctsiIfNotifsControlObjects 2 }
+
+ctsiIfAuthenticationFailNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the system generates the
+        ctsiIfAuthenticationFailNotif.
+        
+        A value of 'false' will prevent
+        ctsiIfAuthenticationFailNotif notifications from being
+        generated by this system."
+    ::= { ctsiIfNotifsControlObjects 3 }
+
+ctsiIfSapNegotiationFailNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the system generates the
+        ctsiIfSapNegotiationFailNotif.
+        
+        A value of 'false' will prevent
+        ctsiIfSapNegotiationFailNotif notifications from being
+        generated by this system."
+    ::= { ctsiIfNotifsControlObjects 4 }
+
+ctsiIfUnauthorizedNotifEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the system generates the
+        ctsiIfUnauthorizedNotif.
+        
+        A value of 'false' will prevent ctsiIfUnauthorizedNotif
+        notifications from being generated by this system."
+    ::= { ctsiIfNotifsControlObjects 5 }
+
+ctsiIfNotifMessage OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates detail message associated
+        with notifications."
+    ::= { ctsiIfNotifsOnlyInfoObjects 1 }
+
+ctsiIfDot1xPaeRole OBJECT-TYPE
+    SYNTAX INTEGER {
+        notApplicable(1),
+        authenticator(2),
+        supplicant(3)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates dot1x PAE role information.
+        
+        notApplicable: Dot1x PAE role is not applicable in 
+                       this notification.
+        
+        authenticator: PAE Authenticator.
+        
+        supplicant   : PAE Supplicant."
+    ::= { ctsiIfNotifsOnlyInfoObjects 2 }
+
+ctsiAuthorizationFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoTrustSecIfMIB
+    VARIABLES {
+        ctsiAuthorizationPeerSgt }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ctsiAuthorizationFailNotif is generated when the policy
+        acquisition failed for the peer."
+    ::= 1
+
+ctsiIfAddSupplicantFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoTrustSecIfMIB
+    VARIABLES {
+        ifName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ctsiIfAddSupplicantFailNotif is generated when the system
+        fails to add dot1x supplicant for an interface."
+    ::= 2
+
+ctsiIfAuthenticationFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoTrustSecIfMIB
+    VARIABLES {
+        ifName, ctsiIfPeerId, ctsiIfDot1xPaeRole, 
+        ctsiIfAuthenticationStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ctsiIfAuthenticationFailNotif is generated when an
+        authentication error for the peer is detected for an interface."
+    ::= 3
+
+ctsiIfSapNegotiationFailNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoTrustSecIfMIB
+    VARIABLES {
+        ifName, ctsiIfNotifMessage }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ctsiIfSapNegotiationFailNotif is generated when a SAP
+        negotiation error with the peer is detected for an interface."
+    ::= 4
+
+ctsiIfUnauthorizedNotif TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoTrustSecIfMIB
+    VARIABLES {
+        ifName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A ctsiIfUnauthorizedNotif is generated when a interface
+        becomes unauthorized on the Cisco TrustSec link."
+    ::= 5
+
+ciscoTrustSecIfMIBIfConfigGroup OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the interface
+--    configuration for Cisco Trusted Security capable
+--    interface in the system.
+--  objects
+--    ctsiIfModeCapability, ctsiIfConfiguredMode, ctsiIfCacheClear, 
+--    ctsiIfRekey
+
+ciscoTrustSecIfMIBDot1xGroup OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the dot1x mode
+--    configuration for the Cisco Trusted Security capable
+--    interface in the system.
+--  objects
+--    ctsiIfDot1xSgtPropagateEnabled, ctsiIfDot1xReauthInterval, 
+--    ctsiIfDot1xSapModeList, ctsiIfDot1xDownloadReauthInterval, 
+--    ctsiIfDot1xOperReauthInterval, ctsiIfDot1xReauthTimeLeft, 
+--    ctsiIfDot1xStorageType, ctsiIfDot1xRowStatus
+
+ciscoTrustSecIfMIBManualGroup OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the manual mode
+--    configuration for the Cisco Trusted Security capable
+--    interface in the system.
+--  objects
+--    ctsiIfManualDynamicPeerId, ctsiIfManualStaticSgt, 
+--    ctsiIfManualStaticSgtTrusted, ctsiIfManualSgtPropagateEnabled, 
+--    ctsiIfManualSapPmk, ctsiIfManualSapModeList, 
+--    ctsiIfManualStorageType, ctsiIfManualRowStatus
+
+ciscoTrustSecIfMIBL3ForwardGroup OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the L3 forwarding
+--    mode configuration for the Cisco Trusted Security capable
+--    interface in the system.
+--  objects
+--    ctsiIfL3ForwardMode, ctsiIfL3ForwardStorageType, 
+--    ctsiIfL3ForwardRowStatus
+
+ciscoTrustSecIfMIBStatusGroup OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the status
+--    information for the Cisco Trusted Security capable
+--    interface in the system.
+--  objects
+--    ctsiIfControllerState, ctsiIfAuthenticationStatus, 
+--    ctsiIfPeerId, ctsiIfPeerAdvCapability, 
+--    ctsiIfAuthorizationStatus, ctsiIfPeerSgt, 
+--    ctsiIfPeerSgtTrusted, ctsiIfCacheExpirationTime, 
+--    ctsiIfCacheDataSource, ctsiIfSapNegotiationStatus, 
+--    ctsiIfSapNegModeList
+
+ciscoTrustSecIfMIBStatisticGroup OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the statistic
+--    information for the Cisco Trusted Security capable
+--    interface in the system.
+--  objects
+--    ctsiIfAuthenticationSuccess, ctsiIfAuthenticationReject, 
+--    ctsiIfAuthenticationFailure, ctsiIfAuthenticationNoResponse, 
+--    ctsiIfAuthenticationLogoff, ctsiIfAuthorizationSuccess, 
+--    ctsiIfAuthorizationPolicyFail, ctsiIfAuthorizationFail, 
+--    ctsiIfSapSuccess, ctsiIfSapFail
+
+ciscoTrustSecIfMIBAuthorizationGroup OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the status
+--    information for the authorization link in the system.
+--  objects
+--    ctsiAuthorizationPeerSgt, ctsiAuthorizationState, 
+--    ctsiAuthorizationLastRefresh, ctsiAuthorizationTimeLeft, 
+--    ctsiAuthorizationTimeToRefresh, 
+--    ctsiAuthorizationCacheDataSource, ctsiAuthorizationStatus
+
+ciscoTrustSecIfMIBIfcStatisticGroup OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the global
+--    IFC state statistic information in the system.
+--  objects
+--    ctsiIfcStatsIfCount
+
+ciscoTrustSecIfMIBEventStatisticGroup OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the global
+--    statistic information for the TrustSec events.
+--  objects
+--    ctsiAuthenticationSuccess, ctsiAuthenticationReject, 
+--    ctsiAuthenticationFailure, ctsiAuthenticationLogoff, 
+--    ctsiAuthenticationNoRespond, ctsiAuthorizationSuccess, 
+--    ctsiAuthorizationFailure, ctsiAuthorizationPolicyFailure, 
+--    ctsiSapNegotiationSuccess, ctsiSapNegotiationFailure
+
+ciscoTrustSecIfMIBIfModeStatisticGroup OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the global TrustSec
+--    mode statistic information.
+--  objects
+--    ctsiInDot1xModeIfCount, ctsiInManualModeIfCount, 
+--    ctsiInL3ForwardModeIfCount
+
+ciscoTrustSecIfMIBNotifsCtrlGrp OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides notification control
+--    for TrustSec interfaces.
+--  objects
+--    ctsiAuthorizationFailNotifEnable, 
+--    ctsiIfAddSupplicantFailNotifEnable, 
+--    ctsiIfAuthenticationFailNotifEnable, 
+--    ctsiIfSapNegotiationFailNotifEnable, 
+--    ctsiIfUnauthorizedNotifEnable
+
+ciscoTrustSecIfMIBNotifsOnlyInfoGrp OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the notification
+--    information for TrustSec interfaces.
+--  objects
+--    ctsiIfNotifMessage, ctsiIfDot1xPaeRole
+
+ciscoTrustSecIfMIBCriticalAuthStatusGrp OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides the Critical-Auth
+--    status information for the Cisco Trusted Security capable
+--    interface in the system.
+--  objects
+--    ctsiIfCriticalAuthStatus
+
+ciscoTrustSecIfMIBNotifsGrp OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBGroups 13 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications for TrustSec interfaces.
+--  notifications
+--    ctsiAuthorizationFailNotif, ctsiIfAddSupplicantFailNotif, 
+--    ctsiIfAuthenticationFailNotif, ctsiIfSapNegotiationFailNotif, 
+--    ctsiIfUnauthorizedNotif
+
+ciscoTrustSecIfMIBCompliance OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-TRUSTSEC-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoTrustSecIfMIBIfConfigGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBDot1xGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBManualGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBL3ForwardGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBStatusGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBStatisticGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBAuthorizationGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBIfcStatisticGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBEventStatisticGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBIfModeStatisticGroup
+--   ObjVar
+--    ctsiIfDot1xSgtPropagateEnabled
+--   ObjVar
+--    ctsiIfDot1xReauthInterval
+--   ObjVar
+--    ctsiIfDot1xSapModeList
+--   ObjVar
+--    ctsiIfDot1xStorageType
+--   ObjVar
+--    ctsiIfDot1xRowStatus
+--   ObjVar
+--    ctsiIfManualDynamicPeerId
+--   ObjVar
+--    ctsiIfManualStaticSgt
+--   ObjVar
+--    ctsiIfManualStaticSgtTrusted
+--   ObjVar
+--    ctsiIfManualSgtPropagateEnabled
+--   ObjVar
+--    ctsiIfManualSapPmk
+--   ObjVar
+--    ctsiIfManualSapModeList
+--   ObjVar
+--    ctsiIfManualStorageType
+--   ObjVar
+--    ctsiIfManualRowStatus
+--   ObjVar
+--    ctsiIfL3ForwardStorageType
+--   ObjVar
+--    ctsiIfL3ForwardRowStatus
+
+ciscoTrustSecIfMIBCompliance2 OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the CISCO-TRUSTSEC-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoTrustSecIfMIBIfConfigGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBDot1xGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBManualGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBL3ForwardGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBStatusGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBStatisticGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBAuthorizationGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBIfcStatisticGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBEventStatisticGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBIfModeStatisticGroup
+--   OptGroup
+--    ciscoTrustSecIfMIBNotifsCtrlGrp
+--   OptGroup
+--    ciscoTrustSecIfMIBNotifsOnlyInfoGrp
+--   OptGroup
+--    ciscoTrustSecIfMIBNotifsGrp
+--   ObjVar
+--    ctsiIfDot1xSgtPropagateEnabled
+--   ObjVar
+--    ctsiIfDot1xReauthInterval
+--   ObjVar
+--    ctsiIfDot1xSapModeList
+--   ObjVar
+--    ctsiIfDot1xStorageType
+--   ObjVar
+--    ctsiIfDot1xRowStatus
+--   ObjVar
+--    ctsiIfManualDynamicPeerId
+--   ObjVar
+--    ctsiIfManualStaticSgt
+--   ObjVar
+--    ctsiIfManualStaticSgtTrusted
+--   ObjVar
+--    ctsiIfManualSgtPropagateEnabled
+--   ObjVar
+--    ctsiIfManualSapPmk
+--   ObjVar
+--    ctsiIfManualSapModeList
+--   ObjVar
+--    ctsiIfManualStorageType
+--   ObjVar
+--    ctsiIfManualRowStatus
+--   ObjVar
+--    ctsiIfL3ForwardStorageType
+--   ObjVar
+--    ctsiIfL3ForwardRowStatus
+--   ObjVar
+--    ctsiIfUnauthorizedNotifEnable
+--   ObjVar
+--    ctsiAuthorizationFailNotifEnable
+--   ObjVar
+--    ctsiIfAddSupplicantFailNotifEnable
+--   ObjVar
+--    ctsiIfAuthenticationFailNotifEnable
+--   ObjVar
+--    ctsiIfSapNegotiationFailNotifEnable
+
+ciscoTrustSecIfMIBCompliance3 OBJECT IDENTIFIER ::= { ciscoTrustSecIfMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the CISCO-TRUSTSEC-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoTrustSecIfMIBIfConfigGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBDot1xGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBManualGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBL3ForwardGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBStatusGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBStatisticGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBAuthorizationGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBIfcStatisticGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBEventStatisticGroup
+--   MandGroup
+--    ciscoTrustSecIfMIBIfModeStatisticGroup
+--   OptGroup
+--    ciscoTrustSecIfMIBNotifsCtrlGrp
+--   OptGroup
+--    ciscoTrustSecIfMIBNotifsOnlyInfoGrp
+--   OptGroup
+--    ciscoTrustSecIfMIBNotifsGrp
+--   OptGroup
+--    ciscoTrustSecIfMIBCriticalAuthStatusGrp
+--   ObjVar
+--    ctsiIfDot1xSgtPropagateEnabled
+--   ObjVar
+--    ctsiIfDot1xReauthInterval
+--   ObjVar
+--    ctsiIfDot1xSapModeList
+--   ObjVar
+--    ctsiIfDot1xStorageType
+--   ObjVar
+--    ctsiIfDot1xRowStatus
+--   ObjVar
+--    ctsiIfManualDynamicPeerId
+--   ObjVar
+--    ctsiIfManualStaticSgt
+--   ObjVar
+--    ctsiIfManualStaticSgtTrusted
+--   ObjVar
+--    ctsiIfManualSgtPropagateEnabled
+--   ObjVar
+--    ctsiIfManualSapPmk
+--   ObjVar
+--    ctsiIfManualSapModeList
+--   ObjVar
+--    ctsiIfManualStorageType
+--   ObjVar
+--    ctsiIfManualRowStatus
+--   ObjVar
+--    ctsiIfL3ForwardStorageType
+--   ObjVar
+--    ctsiIfL3ForwardRowStatus
+--   ObjVar
+--    ctsiIfUnauthorizedNotifEnable
+--   ObjVar
+--    ctsiAuthorizationFailNotifEnable
+--   ObjVar
+--    ctsiIfAddSupplicantFailNotifEnable
+--   ObjVar
+--    ctsiIfAuthenticationFailNotifEnable
+--   ObjVar
+--    ctsiIfSapNegotiationFailNotifEnable
+
+
+END
+

@@ -1,0 +1,804 @@
+-- MIB file created 04-Dec-2002 15:42:14, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-PPTP-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-PPTP-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, DisplayString, TruthValue
+            FROM SNMPv2-TC-v1
+    alStatsPptp, alPptpGroup
+            FROM ALTIGA-MIB
+    alPptpMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge, IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaPptpStatsMibModule OBJECT IDENTIFIER ::= { alPptpMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga PPTP Statistics MIB models counters and objects that are 
+--     of management interest for PPTP tunnels. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       MIB:        Management Information Base 
+--    
+--       PPTP:       Point-to-Point Tunneling Protocol 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsPptpGlobal OBJECT IDENTIFIER ::= { alStatsPptp 1 }
+altigaPptpStatsMibConformance OBJECT IDENTIFIER ::= { altigaPptpStatsMibModule 1 }
+altigaPptpStatsMibCompliances OBJECT IDENTIFIER ::= { altigaPptpStatsMibConformance 1 }
+
+alPptpStatsLocalProtVers OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(2))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the protocol version and 
+              revision of the local implementation. The 
+              first octet contains the protocol version. The 
+              second octet contains the protocol revision."
+    ::= { alStatsPptpGlobal 1 }
+
+alPptpStatsLocalFraming OBJECT-TYPE
+    SYNTAX INTEGER(0..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A set of bits indicating the PPTP framing capabilities 
+        of this system."
+    ::= { alStatsPptpGlobal 2 }
+
+alPptpStatsLocalBearer OBJECT-TYPE
+    SYNTAX INTEGER(0..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A set of bits indicating the PPTP bearer capabilities 
+        of this system."
+    ::= { alStatsPptpGlobal 3 }
+
+alPptpStatsLocalFirmwareRev OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(2))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object defines the local firmware revision."
+    ::= { alStatsPptpGlobal 4 }
+
+alPptpStatsTotalTunnels OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of tunnels, 
+        including those that did not reach the established 
+        state."
+    ::= { alStatsPptpGlobal 5 }
+
+alPptpStatsActiveTunnels OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of tunnels that 
+              are currently active."
+    ::= { alStatsPptpGlobal 6 }
+
+alPptpStatsMaxTunnels OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of simultaneously active PPTP tunnels 
+         since the system was booted."
+    ::= { alStatsPptpGlobal 7 }
+
+alPptpStatsTotalSessions OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of sessions, 
+        including those that did not reach the established 
+        state."
+    ::= { alStatsPptpGlobal 8 }
+
+alPptpStatsActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of sessions that 
+              are currently active."
+    ::= { alStatsPptpGlobal 9 }
+
+alPptpStatsMaxSessions OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The maximum number of simultaneously active PPTP sessions 
+         since the system was booted."
+    ::= { alStatsPptpGlobal 10 }
+
+alPptpStatsControlRecvOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of control channel 
+         octets received."
+    ::= { alStatsPptpGlobal 11 }
+
+alPptpStatsControlRecvPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of control packets 
+         received."
+    ::= { alStatsPptpGlobal 12 }
+
+alPptpStatsControlRecvDiscards OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of control packets 
+         received that were discarded."
+    ::= { alStatsPptpGlobal 13 }
+
+alPptpStatsControlSendOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of control channel 
+         octets that were transmitted to tunnel endpoints."
+    ::= { alStatsPptpGlobal 14 }
+
+alPptpStatsControlSendPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of control packets 
+         that were transmitted to tunnel endpoints."
+    ::= { alStatsPptpGlobal 15 }
+
+alPptpStatsPayloadRecvOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of payload channel 
+         octets that were received."
+    ::= { alStatsPptpGlobal 16 }
+
+alPptpStatsPayloadRecvPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of payload packets 
+         that were received."
+    ::= { alStatsPptpGlobal 17 }
+
+alPptpStatsPayloadRecvDiscards OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of received payload 
+         packets that were discarded."
+    ::= { alStatsPptpGlobal 18 }
+
+alPptpStatsPayloadSendOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of payload channel 
+         octets that were transmitted to tunnel peers."
+    ::= { alStatsPptpGlobal 19 }
+
+alPptpStatsPayloadSendPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the number of payload packets 
+         that were transmitted to tunnel peers."
+    ::= { alStatsPptpGlobal 20 }
+
+alPptpStatsTunnelTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlPptpStatsTunnelEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The PPTP tunnel status and statistics table."
+    ::= { alStatsPptp 2 }
+
+alPptpStatsTunnelEntry OBJECT-TYPE
+    SYNTAX AlPptpStatsTunnelEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alPptpStatsTunnelTable."
+    INDEX { alPptpStatsTunnelPeerIpAddr }
+    ::= { alPptpStatsTunnelTable 1 }
+
+AlPptpStatsTunnelEntry ::= SEQUENCE {
+    alPptpStatsTunnelRowStatus RowStatus,
+    alPptpStatsTunnelPeerIpAddr IpAddress,
+    alPptpStatsTunnelDatastreamId INTEGER,
+    alPptpStatsTunnelLocalIpAddr IpAddress,
+    alPptpStatsTunnelPeerHostName DisplayString,
+    alPptpStatsTunnelPeerVendorName DisplayString,
+    alPptpStatsTunnelPeerFirmwareRev OCTET STRING,
+    alPptpStatsTunnelPeerProtVers OCTET STRING,
+    alPptpStatsTunnelPeerFramingCap INTEGER,
+    alPptpStatsTunnelPeerBearerCap INTEGER,
+    alPptpStatsTunnelPeerMaxChan INTEGER,
+    alPptpStatsTunnelActiveSessions Counter
+    }
+
+alPptpStatsTunnelRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this row. Used to terminate the tunnel, 
+        cannot be used to create a tunnel."
+    ::= { alPptpStatsTunnelEntry 1 }
+
+alPptpStatsTunnelPeerIpAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The peer's IP address for this tunnel."
+    ::= { alPptpStatsTunnelEntry 2 }
+
+alPptpStatsTunnelDatastreamId OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP-GRE datastream ID of this tunnel."
+    ::= { alPptpStatsTunnelEntry 3 }
+
+alPptpStatsTunnelLocalIpAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The local IP address for this tunnel."
+    ::= { alPptpStatsTunnelEntry 4 }
+
+alPptpStatsTunnelPeerHostName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The peer's host name, as indicated by the peer in a 
+        Start-Control-Connection packet."
+    ::= { alPptpStatsTunnelEntry 5 }
+
+alPptpStatsTunnelPeerVendorName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The peer's vendor name, as indicated by the peer in a 
+        Start-Control-Connection packet."
+    ::= { alPptpStatsTunnelEntry 6 }
+
+alPptpStatsTunnelPeerFirmwareRev OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(2))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the tunnel peer's firmware 
+         revision number. If the tunnel is idle this object 
+         should maintain its value from the last time it 
+         was connected."
+    ::= { alPptpStatsTunnelEntry 7 }
+
+alPptpStatsTunnelPeerProtVers OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(2))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the protocol version and 
+              revision of the tunnel peers implementation. The 
+              first octet contains the protocol version. The 
+              second octet contains the protocol revision."
+    ::= { alPptpStatsTunnelEntry 8 }
+
+alPptpStatsTunnelPeerFramingCap OBJECT-TYPE
+    SYNTAX INTEGER(0..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the Framing Capabilities of 
+              the tunnel peer. If the tunnel is idle this object 
+              should maintain its value from the last time it was 
+              connected."
+    ::= { alPptpStatsTunnelEntry 9 }
+
+alPptpStatsTunnelPeerBearerCap OBJECT-TYPE
+    SYNTAX INTEGER(0..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the Bearer Capabilities of 
+              the tunnel peer. If the tunnel is idle this object 
+              should maintain its value from the last time it was 
+              connected."
+    ::= { alPptpStatsTunnelEntry 10 }
+
+alPptpStatsTunnelPeerMaxChan OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The peer's maximum channels value, as indicated by  
+        the peer in a Start-Control-Connection packet."
+    ::= { alPptpStatsTunnelEntry 11 }
+
+alPptpStatsTunnelActiveSessions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the total number of sessions 
+              for this tunnel."
+    ::= { alPptpStatsTunnelEntry 12 }
+
+alPptpStatsSessionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlPptpStatsSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "List of active sessions within tunnels."
+    ::= { alStatsPptp 3 }
+
+alPptpStatsSessionEntry OBJECT-TYPE
+    SYNTAX AlPptpStatsSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alPptpStatsSessionTable."
+    INDEX { alPptpStatsSessionDatastreamId }
+    ::= { alPptpStatsSessionTable 1 }
+
+AlPptpStatsSessionEntry ::= SEQUENCE {
+    alPptpStatsSessionRowStatus RowStatus,
+    alPptpStatsSessionDatastreamId INTEGER,
+    alPptpStatsSessionLocalCallId INTEGER,
+    alPptpStatsSessionPeerCallId INTEGER,
+    alPptpStatsSessionUserName DisplayString,
+    alPptpStatsSessionSerial INTEGER,
+    alPptpStatsSessionMinimumSpeed INTEGER,
+    alPptpStatsSessionMaximumSpeed INTEGER,
+    alPptpStatsSessionConnectSpeed INTEGER,
+    alPptpStatsSessionBearerType INTEGER,
+    alPptpStatsSessionFramingType INTEGER,
+    alPptpStatsSessionPhysicalChannel INTEGER,
+    alPptpStatsSessionLocalWindowSize INTEGER,
+    alPptpStatsSessionPeerWindowSize INTEGER,
+    alPptpStatsSessionLocalPpd INTEGER,
+    alPptpStatsSessionPeerPpd INTEGER,
+    alPptpStatsSessionRecvOctets Counter,
+    alPptpStatsSessionRecvPackets Counter,
+    alPptpStatsSessionRecvDiscards Counter,
+    alPptpStatsSessionRecvZLB Counter,
+    alPptpStatsSessionSendOctets Counter,
+    alPptpStatsSessionSendPackets Counter,
+    alPptpStatsSessionSendZLB Counter,
+    alPptpStatsSessionAckTimeouts Counter,
+    alPptpStatsSessionLocalFlowOff TruthValue,
+    alPptpStatsSessionPeerFlowOff TruthValue,
+    alPptpStatsSessionOutOfWindow Counter,
+    alPptpStatsSessionOutOfSequence Counter,
+    alPptpStatsSessionTunnelPeerIpAddr IpAddress
+    }
+
+alPptpStatsSessionRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this row. Used to terminate the session, 
+        cannot be used to create a Session."
+    ::= { alPptpStatsSessionEntry 1 }
+
+alPptpStatsSessionDatastreamId OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The GRE-PPP datastream ID of this tunnel, used as the 
+         index for this row."
+    ::= { alPptpStatsSessionEntry 2 }
+
+alPptpStatsSessionLocalCallId OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The local call ID within the tunnel of the session  
+        represented by this row."
+    ::= { alPptpStatsSessionEntry 3 }
+
+alPptpStatsSessionPeerCallId OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The peer call ID within the tunnel of the session 
+        represented by this row."
+    ::= { alPptpStatsSessionEntry 4 }
+
+alPptpStatsSessionUserName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the peer session name on 
+         this interface. This is typically the login name 
+         of the remote user. If the user name is unknown to 
+         the local tunnel peer then this object will contain 
+         a null string."
+    ::= { alPptpStatsSessionEntry 5 }
+
+alPptpStatsSessionSerial OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The call serial number within the tunnel of the session 
+        represented by this row."
+    ::= { alPptpStatsSessionEntry 6 }
+
+alPptpStatsSessionMinimumSpeed OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The lowest acceptable line speed (in bits/second)  
+        for this session, as indicated in the Call-Request  
+        packet."
+    ::= { alPptpStatsSessionEntry 7 }
+
+alPptpStatsSessionMaximumSpeed OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The highest acceptable line speed (in bits/second)  
+        for this session, as indicated in the Call-Request  
+        packet."
+    ::= { alPptpStatsSessionEntry 8 }
+
+alPptpStatsSessionConnectSpeed OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The actual line speed (in bits/second) for this session."
+    ::= { alPptpStatsSessionEntry 9 }
+
+alPptpStatsSessionBearerType OBJECT-TYPE
+    SYNTAX INTEGER {
+        analog(1),
+        digital(2),
+        any(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A value indicating the bearer capability required for 
+        this session."
+    ::= { alPptpStatsSessionEntry 10 }
+
+alPptpStatsSessionFramingType OBJECT-TYPE
+    SYNTAX INTEGER {
+        asynchronous(1),
+        synchronous(2),
+        either(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A value indicating the framing capability required for 
+        this session."
+    ::= { alPptpStatsSessionEntry 11 }
+
+alPptpStatsSessionPhysicalChannel OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The physical channel number used for this session."
+    ::= { alPptpStatsSessionEntry 12 }
+
+alPptpStatsSessionLocalWindowSize OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received data packets this system will 
+        buffer for this session, as indicated in the setup packets 
+        for this session."
+    ::= { alPptpStatsSessionEntry 13 }
+
+alPptpStatsSessionPeerWindowSize OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received data packets the peer will 
+        buffer for this session, as indicated in the setup packets 
+        for this session."
+    ::= { alPptpStatsSessionEntry 14 }
+
+alPptpStatsSessionLocalPpd OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A measure of the packet processing delay that might be 
+        imposed on data sent to this system, in units of 1/10 
+        seconds."
+    ::= { alPptpStatsSessionEntry 15 }
+
+alPptpStatsSessionPeerPpd OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "A measure of the packet processing delay that might be 
+        imposed on data sent to the peer, in units of 1/10 
+        seconds."
+    ::= { alPptpStatsSessionEntry 16 }
+
+alPptpStatsSessionRecvOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number payload octets 
+         received for this session."
+    ::= { alPptpStatsSessionEntry 17 }
+
+alPptpStatsSessionRecvPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of payload packets 
+         received for this session."
+    ::= { alPptpStatsSessionEntry 18 }
+
+alPptpStatsSessionRecvDiscards OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of payload packets 
+         received that were discarded for this session."
+    ::= { alPptpStatsSessionEntry 19 }
+
+alPptpStatsSessionRecvZLB OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of Zero Length 
+         Body acknowlegement payload packets received for 
+         this session."
+    ::= { alPptpStatsSessionEntry 20 }
+
+alPptpStatsSessionSendOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of payload octets 
+         transmitted for this session."
+    ::= { alPptpStatsSessionEntry 21 }
+
+alPptpStatsSessionSendPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of payload packets 
+         transmitted for this session."
+    ::= { alPptpStatsSessionEntry 22 }
+
+alPptpStatsSessionSendZLB OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of Zero 
+         Length Body acknowledgement packets transmitted 
+         for this session."
+    ::= { alPptpStatsSessionEntry 23 }
+
+alPptpStatsSessionAckTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of 
+         acknowledgement timeouts seen on payload 
+         packets for this session."
+    ::= { alPptpStatsSessionEntry 24 }
+
+alPptpStatsSessionLocalFlowOff OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the session is in a locally flowed-off 
+        state because the number of outstanding unacknowledged 
+        packets received from the peer is equal to the local 
+        window size."
+    ::= { alPptpStatsSessionEntry 25 }
+
+alPptpStatsSessionPeerFlowOff OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether the session peer is in a flowed-off 
+        state because the number of outstanding unacknowledged 
+        packets sent to the peer is equal to the peer's window  
+        size."
+    ::= { alPptpStatsSessionEntry 26 }
+
+alPptpStatsSessionOutOfWindow OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of data packets received from the peer which 
+        were received outside of the offered receive window."
+    ::= { alPptpStatsSessionEntry 27 }
+
+alPptpStatsSessionOutOfSequence OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of data packets that were not received in the 
+              correct order (as per the sequence number)."
+    ::= { alPptpStatsSessionEntry 28 }
+
+alPptpStatsSessionTunnelPeerIpAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The peer's IP address for the tunnel over which this session 
+        is established."
+    ::= { alPptpStatsSessionEntry 29 }
+
+altigaPptpStatsGroup OBJECT IDENTIFIER ::= { alPptpGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for PPTP statistics.
+--  objects
+--    alPptpStatsLocalProtVers, alPptpStatsLocalFraming, 
+--    alPptpStatsLocalBearer, alPptpStatsLocalFirmwareRev, 
+--    alPptpStatsTotalTunnels, alPptpStatsActiveTunnels, 
+--    alPptpStatsMaxTunnels, alPptpStatsTotalSessions, 
+--    alPptpStatsActiveSessions, alPptpStatsMaxSessions, 
+--    alPptpStatsControlRecvOctets, alPptpStatsControlRecvPackets, 
+--    alPptpStatsControlRecvDiscards, alPptpStatsControlSendOctets, 
+--    alPptpStatsControlSendPackets, alPptpStatsPayloadRecvOctets, 
+--    alPptpStatsPayloadRecvPackets, alPptpStatsPayloadRecvDiscards, 
+--    alPptpStatsPayloadSendOctets, alPptpStatsPayloadSendPackets, 
+--    alPptpStatsTunnelRowStatus, alPptpStatsTunnelDatastreamId, 
+--    alPptpStatsTunnelLocalIpAddr, alPptpStatsTunnelPeerIpAddr, 
+--    alPptpStatsTunnelPeerHostName, 
+--    alPptpStatsTunnelPeerVendorName, 
+--    alPptpStatsTunnelPeerFirmwareRev, 
+--    alPptpStatsTunnelPeerProtVers, 
+--    alPptpStatsTunnelPeerFramingCap, 
+--    alPptpStatsTunnelPeerBearerCap, alPptpStatsTunnelPeerMaxChan, 
+--    alPptpStatsTunnelActiveSessions, alPptpStatsSessionRowStatus, 
+--    alPptpStatsSessionDatastreamId, alPptpStatsSessionLocalCallId, 
+--    alPptpStatsSessionPeerCallId, alPptpStatsSessionUserName, 
+--    alPptpStatsSessionSerial, alPptpStatsSessionMinimumSpeed, 
+--    alPptpStatsSessionMaximumSpeed, 
+--    alPptpStatsSessionConnectSpeed, alPptpStatsSessionBearerType, 
+--    alPptpStatsSessionFramingType, 
+--    alPptpStatsSessionPhysicalChannel, 
+--    alPptpStatsSessionLocalWindowSize, 
+--    alPptpStatsSessionPeerWindowSize, alPptpStatsSessionLocalPpd, 
+--    alPptpStatsSessionPeerPpd, alPptpStatsSessionRecvOctets, 
+--    alPptpStatsSessionRecvPackets, alPptpStatsSessionRecvDiscards, 
+--    alPptpStatsSessionRecvZLB, alPptpStatsSessionSendOctets, 
+--    alPptpStatsSessionSendPackets, alPptpStatsSessionSendZLB, 
+--    alPptpStatsSessionAckTimeouts, alPptpStatsSessionLocalFlowOff, 
+--    alPptpStatsSessionPeerFlowOff, alPptpStatsSessionOutOfWindow, 
+--    alPptpStatsSessionOutOfSequence, 
+--    alPptpStatsSessionTunnelPeerIpAddr
+
+altigaPptpStatsMibCompliance OBJECT IDENTIFIER ::= { altigaPptpStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga PPTP Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaPptpStatsGroup
+
+
+END
+

@@ -1,0 +1,273 @@
+-- *------------------------------------------------------------------
+-- * CISCO-IKE-FLOW-EXT-MIB.my:  Internet Key Exchange(IKE) MIB  
+-- *                        extension to CISCO-IKE-FLOW-MIB. 
+-- *
+-- * March 2004, Srini Kode
+-- *
+-- * Copyright (c) 2004 by cisco Systems, Inc.
+-- * All rights reserved.
+-- *
+-- *------------------------------------------------------------------
+
+CISCO-IKE-FLOW-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, 
+        OBJECT-TYPE                    FROM SNMPv2-SMI
+        MODULE-COMPLIANCE, 
+        OBJECT-GROUP                   FROM SNMPv2-CONF
+        SnmpAdminString                FROM SNMP-FRAMEWORK-MIB
+        ciscoMgmt                      FROM CISCO-SMI
+        cisgIpsSgProtocol,  
+        cisgIpsSgTunIndex              FROM CISCO-IPSEC-SIGNALING-MIB
+        CIKEIsakmpDoi, 
+        CIPsecPhase1PeerIdentityType   FROM CISCO-IPSEC-TC;
+
+
+ciscoIkeFlowExtMIB MODULE-IDENTITY
+        LAST-UPDATED        "200409140000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "        Cisco Systems
+                         Customer Service 
+                         
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+                   Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+        DESCRIPTION
+                "This MIB module is an extension to 
+                CISCO-IKE-FLOW-MIB and contains Cisco Specific 
+                extensions for monitoring IKE.
+                
+                It is for monitoring the structures and status of
+                IPsec control flows based on Internet Key Exchange
+                protocol.
+                 
+                Acronyms
+                The following acronyms are used in this document:     
+              
+                Flow, Tunnel:
+                     An ISAKMP SA can be regarded as representing
+                     a flow of ISAKMP/IKE traffic. Hence an ISAKMP
+                     is referred to as a 'Phase 1 Tunnel' in this
+                     document. 
+                   
+                IPsec:  
+                     Secure IP Protocol. 
+       
+                ISAKMP:
+                     Internet Security Association and Key
+                     Management Protocol.
+
+                IKE:
+                     Internet Key Exchange Protocol. 
+                     
+                FCSP: 
+                     Fibre Channel Security Protocol.
+                     
+                SA:  
+                     Security Association
+                     (ref: rfc2408).
+     
+                Phase 2 Tunnel:
+                     AN instance of a non-ISAKMP SA  bundle in which
+                     all the SA share the same proxy identifiers
+                     protect the same stream of application traffic.
+                     Such an SA bundle is termed a 'Phase 2 Tunnel'.
+                     Note that a Phase 2 tunnel may comprise different
+                     SA bundles and different number of SA bundles at
+                     different times (due to key refresh). "
+       
+        REVISION        "200409140000Z"
+        DESCRIPTION
+                "Initial version of this MIB module. "
+        ::= { ciscoMgmt 428 }
+
+
+-- Objects, Notifications &amp; Conformances
+
+ciscoIkeFlowExtMIBNotifs OBJECT IDENTIFIER 
+                               ::= { ciscoIkeFlowExtMIB 0 }
+ciscoIkeFlowExtMIBObjects OBJECT IDENTIFIER  
+                               ::= { ciscoIkeFlowExtMIB 1 }
+ciscoIkeFlowExtMIBConform OBJECT IDENTIFIER 
+                               ::= { ciscoIkeFlowExtMIB 2 } 
+
+cifeIkeGlobals OBJECT IDENTIFIER  
+                               ::= { ciscoIkeFlowExtMIBObjects 1 }
+
+
+cifeClearAllTunnels OBJECT-TYPE
+        SYNTAX       INTEGER {
+                              none(1),
+                              clearIPSec(2),
+                              clearFCSP(3)
+                            } 
+        MAX-ACCESS   read-write
+        STATUS       current
+        DESCRIPTION
+                "Clears all the tunnels of a specific type.
+                 'none'          is returned on reading this object.
+                 'clearIPSec'    all the IPSec tunnels are cleared.
+                 'clearFCSP'     all FCSP tunnels are cleared. "
+        ::= { cifeIkeGlobals 1 }
+            
+                   
+---
+--- cifeTunnelExtTable
+---
+
+cifeTunnelExtTable OBJECT-TYPE
+        SYNTAX SEQUENCE OF CifeTunnelExtEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+                "The Phase-1 Internet Key Exchange Tunnel Table.
+                 There is one entry in this table for each active
+                 IKE tunnel. This table is an extension to 
+                 cifIkeTunnelTable defined  in CISCO-IKE-FLOW-MIB. 
+                 Some information in this table is also present in
+                 the cisgIpsSgTunnelTable, but the table is indexed
+                 differently so that the rows in this table are 
+                 grouped/ordered by domain of interpretation (DOI). "
+        ::= { ciscoIkeFlowExtMIBObjects 2 }
+
+cifeTunnelExtEntry OBJECT-TYPE
+        SYNTAX       CifeTunnelExtEntry
+        MAX-ACCESS   not-accessible
+        STATUS       current
+        DESCRIPTION
+                "Each entry contains the attributes associated with
+                 an active IKE Tunnel, identified by 
+                 cisgIpsSgTunIndex, for the IKE protocol, identified
+                 by cisgIpsSgProtocol, in this DOI, identified by
+                 cifeTunnelExtDoi. "
+        INDEX { cifeTunnelExtDoi, cisgIpsSgProtocol, 
+                cisgIpsSgTunIndex }
+        ::= { cifeTunnelExtTable 1}
+
+CifeTunnelExtEntry ::= SEQUENCE {
+        cifeTunnelExtDoi              CIKEIsakmpDoi,          
+        cifeTunnelExtLocalIdenType    CIPsecPhase1PeerIdentityType,
+        cifeTunnelExtLocalIdentity    SnmpAdminString,
+        cifeTunnelExtRemoteIdenType   CIPsecPhase1PeerIdentityType,
+        cifeTunnelExtRemoteIdentity   SnmpAdminString
+       }
+       
+cifeTunnelExtDoi OBJECT-TYPE
+        SYNTAX CIKEIsakmpDoi
+        MAX-ACCESS not-accessible
+        STATUS current
+        DESCRIPTION
+                "This identifies the DOI of Phase-2 operations in 
+                 which this control tunnel operates. This may be
+                 used to identify the Phase-2 protocol. "
+        ::= { cifeTunnelExtEntry 1 } 
+          
+cifeTunnelExtLocalIdenType OBJECT-TYPE
+        SYNTAX      CIPsecPhase1PeerIdentityType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The type of the identity used by the managed entity 
+                 authenticating itself to the peer in the setup of the 
+                 IKE tunnel corresponding to this conceptual row.
+                 
+                 This object would have same value as 
+                 cisgIpsSgTunLocalType from 
+                 CISCO-IPSEC-SIGNALLING-MIB. "
+        ::= { cifeTunnelExtEntry 2 }
+       
+cifeTunnelExtLocalIdentity OBJECT-TYPE
+        SYNTAX      SnmpAdminString(SIZE(1..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The value of the local peer identity.
+            
+                 This object would have same value as 
+                 cisgIpsSgTunLocalValue from 
+                 CISCO-IPSEC-SIGNALLING-MIB. "
+        ::= { cifeTunnelExtEntry 3 }
+       
+cifeTunnelExtRemoteIdenType OBJECT-TYPE
+        SYNTAX      CIPsecPhase1PeerIdentityType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The type of the identity used by the peer in
+                 authenticating itself to the local entity in the
+                 setup of the IKE tunnel corresponding to this 
+                 conceptual row.
+                 
+                 This object would have same value as 
+                 cisgIpsSgTunRemoteType from 
+                 CISCO-IPSEC-SIGNALLING-MIB. "
+        ::= { cifeTunnelExtEntry 4 }
+       
+cifeTunnelExtRemoteIdentity OBJECT-TYPE
+        SYNTAX      SnmpAdminString(SIZE(1..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The value of the remote peer identity.
+            
+                 This object would have same value as 
+                 cisgIpsSgTunRemoteValue from 
+                 CISCO-IPSEC-SIGNALLING-MIB. "
+        ::= { cifeTunnelExtEntry 5 }
+          
+       
+      
+-- 
+-- Cisco IKE extension Module Compliance
+-- 
+
+cifeMIBConformances OBJECT IDENTIFIER 
+                    ::= { ciscoIkeFlowExtMIBConform  1 }
+
+cifeMIBGroups OBJECT IDENTIFIER
+                    ::= { ciscoIkeFlowExtMIBConform  2 }
+
+cifeMIBCompliance MODULE-COMPLIANCE
+        STATUS  current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the Cisco IKE extension MIB. "
+        MODULE  -- this module
+        MANDATORY-GROUPS { 
+                          cifeGlobalsGroup,
+                          cifeTunnelExtGroup
+                         }          
+        ::= { cifeMIBConformances 1 }
+
+-- 
+-- MIB Groups (Units of Conformance)
+-- 
+
+cifeGlobalsGroup OBJECT-GROUP
+        OBJECTS {
+                cifeClearAllTunnels
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects providing Global
+                 IKE configuration. "
+        ::= { cifeMIBGroups 1 }
+       
+cifeTunnelExtGroup OBJECT-GROUP
+        OBJECTS {
+                 cifeTunnelExtLocalIdenType,
+                 cifeTunnelExtLocalIdentity,
+                 cifeTunnelExtRemoteIdenType,
+                 cifeTunnelExtRemoteIdentity
+        }
+        STATUS  current
+        DESCRIPTION
+                "The collection of objects providing IKE tunnels
+                 info. "
+        ::= { cifeMIBGroups 2 }
+
+END

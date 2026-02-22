@@ -1,0 +1,2544 @@
+-- *****************************************************************
+-- CISCO-OPTICAL-MIB.my
+-- OPTICAL INTERFACE MIB
+--
+-- June 2015 Aditi Gupta (aditigu)
+--
+-- Copyright (c) 2015 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-OPTICAL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    DisplayString,
+    MacAddress,
+    TimeStamp
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    ifIndex,
+    ifName
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoOpticalMIB MODULE-IDENTITY
+    LAST-UPDATED    "201605240000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-<list>@cisco.com"
+    DESCRIPTION
+        "This MIB module defines the managed objects for physical layer
+        characteristics of optical interfaces and performance
+        statistics objects for protocol specific counters in optical
+        devices.
+        Performance monitoring (PM) parameters are used by service
+        providers to gather, store, set thresholds for and report
+        performance data for early detection of problems.
+        Thresholds are used to set error levels for each PM parameter.
+        During the accumulation cycle, if the current value of a
+        performance monitoring parameter reaches or exceeds its
+        corresponding threshold value, a threshold crossing alarm (TCA)
+        is generated. The TCAs provide early detection of performance
+        degradation.
+        Glossary:
+        LBC       : Laser Bias Current
+        TX        : Transmit
+        RX        : Receive
+        PMD       : Polarization Mode Dispersion
+        OSNR      : Optical Signal to Noise Ratio
+        DGD       : Differential Group Delay
+        CD        : Chromatic Dispersion
+        rad/s     : radian per second
+        dB        : decibel
+        dBm       : decibel-milliwatt
+        ps        : picosecond
+        nm        : nanometer."
+    REVISION        "201605240000Z"
+    DESCRIPTION
+        "Added
+        1. Extend CoiIntervalType to include thirtySecond.
+        2. Extend coiOpticalControllerEntry to include  
+        	coiOpticalControllerTotalRXPower,
+        	coiOpticalControllerTotalTXPower.
+        3. Add coiOpticalPowerGroup.	
+        4. Deprecated the ciscoOpticalMIBCompliance compliance,
+           added ciscoOpticalMIBComplianceRev1."
+
+    REVISION        "201512010000Z"
+    DESCRIPTION
+        "Added
+        1. NOTIFICATION-TYPE coiOpticalEquipmentAlarm
+        2. Textual Convention CoiOptAlarmType, CoiOptAlarmStatus,
+        CoiOptAlarmSeverity, CoiOptAlarmServiceAffecting.
+        3. coiOpticalEquipmentAlarmGroup OBJECT INDENTIFIER, with
+        coiOpticalAlarmLocation, coiOpticalAlarmType,
+        coiOpticalAlarmTimeStamp, coiOpticalAlarmName,
+        coiOpticalAlarmAdditionalInfo, coiOpticalAlarmSeverity,
+        coiOpticalAlarmStatus, coiOpticalAlarmServiceAffecting as
+        OBJECT-TYPE.
+        4. ppmFail bit for coiOpticalControllerStatus."
+    REVISION        "201510300000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 828 }
+
+CoiOpticalPower ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the optical receive or transmit power."
+    SYNTAX          Integer32 (-4000..3000)
+
+CoiOpticalWavelength ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value represents the wavelength of optical signals, in an
+        optical interface. It is represented in units of nanometers.
+        A value of zero either indicates that the wavelength is
+        unknown, or that it does not fall under the frequency grid
+        defined in ITU-T G.694.1"
+    REFERENCE
+        "ITU - T Recommendation G.694.1 - Spectral grids for WDM
+        applications: DWDM frequency grid, May 2002"
+    SYNTAX          Unsigned32 (0 | 1528770..1604030)
+
+CoiIntervalType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the time period over which performance
+        monitoring data has been collected. Valid values are -
+        fifteenMin(1)  -  values for the 15 min interval.
+        oneDay(2)      -  values for the 1 Day interval.
+        thirtySecond(3)-  values for the 30 Sec interval."
+    SYNTAX          INTEGER  {
+                        fifteenMin(1),
+                        oneDay(2),
+                        thirtySecond(3)
+                    }
+
+CoiPortType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the port type of the optical
+        interface. Valid values are -
+        clientPort(1)  -  denotes client port.
+        trunkPort(2)   -  denotes trunk port."
+    SYNTAX          INTEGER  {
+                        clientPort(1),
+                        trunkPort(2)
+                    }
+
+CoiOptAlarmType ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This value indicates the alarm type.
+        alarmUnknown(1)     - denotes unknown alarm type.
+        equipmentFailure(2) - denotes equipment fail alarm type."
+    SYNTAX          INTEGER  {
+                        alarmUnknown(1),
+                        equipmentFailure(2)
+                    }
+
+CoiOptAlarmSeverity ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This will indicate the severity of the notification being
+        sent out. Valid values are -
+        notReported(1) - alarm not reported.
+        notAlarmed(2)  - alarm not raised.
+        minor(3)       - minor alarm.
+        major(4)       - major alarm.
+        critical(5)    - critical alarm."
+    SYNTAX          INTEGER  {
+                        notReported(1),
+                        notAlarmed(2),
+                        minor(3),
+                        major(4),
+                        critical(5)
+                    }
+
+CoiOptAlarmStatus ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This will indicate the status of the alarm.
+        Valid values are -
+        raised(1)   - alarm in raised state.
+        cleared(2)  - alarm in cleared state.
+        transient(3)- alarm in transient state."
+    SYNTAX          INTEGER  {
+                        raised(1),
+                        cleared(2),
+                        transient(3)
+                    }
+
+CoiOptAlarmServiceAffecting ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "This will indicate the sevice-affecting state of the alarm.
+        Valid values are -
+        Service affecting(1)    - alarm affects service.
+        Non-Service affecting(2)- alarm does not affect service."
+    SYNTAX          INTEGER  {
+                        serviceAffecting(1),
+                        nonServiceAffecting(2)
+                    }
+-- Textual Conventions definition will be defined before this line
+
+ciscoOpticalMIBNotifs OBJECT IDENTIFIER
+    ::= { ciscoOpticalMIB 0 }
+
+ciscoOpticalMIBObjects OBJECT IDENTIFIER
+    ::= { ciscoOpticalMIB 1 }
+
+coiOpticsStatusChange NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifIndex,
+                        ifName,
+                        coiOpticalControllerPortType,
+                        coiOpticalControllerStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated whenever the defect status of
+        Optics on an interface changes.
+        Varbind 'ifIndex' indicates the interface whose defect status
+        of the Optics layer has just changed.
+        Varbind 'ifName' indicates the interface Name whose defect
+        status of the Optics layer has just changed.
+        Varbind 'coiOpticalControllerPortType' indicates the port type
+        of the interface whose defect status of the Optics layer has
+        just changed.
+        Varbind 'coiOpticalControllerStatus' indicates the current
+        defect status of the Optics layer on the interface."
+   ::= { ciscoOpticalMIBNotifs 1 }
+
+coiOpticalEquipmentAlarm NOTIFICATION-TYPE
+    OBJECTS         {
+                        coiOpticalAlarmLocation,
+                        coiOpticalAlarmType,
+                        coiOpticalAlarmTimeStamp,
+                        coiOpticalAlarmName,
+                        coiOpticalAlarmAdditionalInfo,
+                        coiOpticalAlarmSeverity,
+                        coiOpticalAlarmStatus,
+                        coiOpticalAlarmServiceAffecting
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated whenever the optical equipment
+        alarm is generated.
+        Varbind 'coiOpticalAlarmLocation' indicates the location on
+        which equipment failed alarm has generated.
+        Varbind 'coiOpticalAlarmType' indicates the type of alarm.
+        Varbind 'coiOpticalAlarmTimeStamp' indicates the timestamp when
+        alarm is generated.
+        Varbind 'coiOpticalAlarmName' indicates the alarm object.
+        Varbind 'coiOpticalAlarmAdditionalInfo' indicates additional
+        info related to the alarm.
+        Varbind 'coiOpticalAlarmSeverity' indicates the severity of the
+        alarm.
+        Varbind 'coiOpticalAlarmStatus' indicates status of the alarm.
+        Varbind 'coiOpticalAlarmServiceAffecting' indicates the service
+        affected state when alarm is generated."
+   ::= { ciscoOpticalMIBNotifs 2 }
+
+coiOpticalController OBJECT IDENTIFIER
+    ::= { ciscoOpticalMIBObjects 1 }
+
+coiOpticalPerformanceMonitoring OBJECT IDENTIFIER
+    ::= { ciscoOpticalMIBObjects 2 }
+
+coiOpticalNotifEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object controls the generation of coiOpticsStatusChange
+        notification.
+        If the value of this object is 'true', then the generation of
+        coiOpticsStatusChange notification is enabled. If the value of
+        this object is 'false', then the generation of
+        coiOpticsStatusChange notification is disabled."
+    ::= { coiOpticalController 1 }
+
+coiOpticalControllerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOpticalControllerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for optical layer
+        related attributes of interfaces with an ifType of
+        opticalChannel(195)."
+    ::= { coiOpticalController 2 }
+
+coiOpticalControllerEntry OBJECT-TYPE
+    SYNTAX          CoiOpticalControllerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on optical layer
+        related attributes of interfaces with an ifType
+        opticalChannel(195). Entries are created by the feature when a
+        new interface is added to the ifTable."
+    INDEX           { ifIndex }
+    ::= { coiOpticalControllerTable 1 }
+
+CoiOpticalControllerEntry ::= SEQUENCE {
+        coiOpticalControllerWavelength       CoiOpticalWavelength,
+        coiOpticalControllerLaserStatus      INTEGER,
+        coiOpticalControllerFrequency        Unsigned32,
+        coiOpticalControllerChannelNumber    Unsigned32,
+        coiOpticalControllerTransmitPower    CoiOpticalPower,
+        coiOpticalControllerOpticsType       DisplayString,
+        coiOpticalControllerRXLowThreshold   CoiOpticalPower,
+        coiOpticalControllerTXLowThreshold   CoiOpticalPower,
+        coiOpticalControllerRXHighThreshold  CoiOpticalPower,
+        coiOpticalControllerTXHighThreshold  CoiOpticalPower,
+        coiOpticalControllerLBCHighThreshold Integer32,
+        coiOpticalControllerStatus           BITS,
+        coiOpticalControllerPortType         CoiPortType,
+        coiOpticalControllerTotalRXPower     CoiOpticalPower,
+        coiOpticalControllerTotalTXPower     CoiOpticalPower
+}
+
+coiOpticalControllerWavelength OBJECT-TYPE
+    SYNTAX          CoiOpticalWavelength
+    UNITS           "1/100 nm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the wavelength on
+        optical channel interfaces in 1/100 nm."
+    DEFVAL          { 1529553 }
+    ::= { coiOpticalControllerEntry 1 }
+
+coiOpticalControllerLaserStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        down(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the current operational state of the Laser.
+        Valid values are -
+        'up'      - The laser is operational.
+        'down'    - The laser is not operational."
+    ::= { coiOpticalControllerEntry 2 }
+
+coiOpticalControllerFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "100 MHz"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the frequency on optical
+        channel interfaces in 100 MHz."
+    ::= { coiOpticalControllerEntry 3 }
+
+coiOpticalControllerChannelNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the channel number on
+        optical channel interfaces. Channel Number is set to 0 if not
+        50GHz grid."
+    ::= { coiOpticalControllerEntry 4 }
+
+coiOpticalControllerTransmitPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the Transmit Power in
+        1/100 dBm on optical channel interfaces."
+    ::= { coiOpticalControllerEntry 5 }
+
+coiOpticalControllerOpticsType OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the description of optics present on optical
+        channel interfaces."
+    ::= { coiOpticalControllerEntry 6 }
+
+coiOpticalControllerRXLowThreshold OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the Receive Low Threshold in
+        1/100 dBm on optical channel interfaces."
+    ::= { coiOpticalControllerEntry 7 }
+
+coiOpticalControllerTXLowThreshold OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the Transmit Low Threshold in
+        1/100 dBm on optical channel interfaces."
+    ::= { coiOpticalControllerEntry 8 }
+
+coiOpticalControllerRXHighThreshold OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the Receive High Threshold in
+        1/100 dBm on optical channel interfaces."
+    ::= { coiOpticalControllerEntry 9 }
+
+coiOpticalControllerTXHighThreshold OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the Transmit High Threshold
+        in 1/100 dBm on optical channel interfaces."
+    ::= { coiOpticalControllerEntry 10 }
+
+coiOpticalControllerLBCHighThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (0..1000)
+    UNITS           "1/10 %"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the Laser Bias Current High
+        Threshold in 1/10% on optical channel interfaces."
+    ::= { coiOpticalControllerEntry 11 }
+
+coiOpticalControllerStatus OBJECT-TYPE
+    SYNTAX          BITS {
+                        noDefect(0),
+                        improprmvl(1),
+                        mea(2),
+                        provMismatch(3),
+                        highRXPwr(4),
+                        highTXPwr(5),
+                        lowRXPwr(6),
+                        lowTXPwr(7),
+                        highLBC(8),
+                        highDGD(9),
+                        outOfRangeCD(10),
+                        lowOSNR(11),
+                        wvlOutOfLock(12),
+                        highLaserTemp(13),
+                        lowLaserTemp(14),
+                        ppmFail(15)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current defect status of the Optics
+        layer.
+        noDefect(0):       No Defect. This bit is set high when no
+                           defect is detected on the optics.
+        improprmvl(1):     Improper Removal. This will be set when
+                           a physical pluggable is absent on a service
+                           (hw-module) provisioned port.
+        mea(2):            This bit will be set when Port Pluggable
+                           Module Mismatches With Pre-Provisoned PPM.
+        provMismatch(3):   Provision Mismatch. This bit is set when
+                           Provisioned wavelength is Not supported By
+                           Pluggable.
+        highRXPwr(4):      High Receive Power. This bit is set when the
+                           measured optical power of the received
+                           signal exceeds the threshold high value,
+                           which is user-provisionable.
+        highTXPwr(5):      High Transmit Power. This bit is set when
+                           Pluggable measured optical power of the
+                           transmitted signal falls over the threshold.
+        lowRXPwr(6):       Low Receive Power. This bit is set when the
+                           measured optical power of the received
+                           signal falls below the low threshold value,
+                           which is user-provisionable.
+        lowTXPwr(7):       Low Transmit Power. This bit is set when
+                           Pluggable measured optical power of the
+                           transmitted signal falls below the low
+                           threshold.
+        highLBC(8):        High Laser Bias. This bit is set when the
+                           Physical Pluggable Port laser reads laser
+                           bias value beyond configured high threshold.
+        highDGD(9):        High DGD. This bit is set when the pluggable
+                           port Module reads the Differential Group
+                           delay value that exceeds the configured high
+                           threshold.
+        outOfRangeCD(10):  Out of Range Chromatic Dispersion. This bit
+                           is set when the Chromatic dispersion value
+                           read by the associated HW is out of range
+                           with the configured threshold.
+        lowOSNR(11):       Low Optical Signal to Noise Ratio. This bit
+                           is set when the HW read Optical Signal to
+                           Noise ratio falls below the configured low
+                           threshold.
+        wvlOutOfLock(12):  Wavelength Out of Lock. This bit is set when
+                           Trunk Port optics detects that optical input
+                           frequency is out of range.
+        highLaserTemp(13): High LaserTemp.This bit is set when the
+                           internally measured transceiver temperature
+                           exceeds the card setting by 35.6 degrees F
+                           or 2 degrees C. A laser temperature change
+                           affects the transmitted wavelength.
+        lowLaserTemp(14):  Low LaserTemp. This bit is set when the
+                           internally measured transceiver temperature
+                           falls below the card setting by 35.6 degrees
+                           F or 2 degrees C. A laser temperature change
+                           affects the transmitted wavelength. (This
+                           temperature is equivalent to about 200
+                           picometers of wavelength.
+        ppmFail(15):       Pluggable Equipment Fail. This bit is set
+                           when Pluggable Equipment is not operational
+                           or manageable.
+        This object is sent out as a notification to the agent."
+    ::= { coiOpticalControllerEntry 12 }
+
+coiOpticalControllerPortType OBJECT-TYPE
+    SYNTAX          CoiPortType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the port type of the optical interface."
+    ::= { coiOpticalControllerEntry 13 }
+
+coiOpticalControllerTotalRXPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the total receive power in
+        1/100 dBm on optical channel interfaces."
+    ::= { coiOpticalControllerEntry 14 }
+
+coiOpticalControllerTotalTXPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the total transmit power
+        in 1/100 dBm on optical channel interfaces."
+    ::= { coiOpticalControllerEntry 15 }
+
+coiOpticalControllerPerLaneTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOpticalControllerPerLaneEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the management information for optical
+        layer related attributes of interfaces with an ifType of
+        opticalChannel(195) and lane number as
+        coiOpticalControllerLane."
+    ::= { coiOpticalController 3 }
+
+coiOpticalControllerPerLaneEntry OBJECT-TYPE
+    SYNTAX          CoiOpticalControllerPerLaneEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing management information on optical layer
+        related attributes of interfaces with an ifType
+        opticalChannel(195) and lane number as
+        coiOpticalControllerLane. Entries are created by the feature
+        when a new interface is added to the ifTable."
+    INDEX           {
+                        ifIndex,
+                        coiOpticalControllerLane
+                    }
+    ::= { coiOpticalControllerPerLaneTable 1 }
+
+CoiOpticalControllerPerLaneEntry ::= SEQUENCE {
+        coiOpticalControllerLane                              Integer32,
+        coiOpticalControllerPerLaneRXPower              CoiOpticalPower,
+        coiOpticalControllerPerLaneTXPower              CoiOpticalPower,
+        coiOpticalControllerPerLaneLBC                        Integer32,
+        coiOpticalControllerPerLaneOSNR                       Integer32,
+        coiOpticalControllerPerLaneChromaticDispersion        Integer32,
+        coiOpticalControllerPerLaneDifferentialGroupDelay     Integer32,
+        coiOpticalControllerPerLaneSecondOrderPMD             Integer32,
+        coiOpticalControllerPerLanePolarizationDependentLoss  Integer32,
+        coiOpticalControllerPerLanePolarizationChangeRate     Integer32,
+        coiOpticalControllerPerLanePhaseNoise                 Integer32
+}
+
+coiOpticalControllerLane OBJECT-TYPE
+    SYNTAX          Integer32 (1..12)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the lane number for the optical
+        controller. Each optical controller is divided into data lanes,
+        with each lane operating at some data rate, giving an aggregated
+        bandwidth of the controller, as a whole. Lane is applicable for
+        breakout mode of operation."
+    ::= { coiOpticalControllerPerLaneEntry 1 }
+
+coiOpticalControllerPerLaneRXPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Receive power in 1/100 dBm."
+    ::= { coiOpticalControllerPerLaneEntry 2 }
+
+coiOpticalControllerPerLaneTXPower OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Transmit power in 1/100 dBm."
+    ::= { coiOpticalControllerPerLaneEntry 3 }
+
+coiOpticalControllerPerLaneLBC OBJECT-TYPE
+    SYNTAX          Integer32 (0..1000)
+    UNITS           "1/10 %"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Laser Bias Current in 1/10%."
+    ::= { coiOpticalControllerPerLaneEntry 4 }
+
+coiOpticalControllerPerLaneOSNR OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Optical Signal to Noise Ratio in
+        1/100 dB."
+    ::= { coiOpticalControllerPerLaneEntry 5 }
+
+coiOpticalControllerPerLaneChromaticDispersion OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "ps/nm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the measure of spread of light pulse
+        in ps/nm."
+    ::= { coiOpticalControllerPerLaneEntry 6 }
+
+coiOpticalControllerPerLaneDifferentialGroupDelay OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the propagation time difference
+        between eigenmodes X and Y in 1/100 ps."
+    ::= { coiOpticalControllerPerLaneEntry 7 }
+
+coiOpticalControllerPerLaneSecondOrderPMD OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps^2"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the threshold Second Order Polarization
+        Mode Dispersion in 1/100 ps^2."
+    ::= { coiOpticalControllerPerLaneEntry 8 }
+
+coiOpticalControllerPerLanePolarizationDependentLoss OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the threshold Polarization Dependent
+        Loss in 1/100 dB."
+    ::= { coiOpticalControllerPerLaneEntry 9 }
+
+coiOpticalControllerPerLanePolarizationChangeRate OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 rad/s"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Polarization Change Rate in
+        1/100 rad/s."
+    ::= { coiOpticalControllerPerLaneEntry 10 }
+
+coiOpticalControllerPerLanePhaseNoise OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/1000 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Fluctuations in the Phase of a
+        Waveform in 1/1000 dB."
+    ::= { coiOpticalControllerPerLaneEntry 11 }
+
+coiOpticalClientInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOpticalClientInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides management information for optical's
+        client layer related attributes of interfaces with an ifType
+        of ethernetCsmacd(6).This parameter is applicable only for
+        client interfaces."
+    ::= { ciscoOpticalMIBObjects 3 }
+
+coiOpticalClientInfoEntry OBJECT-TYPE
+    SYNTAX          CoiOpticalClientInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing information for optical's
+        client layer related attributes of interfaces with an ifType
+        of ethernetCsmacd(6). Entries are created by the feature when
+        the interface discovers the neighbour's ethernet MAC Address."
+    INDEX           {
+                        ifIndex
+                    }
+    ::= { coiOpticalClientInfoTable 1 }
+
+CoiOpticalClientInfoEntry ::= SEQUENCE {
+        coiOpticalClientEthernetNeighbourMAC     MacAddress
+}
+
+coiOpticalClientEthernetNeighbourMAC OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object gives the neighbour MAC Address to which the
+        interface is connected."
+    ::= { coiOpticalClientInfoEntry 1 }
+
+coiOpticalThresholdTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOpticalThresholdEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides threshold information for optical layer
+        related attributes of interfaces with an ifType of
+        opticalChannel(195) and Interval type as
+        coiOptThreshIntervalType."
+    ::= { coiOpticalPerformanceMonitoring 1 }
+
+coiOpticalThresholdEntry OBJECT-TYPE
+    SYNTAX          CoiOpticalThresholdEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing threshold information on optical layer
+        related attributes of interfaces with an ifType
+        opticalChannel(195). Entries are created by the feature
+        when a new interface is added to the ifTable."
+    INDEX           {
+                        ifIndex,
+                        coiOptThreshIntervalType
+                    }
+    ::= { coiOpticalThresholdTable 1 }
+
+CoiOpticalThresholdEntry ::= SEQUENCE {
+        coiOptThreshIntervalType                       CoiIntervalType,
+        coiOptThreshTXPowerMin                         CoiOpticalPower,
+        coiOptThreshRXPowerMin                         CoiOpticalPower,
+        coiOptThreshOSNRMin                            Integer32,
+        coiOptThreshChromaticDispersionMin             Integer32,
+        coiOptThreshDifferentialGroupDelayMin          Integer32,
+        coiOptThreshSecondOrderPMDMin                  Integer32,
+        coiOptThreshPolarizationDependentLossMin       Integer32,
+        coiOptThreshPolarizationChangeRateMin          Integer32,
+        coiOptThreshPhaseNoiseMin                      Integer32,
+        coiOptThreshLBCMin                             Integer32,
+        coiOptThreshTXPowerMax                         CoiOpticalPower,
+        coiOptThreshRXPowerMax                         CoiOpticalPower,
+        coiOptThreshOSNRMax                            Integer32,
+        coiOptThreshChromaticDispersionMax             Integer32,
+        coiOptThreshDifferentialGroupDelayMax          Integer32,
+        coiOptThreshSecondOrderPMDMax                  Integer32,
+        coiOptThreshPolarizationDependentLossMax       Integer32,
+        coiOptThreshPolarizationChangeRateMax          Integer32,
+        coiOptThreshPhaseNoiseMax                      Integer32,
+        coiOptThreshLBCMax                             Integer32,
+        coiOptThreshTXPowerEnableMin                   TruthValue,
+        coiOptThreshRXPowerEnableMin                   TruthValue,
+        coiOptThreshOSNREnableMin                      TruthValue,
+        coiOptThreshChromaticDispersionEnableMin       TruthValue,
+        coiOptThreshDifferentialGroupDelayEnableMin    TruthValue,
+        coiOptThreshSecondOrderPMDEnableMin            TruthValue,
+        coiOptThreshPolarizationDependentLossEnableMin TruthValue,
+        coiOptThreshPolarizationChangeRateEnableMin    TruthValue,
+        coiOptThreshPhaseNoiseEnableMin                TruthValue,
+        coiOptThreshLBCEnableMin                       TruthValue,
+        coiOptThreshTXPowerEnableMax                   TruthValue,
+        coiOptThreshRXPowerEnableMax                   TruthValue,
+        coiOptThreshOSNREnableMax                      TruthValue,
+        coiOptThreshChromaticDispersionEnableMax       TruthValue,
+        coiOptThreshDifferentialGroupDelayEnableMax    TruthValue,
+        coiOptThreshSecondOrderPMDEnableMax            TruthValue,
+        coiOptThreshPolarizationDependentLossEnableMax TruthValue,
+        coiOptThreshPolarizationChangeRateEnableMax    TruthValue,
+        coiOptThreshPhaseNoiseEnableMax                TruthValue,
+        coiOptThreshLBCEnableMax                       TruthValue
+}
+
+coiOptThreshIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type during which the
+        performance statistics are accumulated for the interface."
+    ::= { coiOpticalThresholdEntry 1 }
+
+coiOptThreshTXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        Transmit power for the interface in 1/100 dBm."
+    ::= { coiOpticalThresholdEntry 2 }
+
+coiOptThreshRXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        Receive power for the interface in 1/100 dBm."
+    ::= { coiOpticalThresholdEntry 3 }
+
+coiOptThreshOSNRMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        Optical Signal to Noise Ratio for the interface in 1/100 dB."
+    ::= { coiOpticalThresholdEntry 4 }
+
+coiOptThreshChromaticDispersionMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "ps/nm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        measure of spread of light pulse for the interface in ps/nm."
+    ::= { coiOpticalThresholdEntry 5 }
+
+coiOptThreshDifferentialGroupDelayMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        propagation time difference between eigenmodes X and Y for the
+        interface in 1/100 ps."
+    ::= { coiOpticalThresholdEntry 6 }
+
+coiOptThreshSecondOrderPMDMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps^2"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        Second Order Polarization Mode Dispersion for the interface in
+        1/100 ps^2."
+    ::= { coiOpticalThresholdEntry 7 }
+
+coiOptThreshPolarizationDependentLossMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        Polarization Dependent Loss for the interface in 1/100 dB."
+    ::= { coiOpticalThresholdEntry 8 }
+
+coiOptThreshPolarizationChangeRateMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 rad/s"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        Polarization Change Rate for the interface in 1/100 rad/s."
+    ::= { coiOpticalThresholdEntry 9 }
+
+coiOptThreshPhaseNoiseMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/1000 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minimum
+        Fluctuations in the Phase of a Waveform for the interface in
+        1/1000 dB."
+    ::= { coiOpticalThresholdEntry 10 }
+
+coiOptThreshLBCMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..1000)
+    UNITS           "1/10 %"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of minumum
+        Laser Bias Current in 1/10%."
+    ::= { coiOpticalThresholdEntry 11 }
+
+coiOptThreshTXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        Transmit power for the interface in 1/100 dBm."
+    ::= { coiOpticalThresholdEntry 12 }
+
+coiOptThreshRXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        Receive power for the interface in 1/100 dBm."
+    ::= { coiOpticalThresholdEntry 13 }
+
+coiOptThreshOSNRMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        Optical Signal to Noise Ratio for the interface in 1/100 dB."
+    ::= { coiOpticalThresholdEntry 14 }
+
+coiOptThreshChromaticDispersionMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "ps/nm"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        measure of spread of light pulse for the interface in ps/nm."
+    ::= { coiOpticalThresholdEntry 15 }
+
+coiOptThreshDifferentialGroupDelayMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        propagation time difference between eigenmodes X and Y for the
+        interface in 1/100 ps."
+    ::= { coiOpticalThresholdEntry 16 }
+
+coiOptThreshSecondOrderPMDMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps^2"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        Second Order Polarization Mode Dispersion for the interface in
+        1/100 ps^2."
+    ::= { coiOpticalThresholdEntry 17 }
+
+coiOptThreshPolarizationDependentLossMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        Polarization Dependent Loss for the interface in 1/100 dB."
+    ::= { coiOpticalThresholdEntry 18 }
+
+coiOptThreshPolarizationChangeRateMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 rad/s"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        Polarization Change Rate in 1/100 rad/s for the interface."
+    ::= { coiOpticalThresholdEntry 19 }
+
+coiOptThreshPhaseNoiseMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/1000 dB"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        Fluctuations in the Phase of a Waveform in 1/1000 dB for the
+        interface."
+    ::= { coiOpticalThresholdEntry 20 }
+
+coiOptThreshLBCMax OBJECT-TYPE
+    SYNTAX          Integer32 (0..1000)
+    UNITS           "1/10 %"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the threshold of maximum
+        Laser Bias Current in 1/10 % for the interface."
+    ::= { coiOpticalThresholdEntry 21 }
+
+coiOptThreshTXPowerEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of threshold
+        min Transmit power for the interface."
+    ::= { coiOpticalThresholdEntry 22 }
+
+coiOptThreshRXPowerEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold min Receive power for the interface."
+    ::= { coiOpticalThresholdEntry 23 }
+
+coiOptThreshOSNREnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold min Optical Signal to Noise Ratio for the interface."
+    ::= { coiOpticalThresholdEntry 24 }
+
+coiOptThreshChromaticDispersionEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold min measure of spread of light pulse for the
+        interface."
+    ::= { coiOpticalThresholdEntry 25 }
+
+coiOptThreshDifferentialGroupDelayEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold min propagation time difference between eigenmodes X
+        and Y for the interface."
+    ::= { coiOpticalThresholdEntry 26 }
+
+coiOptThreshSecondOrderPMDEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold min Second Order Polarization Mode Dispersion for
+        the interface."
+    ::= { coiOpticalThresholdEntry 27 }
+
+coiOptThreshPolarizationDependentLossEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold min Polarization Dependent Loss for the interface."
+    ::= { coiOpticalThresholdEntry 28 }
+
+coiOptThreshPolarizationChangeRateEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold min Polarization Change Rate for the interface."
+    ::= { coiOpticalThresholdEntry 29 }
+
+coiOptThreshPhaseNoiseEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold min Fluctuations in the Phase of a Waveform for the
+        interface."
+    ::= { coiOpticalThresholdEntry 30 }
+
+coiOptThreshLBCEnableMin OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold min Laser Bias Current for the interface."
+    ::= { coiOpticalThresholdEntry 31 }
+
+coiOptThreshTXPowerEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold max Transmit power for the interface."
+    ::= { coiOpticalThresholdEntry 32 }
+
+coiOptThreshRXPowerEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold max Receive power for the interface."
+    ::= { coiOpticalThresholdEntry 33 }
+
+coiOptThreshOSNREnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold max Optical Signal to Noise Ratio for the interface."
+    ::= { coiOpticalThresholdEntry 34 }
+
+coiOptThreshChromaticDispersionEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold max measure of spread of light pulse for the
+        interface."
+    ::= { coiOpticalThresholdEntry 35 }
+
+coiOptThreshDifferentialGroupDelayEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold max propagation time difference between eigenmodes
+        X and Y for the interface."
+    ::= { coiOpticalThresholdEntry 36 }
+
+coiOptThreshSecondOrderPMDEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold max Second Order Polarization Mode Dispersion for the
+        interface."
+    ::= { coiOpticalThresholdEntry 37 }
+
+coiOptThreshPolarizationDependentLossEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold max Polarization Dependent Loss for the interface."
+    ::= { coiOpticalThresholdEntry 38 }
+
+coiOptThreshPolarizationChangeRateEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold max Polarization Change Rate for the interface."
+    ::= { coiOpticalThresholdEntry 39 }
+
+coiOptThreshPhaseNoiseEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold max Fluctuations in the Phase of a Waveform for the
+        interface."
+    ::= { coiOpticalThresholdEntry 40 }
+
+coiOptThreshLBCEnableMax OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used to configure the enablement of the
+        threshold max Laser Bias Current for the interface."
+    ::= { coiOpticalThresholdEntry 41 }
+
+coiOpticalCurrentTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOpticalCurrentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides current information for optical layer
+        related attributes of interfaces with an ifType of
+        opticalChannel(195), Lane as coiOptCurrentLane and Interval
+        as coiOptCurrentIntervalType."
+    ::= { coiOpticalPerformanceMonitoring 2 }
+
+coiOpticalCurrentEntry OBJECT-TYPE
+    SYNTAX          CoiOpticalCurrentEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing current information on optical layer
+        related attributes of interfaces with an ifType
+        opticalChannel(195). Entries are created by the feature when
+        a new interface is added to the ifTable."
+    INDEX           {
+                        ifIndex,
+                        coiOptCurrentLane,
+                        coiOptCurrentIntervalType
+                    }
+    ::= { coiOpticalCurrentTable 1 }
+
+CoiOpticalCurrentEntry ::= SEQUENCE {
+        coiOptCurrentLane                          Integer32,
+        coiOptCurrentIntervalType                  CoiIntervalType,
+        coiOptCurrentTXPowerMax                    CoiOpticalPower,
+        coiOptCurrentRXPowerMax                    CoiOpticalPower,
+        coiOptCurrentOSNRMax                       Integer32,
+        coiOptCurrentChromaticDispersionMax        Integer32,
+        coiOptCurrentDifferentialGroupDelayMax     Integer32,
+        coiOptCurrentSecondOrderPMDMax             Integer32,
+        coiOptCurrentPolarizationDependentLossMax  Integer32,
+        coiOptCurrentPolarizationChangeRateMax     Integer32,
+        coiOptCurrentPhaseNoiseMax                 Integer32,
+        coiOptCurrentLBCMax                        Integer32,
+        coiOptCurrentTXPowerMin                    CoiOpticalPower,
+        coiOptCurrentRXPowerMin                    CoiOpticalPower,
+        coiOptCurrentOSNRMin                       Integer32,
+        coiOptCurrentChromaticDispersionMin        Integer32,
+        coiOptCurrentDifferentialGroupDelayMin     Integer32,
+        coiOptCurrentSecondOrderPMDMin             Integer32,
+        coiOptCurrentPolarizationDependentLossMin  Integer32,
+        coiOptCurrentPolarizationChangeRateMin     Integer32,
+        coiOptCurrentPhaseNoiseMin                 Integer32,
+        coiOptCurrentLBCMin                        Integer32,
+        coiOptCurrentTXPowerAvg                    CoiOpticalPower,
+        coiOptCurrentRXPowerAvg                    CoiOpticalPower,
+        coiOptCurrentOSNRAvg                       Integer32,
+        coiOptCurrentChromaticDispersionAvg        Integer32,
+        coiOptCurrentDifferentialGroupDelayAvg     Integer32,
+        coiOptCurrentSecondOrderPMDAvg             Integer32,
+        coiOptCurrentPolarizationDependentLossAvg  Integer32,
+        coiOptCurrentPolarizationChangeRateAvg     Integer32,
+        coiOptCurrentPhaseNoiseAvg                 Integer32,
+        coiOptCurrentLBCAvg                        Integer32,
+        coiOptCurrentTimestamp                     OCTET STRING
+}
+coiOptCurrentLane OBJECT-TYPE
+    SYNTAX          Integer32 (1..12)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the lane number for the optical
+        interface. Each optical controller is divided into data lanes
+        with each lane operating at some data rate, giving an
+        aggregated bandwidth of the controller as a whole. Lane is
+        applicable for breakout mode of operation."
+    ::= { coiOpticalCurrentEntry 1 }
+
+coiOptCurrentIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type during which the
+        current performance statistics are accumulated."
+    ::= { coiOpticalCurrentEntry 2 }
+
+coiOptCurrentTXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current max Transmit power
+        for the interface in 1/100 dBm."
+    ::= { coiOpticalCurrentEntry 3 }
+
+coiOptCurrentRXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current max Receive power for the
+        interface in 1/100 dBm."
+    ::= { coiOpticalCurrentEntry 4 }
+
+coiOptCurrentOSNRMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current max Optical Signal to Noise
+        Ratio for the interface in 1/100 dB."
+    ::= { coiOpticalCurrentEntry 5 }
+
+coiOptCurrentChromaticDispersionMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "ps/nm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current max measure of spread of
+        light pulse for the interface in ps/nm."
+    ::= { coiOpticalCurrentEntry 6 }
+
+coiOptCurrentDifferentialGroupDelayMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current max propagation time
+        difference between eigenmodes X and Y for the interface in
+        1/100 ps."
+    ::= { coiOpticalCurrentEntry 7 }
+
+coiOptCurrentSecondOrderPMDMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps^2"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current max Second Order
+        Polarization Mode Dispersion for the interface in 1/100 ps^2."
+    ::= { coiOpticalCurrentEntry 8 }
+
+coiOptCurrentPolarizationDependentLossMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current max Polarization Dependent
+        Loss for the interface in 1/100 dB."
+    ::= { coiOpticalCurrentEntry 9 }
+
+coiOptCurrentPolarizationChangeRateMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 rad/s"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current max Polarization Change
+        Rate for the interface in 1/100 rad/s."
+    ::= { coiOpticalCurrentEntry 10 }
+
+coiOptCurrentPhaseNoiseMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/1000 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current max Fluctuations in the
+        Phase of a Waveform for the interface in 1/1000 dB."
+    ::= { coiOpticalCurrentEntry 11 }
+
+coiOptCurrentLBCMax OBJECT-TYPE
+    SYNTAX          Integer32 (0..1000)
+    UNITS           "1/10 %"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current max Laser Bias Current in
+        1/10% for the interface."
+    ::= { coiOpticalCurrentEntry 12 }
+
+coiOptCurrentTXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current min Transmit power for the
+        interface in 1/100 dBm."
+    ::= { coiOpticalCurrentEntry 13 }
+
+coiOptCurrentRXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current min Receive power for the
+        interface in 1/100 dBm."
+    ::= { coiOpticalCurrentEntry 14 }
+
+coiOptCurrentOSNRMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current min Optical Signal to Noise
+        Ratio for the interface in 1/100 dB."
+    ::= { coiOpticalCurrentEntry 15 }
+
+coiOptCurrentChromaticDispersionMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "ps/nm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current min measure of spread of
+        light pulse for the interface in ps/nm."
+    ::= { coiOpticalCurrentEntry 16 }
+
+coiOptCurrentDifferentialGroupDelayMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current min propagation time
+        difference between eigenmodes X and Y for the interface in
+        1/100 ps."
+    ::= { coiOpticalCurrentEntry 17 }
+
+coiOptCurrentSecondOrderPMDMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps^2"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current min Second Order
+        Polarization Mode Dispersion for the interface in 1/100 ps^2."
+    ::= { coiOpticalCurrentEntry 18 }
+
+coiOptCurrentPolarizationDependentLossMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current min Polarization Dependent
+        Loss for the interface in 1/100 dB."
+    ::= { coiOpticalCurrentEntry 19 }
+
+coiOptCurrentPolarizationChangeRateMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 rad/s"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current min Polarization Change Rate
+        for the interface in 1/100 rad/s."
+    ::= { coiOpticalCurrentEntry 20 }
+
+coiOptCurrentPhaseNoiseMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/1000 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current min Fluctuations in the
+        Phase of a Waveform in 1/1000 dB for the interface."
+    ::= { coiOpticalCurrentEntry 21 }
+
+coiOptCurrentLBCMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..1000)
+    UNITS           "1/10 %"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current min Laser Bias Current in
+        1/10% for the interface."
+    ::= { coiOpticalCurrentEntry 22 }
+
+coiOptCurrentTXPowerAvg OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average Transmit power
+        for the interface in 1/100 dBm."
+    ::= { coiOpticalCurrentEntry 23 }
+
+coiOptCurrentRXPowerAvg OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average Receive power
+        for the interface in 1/100 dBm."
+    ::= { coiOpticalCurrentEntry 24 }
+
+coiOptCurrentOSNRAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average Optical Signal to
+        Noise Ratio for the interface in 1/100 dB."
+    ::= { coiOpticalCurrentEntry 25 }
+
+coiOptCurrentChromaticDispersionAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "ps/nm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average measure of spread of
+        light pulse for the interface in ps/nm."
+    ::= { coiOpticalCurrentEntry 26 }
+
+coiOptCurrentDifferentialGroupDelayAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average propagation time
+        difference between eigenmodes X and Y for the interface in
+        1/100 ps."
+    ::= { coiOpticalCurrentEntry 27 }
+
+coiOptCurrentSecondOrderPMDAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps^2"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average Second Order
+        Polarization Mode Dispersion for the interface in 1/100 ps^2."
+    ::= { coiOpticalCurrentEntry 28 }
+
+coiOptCurrentPolarizationDependentLossAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average Polarization
+        Dependent Loss for the interface in 1/100 dB."
+    ::= { coiOpticalCurrentEntry 29 }
+
+coiOptCurrentPolarizationChangeRateAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 rad/s"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average Polarization Change
+        Rate for the interface in 1/100 rad/s."
+    ::= { coiOpticalCurrentEntry 30 }
+
+coiOptCurrentPhaseNoiseAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/1000 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average Fluctuations in the
+        Phase of a Waveform in 1/1000 dB for the interface."
+    ::= { coiOpticalCurrentEntry 31 }
+
+coiOptCurrentLBCAvg OBJECT-TYPE
+    SYNTAX          Integer32 (0..1000)
+    UNITS           "1/10 %"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the current average Laser Bias Current
+        in 1/10% for the interface."
+    ::= { coiOpticalCurrentEntry 32 }
+
+coiOptCurrentTimestamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the timestamp for
+        the current bucket for the interface."
+    ::= { coiOpticalCurrentEntry 33 }
+
+coiOpticalIntervalTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CoiOpticalIntervalEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides interval information for optical layer
+        related attributes of interfaces with an ifType of
+        opticalChannel(195), lane as coiOptIntervalLane, Interval as
+        coiOptIntervalIntervalType and history bucket as
+        coiOptIntervalIntervalType."
+    ::= { coiOpticalPerformanceMonitoring 3 }
+
+coiOpticalIntervalEntry OBJECT-TYPE
+    SYNTAX          CoiOpticalIntervalEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing interval information on optical layer
+        related attributes of interfaces with an ifType
+        opticalChannel(195). Entries are created by the feature when a
+        new interface is added to the ifTable."
+    INDEX           {
+                        ifIndex,
+                        coiOptIntervalLane,
+                        coiOptIntervalIntervalType,
+                        coiOptIntervalNum
+                    }
+    ::= { coiOpticalIntervalTable 1 }
+
+CoiOpticalIntervalEntry ::= SEQUENCE {
+        coiOptIntervalLane                          Integer32,
+        coiOptIntervalIntervalType                  CoiIntervalType,
+        coiOptIntervalNum                           Integer32,
+        coiOptIntervalTXPowerMax                    CoiOpticalPower,
+        coiOptIntervalRXPowerMax                    CoiOpticalPower,
+        coiOptIntervalOSNRMax                       Integer32,
+        coiOptIntervalChromaticDispersionMax        Integer32,
+        coiOptIntervalDifferentialGroupDelayMax     Integer32,
+        coiOptIntervalSecondOrderPMDMax             Integer32,
+        coiOptIntervalPolarizationDependentLossMax  Integer32,
+        coiOptIntervalPolarizationChangeRateMax     Integer32,
+        coiOptIntervalPhaseNoiseMax                 Integer32,
+        coiOptIntervalLBCMax                        Integer32,
+        coiOptIntervalTXPowerMin                    CoiOpticalPower,
+        coiOptIntervalRXPowerMin                    CoiOpticalPower,
+        coiOptIntervalOSNRMin                       Integer32,
+        coiOptIntervalChromaticDispersionMin        Integer32,
+        coiOptIntervalDifferentialGroupDelayMin     Integer32,
+        coiOptIntervalSecondOrderPMDMin             Integer32,
+        coiOptIntervalPolarizationDependentLossMin  Integer32,
+        coiOptIntervalPolarizationChangeRateMin     Integer32,
+        coiOptIntervalPhaseNoiseMin                 Integer32,
+        coiOptIntervalLBCMin                        Integer32,
+        coiOptIntervalTXPowerAvg                    CoiOpticalPower,
+        coiOptIntervalRXPowerAvg                    CoiOpticalPower,
+        coiOptIntervalOSNRAvg                       Integer32,
+        coiOptIntervalChromaticDispersionAvg        Integer32,
+        coiOptIntervalDifferentialGroupDelayAvg     Integer32,
+        coiOptIntervalSecondOrderPMDAvg             Integer32,
+        coiOptIntervalPolarizationDependentLossAvg  Integer32,
+        coiOptIntervalPolarizationChangeRateAvg     Integer32,
+        coiOptIntervalPhaseNoiseAvg                 Integer32,
+        coiOptIntervalLBCAvg                        Integer32,
+        coiOptIntervalTimestamp                     OCTET STRING
+}
+
+coiOptIntervalLane OBJECT-TYPE
+    SYNTAX          Integer32 (1..12)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the lane number for the optical
+        interface. Each optical controller is divided into data lanes
+        with each lane operating at some data rate, giving an aggregated
+        bandwidth of the controller as a whole.Lane is applicable for
+        breakout mode of operation."
+    ::= { coiOpticalIntervalEntry 1 }
+
+coiOptIntervalIntervalType OBJECT-TYPE
+    SYNTAX          CoiIntervalType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object gives the interval type during which the
+        performance statistics are accumulated."
+    ::= { coiOpticalIntervalEntry 2 }
+
+coiOptIntervalNum OBJECT-TYPE
+    SYNTAX          Integer32 (1..32)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object identifies the interval for which the set of
+        interval performance values is available.
+        The interval identified by 1 is the most recent 15 minute
+        or 24 hour interval, and the interval identified by N is
+        the interval immediately preceding the one identified by N-1."
+    ::= { coiOpticalIntervalEntry 3 }
+
+coiOptIntervalTXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum Transmit power in
+        1/100 dBm for the interface."
+    ::= { coiOpticalIntervalEntry 4 }
+
+coiOptIntervalRXPowerMax OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum Receive power in
+        1/100 dBm for the interface."
+    ::= { coiOpticalIntervalEntry 5 }
+
+coiOptIntervalOSNRMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum Optical Signal to
+        Noise Ratio in 1/100 dB for the interface."
+    ::= { coiOpticalIntervalEntry 6 }
+
+coiOptIntervalChromaticDispersionMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "ps/nm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum measure of spread
+        of light pulse for the interface in ps/nm."
+    ::= { coiOpticalIntervalEntry 7 }
+
+coiOptIntervalDifferentialGroupDelayMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum propagation time
+        difference between eigenmodes X and Y for the interface in
+        1/100 ps."
+    ::= { coiOpticalIntervalEntry 8 }
+
+coiOptIntervalSecondOrderPMDMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps^2"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum Second Order
+        Polarization Mode Dispersion in 1/100 ps^2 for the interface."
+    ::= { coiOpticalIntervalEntry 9 }
+
+coiOptIntervalPolarizationDependentLossMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum Polarization
+        Dependent Loss in 1/100 dB for the interface."
+    ::= { coiOpticalIntervalEntry 10 }
+
+coiOptIntervalPolarizationChangeRateMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 rad/s"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum Polarization Change
+        Rate in 1/100 rad/s for the interface."
+    ::= { coiOpticalIntervalEntry 11 }
+
+coiOptIntervalPhaseNoiseMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/1000 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum Fluctuations in
+        the Phase of a Waveform in 1/1000 dB for the interface."
+    ::= { coiOpticalIntervalEntry 12 }
+
+coiOptIntervalLBCMax OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/10 %"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval maximum Laser Bias Current
+        in 1/10% for the interface."
+    ::= { coiOpticalIntervalEntry 13 }
+
+coiOptIntervalTXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum Transmit power in
+        1/100 dBm for the interface."
+    ::= { coiOpticalIntervalEntry 14 }
+
+coiOptIntervalRXPowerMin OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum Receive power in
+        1/100 dBm for the interface."
+    ::= { coiOpticalIntervalEntry 15 }
+
+coiOptIntervalOSNRMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum Optical Signal to
+        Noise Ratio in 1/100 dB for the interface."
+    ::= { coiOpticalIntervalEntry 16 }
+
+coiOptIntervalChromaticDispersionMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "ps/nm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum measure of spread
+        of light pulse in ps/nm for the interface."
+    ::= { coiOpticalIntervalEntry 17 }
+
+coiOptIntervalDifferentialGroupDelayMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum propagation time
+        difference between eigenmodes X and Y in 1/100 ps for the
+        interface."
+    ::= { coiOpticalIntervalEntry 18 }
+
+coiOptIntervalSecondOrderPMDMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps^2"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum Second Order
+        Polarization Mode Dispersion in 1/100 ps^2 for the interface."
+    ::= { coiOpticalIntervalEntry 19 }
+
+coiOptIntervalPolarizationDependentLossMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum Polarization
+        Dependent Loss in 1/100 dB for the interface."
+    ::= { coiOpticalIntervalEntry 20 }
+
+coiOptIntervalPolarizationChangeRateMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 rad/s"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum Polarization Change
+        Rate in 1/100 rad/s for the interface."
+    ::= { coiOpticalIntervalEntry 21 }
+
+coiOptIntervalPhaseNoiseMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/1000 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum Fluctuations in the
+        Phase of a Waveform in 1/1000 dB for the interface."
+    ::= { coiOpticalIntervalEntry 22 }
+
+coiOptIntervalLBCMin OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/10 %"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval minimum Laser Bias Current
+        in 1/10% for the interface."
+    ::= { coiOpticalIntervalEntry 23 }
+
+coiOptIntervalTXPowerAvg OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average Transmit power in
+        1/100 dBm for the interface."
+    ::= { coiOpticalIntervalEntry 24 }
+
+coiOptIntervalRXPowerAvg OBJECT-TYPE
+    SYNTAX          CoiOpticalPower
+    UNITS           "1/100 dBm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average Receive power in
+        1/100 dBm for the interface."
+    ::= { coiOpticalIntervalEntry 25 }
+
+coiOptIntervalOSNRAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average Optical Signal to
+        Noise Ratio in 1/100 dB for the interface."
+    ::= { coiOpticalIntervalEntry 26 }
+
+coiOptIntervalChromaticDispersionAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "ps/nm"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average measure of spread
+        of light pulse in ps/nm for the interface."
+    ::= { coiOpticalIntervalEntry 27 }
+
+coiOptIntervalDifferentialGroupDelayAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average propagation time
+        difference between eigenmodes X and Y in 1/100 ps for the
+        interface."
+    ::= { coiOpticalIntervalEntry 28 }
+
+coiOptIntervalSecondOrderPMDAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 ps^2"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average Second Order
+        Polarization Mode Dispersion in 1/100 ps^2 for the interface."
+    ::= { coiOpticalIntervalEntry 29 }
+
+coiOptIntervalPolarizationDependentLossAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average Polarization
+        Dependent Loss in 1/100 dB for the interface."
+    ::= { coiOpticalIntervalEntry 30 }
+
+coiOptIntervalPolarizationChangeRateAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/100 rad/s"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average Polarization Change
+        Rate in 1/100 rad/s for the interface."
+    ::= { coiOpticalIntervalEntry 31 }
+
+coiOptIntervalPhaseNoiseAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/1000 dB"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average Fluctuations in
+        the Phase of a Waveform in 1/1000 dB for the interface."
+    ::= { coiOpticalIntervalEntry 32 }
+
+coiOptIntervalLBCAvg OBJECT-TYPE
+    SYNTAX          Integer32
+    UNITS           "1/10 %"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the interval average Laser Bias Current
+        in 1/10 % for the interface."
+    ::= { coiOpticalIntervalEntry 33 }
+
+coiOptIntervalTimestamp OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the timestamp, for the bucket specified
+        by 'coiOptIntervalNum', for the interface."
+    ::= { coiOpticalIntervalEntry 34 }
+
+coiOpticalEquipmentAlarmGroup  OBJECT IDENTIFIER
+    ::= { ciscoOpticalMIBObjects 4 }
+
+coiOpticalAlarmLocation OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the location of the component that
+        raised alarm, within the device."
+    ::= { coiOpticalEquipmentAlarmGroup 1 }
+
+coiOpticalAlarmType OBJECT-TYPE
+    SYNTAX          CoiOptAlarmType
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the type of alarm that is raised."
+    ::= { coiOpticalEquipmentAlarmGroup 2 }
+
+coiOpticalAlarmTimeStamp OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object gives the time when an event occurred. This is
+        accurate only upto a second."
+    ::= { coiOpticalEquipmentAlarmGroup 3 }
+
+coiOpticalAlarmName OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This variable gives the user-visible name, which
+        uniquely identifies the alarm in the system."
+    ::= { coiOpticalEquipmentAlarmGroup 4 }
+
+coiOpticalAlarmAdditionalInfo OBJECT-TYPE
+    SYNTAX          DisplayString
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This variable provides additional info about the alarm. This
+        object would be a null string if no additional information is
+        specified."
+    ::= { coiOpticalEquipmentAlarmGroup 5 }
+
+coiOpticalAlarmSeverity OBJECT-TYPE
+    SYNTAX          CoiOptAlarmSeverity
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This variable specifies alarm severity."
+    ::= { coiOpticalEquipmentAlarmGroup 6 }
+
+coiOpticalAlarmStatus OBJECT-TYPE
+    SYNTAX          CoiOptAlarmStatus
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This variable specifies alarm status."
+    ::= { coiOpticalEquipmentAlarmGroup 7 }
+
+coiOpticalAlarmServiceAffecting OBJECT-TYPE
+    SYNTAX          CoiOptAlarmServiceAffecting
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This variable specifies the service affecting state of the
+        alarm."
+    ::= { coiOpticalEquipmentAlarmGroup 8 }
+-- MIB Conformance Statements
+
+ciscoOpticalMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoOpticalMIB 2 }
+
+ciscoOpticalMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoOpticalMIBConformance 1 }
+
+ciscoOpticalMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoOpticalMIBConformance 2 }
+
+ciscoOpticalMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated -- superceded by 
+    						   -- ciscoOpticalMIBComplianceRev1
+    DESCRIPTION
+        "The compliance statement for platforms that monitor the
+        parameters for the optical interfaces."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        coiOpticalGroup
+                     }
+    GROUP            coiOpticalControllerGroup
+    DESCRIPTION
+       "The collection of objects to allow configurations and give
+       information related to the optical layer characteristics
+       for interfaces of ifType opticalChannel(195)."
+
+    GROUP            coiOpticalControllerPerLaneGroup
+    DESCRIPTION
+       "The collection of objects to give information related to
+       the optical layer characteristics for interfaces of ifType
+       opticalChannel(195) and lane number as
+       coiOpticalControllerLane."
+
+    GROUP            coiOpticalClientInfoGroup
+    DESCRIPTION
+        "The collection of objects to give information related to
+        optical's client layer related attributes of interfaces with an
+        ifType of ethernetCsmacd(6)."
+
+    GROUP            coiOpticalThresholdGroup
+    DESCRIPTION
+       "The collection of objects used for monitoring the threshold
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195)."
+
+    GROUP            coiOpticalCurrentGroup
+    DESCRIPTION
+       "The collection of objects used for monitoring the current
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195) in a current interval."
+
+    GROUP            coiOpticalIntervalGroup
+    DESCRIPTION
+       "The collection of objects used for monitoring the interval
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195) in a given interval."
+
+    GROUP            coiOpticalNotifEnableGroup
+    DESCRIPTION
+        "The collection of objects to enable the notification
+        generations upon an interface's defect status change on optics
+        layer."
+
+    GROUP            coiOpticalNotifStatusObjectGroup
+    DESCRIPTION
+        "The object to be included in an Optical interface's
+        defect status change notification."
+
+    GROUP            coiOpticalNotifGroup
+    DESCRIPTION
+        "The optical status change notifications whenever the
+        defect status of optical layer on an interface changes."
+
+    GROUP            coiOpticalEquipmentAlarmInfoGroup
+    DESCRIPTION
+        "The optical equipment alarm notifications whenever the
+        equipment failed alarm is detected."
+    ::= { ciscoOpticalMIBCompliances 1 }
+
+ciscoOpticalMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for platforms that monitor the
+        parameters for the optical interfaces."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        coiOpticalGroup
+                     }
+    GROUP            coiOpticalControllerGroup
+    DESCRIPTION
+       "The collection of objects to allow configurations and give
+       information related to the optical layer characteristics
+       for interfaces of ifType opticalChannel(195)."
+
+    GROUP            coiOpticalControllerPerLaneGroup
+    DESCRIPTION
+       "The collection of objects to give information related to
+       the optical layer characteristics for interfaces of ifType
+       opticalChannel(195) and lane number as
+       coiOpticalControllerLane."
+
+    GROUP            coiOpticalClientInfoGroup
+    DESCRIPTION
+        "The collection of objects to give information related to
+        optical's client layer related attributes of interfaces with an
+        ifType of ethernetCsmacd(6)."
+
+    GROUP            coiOpticalThresholdGroup
+    DESCRIPTION
+       "The collection of objects used for monitoring the threshold
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195)."
+
+    GROUP            coiOpticalCurrentGroup
+    DESCRIPTION
+       "The collection of objects used for monitoring the current
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195) in a current interval."
+
+    GROUP            coiOpticalIntervalGroup
+    DESCRIPTION
+       "The collection of objects used for monitoring the interval
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195) in a given interval."
+
+    GROUP            coiOpticalNotifEnableGroup
+    DESCRIPTION
+        "The collection of objects to enable the notification
+        generations upon an interface's defect status change on optics
+        layer."
+
+    GROUP            coiOpticalNotifStatusObjectGroup
+    DESCRIPTION
+        "The object to be included in an Optical interface's
+        defect status change notification."
+
+    GROUP            coiOpticalNotifGroup
+    DESCRIPTION
+        "The optical status change notifications whenever the
+        defect status of optical layer on an interface changes."
+
+    GROUP            coiOpticalEquipmentAlarmInfoGroup
+    DESCRIPTION
+        "The optical equipment alarm notifications whenever the
+        equipment failed alarm is detected."
+
+    GROUP            coiOpticalPowerGroup
+    DESCRIPTION
+       "The collection of objects used for monitoring the total power
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195)."        
+    ::= { ciscoOpticalMIBCompliances 2 }
+
+-- units of conformance
+
+coiOpticalGroup OBJECT-GROUP
+    OBJECTS    {
+                  coiOpticalControllerLaserStatus,
+                  coiOpticalControllerTransmitPower,
+                  coiOpticalControllerOpticsType,
+                  coiOpticalControllerRXLowThreshold,
+                  coiOpticalControllerTXLowThreshold,
+                  coiOpticalControllerRXHighThreshold,
+                  coiOpticalControllerTXHighThreshold,
+                  coiOpticalControllerLBCHighThreshold,
+                  coiOpticalControllerPerLaneRXPower,
+                  coiOpticalControllerPerLaneTXPower,
+                  coiOpticalControllerPerLaneLBC,
+                  coiOpticalControllerStatus,
+                  coiOptThreshTXPowerMin,
+                  coiOptThreshRXPowerMin,
+                  coiOptThreshLBCMin,
+                  coiOptThreshTXPowerMax,
+                  coiOptThreshRXPowerMax,
+                  coiOptThreshLBCMax,
+                  coiOptCurrentTXPowerMax,
+                  coiOptCurrentRXPowerMax,
+                  coiOptCurrentLBCMax,
+                  coiOptCurrentTXPowerMin,
+                  coiOptCurrentRXPowerMin,
+                  coiOptCurrentLBCMin,
+                  coiOptCurrentTXPowerAvg,
+                  coiOptCurrentRXPowerAvg,
+                  coiOptCurrentLBCAvg,
+                  coiOptIntervalTXPowerMax,
+                  coiOptIntervalRXPowerMax,
+                  coiOptIntervalLBCMax,
+                  coiOptIntervalTXPowerMin,
+                  coiOptIntervalRXPowerMin,
+                  coiOptIntervalLBCMin,
+                  coiOptIntervalTXPowerAvg,
+                  coiOptIntervalRXPowerAvg,
+                  coiOptIntervalLBCAvg
+               }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to give information related to the
+        optical layer characteristics for interfaces of ifType
+        opticalChannel(195)."
+    ::= { ciscoOpticalMIBGroups 1 }
+
+coiOpticalControllerGroup OBJECT-GROUP
+    OBJECTS     {
+                    coiOpticalControllerWavelength,
+                    coiOpticalControllerLaserStatus,
+                    coiOpticalControllerFrequency,
+                    coiOpticalControllerChannelNumber,
+                    coiOpticalControllerTransmitPower,
+                    coiOpticalControllerOpticsType,
+                    coiOpticalControllerRXLowThreshold,
+                    coiOpticalControllerTXLowThreshold,
+                    coiOpticalControllerRXHighThreshold,
+                    coiOpticalControllerTXHighThreshold,
+                    coiOpticalControllerLBCHighThreshold,
+                    coiOpticalControllerStatus,
+                    coiOpticalControllerPortType
+                }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to allow configurations and give
+        information related to the optical layer characteristics
+        for interfaces of ifType opticalChannel(195)."
+    ::= { ciscoOpticalMIBGroups 2 }
+
+coiOpticalControllerPerLaneGroup OBJECT-GROUP
+    OBJECTS    {
+                  coiOpticalControllerPerLaneRXPower,
+                  coiOpticalControllerPerLaneTXPower,
+                  coiOpticalControllerPerLaneLBC,
+                  coiOpticalControllerPerLaneOSNR,
+                  coiOpticalControllerPerLaneChromaticDispersion,
+                  coiOpticalControllerPerLaneDifferentialGroupDelay,
+                  coiOpticalControllerPerLaneSecondOrderPMD,
+                  coiOpticalControllerPerLanePolarizationDependentLoss,
+                  coiOpticalControllerPerLanePolarizationChangeRate,
+                  coiOpticalControllerPerLanePhaseNoise
+               }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to give information related to
+        the optical layer characteristics for interfaces of ifType
+        opticalChannel(195) and lane number as
+        coiOpticalControllerLane."
+    ::= { ciscoOpticalMIBGroups 3 }
+
+coiOpticalClientInfoGroup OBJECT-GROUP
+     OBJECTS   {
+                   coiOpticalClientEthernetNeighbourMAC
+               }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to give information related to
+        optical's client layer related attributes of interfaces with an
+        ifType of ethernetCsmacd(6)."
+     ::= { ciscoOpticalMIBGroups 4 }
+
+coiOpticalThresholdGroup OBJECT-GROUP
+    OBJECTS      {
+                    coiOptThreshTXPowerMin,
+                    coiOptThreshRXPowerMin,
+                    coiOptThreshOSNRMin,
+                    coiOptThreshChromaticDispersionMin,
+                    coiOptThreshDifferentialGroupDelayMin,
+                    coiOptThreshSecondOrderPMDMin,
+                    coiOptThreshPolarizationDependentLossMin,
+                    coiOptThreshPolarizationChangeRateMin,
+                    coiOptThreshPhaseNoiseMin,
+                    coiOptThreshLBCMin,
+                    coiOptThreshTXPowerMax,
+                    coiOptThreshRXPowerMax,
+                    coiOptThreshOSNRMax,
+                    coiOptThreshChromaticDispersionMax,
+                    coiOptThreshDifferentialGroupDelayMax,
+                    coiOptThreshSecondOrderPMDMax,
+                    coiOptThreshPolarizationDependentLossMax,
+                    coiOptThreshPolarizationChangeRateMax,
+                    coiOptThreshPhaseNoiseMax,
+                    coiOptThreshLBCMax,
+                    coiOptThreshTXPowerEnableMin,
+                    coiOptThreshRXPowerEnableMin,
+                    coiOptThreshOSNREnableMin,
+                    coiOptThreshChromaticDispersionEnableMin,
+                    coiOptThreshDifferentialGroupDelayEnableMin,
+                    coiOptThreshSecondOrderPMDEnableMin,
+                    coiOptThreshPolarizationDependentLossEnableMin,
+                    coiOptThreshPolarizationChangeRateEnableMin,
+                    coiOptThreshPhaseNoiseEnableMin,
+                    coiOptThreshLBCEnableMin,
+                    coiOptThreshTXPowerEnableMax,
+                    coiOptThreshRXPowerEnableMax,
+                    coiOptThreshOSNREnableMax,
+                    coiOptThreshChromaticDispersionEnableMax,
+                    coiOptThreshDifferentialGroupDelayEnableMax,
+                    coiOptThreshSecondOrderPMDEnableMax,
+                    coiOptThreshPolarizationDependentLossEnableMax,
+                    coiOptThreshPolarizationChangeRateEnableMax,
+                    coiOptThreshPhaseNoiseEnableMax,
+                    coiOptThreshLBCEnableMax
+                }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the threshold
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195)."
+    ::= { ciscoOpticalMIBGroups 5 }
+
+coiOpticalCurrentGroup OBJECT-GROUP
+    OBJECTS     {
+                    coiOptCurrentTXPowerMax,
+                    coiOptCurrentRXPowerMax,
+                    coiOptCurrentOSNRMax,
+                    coiOptCurrentChromaticDispersionMax,
+                    coiOptCurrentDifferentialGroupDelayMax,
+                    coiOptCurrentSecondOrderPMDMax,
+                    coiOptCurrentPolarizationDependentLossMax,
+                    coiOptCurrentPolarizationChangeRateMax,
+                    coiOptCurrentPhaseNoiseMax,
+                    coiOptCurrentLBCMax,
+                    coiOptCurrentTXPowerMin,
+                    coiOptCurrentRXPowerMin,
+                    coiOptCurrentOSNRMin,
+                    coiOptCurrentChromaticDispersionMin,
+                    coiOptCurrentDifferentialGroupDelayMin,
+                    coiOptCurrentSecondOrderPMDMin,
+                    coiOptCurrentPolarizationDependentLossMin,
+                    coiOptCurrentPolarizationChangeRateMin,
+                    coiOptCurrentPhaseNoiseMin,
+                    coiOptCurrentLBCMin,
+                    coiOptCurrentTXPowerAvg,
+                    coiOptCurrentRXPowerAvg,
+                    coiOptCurrentOSNRAvg,
+                    coiOptCurrentChromaticDispersionAvg,
+                    coiOptCurrentDifferentialGroupDelayAvg,
+                    coiOptCurrentSecondOrderPMDAvg,
+                    coiOptCurrentPolarizationDependentLossAvg,
+                    coiOptCurrentPolarizationChangeRateAvg,
+                    coiOptCurrentPhaseNoiseAvg,
+                    coiOptCurrentLBCAvg,
+                    coiOptCurrentTimestamp
+                }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects used for monitoring the current
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195) in a current interval."
+    ::= { ciscoOpticalMIBGroups 6 }
+
+coiOpticalIntervalGroup OBJECT-GROUP
+    OBJECTS     {
+                    coiOptIntervalTXPowerMax,
+                    coiOptIntervalRXPowerMax,
+                    coiOptIntervalOSNRMax,
+                    coiOptIntervalChromaticDispersionMax,
+                    coiOptIntervalDifferentialGroupDelayMax,
+                    coiOptIntervalSecondOrderPMDMax,
+                    coiOptIntervalPolarizationDependentLossMax,
+                    coiOptIntervalPolarizationChangeRateMax,
+                    coiOptIntervalPhaseNoiseMax,
+                    coiOptIntervalLBCMax,
+                    coiOptIntervalTXPowerMin,
+                    coiOptIntervalRXPowerMin,
+                    coiOptIntervalOSNRMin,
+                    coiOptIntervalChromaticDispersionMin,
+                    coiOptIntervalDifferentialGroupDelayMin,
+                    coiOptIntervalSecondOrderPMDMin,
+                    coiOptIntervalPolarizationDependentLossMin,
+                    coiOptIntervalPolarizationChangeRateMin,
+                    coiOptIntervalPhaseNoiseMin,
+                    coiOptIntervalLBCMin,
+                    coiOptIntervalTXPowerAvg,
+                    coiOptIntervalRXPowerAvg,
+                    coiOptIntervalOSNRAvg,
+                    coiOptIntervalChromaticDispersionAvg,
+                    coiOptIntervalDifferentialGroupDelayAvg,
+                    coiOptIntervalSecondOrderPMDAvg,
+                    coiOptIntervalPolarizationDependentLossAvg,
+                    coiOptIntervalPolarizationChangeRateAvg,
+                    coiOptIntervalPhaseNoiseAvg,
+                    coiOptIntervalLBCAvg,
+                    coiOptIntervalTimestamp
+                }
+    STATUS          current
+    DESCRIPTION
+       "The collection of objects used for monitoring the interval
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195) in a given interval."
+    ::= { ciscoOpticalMIBGroups 7 }
+
+coiOpticalNotifEnableGroup OBJECT-GROUP
+    OBJECTS         { coiOpticalNotifEnabled }
+    STATUS          current
+    DESCRIPTION
+        "The collection of objects to enable the notification
+        generations upon an interface's defect status change on optics
+        layer."
+    ::= { ciscoOpticalMIBGroups 8 }
+
+coiOpticalNotifStatusObjectGroup OBJECT-GROUP
+    OBJECTS         { coiOpticalControllerStatus }
+    STATUS          current
+    DESCRIPTION
+        "The object to be included in an Optical interface's
+        defect status change notification."
+    ::= { ciscoOpticalMIBGroups 9 }
+
+coiOpticalNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { 
+                      coiOpticsStatusChange,
+                      coiOpticalEquipmentAlarm
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The optical status change notifications whenever the
+        defect status of optical layer on an interface changes."
+    ::= { ciscoOpticalMIBGroups 10 }
+
+coiOpticalEquipmentAlarmInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        coiOpticalAlarmLocation,
+                        coiOpticalAlarmType,
+                        coiOpticalAlarmTimeStamp,
+                        coiOpticalAlarmName,
+                        coiOpticalAlarmAdditionalInfo,
+                        coiOpticalAlarmSeverity,
+                        coiOpticalAlarmStatus,
+                        coiOpticalAlarmServiceAffecting
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The optical equipment notifications whenever the
+        alarm is generated."
+    ::= { ciscoOpticalMIBGroups 11 }
+
+coiOpticalPowerGroup OBJECT-GROUP
+    OBJECTS         {
+				        coiOpticalControllerTotalRXPower,
+        				coiOpticalControllerTotalTXPower
+                    }
+    STATUS          current
+    DESCRIPTION
+       "The collection of objects used for monitoring the total power
+       information for optical layer related attributes of interfaces
+       with an ifType of opticalChannel(195)."
+    ::= { ciscoOpticalMIBGroups 12 }
+
+END
+
+
+
+
+
+
+
+

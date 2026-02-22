@@ -1,0 +1,293 @@
+-- MIB file created 10-Nov-2006 14:18:45, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-AUTHORIZATION-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-AUTHORIZATION-STATS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeInterval
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    CiscoPort
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoAuthorizationStatsMibModule OBJECT IDENTIFIER ::= { ciscoMgmt 343 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200611080000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--    170 W Tasman Drive 
+--    San Jose, CA  95134 
+--    USA 
+--    
+--    Tel: +1 800 553-NETS 
+--    E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Cisco User Authorization Statistics MIB models 
+--    counters and objects that are of management  
+--    interest. 
+--  RevDate
+--    200611080000Z
+--  RevDescr
+--    The initial version of this MIB.
+
+cStatsAuthorization OBJECT IDENTIFIER ::= { ciscoAuthorizationStatsMibModule 1 }
+cAuthorizationGlobal OBJECT IDENTIFIER ::= { cStatsAuthorization 1 }
+cAuthorizationMIBConformance OBJECT IDENTIFIER ::= { ciscoAuthorizationStatsMibModule 2 }
+cAuthorizationMIBCompliances OBJECT IDENTIFIER ::= { cAuthorizationMIBConformance 1 }
+cAuthorizationGroup OBJECT IDENTIFIER ::= { cAuthorizationMIBConformance 2 }
+
+cAuthorizationStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CAuthorizationStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The list of servers that may be queried for authorization 
+        attributes for connecting IPSec tunnel users."
+    ::= { cStatsAuthorization 2 }
+
+cAuthorizationStatsEntry OBJECT-TYPE
+    SYNTAX CAuthorizationStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cAuthorizationStatsTable. These entries are 
+        created or destroyed whenever an authorization server  
+        connection is added or removed via one of the management  
+        interfaces to the tunnel server."
+    INDEX { cAuthorizServerIndex }
+    ::= { cAuthorizationStatsTable 1 }
+
+CAuthorizationStatsEntry ::= SEQUENCE {
+    cAuthorizServerIndex INTEGER,
+    cAuthorizServerAddressType InetAddressType,
+    cAuthorizServerAddress InetAddress,
+    cAuthorizClientServerPortNum CiscoPort,
+    cAuthorizClientRoundTripTime TimeInterval,
+    cAuthorizClientAccessRequests Counter,
+    cAuthorizClientAccessRetrans Counter,
+    cAuthorizClientAccessAccepts Counter,
+    cAuthorizClientAccessRejects Counter,
+    cAuthorizClientAccessChallenges Counter,
+    cAuthorizClientMalAccessResps Counter,
+    cAuthorizClientBadAuthenticates Counter,
+    cAuthorizClientPendingRequests Gauge,
+    cAuthorizClientTimeouts Counter,
+    cAuthorizClientUnknownTypes Counter,
+    cAuthorizServerGroupId INTEGER
+    }
+
+cAuthorizServerIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The unique number used as the index for this row."
+    ::= { cAuthorizationStatsEntry 1 }
+
+cAuthorizServerAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The type of Internet address used by this entry."
+    ::= { cAuthorizationStatsEntry 2 }
+
+cAuthorizServerAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the authorization server whose 
+        statistics are being reported."
+    ::= { cAuthorizationStatsEntry 3 }
+
+cAuthorizClientServerPortNum OBJECT-TYPE
+    SYNTAX CiscoPort
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The UDP The port on the server to which authorization 
+        requests are directed."
+    ::= { cAuthorizationStatsEntry 4 }
+
+cAuthorizClientRoundTripTime OBJECT-TYPE
+    SYNTAX TimeInterval
+--    Rsyntax INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time interval between the most recent 
+        Access-Reply/Access-Challenge and the Access-Request."
+    ::= { cAuthorizationStatsEntry 5 }
+
+cAuthorizClientAccessRequests OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of  Access-Request packets sent to 
+        authorization server since client start-up.  
+        This does not include retransmissions."
+    ::= { cAuthorizationStatsEntry 6 }
+
+cAuthorizClientAccessRetrans OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of  Access-Request packets retransmitted 
+        to authorization server since client start-up."
+    ::= { cAuthorizationStatsEntry 7 }
+
+cAuthorizClientAccessAccepts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of  Access-Accept packets received by 
+        authorization server since client start-up."
+    ::= { cAuthorizationStatsEntry 8 }
+
+cAuthorizClientAccessRejects OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of  Access-Reject packets received by 
+        authorization server since client start-up."
+    ::= { cAuthorizationStatsEntry 9 }
+
+cAuthorizClientAccessChallenges OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of  Access-Challenge packets received by 
+        authorization server since client start-up."
+    ::= { cAuthorizationStatsEntry 10 }
+
+cAuthorizClientMalAccessResps OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of malformed Access-Response packets 
+        received by authoriztion server since client start-up.  
+        Malformed packets include packets with an invalid length.  
+        Bad authenticators or Signature attributes are not included  
+        as malformed access responses."
+    ::= { cAuthorizationStatsEntry 11 }
+
+cAuthorizClientBadAuthenticates OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Access-Response packets containing 
+        invalid authenticators or Signature attributes received by  
+        authorization server since client start-up."
+    ::= { cAuthorizationStatsEntry 12 }
+
+cAuthorizClientPendingRequests OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of  Access-Request packets destined for 
+        authorization server that have not yet timed out or received  
+        a response. This variable is incremented when an  
+        Access-Request is sent and decremented due to receipt of an  
+        Access-Reply or Access-Challenge, a timeout or  
+        retransmission."
+    ::= { cAuthorizationStatsEntry 13 }
+
+cAuthorizClientTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of timeouts to authorization server since 
+        client startup. After a timeout the client may retry to the  
+        same server, send to a different server, or give up. A retry  
+        to the same server is counted as a retransmit as well as a  
+        timeout. A send to a different server is counted as a Request  
+        as well as a timeout."
+    ::= { cAuthorizationStatsEntry 14 }
+
+cAuthorizClientUnknownTypes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of unknown type packets received by 
+        authorization server since client start-up."
+    ::= { cAuthorizationStatsEntry 15 }
+
+cAuthorizServerGroupId OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The Id of user group associated with authorization 
+        server. The group ID is an integer value assigned by  
+        the tunnel server. Group ID 0 is a special value used  
+        to refer all gorups."
+    ::= { cAuthorizationStatsEntry 16 }
+
+cAuthorizationClientMIBGroup OBJECT IDENTIFIER ::= { cAuthorizationGroup 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The basic collection of objects providing management of 
+--    Authorization Clients.
+--  objects
+--    cAuthorizServerAddressType, cAuthorizServerAddress, 
+--    cAuthorizClientServerPortNum, cAuthorizClientRoundTripTime, 
+--    cAuthorizClientAccessRequests, cAuthorizClientAccessRetrans, 
+--    cAuthorizClientAccessAccepts, cAuthorizClientAccessRejects, 
+--    cAuthorizClientAccessChallenges, 
+--    cAuthorizClientMalAccessResps, 
+--    cAuthorizClientBadAuthenticates, 
+--    cAuthorizClientPendingRequests, cAuthorizClientTimeouts, 
+--    cAuthorizClientUnknownTypes, cAuthorizServerGroupId
+
+cAuthorizationMIBCompliance OBJECT IDENTIFIER ::= { cAuthorizationMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for authorization clients 
+--    implementing the Authorization Client MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cAuthorizationClientMIBGroup
+
+
+END
+

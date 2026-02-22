@@ -1,0 +1,498 @@
+-- *****************************************************************
+-- CISCO-CALL-HISTORY-MIB.my:  Cisco call history MIB file
+--
+-- January 1995, Bibek A. Das
+--
+-- Copyright (c) 1995-1998 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-CALL-HISTORY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+	Integer32
+	        FROM SNMPv2-SMI
+	DisplayString,
+	TimeStamp
+		FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+	OBJECT-GROUP
+	        FROM SNMPv2-CONF
+	InterfaceIndex
+	        FROM IF-MIB
+        ciscoMgmt
+	        FROM CISCO-SMI;
+     
+
+ciscoCallHistoryMib MODULE-IDENTITY
+	LAST-UPDATED	"9611190000Z"
+	ORGANIZATION	"Cisco Systems, Inc."
+	CONTACT-INFO
+		"       Cisco Systems
+			Customer Service
+
+		Postal: 170 W Tasman Drive
+			San Jose, CA  95134
+			USA
+
+		   Tel: +1 800 553-NETS
+
+		E-mail: cs-wan@cisco.com"
+	DESCRIPTION
+		"The MIB module to describe and store the call information
+		 of the routers for accounting purposes."
+	REVISION        "9508150000Z"
+	DESCRIPTION
+		"Fix typo which caused conflicting syntax."
+        REVISION        "9507200000Z"
+        DESCRIPTION
+               "Add a new object ciscoCallHistoryDialReason to the call
+                history table."
+        REVISION        "9508150000Z"
+        DESCRIPTION
+               "Add  new objects to the call history table to store the
+                time of day, and transmitted/received packets/bytes."
+	REVISION        "9611190000Z"
+	DESCRIPTION
+		"Add new objects to the call history table to store the
+                 advice of charge information for recorded units or
+                 currency type, amount and multipler."
+
+	::= { ciscoMgmt 27 }
+
+-- This MIB describes the objects defined  and used for storing the
+-- call information for all calls. 
+	
+-- Call History Mib objects definitions
+
+ciscoCallHistoryMibObjects OBJECT IDENTIFIER ::= { ciscoCallHistoryMib 1 }
+
+ciscoCallHistory OBJECT IDENTIFIER ::= { ciscoCallHistoryMibObjects 1 }
+
+ciscoCallHistoryTableMaxLength OBJECT-TYPE
+        SYNTAX          Integer32 (0..500)
+        MAX-ACCESS      read-write
+        STATUS          current
+        DESCRIPTION
+	       "The upper limit on the number of entries that the
+		ciscoCallHistoryTable may contain.  A value of 0
+		will prevent any history from being retained. When
+		this table is full, the oldest entry will be deleted
+		and the new one will be created."
+        DEFVAL  { 100 }
+	::= { ciscoCallHistory 1 }
+	
+ciscoCallHistoryRetainTimer  OBJECT-TYPE
+	SYNTAX	Integer32 (0..500)
+	UNITS   "minutes"
+	MAX-ACCESS	read-write
+	STATUS	current
+	DESCRIPTION
+                "The minimum amount of time that an ciscoCallHistoryEntry
+	        will be maintained before being deleted.  A value of
+	        0 will prevent any history from being retained, but
+	        will not prevent callCompletion traps being genarated."
+        DEFVAL  { 15 }
+	::= { ciscoCallHistory 2 }
+
+-- ciscoCallHistoryTable
+-- Table to store the past call information. The call information will
+-- include the destination number, the call connect time, the call 
+-- disconnect time and  the disconnection cause. These calls could 
+-- be circuit switched or they could be virtual circuits. 
+-- History of each and every call will be stored. An entry will be 
+-- created when a call gets disconnected. At the time
+-- of creation, the entry will contain the connect time and the
+-- disconnect time and other call information." 
+
+ciscoCallHistoryTable  OBJECT-TYPE
+        SYNTAX   SEQUENCE OF CallHistoryEntry
+        MAX-ACCESS   not-accessible
+        STATUS   current
+        DESCRIPTION
+              "A table containing information about specific 
+               calls to a specific destination."
+	::= { ciscoCallHistory 3 }
+
+ciscoCallHistoryEntry OBJECT-TYPE
+        SYNTAX   CallHistoryEntry
+        MAX-ACCESS   not-accessible
+        STATUS   current
+        DESCRIPTION
+              "The information regarding a single Connection." 
+        INDEX {  ciscoCallHistoryStartTime, ciscoCallHistoryIndex }
+        ::= { ciscoCallHistoryTable 1 }
+
+
+CallHistoryEntry ::=
+        SEQUENCE {
+            ciscoCallHistoryStartTime                 TimeStamp,
+            ciscoCallHistoryIndex                     Integer32,
+            ciscoCallHistoryCallingNumber             OCTET STRING,
+            ciscoCallHistoryCalledNumber              OCTET STRING,
+            ciscoCallHistoryInterfaceNumber           InterfaceIndex,
+            ciscoCallHistoryDestinationAddress        OCTET STRING,
+            ciscoCallHistoryDestinationHostName       DisplayString,
+            ciscoCallHistoryCallDisconnectCause       INTEGER,
+            ciscoCallHistoryCallConnectionTime        TimeStamp,
+            ciscoCallHistoryCallDisconnectTime        TimeStamp,
+            ciscoCallHistoryDialReason                DisplayString,
+            ciscoCallHistoryConnectTimeOfDay          DisplayString,
+            ciscoCallHistoryDisconnectTimeOfDay       DisplayString,
+            ciscoCallHistoryTransmitPackets           Integer32,
+            ciscoCallHistoryTransmitBytes             Integer32,
+            ciscoCallHistoryReceivePackets            Integer32,
+            ciscoCallHistoryReceiveBytes              Integer32,
+            ciscoCallHistoryRecordedUnits             Integer32,
+            ciscoCallHistoryCurrency                  DisplayString,
+            ciscoCallHistoryCurrencyAmount            Integer32,
+            ciscoCallHistoryMultiplier                INTEGER
+          }
+
+ciscoCallHistoryStartTime OBJECT-TYPE
+        SYNTAX   TimeStamp
+        MAX-ACCESS   not-accessible
+        STATUS   current
+        DESCRIPTION
+             "The value of sysUpTime when this  call history entry was
+              created. This will be useful for an NMS to retrieve all 
+	      calls after a specific time."
+        ::= { ciscoCallHistoryEntry 1 }
+
+ciscoCallHistoryIndex   OBJECT-TYPE
+        SYNTAX  Integer32 (1..2147483647)
+        MAX-ACCESS   not-accessible
+        STATUS   current
+        DESCRIPTION
+	    "Index variable to access the CallHistoryEntry objects
+	     of the ciscoCallHistoryTable."
+        ::= { ciscoCallHistoryEntry 2 }
+
+ciscoCallHistoryCallingNumber    OBJECT-TYPE
+        SYNTAX   OCTET STRING (SIZE (1..255))
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "The calling number for this  call. If the number is 
+	      not available, then it will have a length of zero. 
+	      The variable is instantiated if this is an incoming 
+              call." 
+        ::= { ciscoCallHistoryEntry 3 }
+	 
+ciscoCallHistoryCalledNumber    OBJECT-TYPE
+        SYNTAX   OCTET STRING (SIZE (1..255))
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "The number this  call   is connected to. This variable is
+             instantiated if this is an outgoing call."
+        ::= { ciscoCallHistoryEntry 4 }
+	 
+         
+ciscoCallHistoryInterfaceNumber    OBJECT-TYPE
+        SYNTAX   InterfaceIndex
+	MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+	    "This is the ifIndex value of the highest number of interface
+	     through which the call was made."
+        ::= { ciscoCallHistoryEntry 5 }
+
+
+ciscoCallHistoryDestinationAddress   OBJECT-TYPE     
+        SYNTAX   OCTET STRING (SIZE (1..60))
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "The address of the host this  call  is connected 
+	      to, if it is available. Most devices/routers connected 
+	      to an interface  have an address and this object will 
+	      store that. The variable is not instantiated if it
+              is not available."
+        ::= { ciscoCallHistoryEntry 6 }
+
+ciscoCallHistoryDestinationHostName   OBJECT-TYPE     
+        SYNTAX   DisplayString
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "The name of the host this  call  is 
+	      connected to. Most devices/routers connected to
+	      an interface  have a name and this object will 
+	      store that name."
+        ::= { ciscoCallHistoryEntry 7 }
+
+ciscoCallHistoryCallDisconnectCause   OBJECT-TYPE
+        SYNTAX   INTEGER {
+		   other(1),
+		   normalDisconnectSent(2),
+		   normalDisconnectReceived(3),
+		   networkOutOfOrder(4),
+		   callRejected(5),
+		   userBusy(6),
+		   noCircuitChannelAvailable(7),
+		   interworkingError(8)
+         }
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "The reason for the call termination." 
+        ::= { ciscoCallHistoryEntry 8 }
+
+ciscoCallHistoryCallConnectionTime OBJECT-TYPE
+        SYNTAX   TimeStamp
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "The value of sysUpTime when the  call was connected."
+        ::= { ciscoCallHistoryEntry 9 }
+
+
+ciscoCallHistoryCallDisconnectTime OBJECT-TYPE
+        SYNTAX   TimeStamp
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+              "The value of sysUpTime when the call got disconnected 
+	      last." 
+        ::= { ciscoCallHistoryEntry 10 }
+         
+ciscoCallHistoryDialReason    OBJECT-TYPE
+       SYNTAX   DisplayString
+       MAX-ACCESS   read-only
+       STATUS   current
+       DESCRIPTION
+             "The reason for initiating this  call. This may include
+              the destination address of the interesting packet that
+              forced us to dial. This variable is instantiated for 
+              an outgoing call."
+       ::= { ciscoCallHistoryEntry 11 }
+
+ciscoCallHistoryConnectTimeOfDay    OBJECT-TYPE
+        SYNTAX   DisplayString
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "The time of day at the time of call connect."
+        ::= { ciscoCallHistoryEntry 12 }
+
+ciscoCallHistoryDisconnectTimeOfDay    OBJECT-TYPE
+        SYNTAX   DisplayString
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "The time of day when the call disconnected."
+        ::= { ciscoCallHistoryEntry 13 }
+
+ciscoCallHistoryTransmitPackets    OBJECT-TYPE
+        SYNTAX   Integer32
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "Number of packets transmitted when this call was up."
+        ::= { ciscoCallHistoryEntry 14 }
+
+ciscoCallHistoryTransmitBytes    OBJECT-TYPE
+        SYNTAX   Integer32
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "Number of Bytes transmitted when this call was up."
+        ::= { ciscoCallHistoryEntry 15 }
+
+ciscoCallHistoryReceivePackets    OBJECT-TYPE
+        SYNTAX   Integer32
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "Number of packets received when this call was up."
+        ::= { ciscoCallHistoryEntry 16 }
+
+ciscoCallHistoryReceiveBytes    OBJECT-TYPE
+        SYNTAX   Integer32
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "Number of Bytes received when this call was up."
+        ::= { ciscoCallHistoryEntry 17 }
+
+ciscoCallHistoryRecordedUnits    OBJECT-TYPE
+        SYNTAX   Integer32 (0..16777215)
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "Advice of Charge recorded units when this call was up."
+        REFERENCE
+             "ISDN AOC supplementary service DSS1 protocol ETS 300 182"
+        ::= { ciscoCallHistoryEntry 18 }
+
+ciscoCallHistoryCurrency         OBJECT-TYPE
+        SYNTAX   DisplayString
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "Advice of Charge currency type."
+        REFERENCE
+             "ISDN AOC supplementary service DSS1 protocol ETS 300 182"
+        ::= { ciscoCallHistoryEntry 19 }
+
+ciscoCallHistoryCurrencyAmount   OBJECT-TYPE
+        SYNTAX   Integer32 (0..16777215)
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "Advice of Charge currency amount when this call was up."
+        REFERENCE
+             "ISDN AOC supplementary service DSS1 protocol ETS 300 182"
+        ::= { ciscoCallHistoryEntry 20 }
+
+ciscoCallHistoryMultiplier       OBJECT-TYPE
+        SYNTAX   INTEGER {
+		   oneThousandth(0),
+		   oneHundreth(1),
+		   oneTenth(2),
+		   one(3),
+		   ten(4),
+		   hundred(5),
+		   thousand(6)
+         }
+        MAX-ACCESS   read-only
+        STATUS   current
+        DESCRIPTION
+             "Advice of Charge multiplier for currency amount"
+        REFERENCE
+             "ISDN AOC supplementary service DSS1 protocol ETS 300 182"
+        ::= { ciscoCallHistoryEntry 21 }
+
+-- conformance information
+
+ciscoCallHistoryMibConformance  OBJECT IDENTIFIER ::= { ciscoCallHistoryMib 2 }
+ciscoCallHistoryMibCompliances  OBJECT IDENTIFIER ::= { ciscoCallHistoryMibConformance 1 }
+ciscoCallHistoryMibGroups	OBJECT IDENTIFIER ::= { ciscoCallHistoryMibConformance 2 }
+
+
+-- compliance statements
+
+ciscoCallHistoryMibCompliance MODULE-COMPLIANCE
+      STATUS	obsolete -- superseded by ciscoCallHistoryMibComplianceRev1
+      DESCRIPTION
+		"The compliance statement for entities which implement
+		the Cisco call History MIB"
+      MODULE	-- this module
+		MANDATORY-GROUPS { ciscoCallHistoryMibGroup }
+      ::= { ciscoCallHistoryMibCompliances 1 }
+
+ciscoCallHistoryMibComplianceRev1 MODULE-COMPLIANCE
+       STATUS  obsolete -- superseded by ciscoCallHistoryMibComplianceV11R01
+       DESCRIPTION
+               "The compliance statement for entities which implement
+               the Cisco call History MIB"
+       MODULE  -- this module
+               MANDATORY-GROUPS { ciscoCallHistoryMibGroupRev1 }
+       ::= { ciscoCallHistoryMibCompliances 2 }
+ 
+ciscoCallHistoryMibComplianceV11R01 MODULE-COMPLIANCE
+       STATUS  obsolete -- superseded by ciscoCallHistoryMibComplianceV11R02
+       DESCRIPTION
+               "The compliance statement for entities which implement
+               the Cisco call History MIB"
+       MODULE  -- this module
+               MANDATORY-GROUPS { ciscoCallHistoryMibGroupRev1,
+                                  ciscoCallHistoryMibGlobalsGroup }
+       ::= { ciscoCallHistoryMibCompliances 3 }
+ 
+ciscoCallHistoryMibComplianceV11R02 MODULE-COMPLIANCE
+       STATUS  current
+       DESCRIPTION
+               "The compliance statement for entities which implement
+               the Cisco call History MIB"
+       MODULE  -- this module
+               MANDATORY-GROUPS { ciscoCallHistoryMibGroupRev2,
+                                  ciscoCallHistoryMibGlobalsGroup }
+       ::= { ciscoCallHistoryMibCompliances 4 }
+ 
+
+-- units of conformance
+
+ciscoCallHistoryMibGroup OBJECT-GROUP
+      OBJECTS {
+	  ciscoCallHistoryCallingNumber,
+	  ciscoCallHistoryCalledNumber,
+	  ciscoCallHistoryInterfaceNumber,
+          ciscoCallHistoryDestinationAddress,
+          ciscoCallHistoryDestinationHostName,
+	  ciscoCallHistoryCallDisconnectCause,
+          ciscoCallHistoryCallConnectionTime,
+          ciscoCallHistoryCallDisconnectTime
+	}
+      STATUS	obsolete -- superseded by ciscoCallHistoryMibGroupRev1
+      DESCRIPTION
+	"A collection of objects providing the call History MIB capability."
+      ::= { ciscoCallHistoryMibGroups 1 }
+ 
+ciscoCallHistoryMibGroupRev1 OBJECT-GROUP
+       OBJECTS {
+         ciscoCallHistoryCallingNumber,
+         ciscoCallHistoryCalledNumber,
+         ciscoCallHistoryInterfaceNumber,
+         ciscoCallHistoryDestinationAddress,
+         ciscoCallHistoryDestinationHostName,
+         ciscoCallHistoryCallDisconnectCause,
+         ciscoCallHistoryCallConnectionTime,
+         ciscoCallHistoryCallDisconnectTime,
+         ciscoCallHistoryDialReason,
+         ciscoCallHistoryConnectTimeOfDay,
+         ciscoCallHistoryDisconnectTimeOfDay,
+         ciscoCallHistoryTransmitPackets,
+         ciscoCallHistoryTransmitBytes,
+         ciscoCallHistoryReceivePackets,
+         ciscoCallHistoryReceiveBytes
+       }
+       STATUS	obsolete -- superseded by ciscoCallHistoryMibGroupRev2
+       DESCRIPTION
+       "A collection of objects providing the call History MIB capability."
+       ::= { ciscoCallHistoryMibGroups 2 }
+
+ciscoCallHistoryMibGroupRev2 OBJECT-GROUP
+       OBJECTS {
+         ciscoCallHistoryCallingNumber,
+         ciscoCallHistoryCalledNumber,
+         ciscoCallHistoryInterfaceNumber,
+         ciscoCallHistoryDestinationAddress,
+         ciscoCallHistoryDestinationHostName,
+         ciscoCallHistoryCallDisconnectCause,
+         ciscoCallHistoryCallConnectionTime,
+         ciscoCallHistoryCallDisconnectTime,
+         ciscoCallHistoryDialReason,
+         ciscoCallHistoryConnectTimeOfDay,
+         ciscoCallHistoryDisconnectTimeOfDay,
+         ciscoCallHistoryTransmitPackets,
+         ciscoCallHistoryTransmitBytes,
+         ciscoCallHistoryReceivePackets,
+         ciscoCallHistoryReceiveBytes,
+         ciscoCallHistoryRecordedUnits,
+         ciscoCallHistoryCurrency,
+         ciscoCallHistoryCurrencyAmount,
+         ciscoCallHistoryMultiplier
+       }
+       STATUS  current
+       DESCRIPTION
+       "A collection of objects providing the call History MIB capability."
+       ::= { ciscoCallHistoryMibGroups 3 }
+
+ciscoCallHistoryMibGlobalsGroup OBJECT-GROUP
+       OBJECTS {
+         ciscoCallHistoryTableMaxLength,
+         ciscoCallHistoryRetainTimer
+       }
+       STATUS  current
+       DESCRIPTION
+       "A collection of objects providing control over the retention
+        of call History."
+       ::= { ciscoCallHistoryMibGroups 4 }
+
+END
+

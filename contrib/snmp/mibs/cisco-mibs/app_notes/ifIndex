@@ -1,0 +1,146 @@
+        ifIndex - in MIB-II, and RFC1573
+
+
+ifIndex is described in MIB-II as:
+
+              "A unique value for each interface.  Its value
+               ranges between 1 and the value of ifNumber.  The
+               value for each interface must remain constant at
+               least from one re-initialization of the entity's
+               network management system to the next re-
+               initialization."
+
+Thus, ifIndex must remain constant at least until a reboot.  Cisco's ifIndex
+implementation does conform to this.  This definition allows for the ifIndex
+value for a given physical entity to change after a system re-initialization.
+
+As an example, one could have the following conditions prior to 
+re-initialization :
+
+   physical    MIB-II
+    port       ifIndex
+  -------------------
+  ethernet port   1
+  tokenring  port 2
+  serial port     3
+
+After re-initialization, the conditions could change to something like this:
+
+   physical    MIB-II
+    port       ifIndex
+  -------------------
+  ethernet port   2
+  tokenring  port 1
+  serial port     3
+
+This creates problems for network management software that assumes there
+is a direct mapping between ifIndex, and the physical entity to which it
+maps, and that this relationship remains constant over re-initialization.
+This is not a requirement of the definition of ifIndex in either MIB-II,
+or it's update - RFC1573.  Conforming to this, Cisco Routers do not guarantee
+the ifIndex value for a given interface will remain constant through router
+reboots, or software image upgrades.  This impermanent nature if ifIndex
+has been a driving factor in why the IETF IF-MIB working group has come up
+with ifAlias, in the latest draft (draft-ietf-ifmib-mib-03.txt).
+
+The following decription from the if mib draft might make this clearer :
+
+  In contrast, the existing ifDescr object is intended to contain a
+  description of an interface, whereas another new object, ifAlias,
+  provides a location in which a network management application can
+  store a non-volatile interface-naming value of its own choice.
+  The ifAlias object allows a network manager to give one or more
+  interfaces their own unique names, irrespective of any interface-
+  stack relationship.  Further, the ifAlias name is non-volatile,
+  and thus an interface must retain its assigned ifAlias value
+  across reboots, even if an agent chooses a new ifIndex value for
+  the interface.
+
+And the exact syntax of the object is :
+  ifAlias   OBJECT-TYPE
+    SYNTAX      DisplayString (SIZE(0..64))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+            "This object is an 'alias' name for the interface as
+            specified by a network manager, and provides a non-
+            volatile 'handle' for the interface.
+
+            On the first instantiation of an interface, the value
+            of ifAlias associated with that interface is the
+            zero-length string.  As and when a value is written
+            into an instance of ifAlias through a network
+            management set operation, then the agent must retain
+            the supplied value in the ifAlias instance associated
+            with the same interface for as long as that interface
+            remains instantiated, including across all re-
+            initializations/reboots of the network management
+            system, including those which result in a change of
+            the interface's ifIndex value.
+
+            An example of the value which a network manager might
+            store in this object for a WAN interface is the
+            (Telco's) circuit number/identifier of the interface.
+
+            Some agents may support write-access only for
+            interfaces having particular values of ifType.  An
+
+            agent which supports write access to this object is
+            required to keep the value in non-volatile storage,
+            but it may limit the length of new values depending on
+            how much storage is already occupied by the current
+            values for other interfaces."
+    ::= { ifXEntry 18 }
+
+
+Cisco's current implementation of IF-MIB is based on RFC1573, and thus
+we do not support ifAlias yet in 11.1.  As a short term solution to the
+problem of identifying an interface consistantly over a reboot, there is
+an object in the OLD-CISCO-INTERFACES-MIB, which matches the syntax and 
+use of ifAlias:
+
+              locIfDescr OBJECT-TYPE
+                   SYNTAX  DisplayString
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "User configurable interface description."
+                   ::= { lifEntry 28 }
+
+Thus locIfDescr is a DisplayString that can be used to label each interface
+uniquely, and if saved to nvram, will remain constant across a router reboot.
+The user would have to first label each interface by an snmp set to this
+object. Then save to nvram.  Then use this object (snmp get) to determine
+what physical interface is being dealt with.  This will work currently
+for the 10.2 and above images.  Note that this will be a problem in 11.1,
+wherein we have implemented subinterfaces in the IF-MIB, but not in the
+OLD-CISCO-INTERFACES-MIB.  So locIfDescr is not available for subinterfaces.
+
+locIfDescr is the same string from the CLI config interface description
+command.  As such, an alternative would be to place these unique identifiers
+in the router configuration file, as opposed to the snmp set described above.
+
+It should also be noted that a number of media mibs depend on ifIndex, or
+an INDEX object based on ifIndex.  One example is the frame relay MIB -
+RFC1315.  frCircuitIfIndex is based on ifIndex.  As such, it can
+be expected that the frCircuitIfIndex value is not guaranteed to remain
+constant after a re-initialization.
+
+There is currently work being done in the IETF for the Entity MIB.  This
+mib will have support for mapping ifIndex values to physical entities.
+From draft-ietf-entmib-entmib-02.txt :
+
+ 3.5.  Relationship to the Interfaces MIB
+
+  The Entity MIB contains a mapping table identifying physical components
+  that have 'external values' (e.g. ifIndex) associated with them within a
+  given naming scope.  This table can be used to identify the physical
+  location of each interface in the ifTable. Since ifIndex values in
+  different contexts are not related to one another, the interface to
+  physical component associations are relative to a specific logical
+  entity within the agent.
+
+The Entity MIB will provide long-term solutions to a number of logical
+and physical mapping issues, including the issues involved in ifIndex vs
+the physical interfaces.
+

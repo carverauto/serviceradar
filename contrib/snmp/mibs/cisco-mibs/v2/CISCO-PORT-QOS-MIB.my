@@ -1,0 +1,2384 @@
+-- *****************************************************************
+-- Cisco Port QoS MIB file.
+--   
+-- November 2000, Ranbir Parmar
+--   
+-- Copyright (c) 2000-2015 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-PORT-QOS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter64,
+    Gauge32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    TimeStamp
+        FROM SNMPv2-TC
+    ifIndex
+        FROM IF-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    vtpVlanIndex
+        FROM CISCO-VTP-MIB
+    Dscp,
+    QosLayer2Cos
+        FROM CISCO-QOS-PIB-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoPortQosMIB MODULE-IDENTITY
+    LAST-UPDATED    "201509250000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service    
+
+            Postal:    170 W. Tasman Drive    
+            San Jose, CA  95134-1706    
+            USA    
+
+            Tel: +1 800 553-NETS    
+
+            E-mail: cs-port-qos@cisco.com"
+    DESCRIPTION
+        "Cisco PORT QOS MIB - Overview
+
+        This MIB module is for the management of Cisco's    
+        per port rate-limiting and traffic shaping on L3    
+        switch/Router Platform(s).    
+
+        Per-port rate-limiting is a traffic control method.    
+        A set of rate limits are applied to the traffic    
+        traversing an interface. Each rate limit has a    
+        configurable action that is taken when rate    
+        limiting criteria is met.    
+
+        Per-port traffic shaping is a traffic control    
+        method. The user can restrict the amount of traffic    
+        coming out of a physical port. Excess traffic is     
+        buffered within the router/switch to the extent     
+        possible. 
+
+        A class represents a class of traffic. It is defined 
+        via the specification of the packet matching criteria 
+        that identifies packets that are to belong to the class.
+
+        Class-default: In addition to user defined classes, 
+        a pre-existing class named 'class-default' exists to 
+        represent all packets that do not match any of the user 
+        defined classes. This class-default exists so that 
+        policies can be defined for this group of packets that 
+        do not match any user defined classes.
+
+        Actions are individual policies (e.g.: policing) that 
+        can be applied to a traffic class.
+
+        A policy represents a set of actions that are to be 
+        applied to a set of traffic classes. The policy is 
+        associated with a target (like a port) and the direction 
+        of traffic on that target to which the policy is to be 
+        applied.
+
+        A hierarchical policy is one in which an entire policy 
+        is directly assigned to a class of traffic. Thus, a 
+        hierarchical policy is a nested policy that contains 
+        a set of the pair of a child-policy and the 
+        traffic-class to which it is applied.
+
+        DSCP (Differentiated Services Code Point) is the six 
+        most significant bits of the ToS field in a IP packet 
+        header.
+
+        CoS (Class of Service) is the three bits in the layer 2 
+        header that indicates user priority value assigned to 
+        this packet. 
+
+        This MIB module also provides per port QoS statistics."
+    REVISION        "201509250000Z"
+    DESCRIPTION
+        "This MIB is deprecated by CISCO-CLASS-BASED-QOS-MIB.
+        The objects in this MIB are either directly replaced or
+        functionally derived by objects in
+        CISCO-CLASS-BASED-QOS-MIB."
+    REVISION        "200809100000Z"
+    DESCRIPTION
+        "Added the following tables:
+        cportQosEgressQueueStatsTable,  
+        cportQosClassEgressStatsTable,  
+        cportQosClassIngressStatsTable,  
+        cportQosDscpStatsTable and  
+        cportQosCosStatsTable.
+        Deprecated ciscoPortQosMIBComplianceRev5  
+        added ciscoPortQosMIBComplianceRev6."
+    REVISION        "200803050000Z"
+    DESCRIPTION
+        "Added cportQosVlanInProfPolicyOctets,
+        cportQosVlanOutOfProfPolicyOctets,     
+        cportQosVlanViolateProfPolicyPkts and     
+        cportQosVlanViolateProfPolicyOctets to the     
+        cportQosInVlanStatsTable."
+    REVISION        "200801090000Z"
+    DESCRIPTION
+        "Added cportQosInProfPolicyOctets,
+        cportQosOutOfProfPolicyOctets,     
+        cportQosViolateProfPolicyPkts and     
+        cportQosViolateProfPolicyOctets to the     
+        cportQosStatsTable."
+    REVISION        "200602170000Z"
+    DESCRIPTION
+        "Added per port per vlan ingress
+        statistics table."
+    REVISION        "200502230000Z"
+    DESCRIPTION
+        "Deprecated the cportQosIndexType added the
+        cportQosIndexTypeNew which is read-write.    
+        In addition, added the cportQosInProfPolicyPkts and    
+        cportQosOutOfProfPolicyPkts objects to the    
+        statistic table."
+    REVISION        "200405200000Z"
+    DESCRIPTION
+        "Extend per port QoS Statistics table by adding
+        no_change object."
+    REVISION        "200401300000Z"
+    DESCRIPTION
+        "Add cos(4) to cportQosIndexType."
+    REVISION        "200203200000Z"
+    DESCRIPTION
+        "Add per port QoS Statistics table."
+    REVISION        "200105150000Z"
+    DESCRIPTION
+        "Add cportQosRLConfigEnable and cportQosTSConfigEnable
+        and renumber the objects."
+    REVISION        "200012200000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 189 }
+
+
+ciscoPortQosMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoPortQosMIB 1 }
+
+-- Subgroups:
+-- Rate-limit(RL)
+-- Traffic-Shaping(TS)
+-- Statistics
+
+cportQosRLConfig  OBJECT IDENTIFIER
+    ::= { ciscoPortQosMIBObjects 1 }
+
+cportQosTSConfig  OBJECT IDENTIFIER
+    ::= { ciscoPortQosMIBObjects 2 }
+
+cportQosStatistics  OBJECT IDENTIFIER
+    ::= { ciscoPortQosMIBObjects 3 }
+
+
+cportQosRLConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CportQosRLConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A table of rate limit configuration entries.
+        Rate Limiting is a method of traffic control. It allows    
+        a set of rate limits to be configured and applied to    
+        packets flowing into/out of an interface to regulate    
+        network traffic.
+
+        This object is deprecated and replaced by cbQosPoliceCfgTable
+        in CISCO-CLASS-BASED-QOS-MIB. Rate limit is functionally same 
+        as police action in current QoS implementation on various 
+        platforms."
+    ::= { cportQosRLConfig 1 }
+
+cportQosRLConfigEntry OBJECT-TYPE
+    SYNTAX          CportQosRLConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of rate-limit configuration
+        objects for a particular interface. Entries     
+        in the cportQosRLConfigTable are created and     
+        deleted by non-SNMP methods. Creation of these    
+        entries is dependent upon configuration of a     
+        physical interface. Further, the physical     
+        interfaces which are configured for port-qos,    
+        can only have these entries.    
+
+        The ifIndex in the INDEX clause identifies the    
+        interface number for a physical interface.
+        
+        This object is deprecated and replaced by 
+        cbQosPoliceCfgEntry in CISCO-CLASS-BASED-QOS-MIB."
+    INDEX           {
+                        ifIndex,
+                        cportQosRLConfigDirection
+                    } 
+    ::= { cportQosRLConfigTable 1 }
+
+CportQosRLConfigEntry ::= SEQUENCE {
+        cportQosRLConfigDirection INTEGER,
+        cportQosRLConfigEnable    TruthValue,
+        cportQosRLConfigRate      Integer32,
+        cportQosRLConfigBurstSize Integer32
+}
+
+cportQosRLConfigDirection OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        input(1),
+                        output(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "The direction in which the rate-limit is applied
+        to packet:    
+                input  statistics of the input packets.    
+                output statistics of the output packets.
+                
+        This object is deprecated and replaced by 
+        cbQosPolicyDirection in CISCO-CLASS-BASED-QOS-MIB.
+
+        This object is deprecated for the same reason 
+        mentioned in description of cportQosRLConfigTable."
+    ::= { cportQosRLConfigEntry 1 }
+
+cportQosRLConfigEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This indicates the rate-limit is enabled or disabled.
+        A value of true(1) indicates the rate-limit is enabled    
+        and a value of false(2) indicates it's disabled.    
+        Writing a value of true(1) to this object also     
+        requires writing a valid value to the      
+        cportQosRLConfigRate at the same time.     
+        Writing to cportQosRLConfigBurstSize is optional.
+       
+        This object is deprecated, but there is no direct mapping to
+        any object.  To obtain information about police being
+        configured or not on a given interface, cbQosPoliceCfgEntry
+        can be queried. To query, cbQosPoliceCfgEntry 
+        following steps can be followed:
+
+        Step 1: Use ifIndex and cbQosPolicyDirection to index into
+                cbQosInterfacePolicyTable to obtain cbQosIFPolicyIndex,
+                which same as cbQosPolicyIndex.
+
+        Step 2: Walk through all entries for given cbQosPolicyIndex in
+                cbQosObjectsTable.  If there is entry with
+                cbQosObjectsType as 'police', then the corresponding
+                cbQosConfigIndex corresponds to the index for
+                cbQosPoliceCfgEntry. If such entry exists, then policer                 is enabled (i.e. true) on that ifIndex in
+                cbQosPolicyDirection, else it is not (i.e. false)."
+    ::= { cportQosRLConfigEntry 2 }
+
+cportQosRLConfigRate OBJECT-TYPE
+    SYNTAX          Integer32 (32000..2147483647)
+    UNITS           "bits per second"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This is the sustained rate permitted by the rate
+        limit.    
+        Writing to this object also requires writing a value of    
+        true(1) to cportQosRLConfigEnable at the same time.
+       
+        This object is deprecated and replaced by cbQosPoliceCfgRate
+        in CISCO-CLASS-BASED-QOS-MIB.
+
+        cbQosPoliceCfgRate is in cbQosPoliceCfgEntry, which can be
+        queried using ifIndex and cbQosPolicyDirection in the same
+        fashion as mentioned in cportQosRLConfigEnable." 
+    ::= { cportQosRLConfigEntry 3 }
+
+cportQosRLConfigBurstSize OBJECT-TYPE
+    SYNTAX          Integer32 (0..64000)
+    UNITS           "bytes"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "The burst size.  The amount of traffic, in bytes,
+        in excess of the sustained rate which will be    
+        instantaneously permitted by the rate limit.    
+        Writing to this object also requires writing a value     
+        of true(1) to cportQosRLConfigEnable and a valid value    
+        to the cportQosRLConfigRate at the same time.
+       
+        This object is deprecated and replaced by
+        cbQosPoliceCfgBurstSize in CISCO-CLASS-BASED-QOS-MIB.
+
+        cbQosPoliceCfgBurstSize is in cbQosPoliceCfgEntry,
+        which can be queried using ifIndex and cbQosPolicyDirection
+        in the same fashion as mentioned in cportQosRLConfigEnable." 
+    ::= { cportQosRLConfigEntry 4 }
+ 
+
+
+cportQosTSConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CportQosTSConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A table of traffic-shaping action configuration
+        entries.
+
+        This object is deprecated and replaced by cbQosTSCfgTable in 
+        CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosTSConfig 1 }
+
+cportQosTSConfigEntry OBJECT-TYPE
+    SYNTAX          CportQosTSConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of traffic shaping action
+        configuration objects for a particular interface.    
+        Entries in the cportQosTSConfigTable are created    
+        and deleted by non-SNMP methods. Creation of these    
+        entries is dependent upon configuration of a    
+        physical interface. Further, the physical interfaces    
+        which are configured for port-qos, can only have     
+        these entries.    
+
+        The ifIndex in the INDEX clause identifies the    
+        interface number for a physical interface.
+      
+        This object is deprecated and replaced by cbQosTSCfgEntry 
+        in CISCO-CLASS-BASED-QOS-MIB."
+    INDEX           { ifIndex } 
+    ::= { cportQosTSConfigTable 1 }
+
+CportQosTSConfigEntry ::= SEQUENCE {
+        cportQosTSConfigEnable    TruthValue,
+        cportQosTSConfigRate      Integer32,
+        cportQosTSConfigBurstSize Integer32
+}
+
+cportQosTSConfigEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This indicates the traffic shaping is enabled or
+        disabled. A value of true(1) indicates the traffic    
+        shaping is enabled and a value of false(2) indicates     
+        it's disabled.    
+        Writing a value of true(1) to this object also     
+        requires writing a valid value to the      
+        cportQosTSConfigRate at the same time.     
+        Writing to cportQosTSConfigBurstSize is optional.
+       
+        This object is deprecated and there is no direct replacement.
+
+        To obtain information about police being configured or
+        not on a given interface, cbQosTSCfgEntry can be queried.
+        To query cbQosTSCfgEntry for a given interface, following
+        steps can be followed:
+ 
+        Step 1: Use ifIndex and cbQosPolicyDirection index into to
+                cbQosInterfacePolicyTable and obtain cbQosIFPolicyIndex
+                which same as cbQosPolicyIndex.
+        Step 2: Use cbQosPolicyIndex to index into cbQosObjectsTable
+                and get all entries for this policy index. Among these
+                entries search for entry with cbQosObjectsType as
+                'trafficShaping'. If such entry exists, then TS is 
+                enabled (i.e. true) , else it is not(i.e. false). 
+
+        This query can be run for both values of cbQosPolicyDirection,
+        'input' and 'output' to obtain information for a given ifIndex."
+    ::= { cportQosTSConfigEntry 1 }
+
+cportQosTSConfigRate OBJECT-TYPE
+    SYNTAX          Integer32 (32000..2147483647)
+    UNITS           "bits per second"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This is the sustained rate permitted by the
+        traffic shaping. Writing to this object also    
+        requires writing a value of true(1) to     
+        cportQosTSConfigEnable at the same time.
+
+        This object is deprecated and replaced by cbQosTSCfgRate 
+        in CISCO-CLASS-BASED-QOS-MIB.
+
+        cbQosTSCfgRate is in CbQosTSCfgEntry, which can be queried
+        by using ifIndex and cbQosPolicyDirection in same
+        fashion as mentioned in cportQosTSConfigEnable."
+    ::= { cportQosTSConfigEntry 2 }
+
+cportQosTSConfigBurstSize OBJECT-TYPE
+    SYNTAX          Integer32 (0..512000)
+    UNITS           "bits"
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "The amount of traffic, in bits, in excess
+        of the sustained traffic shaping rate that    
+        will be instantaneously permitted by this feature.    
+        Writing to this object also requires writing a value     
+        of true(1) to cportQosTSConfigEnable and a valid value    
+        to the cportQosTSConfigRate at the same time.
+
+        This object is deprecated and replaced by cbQosTSCfgBurstSize
+        in CISCO-CLASS-BASED-QOS-MIB.
+
+        cbQosTSCfgBurstSize is in CbQosTSCfgEntry, which can be queried
+        using ifIndex and cbQosPolicyDirection in same fashion as
+        mentioned in cportQosTSConfigEnable." 
+    ::= { cportQosTSConfigEntry 3 }
+ 
+
+
+-- Statistics information
+
+cportQosIndexType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        dscp(2),
+                        ipPrecedence(3),
+                        cos(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the sorting mechanism used to
+        collect and store the statistical QoS information.      
+        This object value is device dependent and it could be    
+        optionally configured via command-line.    
+
+        This object has been deprecated in order to make the    
+        selection of sorting mechanism selectable from the    
+        MIB. The replacement object is cportQosIndexTypeNew." 
+    ::= { cportQosStatistics 1 }
+
+cportQosStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CportQosStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table specifies QoS port related Statistical
+        information.
+
+        This object is deprecated and replaced by various action
+        specific table in CISCO-CLASS-BASED-QOS-MIB. 
+
+        To view port specific policy execution stats on interface,
+        policy on that interface can be looked up and then action
+        specific can be obtained from that policy info. Following
+        steps illustrates this.
+
+        Step 1: Use ifIndex and cbQosPolicyDirection to lookup
+                cbQosInterfacePolicyEntry and obtain
+                cbQosIFPolicyIndex which is same as cbQosPolicyIndex.
+        Step 2: Index cbQosPolicyIndex into cbQosObjectsTable and
+                obtain all entries corresponding to this policy
+                instance of cbQosPolicyIndex.
+        Step 3: With the obtained entries, filter the ones with
+                desired action in cbQosObjectsType.
+                For example, to get all policing action stats, filter
+                on cbQosObjectsType  = 'police'.
+        Step 4: Collect all cbQosObjectsIndex for all such filtered
+                entries.
+        Step 5: Index cbQosPolicyIndex and cbQosObjectsIndex into
+                corresponding action specific stats table to obtain
+                corresponding stats.
+                For example, for policer action, cbQosPoliceStatsEntry
+                can be indexed.
+        "
+    ::= { cportQosStatistics 2 }
+
+cportQosStatsEntry OBJECT-TYPE
+    SYNTAX          CportQosStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "Each entry in this table describes the QoS port
+        statistical information which are : pre/post policy     
+        pkts/octets counts, drop pkts/octets,     
+        classified pkts/octets.
+
+        This object is deprecated and replaced by various 
+        action specific stats in CISCO-CLASS-BASED-QOS-MIB
+        as described in cportQosStatsTable."
+    INDEX           {
+                        ifIndex,
+                        cportQosDirection,
+                        cportQosIndex
+                    } 
+    ::= { cportQosStatsTable 1 }
+
+CportQosStatsEntry ::= SEQUENCE {
+        cportQosDirection               INTEGER,
+        cportQosIndex                   Unsigned32,
+        cportQosPrePolicyPkts           Counter64,
+        cportQosPrePolicyOctets         Counter64,
+        cportQosPostPolicyPkts          Counter64,
+        cportQosPostPolicyOctets        Counter64,
+        cportQosDropPkts                Counter64,
+        cportQosDropOctets              Counter64,
+        cportQosClassifiedOctets        Counter64,
+        cportQosClassifiedPkts          Counter64,
+        cportQosNoChangePkts            Counter64,
+        cportQosNoChangeOctets          Counter64,
+        cportQosInProfPolicyPkts        Counter64,
+        cportQosOutOfProfPolicyPkts     Counter64,
+        cportQosInProfPolicyOctets      Counter64,
+        cportQosOutOfProfPolicyOctets   Counter64,
+        cportQosViolateProfPolicyPkts   Counter64,
+        cportQosViolateProfPolicyOctets Counter64
+}
+
+cportQosDirection OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ingress(1),
+                        egress(2)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "The direction of the reported statistics:
+        -'ingress' statistics for the input direction.    
+        -'egress' statistics for the output direction.
+
+        This object is deprecated and replaced by
+        cbQosPolicyDirection in CISCO-CLASS-BASED-QOS-MIB." 
+    ::= { cportQosStatsEntry 1 }
+
+cportQosIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "An arbitrary integer to identify this entry.
+        cportQosIndex value, which may have non-contiguous    
+        range, is linked to cportQosIndexType:    
+
+         -if cportQosIndexTypeNew equals 'none', cportQosIndex     
+          is constant with the value of 1 and all statistics    
+          are classified per port    
+
+         -if cportQosIndexTypeNew equals 'DSCP', cportQosIndex    
+          range is from 1 to 65 and all statistics are    
+          classified per port and DSCP value.  The range    
+          of DSCP values reported is shifted up one meaning     
+          a cportQosIndex of 1 translates to a packet DSCP    
+          value of 0.    
+          Value of 65 is an arbitrary number used to report    
+          aggregate counts of packets which were not displayed    
+          in the 1 to 64 range.  This usually happens when the    
+          range value of cportQosIndex is non-contiguous    
+
+         -if cportQosIndexTypeNew equals 'ipPrecedence',     
+          cportQosIndex range is from 1 to 8 and all    
+          statistics are classified per port and IP precedence    
+          value.  The range of IP precedence values reported    
+          is shifted up one meaning a cportQosIndex of 1    
+          translates to an IP precedence value of 0    
+
+         -if cportQosIndexTypeNew equals 'cos',     
+          cportQosIndex range is from 1 to 8 and all    
+          statistics are classified per interface and L2 COS    
+          value.  The range of COS values reported    
+          is shifted up one meaning a cportQosIndex of 1    
+          translates to a COS value of 0    
+
+         -if cportQosIndexTypeNew equals 'police',     
+          cportQosIndex range is from 1 to 65 and all    
+          statistics are classified per interface and police    
+          index.     
+          The police indexes are arbitrary numbers that do    
+          not correlate to policers names or identifiers.
+         
+          This object is deprecated and has no direct replacement.
+
+          As indicated in description of cportQosStatsEntry, 
+          since stats table in CISCO-CLASS-BASED-QOS-MIB are action
+          specific, this object is not required to classify the
+          stats per action."
+    ::= { cportQosStatsEntry 2 }
+
+cportQosPrePolicyPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets prior to executing any QoS
+        policies.
+
+        This object is deprecated and replaced by corresponding
+        action specific pre policy counter in CISCO-CLASS-BASED-QOS-MIB.
+
+        Since CISCO-CLASS-BASED-QOS-MIB has action based stats,
+        there is no direct mapping for this object." 
+    ::= { cportQosStatsEntry 3 }
+
+cportQosPrePolicyOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of octets prior to executing any QoS
+        policies.
+
+        This object is deprecated and replaced by corresponding
+        action specific pre policy counter in CISCO-CLASS-BASED-QOS-MIB.
+
+        Since CISCO-CLASS-BASED-QOS-MIB has action based stats,
+        there is no direct mapping for this object." 
+    ::= { cportQosStatsEntry 4 }
+
+cportQosPostPolicyPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets after executing QoS policies.
+
+        This object is deprecated and replaced by corresponding
+        action specific pre policy counter in CISCO-CLASS-BASED-QOS-MIB.
+
+        Since CISCO-CLASS-BASED-QOS-MIB has action based stats,
+        there is no direct mapping for this object."
+    ::= { cportQosStatsEntry 5 }
+
+cportQosPostPolicyOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of octets after executing QoS policies.
+
+        This object is deprecated and replaced by corresponding
+        action specific pre policy counter in CISCO-CLASS-BASED-QOS-MIB.
+
+        Since CISCO-CLASS-BASED-QOS-MIB has action based stats,
+        there is no direct mapping for this object."
+    ::= { cportQosStatsEntry 6 }
+
+cportQosDropPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of dropped packets as the result of
+        queuing and scheduling related QoS features that    
+        can produce drops.
+
+        This object is deprecated and replaced by corresponding
+        action specific pre policy counter in CISCO-CLASS-BASED-QOS-MIB.
+
+        Since CISCO-CLASS-BASED-QOS-MIB has action based stats,
+        there is no direct mapping for this object."
+    ::= { cportQosStatsEntry 7 }
+
+cportQosDropOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of dropped octets as the result of
+        queuing and scheduling related QoS features that    
+        can produce drops.
+
+        This object is deprecated and replaced by corresponding
+        action specific pre policy counter in CISCO-CLASS-BASED-QOS-MIB.
+
+        Since CISCO-CLASS-BASED-QOS-MIB has action based stats,
+        there is no direct mapping for this object."
+    ::= { cportQosStatsEntry 8 }
+
+cportQosClassifiedOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of classified octets during QoS.
+
+        This object is deprecated and replaced by various stats
+        table objects in  CISCO-CLASS-BASED-QOS-MIB.
+
+        cbQosCMPrePolicyByte64 in CbQosCMStatsEntry
+        be used in place this object. Entry specific to a given
+        ifIndex and cbQosPolicyDirection can be obtained in same
+        fashion as described in description of cportQosStatsTable,
+        with exception of step 5.  In step 5, index cbQosPolicyIndex
+        and cbQosObjectsIndex into CbQosCMStatsEntry to obtain
+        cbQosCMPrePolicyByte64 in that entry. " 
+    ::= { cportQosStatsEntry 9 }
+
+cportQosClassifiedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of classified packets during QoS.
+
+        This object is deprecated and replaced by various stats
+        table objects in CISCO-CLASS-BASED-QOS-MIB.
+
+        cbQosCMPrePolicyPkt64 in CbQosCMStatsEntry
+        be used in place this object. Entry specific to a given
+        ifIndex and cbQosPolicyDirection can be obtained in same
+        fashion as described in description of cportQosStatsTable,
+        with exception of step 5. In step 5, index cbQosPolicyIndex
+        and cbQosObjectsIndex into CbQosCMStatsEntry to obtain
+        cbQosCMPrePolicyPkt64 in that entry."
+    ::= { cportQosStatsEntry 10 }
+
+cportQosNoChangePkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets maintain unchange after
+        executing QoS policies.
+
+        This object is deprecated and replaced by various stats table
+        object in CISCO-CLASS-BASED-QOS-MIB.
+
+        There is no direct mapping of this object as it depends on
+        action for which stats being asked for.
+        For example, to obtain No change packet for policer action, 
+        cbQosPoliceConformedPkt64 from CbQosPoliceStatsEntry can be
+        used.
+
+        Steps to index into CbQosPoliceStatsEntry using ifIndex and
+        cbQosPolicyDirection is described in the description of
+        cportQosStatsTable."
+    ::= { cportQosStatsEntry 11 }
+
+cportQosNoChangeOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of octets maintain unchange after
+        executing QoS policies.
+
+        This object is deprecated and replaced by various stats table
+        object in CISCO-CLASS-BASED-QOS-MIB.
+
+        There is no direct mapping of this object as it depends on
+        action for which stats being asked for.
+        For example, to obtain No change packet for policer action, 
+        cbQosPoliceConformedPkt64 from CbQosPoliceStatsEntry can be
+        used.
+
+        Steps to index into CbQosPoliceStatsEntry using ifIndex and
+        cbQosPolicyDirection is described in the description of
+        cportQosStatsTable."
+    ::= { cportQosStatsEntry 12 }
+
+cportQosInProfPolicyPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets that are within the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by
+        cbQosPoliceConformedPkt64 in CISCO-CLASS-BASED-QOS-MIB." 
+    ::= { cportQosStatsEntry 13 }
+
+cportQosOutOfProfPolicyPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets that exceed the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by 
+        cbQosPoliceExceededPkt64 in CISCO-CLASS-BASED-QOS-MIB." 
+    ::= { cportQosStatsEntry 14 }
+
+cportQosInProfPolicyOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of octets that are within the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by 
+        cbQosPoliceConformedByte64 in CISCO-CLASS-BASED-QOS-MIB." 
+    ::= { cportQosStatsEntry 15 }
+
+cportQosOutOfProfPolicyOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of octets that exceed the policer
+        profile limit configured for this policy. 
+
+        This objected is deprecated and replaced by 
+        cbQosPoliceExceededByte64 in CISCO-CLASS-BASED-QOS-MIB." 
+    ::= { cportQosStatsEntry 16 }
+
+cportQosViolateProfPolicyPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets that violate the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by 
+        cbQosPoliceViolatedPkt64 in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosStatsEntry 17 }
+
+cportQosViolateProfPolicyOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of octets that violate the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by 
+        cbQosPoliceViolatedPkt64 in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosStatsEntry 18 }
+ 
+cportQosIndexTypeNew OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        dscp(2),
+                        ipPrecedence(3),
+                        cos(4),
+                        police(5)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the sorting mechanism used to
+        collect and store the statistical QoS information.      
+        This object value is device dependent.
+
+        This object is deprecated since cbQosIndex is deprecated." 
+    ::= { cportQosStatistics 3 }
+
+cportQosInVlanStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CportQosInVlanStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table specifies QoS port related ingress
+        statistical information. The type of information     
+        is controlled by the cportQosIndexTypeNew object.
+
+        This table is deprecated.
+
+        Stats for service policy attached to vlan on a trunk or
+        multi-vlan access port can be accessed in same fashion as
+        described in description of in cportQosStatsTable.
+
+        In Step 1 of description, when cbQosPolicyIndex is obtained 
+        from lookup of cbQosInterfacePolicyEntry using ifIndex, this
+        is indexed into CbQosServicePolicyEntry to obtain the 
+        cbQosVlanIndex for this policy instance. If this matches,
+        then cbQosPolicyIndex can be used to lookup the stats in
+        same fashion as mentioned in step 2-5 mentioned in the
+        description of cportQosStatsTable."
+    ::= { cportQosStatistics 4 }
+
+cportQosInVlanStatsEntry OBJECT-TYPE
+    SYNTAX          CportQosInVlanStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "It exists an entry in this table for each port
+        on which QoS is configured per port and per VLAN.
+
+        This object is deprecated for the same reason 
+        mentioned in description of cportQosInVlanStatsTable."
+    INDEX           {
+                        ifIndex,
+                        vtpVlanIndex,
+                        cportQosIndex
+                    } 
+    ::= { cportQosInVlanStatsTable 1 }
+
+CportQosInVlanStatsEntry ::= SEQUENCE {
+        cportQosVlanInProfPolicyPkts        Counter64,
+        cportQosVlanOutOfProfPolicyPkts     Counter64,
+        cportQosVlanInProfPolicyOctets      Counter64,
+        cportQosVlanOutOfProfPolicyOctets   Counter64,
+        cportQosVlanViolateProfPolicyPkts   Counter64,
+        cportQosVlanViolateProfPolicyOctets Counter64
+}
+
+cportQosVlanInProfPolicyPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets that are within the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by
+        cbQosPoliceConformedPkt64 in CISCO-CLASS-BASED-QOS-MIB." 
+    ::= { cportQosInVlanStatsEntry 1 }
+
+cportQosVlanOutOfProfPolicyPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets that exceeds the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by
+        cbQosPoliceExceededPkt64 in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosInVlanStatsEntry 2 }
+
+cportQosVlanInProfPolicyOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of octets that are within the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by
+        cbQosPoliceConformedByte64 in CISCO-CLASS-BASED-QOS-MIB."
+
+    ::= { cportQosInVlanStatsEntry 3 }
+
+cportQosVlanOutOfProfPolicyOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of octets that exceed the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by
+        cbQosPoliceExceededByte64 in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosInVlanStatsEntry 4 }
+
+cportQosVlanViolateProfPolicyPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of packets that violate the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by
+        cbQosPoliceViolatedPkt64 in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosInVlanStatsEntry 5 }
+
+cportQosVlanViolateProfPolicyOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The count of octets that violate the policer
+        profile limit configured for this policy.
+
+        This object is deprecated and replaced by 
+        cbQosPoliceViolatedByte64 in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosInVlanStatsEntry 6 }
+ 
+
+
+cportQosEgressQueueStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CportQosEgressQueueStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table specifies QoS related statistical
+        information for egress queues on each port.   
+        The agent will add an entry in this table for each 
+        queue, threshold and port. 
+
+        This object is deprecated.
+
+        Port specific queueing info can be obtained from
+        cbQosQueueingCfgTable and cbQosQueueingStatsTable if port
+        contains policy with queueing action.
+        The process to obtain this info is similar to what is
+        described in cportQosStatsTable:
+
+        Step 1: Use ifIndex and cbQosPolicyDirection to lookup
+                cbQosInterfacePolicyEntry and obtain
+                cbQosIFPolicyIndex which is same as cbQosPolicyIndex.
+        Step 2: Index cbQosPolicyIndex into cbQosObjectsTable and
+                obtain all entries corresponding to this policy
+                instance of cbQosPolicyIndex.
+        Step 3: With the obtained entries, filter the ones with action
+                as 'queueing' in cbQosObjectsType.
+        Step 4: Collect all cbQosObjectsIndex and cbQosConfigIndex
+                for all such filtered entries.
+        Step 5: To get queueing stats : Index cbQosPolicyIndex and
+                cbQosObjectsIndex into cbQosQueueingStatsTable
+                To get queueing config : Index cbQosConfigIndex
+                into cbQosQueueingCfgTable."
+    ::= { cportQosStatistics 5 }
+
+cportQosEgressQueueStatsEntry OBJECT-TYPE
+    SYNTAX          CportQosEgressQueueStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A conceptual row in cportQosEgressQueueStatsTable.
+`
+        This object is deprecated for the same reason as
+        mentioned in description of cportQosEgressQueueStatsTable."
+    INDEX           {
+                        ifIndex,
+                        cportQosQueueId,
+                        cportQosQueueThreshold
+                    } 
+    ::= { cportQosEgressQueueStatsTable 1 }
+
+CportQosEgressQueueStatsEntry ::= SEQUENCE {
+        cportQosQueueId          Unsigned32,
+        cportQosQueueThreshold   Unsigned32,
+        cportQosQueueEnqueuePkts Counter64,
+        cportQosQueueDropPkts    Counter64
+}
+
+cportQosQueueId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object identifies the queue ID of this port for
+        which QoS statistics are collected. 
+
+        For example, if a port has 4 queues, this index value
+        can be 1,2,3,4.
+
+        This object is deprecated and has no direct replacement 
+        object.
+
+        Queue id is no longer needed to get queueing action
+        config as described in description of
+        cportQosEgressQueueStatsTable."
+    ::= { cportQosEgressQueueStatsEntry 1 }
+
+cportQosQueueThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object identifies the threshold number
+        of the queue threshold associated with this
+        queue. A queue can have more than one threshold.
+
+        For example, if a queue has 3 thresholds, this index
+        could be 1,2,3.
+
+        This object is deprecated and has no direct replacement."
+    ::= { cportQosEgressQueueStatsEntry 2 }
+
+cportQosQueueEnqueuePkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of egress packets
+        that have been enqueued for this queue and threshold.
+
+        This object is deprecated and replaced by
+        cbQosQueueingCurrentQDepth in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosEgressQueueStatsEntry 3 }
+
+cportQosQueueDropPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of egress packets
+        that have been dropped for this queue and threshold.
+ 
+        This object is deprecated and replaced by
+        cbQosQueueingDiscardPkt64 in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosEgressQueueStatsEntry 4 }
+ 
+
+
+cportQosClassEgressStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CportQosClassEgressStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table specifies egress QoS related statistical
+        information for classes associated with an egress QoS 
+        policy. Each queue on a port is uniquely mapped to a  
+        class in an egress QoS policy. This table provides 
+        the statistical information for each class-queue
+        on each port. 
+
+        The agent will add an entry in this table for each 
+        queue and threshold on a port associated with a class.
+       
+        This object is deprecated by corresponding class based
+        table in CISCO-CLASS-BASED-QOS-MIB-MIB.
+        Same information can be obtained from cbQosCMStatsTable
+        and cbQosCMCfgTable.
+
+        To access a port specific class configuration and stats, 
+        following steps can be followed:
+       
+        Step 1: Use ifIndex and cbQosPolicyDirection='output' to 
+                lookup cbQosInterfacePolicyEntry and obtain 
+                cbQosIFPolicyIndex which is same as cbQosPolicyIndex.
+        Step 2: Index cbQosPolicyIndex into cbQosObjectsTable and
+                obtain all entries corresponding to this policy
+                instance of cbQosPolicyIndex.
+        Step 3: With the obtained entries, filter the ones with
+                object type as 'classmap' in cbQosObjectsType.
+        Step 4: Collect all cbQosObjectsIndex and cbQosConfigIndex
+                for all such filtered entries.
+        Step 5: To get queueing stats : Index cbQosPolicyIndex and
+                cbQosObjectsIndex into cbQosCMStatsTable
+                To get queueing config : Index cbQosConfigIndex into
+                cbQosCMCfgTable."
+    ::= { cportQosStatistics 6 }
+
+cportQosClassEgressStatsEntry OBJECT-TYPE
+    SYNTAX          CportQosClassEgressStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A conceptual row in cportQosClassEgressStatsTable.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable."
+    INDEX           {
+                        ifIndex,
+                        cportQosClassId,
+                        cportQosClassThreshold
+                    } 
+    ::= { cportQosClassEgressStatsTable 1 }
+
+CportQosClassEgressStatsEntry ::= SEQUENCE {
+        cportQosClassId                Unsigned32,
+        cportQosClassThreshold         Unsigned32,
+        cportQosClassName              SnmpAdminString,
+        cportQosClassEnqueuePkts       Counter64,
+        cportQosClassDropPkts          Counter64,
+        cportQosClassDiscontinuityTime TimeStamp
+}
+
+cportQosClassId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object identifies the class-ID of the class in
+        an egress policy for which QoS statistics are being 
+        collected.
+
+        Each queue on a port is uniquely mapped to a class 
+        in an egress policy. Each class in a policy is 
+        uniquely identified by a class-ID. A value of 0 
+        indicates the default queue/class-default.
+        
+        This object is deprecated and no direct mapping
+        is available. All classes must be referred to by
+        name, cbQosCMName, in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosClassEgressStatsEntry 1 }
+
+cportQosClassThreshold OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647)
+    UNITS           "Number of buffers"
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object identifies the tail-drop queue thresholds
+        value on a class-queue on a port. These values can
+        either be the default value or each could be an 
+        explicitly configured value. 
+
+        For example, if a queue has 3 thresholds, 16, 64 and 256, 
+        this index value for each threshold would be 16, 64, 
+        256 respectively.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable. There is 
+        no mapping for this object." 
+    ::= { cportQosClassEgressStatsEntry 2 }
+
+cportQosClassName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the class name that is associated
+        with the class-ID indicated by the cportQosClassId 
+        object.
+
+        This object is deprecated and replaced by
+        cbQosCMName in CISCO-CLASS-BASED-QOS-MIB.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable."
+    ::= { cportQosClassEgressStatsEntry 3 }
+
+cportQosClassEnqueuePkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of egress packets
+        that have been enqueued for this queue and threshold.
+        
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+        The equivalent info can be obtained from cbQosCMPrePolicyPkt64-
+        cbQosCMDropPkt64.  Access of cbQosCMPrePolicyPkt64-
+        cbQosCMDropPkt64, can de done as described in description
+        of cportQosClassEgressStatsTable."
+    ::= { cportQosClassEgressStatsEntry 4 }
+
+cportQosClassDropPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of egress packets
+        that have been dropped for this queue and threshold.
+        
+        This object is deprecated and replaced by
+        cbQosCMDropPkt64 in CISCO-CLASS-BASED-QOS-MIB.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable."
+    ::= { cportQosClassEgressStatsEntry 5 }
+
+cportQosClassDiscontinuityTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The value of sysUpTime on the most recent occasion
+        at which any of this entry's counter experienced a 
+        discontinuity. If discontinuities have not occurred 
+        since the last re-initialization of the local 
+        management subsystem, then this object contains a 
+        zero value.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+        Generic platform independent counters in
+        CISCO-CLASS-BASED-QOS-MIB should be used
+        instead of platform dependent objects in this MIB.
+
+        There is no direct mapping available for object." 
+    ::= { cportQosClassEgressStatsEntry 6 }
+ 
+
+
+cportQosClassIngressStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CportQosClassIngressStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table specifies QoS related statistical
+        information per port for ingress traffic belonging to
+        QoS classes configured with an action that support
+        statistics (for example: a policer).
+     
+        This object is deprecated by corresponding class based
+        table in CISCO-CLASS-BASED-QOS-MIB-MIB. Same information
+        can be obtained from cbQosPoliceStatsTable and cbQosCMCfgTable.
+        To access a port specific class configuration and stats,
+        following steps can be followed:
+
+        Step 1: Use ifIndex and cbQosPolicyDirection='input' to
+                lookup cbQosInterfacePolicyEntry and obtain
+                cbQosIFPolicyIndex which is same as cbQosPolicyIndex.
+        Step 2: Index cbQosPolicyIndex into cbQosObjectsTable and
+                obtain all entries corresponding to this policy
+                instance of cbQosPolicyIndex.
+        Step 3: With the obtained entries, filter following:
+                 -  For entries having 'classmap' in cbQosObjectsType,
+                    collect cbQosConfigIndex.
+                 -  For entries having 'police' in cbQosObjectsType,
+                    collect cbQosObjectsIndex.
+                    Here the selected entries should be the ones
+                    which maps to cbQosParentObjectsIndex
+                    of the desired class.
+        Step 4: Collect all cbQosObjectsIndex and cbQosConfigIndex
+                for all such filtered entries.
+        Step 5: To get policing stats : Index cbQosPolicyIndex and
+                cbQosObjectsIndex into cbQosPoliceStatsTable
+                To get class config : Index cbQosConfigIndex into
+                cbQosCMCfgTable."   
+    ::= { cportQosStatistics 7 }
+
+cportQosClassIngressStatsEntry OBJECT-TYPE
+    SYNTAX          CportQosClassIngressStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A conceptual row in cportQosClassIngressStatsTable.
+        An entry is added per port for ingress traffic belonging
+        to QoS classes, indicated by cportQosClassIdLevel1 and
+        cportQosClassIdLevel2, configured with an action that
+        supports statistics.
+
+        This object is deprecated for the same reason as mentioned
+        in cportQosClassIngressStatsTable."
+    INDEX           {
+                        ifIndex,
+                        cportQosClassIdLevel1,
+                        cportQosClassIdLevel2
+                    } 
+    ::= { cportQosClassIngressStatsTable 1 }
+
+CportQosClassIngressStatsEntry ::= SEQUENCE {
+        cportQosClassIdLevel1           Unsigned32,
+        cportQosClassIdLevel2           Unsigned32,
+        cportQosClassNameLevel1         SnmpAdminString,
+        cportQosClassNameLevel2         SnmpAdminString,
+        cportQosPoliceConformPkts       Counter64,
+        cportQosPoliceConformOctets     Counter64,
+        cportQosPoliceExceedPkts        Counter64,
+        cportQosPoliceExceedOctets      Counter64,
+        cportQosPoliceViolatePkts       Counter64,
+        cportQosPoliceViolateOctets     Counter64,
+        cportQosPoliceConformRate       Gauge32,
+        cportQosPoliceExceedRate        Gauge32,
+        cportQosPoliceViolateRate       Gauge32,
+        cportQosPoliceDiscontinuityTime TimeStamp
+}
+
+cportQosClassIdLevel1 OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object identifies the class-ID of a class at the
+        first (highest) level of a hierarchical policy. A value
+        of  0 indicates class default. For a non-hierarchical
+        policy, the value of this object is always 0.
+        
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        There is no mapping for this object.  All classes must be
+        referred by class name object cbQosCMName of
+        cbQosCMCfgEntry in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosClassIngressStatsEntry 1 }
+
+cportQosClassIdLevel2 OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647)
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object identifies the class-ID of a class at the
+        second level of a hierarchical policy, or at the first
+        (only) level in a non-hierarchical policy. For a two 
+        level policy, this object identifies the class-ID at the  
+        second level of the policy. For a non-hierarchical/
+        single level policy this object identifies the class-ID
+        of a class at the first (only) level of the policy. A
+        value of 0 indicates class default.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        There is no mapping for this object.  All classes must be
+        referred by class name object cbQosCMName of
+        cbQosCMCfgEntry in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosClassIngressStatsEntry 2 }
+
+cportQosClassNameLevel1 OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the class name that is associated
+        with the class-ID indicated by the cportQosClassIdLevel1 
+        object.
+
+        This object is deprecated and replaced by cbQosCMName
+        in CbQosCMCfgEntry in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosClassIngressStatsEntry 3 }
+
+cportQosClassNameLevel2 OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the class name that is associated
+        with the class-ID indicated by the cportQosClassIdLevel2 
+        object.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        This object can be mapped to cbQosCMName of cbQosCMCfgEntry
+        which uniquely identifies a class. 
+
+        To lookup level 2 of hierarchical policy, cbQosConfigIndex
+        chosen should belong to row having appropriate
+        cbQosParentObjectsIndex." 
+    ::= { cportQosClassIngressStatsEntry 4 }
+
+cportQosPoliceConformPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of ingress packets
+        that conforms to the policing rate for traffic belonging 
+        to the classes indicated by the cportQosClassIdLevel1 
+        and cportQosClassIdLevel2 indices.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        This object can be mapped to cbQosPoliceConformedPkt64
+        in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosClassIngressStatsEntry 5 }
+
+cportQosPoliceConformOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of ingress octets
+        that conforms to the policing rate for traffic belonging 
+        to the classes indicated by the cportQosClassIdLevel1 
+        and cportQosClassIdLevel2 indices.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        This object can be mapped to cbQosPoliceConformedByte64
+        in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosClassIngressStatsEntry 6 }
+
+cportQosPoliceExceedPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of ingress packets
+        that exceeds the policing rate for traffic belonging 
+        to the classes indicated by the cportQosClassIdLevel1 
+        and cportQosClassIdLevel2 indices.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        This object can be mapped to cbQosPoliceExceededPkt64
+        in CISCO-CLASS-BASED-QOS-MIB." 
+    ::= { cportQosClassIngressStatsEntry 7 }
+
+cportQosPoliceExceedOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of ingress octets
+        that exceeds the policing rate for traffic belonging 
+        to the classes indicated by the cportQosClassIdLevel1 
+        and cportQosClassIdLevel2 indices.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        This object can be mapped to cbQosPoliceExceededPkt64
+        in CISCO-CLASS-BASED-QOS-MIB." 
+    ::= { cportQosClassIngressStatsEntry 8 }
+
+cportQosPoliceViolatePkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of ingress packets
+        that violates the policing rate for traffic belonging 
+        to the classes indicated by the cportQosClassIdLevel1 
+        and cportQosClassIdLevel2 indices.
+        
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        This object can be mapped to cbQosPoliceViolatedPkt64
+        in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosClassIngressStatsEntry 9 }
+
+cportQosPoliceViolateOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of ingress octets
+        that violates the policing rate for traffic belonging 
+        to the classes indicated by the cportQosClassIdLevel1 
+        and cportQosClassIdLevel2 indices.
+        
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        This object can be mapped to cbQosPoliceViolatedByte64
+        in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosClassIngressStatsEntry 10 }
+
+cportQosPoliceConformRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bits per second"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the rate of ingress packets
+        that conforms to the policing rate for traffic belonging
+        to the classes indicated by the cportQosClassIdLevel1 
+        and cportQosClassIdLevel2 indices.
+        
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        This object can be mapped to cbQosPoliceConformedBitRate
+        in CISCO-CLASS-BASED-QOS-MIB."
+    ::= { cportQosClassIngressStatsEntry 11 }
+
+cportQosPoliceExceedRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bits per second"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the rate of ingress packets
+        that exceeds the policing for traffic belonging to
+        the classes indicated by the cportQosClassIdLevel1 
+        and cportQosClassIdLevel2 indices.
+        
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        This object can be mapped to cbQosPoliceExceedBitRate
+        in CISCO-CLASS-BASED-QOS-MIB." 
+    ::= { cportQosClassIngressStatsEntry 12 }
+
+cportQosPoliceViolateRate OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "bits per second"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the rate of ingress packets
+        that violates the policing for traffic belonging to
+        the classes indicated by the cportQosClassIdLevel1 
+        and cportQosClassIdLevel2 indices.
+        
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        This object can be mapped to cbQosPoliceViolateBitRate
+        in CISCO-CLASS-BASED-QOS-MIB." 
+    ::= { cportQosClassIngressStatsEntry 13 }
+
+cportQosPoliceDiscontinuityTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "The value of sysUpTime on the most recent occasion
+        at which any of this entry's counter experienced a 
+        discontinuity. If discontinuities have not occurred 
+        since the last re-initialization of the local 
+        management subsystem, then this object contains a 
+        zero value.
+
+        This object is deprecated for the same reason as
+        mentioned in cportQosClassEgressStatsTable.
+
+        There is no direct object mapped for this object." 
+    ::= { cportQosClassIngressStatsEntry 14 }
+ 
+
+
+cportQosDscpStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CportQosDscpStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table indicates QoS related statistical
+        DSCP information. The statistics are collected   
+        per physical port and DSCP value.
+        
+        This object is deprecated. 
+        Customers should move to using generic policy based counters
+        provided by CISCO-CLASS-BASED-QOS-MIB-MIB instead of using
+        platform specific objects.
+        One way to obtain port specific dscp counters would be to
+        configure a policy with class having match on desired dscp
+        value and no action under it. Then counters in
+        cbQosCMStatsTable can be used to infer the packet counts in
+        ingress and egress direction."
+    ::= { cportQosStatistics 8 }
+
+cportQosDscpStatsEntry OBJECT-TYPE
+    SYNTAX          CportQosDscpStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A conceptual row in cportQosDscpStatsTable. There is
+        an entry in this table for each port and each DSCP  
+        value.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosDscpStatsTable."
+    INDEX           {
+                        ifIndex,
+                        cportQosDscpValue
+                    } 
+    ::= { cportQosDscpStatsTable 1 }
+
+CportQosDscpStatsEntry ::= SEQUENCE {
+        cportQosDscpValue         Dscp,
+        cportQosDscpIngressPkts   Counter64,
+        cportQosDscpIngressOctets Counter64,
+        cportQosDscpEgressPkts    Counter64,
+        cportQosDscpEgressOctets  Counter64
+}
+
+cportQosDscpValue OBJECT-TYPE
+    SYNTAX          Dscp
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object identifies the DSCP value for
+        incoming or outgoing packets.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosDscpStatsTable."
+    ::= { cportQosDscpStatsEntry 1 }
+
+cportQosDscpIngressPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of ingress packets
+        whose DSCP value matched the value of the 
+        cportQosDscpValue object.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosDscpStatsTable."
+    ::= { cportQosDscpStatsEntry 2 }
+
+cportQosDscpIngressOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of ingress octets
+        whose DSCP value matched the value of the 
+        cportQosDscpValue object.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosDscpStatsTable."
+    ::= { cportQosDscpStatsEntry 3 }
+
+cportQosDscpEgressPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of egress packets
+        whose DSCP value matched the value of the 
+        cportQosDscpValue object.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosDscpStatsTable."
+    ::= { cportQosDscpStatsEntry 4 }
+
+cportQosDscpEgressOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of egress octets
+        whose DSCP value matched the value of the 
+        cportQosDscpValue object.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosDscpStatsTable."
+    ::= { cportQosDscpStatsEntry 5 }
+ 
+
+
+cportQosCosStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CportQosCosStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table indicates QoS related statistical
+        COS information. The statistics are collected   
+        per  physical port and COS value.
+
+        This object is deprecated. 
+        
+        Customers should move to using generic independent counters
+        provided by CISCO-CLASS-BASED-QOS-MIB-MIB instead of using
+        platform specific objects.
+
+        One way to obtain port specific dscp counters would be to
+        configure a policy with class having match on desired cos value
+        and no action under it. Then counters in cbQosCMStatsTable
+        can be used to infer the packet counts in ingress and egress
+        direction."
+    ::= { cportQosStatistics 9 }
+
+cportQosCosStatsEntry OBJECT-TYPE
+    SYNTAX          CportQosCosStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "A conceptual row in cportQosCosStatsTable. There is
+        an entry in this table for each port and each COS  
+        value.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosCosStatsTable."
+    INDEX           {
+                        ifIndex,
+                        cportQosCosValue
+                    } 
+    ::= { cportQosCosStatsTable 1 }
+
+CportQosCosStatsEntry ::= SEQUENCE {
+        cportQosCosValue         QosLayer2Cos,
+        cportQosCosIngressPkts   Counter64,
+        cportQosCosIngressOctets Counter64,
+        cportQosCosEgressPkts    Counter64,
+        cportQosCosEgressOctets  Counter64
+}
+
+cportQosCosValue OBJECT-TYPE
+    SYNTAX          QosLayer2Cos
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object identifies the COS value for
+        each received or sent packet.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosCosStatsTable."
+    ::= { cportQosCosStatsEntry 1 }
+
+cportQosCosIngressPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of ingress
+        packets whose COS value matched the value of the 
+        cportQosCosValue object.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosCosStatsTable."
+    ::= { cportQosCosStatsEntry 2 }
+
+cportQosCosIngressOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of ingress
+        octets whose COS value matched the value of the 
+        cportQosCosValue object.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosCosStatsTable."
+    ::= { cportQosCosStatsEntry 3 }
+
+cportQosCosEgressPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Packets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of egress
+        packets whose COS value matched the value of the 
+        cportQosCosValue object.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosCosStatsTable."
+    ::= { cportQosCosStatsEntry 4 }
+
+cportQosCosEgressOctets OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Octets"
+    MAX-ACCESS      read-only
+    STATUS          deprecated
+    DESCRIPTION
+        "This object indicates the number of egress
+        octets whose COS value matched the value of the 
+        cportQosCosValue object.
+
+        This object is deprecated.
+
+        The reason of deprecation and the alternative of obtaining
+        same information are mentioned in cportQosCosStatsTable."
+    ::= { cportQosCosStatsEntry 5 }
+ 
+
+-- Notifications
+
+ciscoPortQosMIBNotifications  OBJECT IDENTIFIER
+    ::= { ciscoPortQosMIB 2 }
+
+-- (no notifications are currently defined)
+--   
+
+-- conformance information
+
+ciscoPortQosMIBConformance  OBJECT IDENTIFIER
+    ::= { ciscoPortQosMIB 3 }
+
+ciscoPortQosMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoPortQosMIBConformance 1 }
+
+ciscoPortQosMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoPortQosMIBConformance 2 }
+
+
+-- compliance statement
+
+ciscoPortQosMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement Port QoS functions on a Cisco router."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoPortQosMIBGroup }
+
+    GROUP           ciscoPortQosStatsMIBGroup
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities.    
+        Replaced by: ciscoPortQosMIBComplianceRev1"
+    ::= { ciscoPortQosMIBCompliances 1 }
+
+ciscoPortQosMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement Port QoS functions on a Cisco router."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoPortQosMIBGroup }
+
+    GROUP           ciscoPortQosStatsMIBGroupRev1
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+    ::= { ciscoPortQosMIBCompliances 2 }
+
+ciscoPortQosMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement Port QoS functions on a Cisco router."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoPortQosMIBGroup }
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    OBJECT          cportQosIndexTypeNew
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Read-only access for devices that do not
+        support configuration of the sorting mechanism."
+    ::= { ciscoPortQosMIBCompliances 3 }
+
+ciscoPortQosMIBComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement Port QoS functions on a Cisco router."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoPortQosMIBGroup }
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp1
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    OBJECT          cportQosIndexTypeNew
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Read-only access for devices that do not
+        support configuration of the sorting mechanism."
+    ::= { ciscoPortQosMIBCompliances 4 }
+
+ciscoPortQosMIBComplianceRev4 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement Port QoS functions on a Cisco router."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoPortQosMIBGroup }
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp1
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp2
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    OBJECT          cportQosIndexTypeNew
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Read-only access for devices that do not
+        support configuration of the sorting mechanism."
+    ::= { ciscoPortQosMIBCompliances 5 }
+
+ciscoPortQosMIBComplianceRev5 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement Port QoS functions on a Cisco router."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoPortQosMIBGroup }
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp1
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp2
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp3
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    OBJECT          cportQosIndexTypeNew
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Read-only access for devices that do not
+        support configuration of the sorting mechanism."
+    ::= { ciscoPortQosMIBCompliances 6 }
+
+ciscoPortQosMIBComplianceRev6 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which
+        implement Port QoS functions on a Cisco router."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoPortQosMIBGroup }
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp1
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp2
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp3
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp4
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp5
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp6
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp7
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    GROUP           ciscoPortQosStatsMIBGroupRev2Supp8
+    DESCRIPTION
+        "Implementation of this group is optional based
+        on the device capabilities."
+
+    OBJECT          cportQosIndexTypeNew
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Read-only access for devices that do not
+        support configuration of the sorting mechanism."
+    ::= { ciscoPortQosMIBCompliances 7 }
+
+-- units of conformance
+
+ciscoPortQosMIBGroup OBJECT-GROUP
+    OBJECTS         {
+                        cportQosRLConfigEnable,
+                        cportQosRLConfigRate,
+                        cportQosRLConfigBurstSize,
+                        cportQosTSConfigEnable,
+                        cportQosTSConfigRate,
+                        cportQosTSConfigBurstSize
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing Port QoS
+        features. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 1 }
+
+ciscoPortQosStatsMIBGroup OBJECT-GROUP
+    OBJECTS         {
+                        cportQosIndexType,
+                        cportQosPrePolicyPkts,
+                        cportQosPrePolicyOctets,
+                        cportQosPostPolicyOctets,
+                        cportQosPostPolicyPkts,
+                        cportQosDropPkts,
+                        cportQosDropOctets,
+                        cportQosClassifiedOctets,
+                        cportQosClassifiedPkts
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics.     
+        Replaced by: ciscoPortQosStatsMIBGroupRev1.
+        This object is deprecated since all the objects
+        in this MIB file is being deprecated"
+    ::= { ciscoPortQosMIBGroups 2 }
+
+ciscoPortQosStatsMIBGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cportQosIndexType,
+                        cportQosPrePolicyPkts,
+                        cportQosPrePolicyOctets,
+                        cportQosPostPolicyOctets,
+                        cportQosPostPolicyPkts,
+                        cportQosDropPkts,
+                        cportQosDropOctets,
+                        cportQosClassifiedOctets,
+                        cportQosClassifiedPkts,
+                        cportQosNoChangePkts,
+                        cportQosNoChangeOctets
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 3 }
+
+ciscoPortQosStatsMIBGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cportQosIndexTypeNew,
+                        cportQosPrePolicyPkts,
+                        cportQosPrePolicyOctets,
+                        cportQosPostPolicyOctets,
+                        cportQosPostPolicyPkts,
+                        cportQosDropPkts,
+                        cportQosDropOctets,
+                        cportQosClassifiedOctets,
+                        cportQosClassifiedPkts,
+                        cportQosNoChangePkts,
+                        cportQosNoChangeOctets,
+                        cportQosInProfPolicyPkts,
+                        cportQosOutOfProfPolicyPkts
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 4 }
+
+ciscoPortQosStatsMIBGroupRev2Supp1 OBJECT-GROUP
+    OBJECTS         {
+                        cportQosVlanInProfPolicyPkts,
+                        cportQosVlanOutOfProfPolicyPkts
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 5 }
+
+ciscoPortQosStatsMIBGroupRev2Supp2 OBJECT-GROUP
+    OBJECTS         {
+                        cportQosInProfPolicyOctets,
+                        cportQosOutOfProfPolicyOctets,
+                        cportQosViolateProfPolicyPkts,
+                        cportQosViolateProfPolicyOctets
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 6 }
+
+ciscoPortQosStatsMIBGroupRev2Supp3 OBJECT-GROUP
+    OBJECTS         {
+                        cportQosVlanInProfPolicyOctets,
+                        cportQosVlanOutOfProfPolicyOctets,
+                        cportQosVlanViolateProfPolicyPkts,
+                        cportQosVlanViolateProfPolicyOctets
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 7 }
+
+ciscoPortQosStatsMIBGroupRev2Supp4 OBJECT-GROUP
+    OBJECTS         {
+                        cportQosQueueEnqueuePkts,
+                        cportQosQueueDropPkts
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 8 }
+
+ciscoPortQosStatsMIBGroupRev2Supp5 OBJECT-GROUP
+    OBJECTS         {
+                        cportQosClassName,
+                        cportQosClassEnqueuePkts,
+                        cportQosClassDropPkts,
+                        cportQosClassDiscontinuityTime
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 9 }
+
+ciscoPortQosStatsMIBGroupRev2Supp6 OBJECT-GROUP
+    OBJECTS         {
+                        cportQosClassNameLevel1,
+                        cportQosClassNameLevel2,
+                        cportQosPoliceConformPkts,
+                        cportQosPoliceConformOctets,
+                        cportQosPoliceExceedPkts,
+                        cportQosPoliceExceedOctets,
+                        cportQosPoliceViolatePkts,
+                        cportQosPoliceViolateOctets,
+                        cportQosPoliceConformRate,
+                        cportQosPoliceExceedRate,
+                        cportQosPoliceViolateRate,
+                        cportQosPoliceDiscontinuityTime
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 10 }
+
+ciscoPortQosStatsMIBGroupRev2Supp7 OBJECT-GROUP
+    OBJECTS         {
+                        cportQosDscpIngressPkts,
+                        cportQosDscpIngressOctets,
+                        cportQosDscpEgressPkts,
+                        cportQosDscpEgressOctets
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 11 }
+
+ciscoPortQosStatsMIBGroupRev2Supp8 OBJECT-GROUP
+    OBJECTS         {
+                        cportQosCosIngressPkts,
+                        cportQosCosIngressOctets,
+                        cportQosCosEgressPkts,
+                        cportQosCosEgressOctets
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing per Port QoS
+        statistics. This object is deprecated since all the objects
+        in this MIB file is being deprecated."
+    ::= { ciscoPortQosMIBGroups 12 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

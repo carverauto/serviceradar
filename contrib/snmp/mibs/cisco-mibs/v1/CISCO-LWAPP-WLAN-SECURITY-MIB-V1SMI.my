@@ -1,0 +1,1090 @@
+-- MIB file created 04-Jun-2015 16:13:12, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-WLAN-SECURITY-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-WLAN-SECURITY-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    CLSecEncryptType, CLSecKeyFormat
+            FROM CISCO-LWAPP-TC-MIB
+    cLWlanIndex
+            FROM CISCO-LWAPP-WLAN-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoLwappWlanSecurityMIB OBJECT IDENTIFIER ::= { ciscoMgmt 521 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201506030000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    Postal: 170 West Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553-NETS
+--    
+--    Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central controllers, that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Cisco Light-weight LWAPP Access Points.
+--    
+--    Information provided by this MIB is for WLAN security
+--    related features as specified in the CCKM, CKIP 
+--    specifications. 
+--    
+--    The relationship between the controller and the 
+--    LWAPP APs is depicted as follows:
+--    
+--          +......+     +......+     +......+ 
+--          +      +     +      +     +      +
+--          +  CC  +     +  CC  +     +  CC  +
+--          +      +     +      +     +      +
+--          +......+     +......+     +......+
+--            ..            .             .   
+--            ..            .             .   
+--           .  .            .             .  
+--          .    .            .             . 
+--         .      .            .             .
+--        .        .            .             .
+--    +......+ +......+     +......+      +......+
+--    +      + +      +     +      +      +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +
+--    +      + +      +     +      +      +      +
+--    +......+ +......+     +......+      +......+
+--               .              .             .
+--             .  .              .             .
+--            .    .              .             .
+--           .      .              .             .
+--          .        .              .             .
+--       +......+ +......+     +......+      +......+
+--       +      + +      +     +      +      +      +
+--       +  MN  + +  MN  +     +  MN  +      +  MN  +
+--       +      + +      +     +      +      +      +
+--       +......+ +......+     +......+      +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    802.1x
+--    
+--    The IEEE ratified standard for enforcing port based
+--    access control.  This was originally intended for
+--    use on wired LANs and later extended for use in
+--    802.11 WLAN environments.  This defines an
+--    architecture with three main parts - a supplicant
+--    (Ex. an 802.11 wireless client), an authenticator
+--    (the AP) and an authentication server(a Radius
+--    server).  The authenticator passes messages back
+--    and forth between the supplicant and the
+--    authentication server to enable the supplicant
+--    get authenticated to the network.
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends them to the controller to which
+--    it is logically connected.
+--    
+--    Advanced Encryption Standard ( AES )
+--    
+--    In cryptography, the Advanced Encryption Standard
+--    (AES), also known as Rijndael, is a block cipher
+--    adopted as an encryption standard by the US
+--    government. It is expected to be used worldwide
+--    and analysed extensively, as was the case with its
+--    predecessor, the Data Encryption Standard (DES).
+--    AES was adopted by National Institute of Standards
+--    and Technology (NIST) as US FIPS PUB 197 in
+--    November 2001 after a 5-year standardisation
+--    process.
+--    
+--    Central Controller ( CC )
+--    
+--    The central entity that terminates the LWAPP protocol
+--    tunnel from the LWAPP APs.  Throughout this MIB,
+--    this entity also referred to as 'controller'. 
+--    
+--    Cisco Centralized Key Management ( CCKM )
+--    
+--    Client and AP exchange several EAPOL packets in the
+--    process of EAP authenticaton to determine dynamic
+--    session key (NSK), which is used for encrypting
+--    packets between them.
+--    
+--    When client moves to new-AP, it has to mutually
+--    authenticate with the new-AP and derive new NSK. This
+--    is being done by using complete EAP authentication
+--    (which is time consuming and causes noticeable delay
+--    in the voice application). Till that time, no data
+--    packets are being transmitted between new-AP and
+--    client.
+--    
+--    CCKM implementation in first controller caches
+--    client's credentials like session, vlanid, ssid, etc.
+--    and propagates the same to other controllers in
+--    mobility group.
+--    
+--    Currently a set of controller can be configured as
+--    part of a mobility group. If client roams across
+--    access points associated to this set of controllers,
+--    then with CCKM implementation in place, the L2
+--    authentication will not happen. To make this happen
+--    a CCKM cache is maintained on each controller and the
+--    first controller where client gets associated update
+--    rest of the controllers in mobility group. On later
+--    reassociations, controller validates the CCKM specific
+--    IE present and allow associations.
+--    
+--    Wireless LAN Access Points (APs) manufactured by Cisco
+--    Systems have features and capabilities beyond those in
+--    related standards (e.g., IEEE 802.11 suite of
+--    standards, Wi-Fi recommendations by WECA, 802.1X
+--    security suite, etc). A number of features provide
+--    higher performance. For example, Cisco AP transmits a
+--    specific Information Element, which the clients adapt
+--    to for enhanced performance. Similarly, a number of
+--    features are implemented by means of proprietary
+--    Information Elements, which Cisco clients use in
+--    specific ways to carry out tasks above and beyond the
+--    standard.
+--    
+--    Other examples of feature categories are roaming and
+--    power saving.
+--    
+--    Cisco Key Integrity Protocol ( CKIP )
+--    
+--    A proprietary implementation similar to TKIP.  CKIP
+--    implements key permutation for protecting the CKIP
+--    key against attacks.  Other features of CKIP include
+--    expansion of encryption key to 16 bytes of length for
+--    key protection and MIC to ensure data integrity.
+--    
+--    Light Weight Access Point Protocol ( LWAPP )
+--    
+--    This is a generic protocol that defines the
+--    communication between the Access Points and the
+--    Central Controller.
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. Mobile Node
+--    and client are used interchangeably.
+--    
+--    Multilinear Modular Hash ( MMH )
+--    
+--    This is a message authentication code. The original
+--    message is run through the hash (with a secret key),
+--    and the code is the result.  The code is sent along
+--    with the original message.  The receiver of the
+--    message calculates the hash over the original message
+--    (also with the secret key) and compares the final
+--    message authentication code with the code sent with
+--    the message. If the two codes match, the receiver can
+--    be assured that the original message is authentic.
+--    
+--    Pre-Shared Key ( PSK )
+--    
+--    Pre-shared keys are normally used for
+--    interoperability purposes.  The basic idea is that
+--    two parties sharing a common secret can communicate
+--    securely.  This idea has been used since cryptography
+--    first sprung onto the scene.
+--    
+--    Temporal Key Integrity Protocol ( TKIP )
+--    
+--    A security protocol defined to enhance the limitations
+--    of WEP.  Message Integrity Check and per-packet keying
+--    on all WEP-encrypted frames are two significant
+--    enhancements provided by TKIP to WEP.
+--    
+--    Wired Equivalent Privacy ( WEP )
+--    
+--    A security method defined by 802.11. WEP uses a
+--    symmetric key stream cipher called RC4 to encrypt the
+--    data packets.
+--    
+--    Wi-Fi Protected Access ( WPA )
+--    
+--    Wi-Fi Protected Access (WPA and WPA2) are security
+--    systems created in response to several serious
+--    weaknesses found in Wired Equivalent Privacy (WEP).
+--    WPA implements the majority of the IEEE 802.11i
+--    standard, and was intended as an intermediate
+--    measure to take the place of WEP while 802.11i was
+--    prepared. WPA is designed to work with all wireless
+--    network interface cards, but not necessarily with
+--    first generation wireless access points.
+--    
+--    Protected Management Frame (PFM)
+--    
+--    Authentication, Authorization, and Accounting (AAA)
+--    
+--    Remote Authentication Dial In User Service (RADIUS)
+--    
+--    REFERENCE
+--    
+--    [1] Wireless LAN Medium Access Control ( MAC ) and
+--    Physical Layer ( PHY ) Specifications,
+--    Amendment 6, MAC Security Enhancements.
+--    
+--    [2] draft-obara-capwap-lwapp-00.txt, IETF Light 
+--    Weight Access Point Protocol
+--  RevDate
+--    201506030000Z
+--  RevDescr
+--    Added following OBJECT-GROUP:
+--    - ciscoLwappWlanSecurityAaaConfigGroup
+--    - ciscoLwappWlanSecurityFtConfigGroup
+--    - ciscoLwappWlanSecurityPfmConfigGroup
+--    - ciscoLwappWlanSecurityCckmConfigGroup1
+--    Added new compliance
+--    - ciscoLwappWlanSecurityMIBComplianceRev2.
+--  RevDate
+--    200801150000Z
+--  RevDescr
+--    Added new cLWSecDot11EssWebPolicyTable and
+--    ciscoLwappWlanSecurityMIBComplianceRev1
+--  RevDate
+--    200711080000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLwappWlanSecurityMIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIB 0 }
+ciscoLwappWlanSecurityMIBObjects OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIB 1 }
+ciscoLwappWlanSecurityMIBConform OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIB 2 }
+clwsCckmConfig  OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBObjects 1 }
+clwsCkipConfig  OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBObjects 2 }
+clwsWebPolicyConfig OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBObjects 3 }
+clwsAaaConfig   OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBObjects 4 }
+ciscoLwappWlanSecurityMIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBConform 1 }
+ciscoLwappWlanSecurityMIBGroups OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBConform 2 }
+
+cLWSecDot11EssCckmTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLWSecDot11EssCckmEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the CCKM configuration
+        for the WLANs configured on this controller.  
+        
+        There exist a row in this table corresponding to each
+        row representing a WLAN in cLWlanConfigTable.  The
+        controller adds or deletes a row to this table
+        whenever a WLAN is added or deleted."
+    ::= { clwsCckmConfig 1 }
+
+cLWSecDot11EssCckmEntry OBJECT-TYPE
+    SYNTAX CLWSecDot11EssCckmEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLWSecDot11EssCckmTable and uniquely identified
+        by cLWlanIndex."
+    INDEX { cLWlanIndex }
+    ::= { cLWSecDot11EssCckmTable 1 }
+
+CLWSecDot11EssCckmEntry ::= SEQUENCE {
+    cLWSecDot11EssCckmWpaSupport TruthValue,
+    cLWSecDot11EssCckmWpa1Security TruthValue,
+    cLWSecDot11EssCckmWpa1EncType CLSecEncryptType,
+    cLWSecDot11EssCckmWpa2Security TruthValue,
+    cLWSecDot11EssCckmWpa2EncType CLSecEncryptType,
+    cLWSecDot11EssCckmKeyMgmtMode OCTET STRING,
+    cLWSecDot11EssPskFmt CLSecKeyFormat,
+    cLWSecDot11EssPsk OCTET STRING,
+    cLWSecDot11EssCckmGtkRandomize TruthValue,
+    cLWSecDot11EssFtEnable TruthValue,
+    cLWSecDot11EssFtReassocTime Gauge,
+    cLWSecDot11EssFtOverDs TruthValue,
+    cLWSecDot11Ess11wPfm INTEGER,
+    cLWSecDot11EssRetryTime Gauge,
+    cLWSecDot11EssComebackTime Gauge
+    }
+
+cLWSecDot11EssCckmWpaSupport OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable layer-2
+        security using WPA1 or WPA2.  When this 
+        object is set to 'true'  layer-2 security is enabled.
+        When this object is set to 'false' layer-2 security
+        is disabled.
+        
+        When layer-2 security is enabled, the following objects 
+        are only applied to environment and can be set.
+        
+          cLWSecDot11EssCckmWpa1Security
+          cLWSecDot11EssCckmWpa1EncType
+          cLWSecDot11EssCckmWpa2Security
+          cLWSecDot11EssCckmWpa2EncType
+          cLWSecDot11EssCckmKeyMgmtMode
+          cLWSecDot11EssCckmGtkRandomize."
+    DEFVAL { false }
+    ::= { cLWSecDot11EssCckmEntry 1 }
+
+cLWSecDot11EssCckmWpa1Security OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies cckmwpa1 security is enabled or not.
+        A value of 'true' indicates that WPA1 security
+        is enabled on the controller.  A value of 'false'
+        disables WPA1 security."
+    DEFVAL { false }
+    ::= { cLWSecDot11EssCckmEntry 2 }
+
+cLWSecDot11EssCckmWpa1EncType OBJECT-TYPE
+    SYNTAX CLSecEncryptType
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           tkip(0)
+--           aes(1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of WPA1 encryption
+        configured on this WLAN.
+        
+        The value populated by this object is applicable
+        only when cLWSecDot11EssCckmWpa1Security populates
+        a value of 'true'."
+    DEFVAL { '00'h }
+    ::= { cLWSecDot11EssCckmEntry 3 }
+
+cLWSecDot11EssCckmWpa2Security OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies cckmwpa2 security is enabled or not.
+        A value of 'true' indicates that WPA2 security
+        is enabled on the controller.  A value of 'false'
+        disables WPA2 security."
+    DEFVAL { false }
+    ::= { cLWSecDot11EssCckmEntry 4 }
+
+cLWSecDot11EssCckmWpa2EncType OBJECT-TYPE
+    SYNTAX CLSecEncryptType
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           tkip(0)
+--           aes(1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of WPA2 encryption
+        configured on this WLAN.
+        
+        The value populated by this object is applicable
+        only when cLWSecDot11EssCckmWpa2Security populates
+        a value of 'true'."
+    DEFVAL { '00'h }
+    ::= { cLWSecDot11EssCckmEntry 5 }
+
+cLWSecDot11EssCckmKeyMgmtMode OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   dot1x(0)
+        --   cckm(1)
+        --   psk(2)
+        --   ftDot1x(3)
+        --   ftPsk(4)
+        --   pfmDot1x(5)
+        --   pfmPsk(6)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of authentication
+        key management that is applicable only when
+        cLWSecDot11EssCckmWpaSupport is set to a value of
+        'true'.
+        
+        The following are the possible key management
+        configurations allowed and accepted by the system.
+        
+        dot1x(0) + cckm(1) 
+        dot1x(0) only
+        cckm(1)  only
+        psk(2)   only
+        ftDot1x(3) only
+        ftPsk(4) only
+        psk(2) + ftPsk(4)
+        dot1x(0) + ftDot1x(3)
+        dot1x(0) + cckm(1) + ftDot1x(3)
+        dot1x(0) + cckm(1) + pfmDot1x(5)
+        dot1x(0) + pfmDot1x(5)
+        cckm(1) + pfmDot1x(5)
+        psk(2) + pfmPsk(6)"
+    DEFVAL { '80'h }
+    ::= { cLWSecDot11EssCckmEntry 6 }
+
+cLWSecDot11EssPskFmt OBJECT-TYPE
+    SYNTAX CLSecKeyFormat
+--    Rsyntax INTEGER {
+--        default(1),
+--        hex(2),
+--        ascii(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of the
+        authentication preshared key configured through
+        the object cLWSecDot11EssCckmPsk.  Note
+        that the key configuration is applicable only
+        when psk is configured as the key management
+        mechanism through the 
+        cLWSecDot11EssCckmKeyMgmtMode object."
+    DEFVAL { default }
+    ::= { cLWSecDot11EssCckmEntry 7 }
+
+cLWSecDot11EssPsk OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(8..64))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the authentication pre-shared
+        key in the hex format that is applicable only when
+        the 'psk' bit is specified in the 
+        cLWSecDot11EssCckmKeyMgmtMode object.
+        
+        The length of the key that can be specified for
+        the cLWSecDot11EssPsk object depends on the
+        value of the cLWSecDot11EssPskFmt object as  
+        follows.
+        
+        'ascii'    8-63 octets
+        'hex'      32 octets."
+    ::= { cLWSecDot11EssCckmEntry 8 }
+
+cLWSecDot11EssCckmGtkRandomize OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the Group Temporal
+        Key(GTK) randomization is enabled for a WLAN.
+        
+        A value of 'true' indicates that GTK randomization
+        is enabled.  A value of 'false' indicates that GTK
+        randomization is disabled."
+    ::= { cLWSecDot11EssCckmEntry 9 }
+
+cLWSecDot11EssFtEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether fast transition is enabled
+        for particular WLAN.
+        
+        A value of 'true' means that fast transition is enabled and
+        a value of 'false' means that
+        fast transition is disabled."
+    ::= { cLWSecDot11EssCckmEntry 10 }
+
+cLWSecDot11EssFtReassocTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the fast transition
+        re-association time."
+    ::= { cLWSecDot11EssCckmEntry 11 }
+
+cLWSecDot11EssFtOverDs OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether fast transition over
+        distributed system is enabled.
+        
+        A value of 'true' means that fast transition over the
+        distributed system is enabled and a value of 'false' means
+        fast transition over the distributed system is disabled."
+    ::= { cLWSecDot11EssCckmEntry 12 }
+
+cLWSecDot11Ess11wPfm OBJECT-TYPE
+    SYNTAX INTEGER {
+        disabled(1),
+        optional(2),
+        required(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the 802.11w PFM configuration for a
+        particular WLAN."
+    ::= { cLWSecDot11EssCckmEntry 13 }
+
+cLWSecDot11EssRetryTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the 802.11w Security Association(SA)
+        query retry timeout."
+    ::= { cLWSecDot11EssCckmEntry 14 }
+
+cLWSecDot11EssComebackTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the 802.11w association comeback time."
+    ::= { cLWSecDot11EssCckmEntry 15 }
+
+cLWSecDot11EssCkipTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLWSecDot11EssCkipEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the CKIP parameters of a
+        WLAN.
+        
+        This is a new layer-2 security policy similar to 
+        static WEP.  User can select this policy on a WLAN.  
+        This policy will be allowed to be configured only when 
+        Aironet Extensions are enabled on the WLAN.
+        
+        Once user has selected CKIP he will be given an option 
+        to : 
+            1> configure key 
+            2> select  MMH 
+        
+        There exist a row in this table corresponding to each
+        row representing a WLAN in cLWlanConfigTable.  The
+        controller adds or deletes a row to this table
+        whenever a WLAN is added or deleted."
+    ::= { clwsCckmConfig 2 }
+
+cLWSecDot11EssCkipEntry OBJECT-TYPE
+    SYNTAX CLWSecDot11EssCkipEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLWSecDot11EssCkipTable and uniquely identified
+        by cLWlanIndex."
+    INDEX { cLWlanIndex }
+    ::= { cLWSecDot11EssCkipTable 1 }
+
+CLWSecDot11EssCkipEntry ::= SEQUENCE {
+    cLWSecDot11EssCkipSecurity TruthValue,
+    cLWSecDot11EssCkipKeyIndex Gauge,
+    cLWSecDot11EssCkipKeyLength INTEGER,
+    cLWSecDot11EssCkipKeyFmt CLSecKeyFormat,
+    cLWSecDot11EssCkipKey OCTET STRING,
+    cLWSecDot11EssCkipMMHMode TruthValue,
+    cLWSecDot11EssCkipKPEnable TruthValue
+    }
+
+cLWSecDot11EssCkipSecurity OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable to disable layer-2
+        CKIP as security policy for this WLAN.  When this 
+        object is set to 'true', layer-2 CKIP security is
+        enabled.  When this object is set to 'false',
+        layer-2 CKIP security is disabled."
+    DEFVAL { false }
+    ::= { cLWSecDot11EssCkipEntry 1 }
+
+cLWSecDot11EssCkipKeyIndex OBJECT-TYPE
+    SYNTAX Gauge(0..4)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the key index corresponding
+        to the key being configured.  A value of 0 indicates
+        that the CKIP key hasn't been configured."
+    DEFVAL { 0 }
+    ::= { cLWSecDot11EssCkipEntry 2 }
+
+cLWSecDot11EssCkipKeyLength OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        len40(2),
+        len104(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the length of CKIP key in bits
+        that is applicable only when cLWSecDot11EssCkipSecurity
+        is set as 'true'."
+    DEFVAL { none }
+    ::= { cLWSecDot11EssCkipEntry 3 }
+
+cLWSecDot11EssCkipKeyFmt OBJECT-TYPE
+    SYNTAX CLSecKeyFormat
+--    Rsyntax INTEGER {
+--        default(1),
+--        hex(2),
+--        ascii(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of the key
+        configured through the object
+        cLWSecDot11EssCkipKey."
+    DEFVAL { default }
+    ::= { cLWSecDot11EssCkipEntry 4 }
+
+cLWSecDot11EssCkipKey OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(5..26))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the CKIP key that is
+        applicable only when cLWSecDot11EssCkipSecurity
+        is set as 'true'.
+        
+        The number of characters to be configured depends
+        on the key length and the key type configured through
+        the objects cLWSecDot11EssCkipKeyLength and
+        cLWSecDot11EssCkipKeyFmt respectively.
+        
+        The combinations are as follows.
+        
+        Key Type          Number of characters
+        
+         hex         10/26 hex characters for 40/104 bits
+         ascii       5/13  ascii characters for 40/104 bits.
+        
+         When cLWSecDot11EssCkipKeyFmt is set to 'hex',
+         cLWSecDot11EssCkipKey can only be set to 
+         hexadecimal characters.
+        
+         To ensure consistency the following objects must be
+         set together.
+            cLWSecDot11EssCkipKeyFmt
+            cLWSecDot11EssCkipKeyIndex
+            cLWSecDot11EssCkipKeyLength 
+            cLWSecDot11EssCkipKey."
+    ::= { cLWSecDot11EssCkipEntry 5 }
+
+cLWSecDot11EssCkipMMHMode OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable MMH MIC
+        mode for the CKIP for this WLAN. 
+        
+        'true' -  MMH MIC mode is enabled
+        'false' -  MMH MIC mode is disabled."
+    DEFVAL { false }
+    ::= { cLWSecDot11EssCkipEntry 6 }
+
+cLWSecDot11EssCkipKPEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether CKIP is enabled.
+        When the value is set to 'true', the encryption
+        keys will be generated by permuting the static CKIP
+        key configured through cLWSecDot11EssCkipKey."
+    DEFVAL { false }
+    ::= { cLWSecDot11EssCkipEntry 7 }
+
+cLWSecDot11EssWebPolicyTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLWSecDot11EssWebPolicyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table represents the conditional web-redirect
+        parameters for the WLANs configured on this controller.  
+        
+        There exist a row in this table corresponding to each
+        row representing a WLAN in cLWlanConfigTable.  The
+        controller adds or deletes a row to this table
+        whenever a WLAN is added or deleted."
+    ::= { clwsWebPolicyConfig 1 }
+
+cLWSecDot11EssWebPolicyEntry OBJECT-TYPE
+    SYNTAX CLWSecDot11EssWebPolicyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Each entry represents a conceptual row in
+        cLWSecDot11EssWebPolicyTable and uniquely identified
+        by cLWlanIndex."
+    INDEX { cLWlanIndex }
+    ::= { cLWSecDot11EssWebPolicyTable 1 }
+
+CLWSecDot11EssWebPolicyEntry ::= SEQUENCE {
+    cLWSecDot11EssWebPolicyCondRedirect TruthValue,
+    cLWSecDot11EssWebPolicySplashPageWebRedirect TruthValue
+    }
+
+cLWSecDot11EssWebPolicyCondRedirect OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable conditional redirect.
+        
+        When this attribute is 'true', it signifies that conditional 
+        redirect is enabled and redirection of the client is done
+        based on the url-redirect attribute provided by radius server.
+        
+        When this attribute is 'false', it signifies that conditional 
+        redirect is disabled and redirection of the client is not 
+        done, even if the url-redirect attribute is provided by the 
+        radius server.
+        
+        This attribute can be enabled only when 802.1x has been configured
+        as layer-2 security the wlan and web policy is enabled on the wlan."
+    DEFVAL { false }
+    ::= { cLWSecDot11EssWebPolicyEntry 1 }
+
+cLWSecDot11EssWebPolicySplashPageWebRedirect OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable splash page web
+        redirect.
+        
+        When this attribute is 'true', it signifies that splash page 
+        redirect is enabled and redirection of the client is done
+        based on the url-redirect attribute provided by radius server.
+        The redirect function works only for HTTP traffic.
+        HTTPS redirect is not supported for any of the Web Policies.
+        
+        When this attribute is 'false', it signifies that splash page 
+        redirect is disabled and redirection of the client is not 
+        done.
+        
+        This attribute can be enabled only when 802.1x or WPA1+WPA2
+        has been configured as layer-2 security on the wlan."
+    DEFVAL { false }
+    ::= { cLWSecDot11EssWebPolicyEntry 2 }
+
+cLWSecAaaRadiusAuthCallStationIdType OBJECT-TYPE
+    SYNTAX INTEGER {
+        ipAddr(1),
+        macAddr(2),
+        apMacAddress(3),
+        apMacAddressSsid(4),
+        apNameSsid(5),
+        apName(6),
+        apGroupName(7),
+        apLocation(8),
+        apVlanId(9),
+        apMacEthAddress(10),
+        apMacEthAddressSsid(11),
+        apLabelAddress(12),
+        apLabelAddressSsid(13)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the configured the call station ID
+        information sent in RADIUS authentication messages."
+    ::= { clwsAaaConfig 1 }
+
+cLWSecAaaRadiusAccUsernameDelimiter OBJECT-TYPE
+    SYNTAX INTEGER {
+        noDelimiter(1),
+        hyphen(2),
+        colon(3),
+        singleHyphen(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the delimiter to be used when
+        displaying the username for accounting request.
+        
+        For example, if the value of the username for accounting
+        request is 1234567890ab.
+        
+        noDelimiter  - display it as 1234567890ab.
+        hyphen       - display it as 12-34-56-78-90-ab
+        colon        - display it as 12:34:56:78:90:ab
+        singleHyphen - display it as 123456-7890ab"
+    ::= { clwsAaaConfig 2 }
+
+ciscoLwappWlanSecurityCckmConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents CCKM
+--    related security parameters on a WLAN.  The
+--    collection also configures the pre-shared keys
+--    when PSK is configured as the key management
+--    type.
+--  objects
+--    cLWSecDot11EssCckmWpaSupport, cLWSecDot11EssCckmWpa1Security, 
+--    cLWSecDot11EssCckmWpa1EncType, cLWSecDot11EssCckmWpa2Security, 
+--    cLWSecDot11EssCckmWpa2EncType, cLWSecDot11EssCckmKeyMgmtMode, 
+--    cLWSecDot11EssPskFmt, cLWSecDot11EssPsk
+
+ciscoLwappWlanSecurityCkipConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents CKIP
+--    related security parameters on a WLAN.
+--  objects
+--    cLWSecDot11EssCkipSecurity, cLWSecDot11EssCkipKeyIndex, 
+--    cLWSecDot11EssCkipKeyLength, cLWSecDot11EssCkipKeyFmt, 
+--    cLWSecDot11EssCkipKey, cLWSecDot11EssCkipMMHMode, 
+--    cLWSecDot11EssCkipKPEnable
+
+ciscoLwappWlanSecurityWebPolicyConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents
+--    conditional redirect parameters on a WLAN.
+--  objects
+--    cLWSecDot11EssWebPolicyCondRedirect, 
+--    cLWSecDot11EssWebPolicySplashPageWebRedirect
+
+ciscoLwappWlanSecurityAaaConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents AAA
+--    related security parameters on a WLAN.
+--  objects
+--    cLWSecAaaRadiusAuthCallStationIdType, 
+--    cLWSecAaaRadiusAccUsernameDelimiter
+
+ciscoLwappWlanSecurityFtConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents fast transition
+--    related security parameters on a WLAN.
+--  objects
+--    cLWSecDot11EssFtEnable, cLWSecDot11EssFtReassocTime, 
+--    cLWSecDot11EssFtOverDs
+
+ciscoLwappWlanSecurityPfmConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents PFM
+--    related security parameters on a WLAN.
+--  objects
+--    cLWSecDot11Ess11wPfm, cLWSecDot11EssRetryTime, 
+--    cLWSecDot11EssComebackTime
+
+ciscoLwappWlanSecurityCckmConfigGroup1 OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects represents GTK
+--    randomization information.
+--  objects
+--    cLWSecDot11EssCckmGtkRandomize
+
+ciscoLwappWlanSecurityMIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappWlanSecurityMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappWlanSecurityCckmConfigGroup
+--   MandGroup
+--    ciscoLwappWlanSecurityCkipConfigGroup
+
+ciscoLwappWlanSecurityMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappWlanSecurityMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappWlanSecurityCckmConfigGroup
+--   MandGroup
+--    ciscoLwappWlanSecurityCkipConfigGroup
+--   MandGroup
+--    ciscoLwappWlanSecurityWebPolicyConfigGroup
+
+ciscoLwappWlanSecurityMIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoLwappWlanSecurityMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappWlanSecurityMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLwappWlanSecurityCckmConfigGroup
+--   MandGroup
+--    ciscoLwappWlanSecurityCkipConfigGroup
+--   MandGroup
+--    ciscoLwappWlanSecurityWebPolicyConfigGroup
+--   OptGroup
+--    ciscoLwappWlanSecurityAaaConfigGroup
+--   OptGroup
+--    ciscoLwappWlanSecurityFtConfigGroup
+--   OptGroup
+--    ciscoLwappWlanSecurityPfmConfigGroup
+--   OptGroup
+--    ciscoLwappWlanSecurityCckmConfigGroup1
+--   ObjVar
+--    cLWSecDot11EssCckmWpaSupport
+--   ObjVar
+--    cLWSecDot11EssCckmWpa1Security
+--   ObjVar
+--    cLWSecDot11EssCckmWpa1EncType
+--   ObjVar
+--    cLWSecDot11EssCckmWpa2Security
+--   ObjVar
+--    cLWSecDot11EssCckmWpa2EncType
+--   ObjVar
+--    cLWSecDot11EssCckmKeyMgmtMode
+--   ObjVar
+--    cLWSecDot11EssPskFmt
+--   ObjVar
+--    cLWSecDot11EssPsk
+--   ObjVar
+--    cLWSecDot11EssCckmGtkRandomize
+--   ObjVar
+--    cLWSecDot11EssFtEnable
+--   ObjVar
+--    cLWSecDot11EssFtReassocTime
+--   ObjVar
+--    cLWSecDot11EssFtOverDs
+--   ObjVar
+--    cLWSecDot11Ess11wPfm
+--   ObjVar
+--    cLWSecDot11EssRetryTime
+--   ObjVar
+--    cLWSecDot11EssComebackTime
+--   ObjVar
+--    cLWSecDot11EssCkipSecurity
+--   ObjVar
+--    cLWSecDot11EssCkipKeyIndex
+--   ObjVar
+--    cLWSecDot11EssCkipKeyLength
+--   ObjVar
+--    cLWSecDot11EssCkipKeyFmt
+--   ObjVar
+--    cLWSecDot11EssCkipKey
+--   ObjVar
+--    cLWSecDot11EssCkipMMHMode
+--   ObjVar
+--    cLWSecDot11EssCkipKPEnable
+--   ObjVar
+--    cLWSecDot11EssWebPolicyCondRedirect
+--   ObjVar
+--    cLWSecDot11EssWebPolicySplashPageWebRedirect
+--   ObjVar
+--    cLWSecAaaRadiusAuthCallStationIdType
+--   ObjVar
+--    cLWSecAaaRadiusAccUsernameDelimiter
+
+
+END
+

@@ -1,0 +1,1231 @@
+-- *****************************************************************
+-- CISCO-IGMP-SNOOPING-CAPABILITY.my:
+-- Cisco CISCO-IGMP-SNOOPING-MIB AGENT-CAPABILITIES
+--   
+-- July 2003, Binh Le
+--   
+-- Copyright (c) 2003-2012 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-IGMP-SNOOPING-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoIgmpSnoopingCapability MODULE-IDENTITY
+    LAST-UPDATED    "201209120000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com,
+            cs-ipmulticast@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-IGMP-SNOOPING-MIB."
+    REVISION        "201209120000Z"
+    DESCRIPTION
+        "Added the following capability statements:
+              - cisCapV15R0101SYPCat6kPfc3
+              - cisCapV15R0101SYPCat6kPfc4
+        Updated the following capability statements:
+              - cisCapV12R0233SXIPCat6K
+              - cisCapV12R0250SYPCat6K."
+    REVISION        "201011160000Z"
+    DESCRIPTION
+        "Added capability statement cisCapV12R0250SYPCat6K."
+    REVISION        "200810310000Z"
+    DESCRIPTION
+        "Added capability statement cisCapV12R0233SXIPCat6K."
+    REVISION        "200403100000Z"
+    DESCRIPTION
+        "Added the following capability statements:
+        - cisCapCatOSV08R0301Cat6kPfc2
+        - cisCapCatOSV08R0301Cat6kPfc3."
+    REVISION        "200308130000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 320 }
+
+
+
+cisCapCatOSV08R0101Cat6kPfc AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+                         and Cisco 7600 series devices with PFC card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IGMP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-IGMP-SNOOPING-MIB
+    INCLUDES        {
+                        cisSystemGroup,
+                        cisSystemV2Group,
+                        cisStatsGroup,
+                        cisBaseConfigGroup,
+                        cisExtConfig1Group,
+                        cisIgmpQuerierConfigGroup
+                    }
+    ::= { ciscoIgmpSnoopingCapability 1 }
+
+cisCapCatOSV08R0101Cat6kPfc2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 6000/6500 and
+                         Cisco 7600 series devices with PFC2 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IGMP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-IGMP-SNOOPING-MIB
+    INCLUDES        {
+                        cisSystemGroup,
+                        cisSystemV2Group,
+                        cisSystemV3Group,
+                        cisStatsGroup,
+                        cisV3StatsGroup,
+                        cisBaseConfigGroup,
+                        cisGlobalIgmpV3ConfigGroup,
+                        cisExtConfig1Group,
+                        cisRateLimitGroup,
+                        cisIgmpQuerierConfigGroup
+                    }
+    VARIATION       cisIgmpQuerierEnabled
+    DESCRIPTION
+        "Can be set to 'true' only if
+        cisV3ProcessEnabledAdminStatus is 'false'."
+
+    VARIATION       cisV3ProcessEnabledAdminStatus
+    DESCRIPTION
+        "Can be set to 'true' only if there is no
+        Querier enabled on any VLANs."
+
+    ::= { ciscoIgmpSnoopingCapability 2 }
+
+cisCapCatOSV08R0101Cat6kPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.1(1) on Catalyst 6000/6500 and
+                         Cisco 7600 series devices with PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IGMP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-IGMP-SNOOPING-MIB
+    INCLUDES        {
+                        cisSystemGroup,
+                        cisSystemV2Group,
+                        cisStatsGroup,
+                        cisBaseConfigGroup,
+                        cisExtConfig1Group,
+                        cisRateLimitGroup,
+                        cisIgmpQuerierConfigGroup
+                    }
+    VARIATION       cisGeneralQueryRateLimit
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    ::= { ciscoIgmpSnoopingCapability 3 }
+
+cisCapCatOSV08R0301Cat6kPfc2 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500 and
+                         Cisco 7600 series devices with PFC2 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IGMP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-IGMP-SNOOPING-MIB
+    INCLUDES        {
+                        cisSystemGroup,
+                        cisSystemV2Group,
+                        cisSystemV3Group,
+                        cisStatsGroup,
+                        cisV3StatsGroup,
+                        cisBaseConfigGroup,
+                        cisGlobalIgmpV3ConfigGroup,
+                        cisExtConfig1Group,
+                        cisIgmpQuerierConfigGroup
+                    }
+    VARIATION       cisIgmpQuerierEnabled
+    DESCRIPTION
+        "Can be set to 'true' only if
+        cisV3ProcessEnabledAdminStatus is 'false'."
+
+    VARIATION       cisV3ProcessEnabledAdminStatus
+    DESCRIPTION
+        "Can be set to 'true' only if there is no
+        Querier enabled on any VLANs."
+
+    ::= { ciscoIgmpSnoopingCapability 4 }
+
+cisCapCatOSV08R0301Cat6kPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500 and
+                         Cisco 7600 series devices with PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IGMP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-IGMP-SNOOPING-MIB
+    INCLUDES        {
+                        cisSystemGroup,
+                        cisSystemV2Group,
+                        cisSystemV3Group,
+                        cisV3StatsGroup,
+                        cisGlobalIgmpV3ConfigGroup,
+                        cisStatsGroup,
+                        cisBaseConfigGroup,
+                        cisExtConfig1Group,
+                        cisIgmpQuerierConfigGroup
+                    }
+    VARIATION       cisIgmpQuerierEnabled
+    DESCRIPTION
+        "Can be set to 'true' only if
+        cisV3ProcessEnabledAdminStatus is 'false'."
+
+    VARIATION       cisV3ProcessEnabledAdminStatus
+    DESCRIPTION
+        "Can be set to 'true' only if there is no
+        Querier enabled on any VLANs."
+
+    ::= { ciscoIgmpSnoopingCapability 5 }
+
+cisCapV12R0233SXIPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXI on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IGMP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-IGMP-SNOOPING-MIB
+    INCLUDES        {
+                        cisBaseConfigGroup,
+                        cisGlobalIgmpV3ConfigGroup,
+                        cisExtConfig1Group,
+                        cisExtConfig2Group,
+                        cisStatsGroup,
+                        cisV3StatsGroup,
+                        cisVlanConfigGroup,
+                        cisIgmpQuerierConfigGroup,
+                        cisIgmpQuerierInfoGroup,
+                        cisL2EntryLimitGroup,
+                        cisTrackingLimitGroup,
+                        cisSourceOnlyLimitGroup,
+                        cisRateLimitGroup2,
+                        cisVlanConfigGroup2,
+                        cisSourceOnlyAgeTimerInSecGroup
+                    }
+    VARIATION       cisV3ProcessEnabledAdminStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this object."
+
+    VARIATION       cisFastBlockEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisFastLeaveEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this object."
+
+    VARIATION       cisAdminMode
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        igmpOnly(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisLeaveQueryType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisAddressAliasingMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisFallbackTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisReportSuppressionEnabled
+    SYNTAX          TruthValue {
+                        true(1)
+                    }
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisRxMACGeneralQueries
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisRateLimit
+    SYNTAX          Unsigned32 (0|100..6000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisVlanIgmpSnoopingLearningMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisL2EntryLimit
+    SYNTAX          Unsigned32 (1..100000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisEntryTrackingLimit
+    SYNTAX          Unsigned32 (0..128000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisSourceOnlyPercentageScanLimit
+    SYNTAX          Unsigned32 (0..100)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisSourceOnlyLearningLimit
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values are supported.
+        Setting value 0 disables Source Only Learning
+        in the system."
+
+    VARIATION       cisSourceOnlyLearningEnabled
+    SYNTAX          TruthValue {
+                        true(1)
+                    }
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisSourceOnlyEntryAgingTime
+    SYNTAX          Unsigned32 (0..86400)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisVlanLeaveQueryInterval
+    SYNTAX          Unsigned32 (100..25500)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoIgmpSnoopingCapability 6 }
+
+cisCapV12R0250SYPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                    series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IGMP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-IGMP-SNOOPING-MIB
+    INCLUDES        {
+                        cisBaseConfigGroup,
+                        cisGlobalIgmpV3ConfigGroup,
+                        cisGlobalIgmpV3InfoGroup,
+                        cisExtConfig1Group,
+                        cisExtConfig2Group,
+                        cisGlobalTcnGroup,
+                        cisStatsGroup,
+                        cisV3StatsGroup,
+                        cisVlanConfigGroup,
+                        cisL2EntryLimitGroup,
+                        cisTrackingLimitGroup,
+                        cisSourceOnlyLimitGroup,
+                        cisIgmpQuerierConfigGroup,
+                        cisIgmpQuerierInfoGroup,
+                        cisRateLimitGroup2,
+                        cisVlanConfigGroup2,
+                        cisSourceOnlyAgeTimerInSecGroup,
+                        cisMulticastGroupInfoGroup,
+                        cisMulticastGroupPortInfoGroup,
+                        cisMulticastGroupConfigGroup,
+                        cisMulticastRouterConfigGroup,
+                        cisLeaveQueryConfigGroup,
+                        cisQuerierGlobalConfigGroup,
+                        cisIgmpQuerierConfigExtGroup,
+                        cisRobustnessConfigGroup,
+                        cisTimeToLiveConfigGroup,
+                        cisRouterAlertConfigGroup,
+                        cisVlanExplicitTrackingCfgGroup,
+                        cisIfLimitGroup,
+                        cisIfLimitTotalGroup,
+                        cisIfAccessGroupGroup,
+                        cisVlanFilterConfigGroup,
+                        cisFilterStatisticsGroup
+                    }
+    VARIATION       cisV3ProcessEnabledAdminStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cisFastBlockEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisFastLeaveEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cisAdminMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisLeaveQueryType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisAddressAliasingMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisFallbackTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisRxMACGeneralQueries
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisRateLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisSourceOnlyEntryAgingTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisTopoChangeFloodQueryCount
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisSourceOnlyLearningEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisL2EntryLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisEntryTrackingLimit
+    SYNTAX          Unsigned32 (0..128000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisSourceOnlyPercentageScanLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisSourceOnlyLearningLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisLastMemberQueryInterval
+    SYNTAX          Unsigned32 (100..32767)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisLastMemberQueryCount
+    SYNTAX          Unsigned32 (1..7)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanIgmpSnoopingLearningMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisVlanLeaveQueryInterval
+    SYNTAX          Unsigned32 (0 | 100..32767)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanLastMemberQueryCount
+    SYNTAX          Unsigned32 (0 | 1..7)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanRobustnessVariable
+    SYNTAX          Unsigned32 (0 | 1..3)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisMcastRouterConfigStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisMcastRouterConfigRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisMulticastGroupConfCeVlanIndex
+    SYNTAX          Unsigned32 (0)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisMulticastGroupConfAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisMulticastGroupConfStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisMulticastGroupConfRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisQuerierTcnQueryInterval
+    SYNTAX          Unsigned32 (1..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisQuerierTimerExpiry
+    SYNTAX          Unsigned32 (60..300)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisQuerierMaxResponseTime
+    SYNTAX          Unsigned32 (1..25)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisQuerierQueryInterval
+    SYNTAX          Unsigned32 (1..18000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisQuerierVersion
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisIgmpQuerierTcnQueryCount
+    SYNTAX          Unsigned32 (0 | 1..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIgmpQuerierTcnQueryInterval
+    SYNTAX          Unsigned32 (0 | 1..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIgmpQuerierTimerExpiry
+    SYNTAX          Unsigned32 (0 | 60..300)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIgmpQuerierMaxResponseTime
+    SYNTAX          Unsigned32 (0 | 1..25)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIgmpQuerierQueryInterval
+    SYNTAX          Unsigned32 (0 | 1..18000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIgmpQuerierAdminAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisIfLimitMax
+    SYNTAX          Unsigned32 (0..64000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIfLimitExcludeAccessGrp
+    SYNTAX          SnmpAdminString (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIfLimitStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisIfLimitTotalLimitMax
+    SYNTAX          Unsigned32 (0..64000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIfLimitTotalExcludeAccessGrp
+    SYNTAX          SnmpAdminString (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIfLimitTotalStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisIfAccessGroupsChannelsAllowed
+    SYNTAX          SnmpAdminString (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIfAccessGroupStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisVlanFilterAccessGroup
+    SYNTAX          SnmpAdminString (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanFilterLimitMax
+    SYNTAX          Unsigned32 (0..64000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanFilterLimitExclAccessGrp
+    SYNTAX          SnmpAdminString (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanFilterMinVersionAllowed
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisVlanExplicitTrackingEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisVlanExplicitTrackingLimit
+    SYNTAX          Unsigned32 (0..128000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisV3SnoopingSupport
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cisIfLimitRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisIfLimitTotalRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisIfAccessGroupRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisRobustnessVariable
+    SYNTAX          Unsigned32 (1..3)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisQuerierAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoIgmpSnoopingCapability 7 }
+
+cisCapV15R0101SYPCat6kPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices with PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IGMP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-IGMP-SNOOPING-MIB
+    INCLUDES        {
+                        cisBaseConfigGroup,
+                        cisGlobalIgmpV3ConfigGroup,
+                        cisExtConfig1Group,
+                        cisExtConfig2Group,
+                        cisStatsGroup,
+                        cisV3StatsGroup,
+                        cisVlanConfigGroup,
+                        cisIgmpQuerierConfigGroup,
+                        cisIgmpQuerierInfoGroup,
+                        cisL2EntryLimitGroup,
+                        cisTrackingLimitGroup,
+                        cisSourceOnlyLimitGroup,
+                        cisRateLimitGroup2,
+                        cisVlanConfigGroup2,
+                        cisSourceOnlyAgeTimerInSecGroup
+                    }
+    VARIATION       cisV3ProcessEnabledAdminStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this object."
+
+    VARIATION       cisFastBlockEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisFastLeaveEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Unable to set this object."
+
+    VARIATION       cisAdminMode
+    SYNTAX          INTEGER  {
+                        auto(1),
+                        igmpOnly(2)
+                    }
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisLeaveQueryType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisAddressAliasingMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisFallbackTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisReportSuppressionEnabled
+    SYNTAX          TruthValue {
+                        true(1)
+                    }
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisRxMACGeneralQueries
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisRateLimit
+    SYNTAX          Unsigned32 (0|100..6000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisVlanIgmpSnoopingLearningMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisL2EntryLimit
+    SYNTAX          Unsigned32 (1..100000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisEntryTrackingLimit
+    SYNTAX          Unsigned32 (0..128000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisSourceOnlyPercentageScanLimit
+    SYNTAX          Unsigned32 (0..100)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisSourceOnlyLearningLimit
+    SYNTAX          Unsigned32 (0..10000)
+    DESCRIPTION
+        "Only limited set of values are supported.
+        Setting value 0 disables Source Only Learning
+        in the system."
+
+    VARIATION       cisSourceOnlyLearningEnabled
+    SYNTAX          TruthValue {
+                        true(1)
+                    }
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisSourceOnlyEntryAgingTime
+    SYNTAX          Unsigned32 (0..86400)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisVlanLeaveQueryInterval
+    SYNTAX          Unsigned32 (100..25500)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    ::= { ciscoIgmpSnoopingCapability 8 }
+
+cisCapV15R0101SYPCat6kPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(1)SY on Catalyst 6000/6500
+                    series devices with PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-IGMP-SNOOPING-MIB capabilities."
+
+    SUPPORTS        CISCO-IGMP-SNOOPING-MIB
+    INCLUDES        {
+                        cisBaseConfigGroup,
+                        cisGlobalIgmpV3ConfigGroup,
+                        cisGlobalIgmpV3InfoGroup,
+                        cisExtConfig1Group,
+                        cisExtConfig2Group,
+                        cisGlobalTcnGroup,
+                        cisStatsGroup,
+                        cisV3StatsGroup,
+                        cisVlanConfigGroup,
+                        cisL2EntryLimitGroup,
+                        cisTrackingLimitGroup,
+                        cisSourceOnlyLimitGroup,
+                        cisIgmpQuerierConfigGroup,
+                        cisIgmpQuerierInfoGroup,
+                        cisRateLimitGroup2,
+                        cisVlanConfigGroup2,
+                        cisSourceOnlyAgeTimerInSecGroup,
+                        cisMulticastGroupInfoGroup,
+                        cisMulticastGroupPortInfoGroup,
+                        cisMulticastGroupConfigGroup,
+                        cisMulticastRouterConfigGroup,
+                        cisLeaveQueryConfigGroup,
+                        cisQuerierGlobalConfigGroup,
+                        cisIgmpQuerierConfigExtGroup,
+                        cisRobustnessConfigGroup,
+                        cisTimeToLiveConfigGroup,
+                        cisRouterAlertConfigGroup,
+                        cisVlanExplicitTrackingCfgGroup,
+                        cisIfLimitGroup,
+                        cisIfLimitTotalGroup,
+                        cisIfAccessGroupGroup,
+                        cisVlanFilterConfigGroup,
+                        cisFilterStatisticsGroup
+                    }
+    VARIATION       cisV3ProcessEnabledAdminStatus
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cisFastBlockEnabled
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisFastLeaveEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cisAdminMode
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisLeaveQueryType
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisAddressAliasingMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisFallbackTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisRxMACGeneralQueries
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisRateLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisSourceOnlyEntryAgingTime
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisTopoChangeFloodQueryCount
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisSourceOnlyLearningEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisL2EntryLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisEntryTrackingLimit
+    SYNTAX          Unsigned32 (0..128000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cisSourceOnlyPercentageScanLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisSourceOnlyLearningLimit
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisLastMemberQueryInterval
+    SYNTAX          Unsigned32 (100..32767)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisLastMemberQueryCount
+    SYNTAX          Unsigned32 (1..7)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanIgmpSnoopingLearningMode
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not-supported."
+
+    VARIATION       cisVlanLeaveQueryInterval
+    SYNTAX          Unsigned32 (0 | 100..32767)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanLastMemberQueryCount
+    SYNTAX          Unsigned32 (0 | 1..7)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanRobustnessVariable
+    SYNTAX          Unsigned32 (0 | 1..3)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisMcastRouterConfigStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisMcastRouterConfigRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisMulticastGroupConfCeVlanIndex
+    SYNTAX          Unsigned32 (0)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisMulticastGroupConfAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisMulticastGroupConfStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisMulticastGroupConfRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisQuerierTcnQueryInterval
+    SYNTAX          Unsigned32 (1..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisQuerierTimerExpiry
+    SYNTAX          Unsigned32 (60..300)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisQuerierMaxResponseTime
+    SYNTAX          Unsigned32 (1..25)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisQuerierQueryInterval
+    SYNTAX          Unsigned32 (1..18000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisQuerierVersion
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisIgmpQuerierTcnQueryCount
+    SYNTAX          Unsigned32 (0 | 1..10)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIgmpQuerierTcnQueryInterval
+    SYNTAX          Unsigned32 (0 | 1..255)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIgmpQuerierTimerExpiry
+    SYNTAX          Unsigned32 (0 | 60..300)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIgmpQuerierMaxResponseTime
+    SYNTAX          Unsigned32 (0 | 1..25)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIgmpQuerierQueryInterval
+    SYNTAX          Unsigned32 (0 | 1..18000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIgmpQuerierAdminAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisIfLimitMax
+    SYNTAX          Unsigned32 (0..64000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIfLimitExcludeAccessGrp
+    SYNTAX          SnmpAdminString (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIfLimitStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisIfLimitTotalLimitMax
+    SYNTAX          Unsigned32 (0..64000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIfLimitTotalExcludeAccessGrp
+    SYNTAX          SnmpAdminString (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIfLimitTotalStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisIfAccessGroupsChannelsAllowed
+    SYNTAX          SnmpAdminString (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisIfAccessGroupStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisVlanFilterAccessGroup
+    SYNTAX          SnmpAdminString (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanFilterLimitMax
+    SYNTAX          Unsigned32 (0..64000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanFilterLimitExclAccessGrp
+    SYNTAX          SnmpAdminString (SIZE (0..200))
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisVlanFilterMinVersionAllowed
+    SYNTAX          INTEGER  {
+                        version1(1),
+                        version2(2),
+                        version3(3)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisVlanExplicitTrackingEnabled
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cisVlanExplicitTrackingLimit
+    SYNTAX          Unsigned32 (0..128000)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisV3SnoopingSupport
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    VARIATION       cisIfLimitRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisIfLimitTotalRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisIfAccessGroupRowStatus
+    SYNTAX          INTEGER  {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    VARIATION       cisRobustnessVariable
+    SYNTAX          Unsigned32 (1..3)
+    DESCRIPTION
+        "Only limited set of values is supported."
+
+    VARIATION       cisQuerierAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values is
+        supported."
+
+    ::= { ciscoIgmpSnoopingCapability 9 }
+
+END
+
+
+
+

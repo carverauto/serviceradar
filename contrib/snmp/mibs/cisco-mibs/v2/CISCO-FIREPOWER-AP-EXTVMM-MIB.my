@@ -1,0 +1,1910 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-EXTVMM-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- EXTVMM management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-EXTVMM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApCommFilePathProtocol,
+    CfprApExtvmmFabricNetworkType,
+    CfprApExtvmmNetworkSetConfigQualifier,
+    CfprApExtvmmProviderVendorType,
+    CfprApExtvmmRefOperState,
+    CfprApExtvmmVcVersion,
+    CfprApExtvmmVnicType,
+    CfprApPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApExtvmmObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        EXTVMM management information model package"
+    ::= { ciscoFirepowerApMIBObjects 25 }
+
+cfprApExtvmmEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Ep managed object table"
+    ::= { cfprApExtvmmObjects 1 }
+
+cfprApExtvmmEpEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmEpTable table."
+    INDEX { cfprApExtvmmEpInstanceId }
+    ::= { cfprApExtvmmEpTable 1 }
+
+CfprApExtvmmEpEntry ::= SEQUENCE {
+    cfprApExtvmmEpInstanceId                                         CfprApManagedObjectId,
+    cfprApExtvmmEpDn                                                 CfprApManagedObjectDn,
+    cfprApExtvmmEpRn                                                 SnmpAdminString,
+    cfprApExtvmmEpGenNum                                             Gauge32
+}
+
+cfprApExtvmmEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmEpEntry 1 }
+
+cfprApExtvmmEpDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Ep:dn managed object property"
+    ::= { cfprApExtvmmEpEntry 2 }
+
+cfprApExtvmmEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Ep:rn managed object property"
+    ::= { cfprApExtvmmEpEntry 3 }
+
+cfprApExtvmmEpGenNum OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Ep:genNum managed object property"
+    ::= { cfprApExtvmmEpEntry 4 }
+
+cfprApExtvmmFNDReferenceTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmFNDReferenceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FNDReference managed object table"
+    ::= { cfprApExtvmmObjects 2 }
+
+cfprApExtvmmFNDReferenceEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmFNDReferenceEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmFNDReferenceTable table."
+    INDEX { cfprApExtvmmFNDReferenceInstanceId }
+    ::= { cfprApExtvmmFNDReferenceTable 1 }
+
+CfprApExtvmmFNDReferenceEntry ::= SEQUENCE {
+    cfprApExtvmmFNDReferenceInstanceId                               CfprApManagedObjectId,
+    cfprApExtvmmFNDReferenceDn                                       CfprApManagedObjectDn,
+    cfprApExtvmmFNDReferenceRn                                       SnmpAdminString,
+    cfprApExtvmmFNDReferenceDescr                                    SnmpAdminString,
+    cfprApExtvmmFNDReferenceFnDefName                                SnmpAdminString,
+    cfprApExtvmmFNDReferenceIntId                                    SnmpAdminString,
+    cfprApExtvmmFNDReferenceName                                     SnmpAdminString,
+    cfprApExtvmmFNDReferenceOperFnDefName                            SnmpAdminString,
+    cfprApExtvmmFNDReferencePolicyLevel                              Gauge32,
+    cfprApExtvmmFNDReferencePolicyOwner                              CfprApPolicyPolicyOwner
+}
+
+cfprApExtvmmFNDReferenceInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmFNDReferenceEntry 1 }
+
+cfprApExtvmmFNDReferenceDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FNDReference:dn managed object property"
+    ::= { cfprApExtvmmFNDReferenceEntry 2 }
+
+cfprApExtvmmFNDReferenceRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FNDReference:rn managed object property"
+    ::= { cfprApExtvmmFNDReferenceEntry 3 }
+
+cfprApExtvmmFNDReferenceDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FNDReference:descr managed
+        object property"
+    ::= { cfprApExtvmmFNDReferenceEntry 4 }
+
+cfprApExtvmmFNDReferenceFnDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FNDReference:fnDefName
+        managed object property"
+    ::= { cfprApExtvmmFNDReferenceEntry 5 }
+
+cfprApExtvmmFNDReferenceIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FNDReference:intId managed
+        object property"
+    ::= { cfprApExtvmmFNDReferenceEntry 6 }
+
+cfprApExtvmmFNDReferenceName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FNDReference:name managed object property"
+    ::= { cfprApExtvmmFNDReferenceEntry 7 }
+
+cfprApExtvmmFNDReferenceOperFnDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FNDReference:operFnDefName
+        managed object property"
+    ::= { cfprApExtvmmFNDReferenceEntry 8 }
+
+cfprApExtvmmFNDReferencePolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FNDReference:policyLevel
+        managed object property"
+    ::= { cfprApExtvmmFNDReferenceEntry 9 }
+
+cfprApExtvmmFNDReferencePolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FNDReference:policyOwner
+        managed object property"
+    ::= { cfprApExtvmmFNDReferenceEntry 10 }
+
+cfprApExtvmmFabricNetworkTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmFabricNetworkEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork managed object table"
+    ::= { cfprApExtvmmObjects 3 }
+
+cfprApExtvmmFabricNetworkEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmFabricNetworkEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmFabricNetworkTable table."
+    INDEX { cfprApExtvmmFabricNetworkInstanceId }
+    ::= { cfprApExtvmmFabricNetworkTable 1 }
+
+CfprApExtvmmFabricNetworkEntry ::= SEQUENCE {
+    cfprApExtvmmFabricNetworkInstanceId                              CfprApManagedObjectId,
+    cfprApExtvmmFabricNetworkDn                                      CfprApManagedObjectDn,
+    cfprApExtvmmFabricNetworkRn                                      SnmpAdminString,
+    cfprApExtvmmFabricNetworkDescr                                   SnmpAdminString,
+    cfprApExtvmmFabricNetworkGuid                                    SnmpAdminString,
+    cfprApExtvmmFabricNetworkIntId                                   SnmpAdminString,
+    cfprApExtvmmFabricNetworkName                                    SnmpAdminString,
+    cfprApExtvmmFabricNetworkNetworkType                             CfprApExtvmmFabricNetworkType,
+    cfprApExtvmmFabricNetworkPolicyLevel                             Gauge32,
+    cfprApExtvmmFabricNetworkPolicyOwner                             CfprApPolicyPolicyOwner,
+    cfprApExtvmmFabricNetworkRefOperState                            CfprApExtvmmRefOperState
+}
+
+cfprApExtvmmFabricNetworkInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmFabricNetworkEntry 1 }
+
+cfprApExtvmmFabricNetworkDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork:dn managed object property"
+    ::= { cfprApExtvmmFabricNetworkEntry 2 }
+
+cfprApExtvmmFabricNetworkRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork:rn managed object property"
+    ::= { cfprApExtvmmFabricNetworkEntry 3 }
+
+cfprApExtvmmFabricNetworkDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork:descr managed
+        object property"
+    ::= { cfprApExtvmmFabricNetworkEntry 4 }
+
+cfprApExtvmmFabricNetworkGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork:guid managed
+        object property"
+    ::= { cfprApExtvmmFabricNetworkEntry 5 }
+
+cfprApExtvmmFabricNetworkIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork:intId managed
+        object property"
+    ::= { cfprApExtvmmFabricNetworkEntry 6 }
+
+cfprApExtvmmFabricNetworkName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork:name managed
+        object property"
+    ::= { cfprApExtvmmFabricNetworkEntry 7 }
+
+cfprApExtvmmFabricNetworkNetworkType OBJECT-TYPE
+    SYNTAX       CfprApExtvmmFabricNetworkType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork:networkType
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkEntry 8 }
+
+cfprApExtvmmFabricNetworkPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork:policyLevel
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkEntry 9 }
+
+cfprApExtvmmFabricNetworkPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork:policyOwner
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkEntry 10 }
+
+cfprApExtvmmFabricNetworkRefOperState OBJECT-TYPE
+    SYNTAX       CfprApExtvmmRefOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetwork:refOperState
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkEntry 11 }
+
+cfprApExtvmmFabricNetworkDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmFabricNetworkDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition
+        managed object table"
+    ::= { cfprApExtvmmObjects 4 }
+
+cfprApExtvmmFabricNetworkDefinitionEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmFabricNetworkDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmFabricNetworkDefinitionTable table."
+    INDEX { cfprApExtvmmFabricNetworkDefinitionInstanceId }
+    ::= { cfprApExtvmmFabricNetworkDefinitionTable 1 }
+
+CfprApExtvmmFabricNetworkDefinitionEntry ::= SEQUENCE {
+    cfprApExtvmmFabricNetworkDefinitionInstanceId                    CfprApManagedObjectId,
+    cfprApExtvmmFabricNetworkDefinitionDn                            CfprApManagedObjectDn,
+    cfprApExtvmmFabricNetworkDefinitionRn                            SnmpAdminString,
+    cfprApExtvmmFabricNetworkDefinitionAllowedVnicType               CfprApExtvmmVnicType,
+    cfprApExtvmmFabricNetworkDefinitionDescr                         SnmpAdminString,
+    cfprApExtvmmFabricNetworkDefinitionGuid                          SnmpAdminString,
+    cfprApExtvmmFabricNetworkDefinitionIntId                         SnmpAdminString,
+    cfprApExtvmmFabricNetworkDefinitionName                          SnmpAdminString,
+    cfprApExtvmmFabricNetworkDefinitionPolicyLevel                   Gauge32,
+    cfprApExtvmmFabricNetworkDefinitionPolicyOwner                   CfprApPolicyPolicyOwner,
+    cfprApExtvmmFabricNetworkDefinitionPrimaryVlanId                 Gauge32,
+    cfprApExtvmmFabricNetworkDefinitionRefOperState                  CfprApExtvmmRefOperState
+}
+
+cfprApExtvmmFabricNetworkDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 1 }
+
+cfprApExtvmmFabricNetworkDefinitionDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:dn
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 2 }
+
+cfprApExtvmmFabricNetworkDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:rn
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 3 }
+
+cfprApExtvmmFabricNetworkDefinitionAllowedVnicType OBJECT-TYPE
+    SYNTAX       CfprApExtvmmVnicType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:allowedVnicType
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 4 }
+
+cfprApExtvmmFabricNetworkDefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:descr
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 5 }
+
+cfprApExtvmmFabricNetworkDefinitionGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:guid
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 6 }
+
+cfprApExtvmmFabricNetworkDefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:intId
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 7 }
+
+cfprApExtvmmFabricNetworkDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:name
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 8 }
+
+cfprApExtvmmFabricNetworkDefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:policyLevel
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 9 }
+
+cfprApExtvmmFabricNetworkDefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:policyOwner
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 10 }
+
+cfprApExtvmmFabricNetworkDefinitionPrimaryVlanId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:primaryVlanId
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 11 }
+
+cfprApExtvmmFabricNetworkDefinitionRefOperState OBJECT-TYPE
+    SYNTAX       CfprApExtvmmRefOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:FabricNetworkDefinition:refOperState
+        managed object property"
+    ::= { cfprApExtvmmFabricNetworkDefinitionEntry 12 }
+
+cfprApExtvmmKeyInstTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmKeyInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyInst managed object table"
+    ::= { cfprApExtvmmObjects 5 }
+
+cfprApExtvmmKeyInstEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmKeyInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmKeyInstTable table."
+    INDEX { cfprApExtvmmKeyInstInstanceId }
+    ::= { cfprApExtvmmKeyInstTable 1 }
+
+CfprApExtvmmKeyInstEntry ::= SEQUENCE {
+    cfprApExtvmmKeyInstInstanceId                                    CfprApManagedObjectId,
+    cfprApExtvmmKeyInstDn                                            CfprApManagedObjectDn,
+    cfprApExtvmmKeyInstRn                                            SnmpAdminString,
+    cfprApExtvmmKeyInstInst                                          Gauge32,
+    cfprApExtvmmKeyInstKey                                           SnmpAdminString
+}
+
+cfprApExtvmmKeyInstInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmKeyInstEntry 1 }
+
+cfprApExtvmmKeyInstDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyInst:dn managed object property"
+    ::= { cfprApExtvmmKeyInstEntry 2 }
+
+cfprApExtvmmKeyInstRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyInst:rn managed object property"
+    ::= { cfprApExtvmmKeyInstEntry 3 }
+
+cfprApExtvmmKeyInstInst OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyInst:inst managed object property"
+    ::= { cfprApExtvmmKeyInstEntry 4 }
+
+cfprApExtvmmKeyInstKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyInst:key managed object property"
+    ::= { cfprApExtvmmKeyInstEntry 5 }
+
+cfprApExtvmmKeyRingTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmKeyRingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyRing managed object table"
+    ::= { cfprApExtvmmObjects 6 }
+
+cfprApExtvmmKeyRingEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmKeyRingEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmKeyRingTable table."
+    INDEX { cfprApExtvmmKeyRingInstanceId }
+    ::= { cfprApExtvmmKeyRingTable 1 }
+
+CfprApExtvmmKeyRingEntry ::= SEQUENCE {
+    cfprApExtvmmKeyRingInstanceId                                    CfprApManagedObjectId,
+    cfprApExtvmmKeyRingDn                                            CfprApManagedObjectDn,
+    cfprApExtvmmKeyRingRn                                            SnmpAdminString,
+    cfprApExtvmmKeyRingCertFile                                      SnmpAdminString,
+    cfprApExtvmmKeyRingLocation                                      CfprApCommFilePathProtocol,
+    cfprApExtvmmKeyRingName                                          SnmpAdminString,
+    cfprApExtvmmKeyRingPath                                          SnmpAdminString
+}
+
+cfprApExtvmmKeyRingInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmKeyRingEntry 1 }
+
+cfprApExtvmmKeyRingDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyRing:dn managed object property"
+    ::= { cfprApExtvmmKeyRingEntry 2 }
+
+cfprApExtvmmKeyRingRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyRing:rn managed object property"
+    ::= { cfprApExtvmmKeyRingEntry 3 }
+
+cfprApExtvmmKeyRingCertFile OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyRing:certFile managed object property"
+    ::= { cfprApExtvmmKeyRingEntry 4 }
+
+cfprApExtvmmKeyRingLocation OBJECT-TYPE
+    SYNTAX       CfprApCommFilePathProtocol
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyRing:location managed object property"
+    ::= { cfprApExtvmmKeyRingEntry 5 }
+
+cfprApExtvmmKeyRingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyRing:name managed object property"
+    ::= { cfprApExtvmmKeyRingEntry 6 }
+
+cfprApExtvmmKeyRingPath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyRing:path managed object property"
+    ::= { cfprApExtvmmKeyRingEntry 7 }
+
+cfprApExtvmmKeyStoreTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmKeyStoreEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyStore managed object table"
+    ::= { cfprApExtvmmObjects 7 }
+
+cfprApExtvmmKeyStoreEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmKeyStoreEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmKeyStoreTable table."
+    INDEX { cfprApExtvmmKeyStoreInstanceId }
+    ::= { cfprApExtvmmKeyStoreTable 1 }
+
+CfprApExtvmmKeyStoreEntry ::= SEQUENCE {
+    cfprApExtvmmKeyStoreInstanceId                                   CfprApManagedObjectId,
+    cfprApExtvmmKeyStoreDn                                           CfprApManagedObjectDn,
+    cfprApExtvmmKeyStoreRn                                           SnmpAdminString
+}
+
+cfprApExtvmmKeyStoreInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmKeyStoreEntry 1 }
+
+cfprApExtvmmKeyStoreDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyStore:dn managed object property"
+    ::= { cfprApExtvmmKeyStoreEntry 2 }
+
+cfprApExtvmmKeyStoreRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:KeyStore:rn managed object property"
+    ::= { cfprApExtvmmKeyStoreEntry 3 }
+
+cfprApExtvmmMasterExtKeyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmMasterExtKeyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:MasterExtKey managed object table"
+    ::= { cfprApExtvmmObjects 8 }
+
+cfprApExtvmmMasterExtKeyEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmMasterExtKeyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmMasterExtKeyTable table."
+    INDEX { cfprApExtvmmMasterExtKeyInstanceId }
+    ::= { cfprApExtvmmMasterExtKeyTable 1 }
+
+CfprApExtvmmMasterExtKeyEntry ::= SEQUENCE {
+    cfprApExtvmmMasterExtKeyInstanceId                               CfprApManagedObjectId,
+    cfprApExtvmmMasterExtKeyDn                                       CfprApManagedObjectDn,
+    cfprApExtvmmMasterExtKeyRn                                       SnmpAdminString,
+    cfprApExtvmmMasterExtKeyKey                                      SnmpAdminString
+}
+
+cfprApExtvmmMasterExtKeyInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmMasterExtKeyEntry 1 }
+
+cfprApExtvmmMasterExtKeyDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:MasterExtKey:dn managed object property"
+    ::= { cfprApExtvmmMasterExtKeyEntry 2 }
+
+cfprApExtvmmMasterExtKeyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:MasterExtKey:rn managed object property"
+    ::= { cfprApExtvmmMasterExtKeyEntry 3 }
+
+cfprApExtvmmMasterExtKeyKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:MasterExtKey:key managed object property"
+    ::= { cfprApExtvmmMasterExtKeyEntry 4 }
+
+cfprApExtvmmNetworkSetsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmNetworkSetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:NetworkSets managed object table"
+    ::= { cfprApExtvmmObjects 9 }
+
+cfprApExtvmmNetworkSetsEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmNetworkSetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmNetworkSetsTable table."
+    INDEX { cfprApExtvmmNetworkSetsInstanceId }
+    ::= { cfprApExtvmmNetworkSetsTable 1 }
+
+CfprApExtvmmNetworkSetsEntry ::= SEQUENCE {
+    cfprApExtvmmNetworkSetsInstanceId                                CfprApManagedObjectId,
+    cfprApExtvmmNetworkSetsDn                                        CfprApManagedObjectDn,
+    cfprApExtvmmNetworkSetsRn                                        SnmpAdminString,
+    cfprApExtvmmNetworkSetsFltAggr                                   Unsigned64,
+    cfprApExtvmmNetworkSetsGenNum                                    Gauge32
+}
+
+cfprApExtvmmNetworkSetsInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmNetworkSetsEntry 1 }
+
+cfprApExtvmmNetworkSetsDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:NetworkSets:dn managed object property"
+    ::= { cfprApExtvmmNetworkSetsEntry 2 }
+
+cfprApExtvmmNetworkSetsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:NetworkSets:rn managed object property"
+    ::= { cfprApExtvmmNetworkSetsEntry 3 }
+
+cfprApExtvmmNetworkSetsFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:NetworkSets:fltAggr managed
+        object property"
+    ::= { cfprApExtvmmNetworkSetsEntry 4 }
+
+cfprApExtvmmNetworkSetsGenNum OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:NetworkSets:genNum managed
+        object property"
+    ::= { cfprApExtvmmNetworkSetsEntry 5 }
+
+cfprApExtvmmProviderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmProviderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider managed object table"
+    ::= { cfprApExtvmmObjects 10 }
+
+cfprApExtvmmProviderEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmProviderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmProviderTable table."
+    INDEX { cfprApExtvmmProviderInstanceId }
+    ::= { cfprApExtvmmProviderTable 1 }
+
+CfprApExtvmmProviderEntry ::= SEQUENCE {
+    cfprApExtvmmProviderInstanceId                                   CfprApManagedObjectId,
+    cfprApExtvmmProviderDn                                           CfprApManagedObjectDn,
+    cfprApExtvmmProviderRn                                           SnmpAdminString,
+    cfprApExtvmmProviderCert                                         SnmpAdminString,
+    cfprApExtvmmProviderDescr                                        SnmpAdminString,
+    cfprApExtvmmProviderHost                                         SnmpAdminString,
+    cfprApExtvmmProviderIntId                                        SnmpAdminString,
+    cfprApExtvmmProviderKey                                          SnmpAdminString,
+    cfprApExtvmmProviderName                                         SnmpAdminString,
+    cfprApExtvmmProviderPolicyLevel                                  Gauge32,
+    cfprApExtvmmProviderPolicyOwner                                  CfprApPolicyPolicyOwner,
+    cfprApExtvmmProviderPortValue                                    Gauge32,
+    cfprApExtvmmProviderUuid                                         SnmpAdminString,
+    cfprApExtvmmProviderVendorType                                   CfprApExtvmmProviderVendorType,
+    cfprApExtvmmProviderVer                                          CfprApExtvmmVcVersion,
+    cfprApExtvmmProviderVerRaw                                       SnmpAdminString
+}
+
+cfprApExtvmmProviderInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmProviderEntry 1 }
+
+cfprApExtvmmProviderDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:dn managed object property"
+    ::= { cfprApExtvmmProviderEntry 2 }
+
+cfprApExtvmmProviderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:rn managed object property"
+    ::= { cfprApExtvmmProviderEntry 3 }
+
+cfprApExtvmmProviderCert OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:cert managed object property"
+    ::= { cfprApExtvmmProviderEntry 4 }
+
+cfprApExtvmmProviderDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:descr managed object property"
+    ::= { cfprApExtvmmProviderEntry 5 }
+
+cfprApExtvmmProviderHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:host managed object property"
+    ::= { cfprApExtvmmProviderEntry 6 }
+
+cfprApExtvmmProviderIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:intId managed object property"
+    ::= { cfprApExtvmmProviderEntry 7 }
+
+cfprApExtvmmProviderKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:key managed object property"
+    ::= { cfprApExtvmmProviderEntry 8 }
+
+cfprApExtvmmProviderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:name managed object property"
+    ::= { cfprApExtvmmProviderEntry 9 }
+
+cfprApExtvmmProviderPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:policyLevel managed
+        object property"
+    ::= { cfprApExtvmmProviderEntry 10 }
+
+cfprApExtvmmProviderPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:policyOwner managed
+        object property"
+    ::= { cfprApExtvmmProviderEntry 11 }
+
+cfprApExtvmmProviderPortValue OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:portValue managed
+        object property"
+    ::= { cfprApExtvmmProviderEntry 12 }
+
+cfprApExtvmmProviderUuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:uuid managed object property"
+    ::= { cfprApExtvmmProviderEntry 13 }
+
+cfprApExtvmmProviderVendorType OBJECT-TYPE
+    SYNTAX       CfprApExtvmmProviderVendorType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:vendorType managed
+        object property"
+    ::= { cfprApExtvmmProviderEntry 14 }
+
+cfprApExtvmmProviderVer OBJECT-TYPE
+    SYNTAX       CfprApExtvmmVcVersion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:ver managed object property"
+    ::= { cfprApExtvmmProviderEntry 15 }
+
+cfprApExtvmmProviderVerRaw OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:Provider:verRaw managed object property"
+    ::= { cfprApExtvmmProviderEntry 16 }
+
+cfprApExtvmmSwitchDelTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmSwitchDelTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask managed object table"
+    ::= { cfprApExtvmmObjects 11 }
+
+cfprApExtvmmSwitchDelTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmSwitchDelTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmSwitchDelTaskTable table."
+    INDEX { cfprApExtvmmSwitchDelTaskInstanceId }
+    ::= { cfprApExtvmmSwitchDelTaskTable 1 }
+
+CfprApExtvmmSwitchDelTaskEntry ::= SEQUENCE {
+    cfprApExtvmmSwitchDelTaskInstanceId                              CfprApManagedObjectId,
+    cfprApExtvmmSwitchDelTaskDn                                      CfprApManagedObjectDn,
+    cfprApExtvmmSwitchDelTaskRn                                      SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskCertFile                                SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskDcName                                  SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskDcOrg                                   SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskDescr                                   SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskExtKey                                  SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskHost                                    SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskIntId                                   SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskKeyInst                                 Gauge32,
+    cfprApExtvmmSwitchDelTaskName                                    SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskOrgPath                                 SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskPolicyLevel                             Gauge32,
+    cfprApExtvmmSwitchDelTaskPolicyOwner                             CfprApPolicyPolicyOwner,
+    cfprApExtvmmSwitchDelTaskPortValue                               Gauge32,
+    cfprApExtvmmSwitchDelTaskProvIntId                               SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskProvider                                SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskSwIntId                                 SnmpAdminString,
+    cfprApExtvmmSwitchDelTaskSwName                                  SnmpAdminString
+}
+
+cfprApExtvmmSwitchDelTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmSwitchDelTaskEntry 1 }
+
+cfprApExtvmmSwitchDelTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:dn managed object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 2 }
+
+cfprApExtvmmSwitchDelTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:rn managed object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 3 }
+
+cfprApExtvmmSwitchDelTaskCertFile OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:certFile
+        managed object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 4 }
+
+cfprApExtvmmSwitchDelTaskDcName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:dcName managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 5 }
+
+cfprApExtvmmSwitchDelTaskDcOrg OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:dcOrg managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 6 }
+
+cfprApExtvmmSwitchDelTaskDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:descr managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 7 }
+
+cfprApExtvmmSwitchDelTaskExtKey OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:extKey managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 8 }
+
+cfprApExtvmmSwitchDelTaskHost OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:host managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 9 }
+
+cfprApExtvmmSwitchDelTaskIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:intId managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 10 }
+
+cfprApExtvmmSwitchDelTaskKeyInst OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:keyInst managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 11 }
+
+cfprApExtvmmSwitchDelTaskName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:name managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 12 }
+
+cfprApExtvmmSwitchDelTaskOrgPath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:orgPath managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 13 }
+
+cfprApExtvmmSwitchDelTaskPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:policyLevel
+        managed object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 14 }
+
+cfprApExtvmmSwitchDelTaskPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:policyOwner
+        managed object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 15 }
+
+cfprApExtvmmSwitchDelTaskPortValue OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:portValue
+        managed object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 16 }
+
+cfprApExtvmmSwitchDelTaskProvIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:provIntId
+        managed object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 17 }
+
+cfprApExtvmmSwitchDelTaskProvider OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:provider
+        managed object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 18 }
+
+cfprApExtvmmSwitchDelTaskSwIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:swIntId managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 19 }
+
+cfprApExtvmmSwitchDelTaskSwName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchDelTask:swName managed
+        object property"
+    ::= { cfprApExtvmmSwitchDelTaskEntry 20 }
+
+cfprApExtvmmSwitchSetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmSwitchSetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchSet managed object table"
+    ::= { cfprApExtvmmObjects 12 }
+
+cfprApExtvmmSwitchSetEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmSwitchSetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmSwitchSetTable table."
+    INDEX { cfprApExtvmmSwitchSetInstanceId }
+    ::= { cfprApExtvmmSwitchSetTable 1 }
+
+CfprApExtvmmSwitchSetEntry ::= SEQUENCE {
+    cfprApExtvmmSwitchSetInstanceId                                  CfprApManagedObjectId,
+    cfprApExtvmmSwitchSetDn                                          CfprApManagedObjectDn,
+    cfprApExtvmmSwitchSetRn                                          SnmpAdminString
+}
+
+cfprApExtvmmSwitchSetInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmSwitchSetEntry 1 }
+
+cfprApExtvmmSwitchSetDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchSet:dn managed object property"
+    ::= { cfprApExtvmmSwitchSetEntry 2 }
+
+cfprApExtvmmSwitchSetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:SwitchSet:rn managed object property"
+    ::= { cfprApExtvmmSwitchSetEntry 3 }
+
+cfprApExtvmmUpLinkPPTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmUpLinkPPEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP managed object table"
+    ::= { cfprApExtvmmObjects 13 }
+
+cfprApExtvmmUpLinkPPEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmUpLinkPPEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmUpLinkPPTable table."
+    INDEX { cfprApExtvmmUpLinkPPInstanceId }
+    ::= { cfprApExtvmmUpLinkPPTable 1 }
+
+CfprApExtvmmUpLinkPPEntry ::= SEQUENCE {
+    cfprApExtvmmUpLinkPPInstanceId                                   CfprApManagedObjectId,
+    cfprApExtvmmUpLinkPPDn                                           CfprApManagedObjectDn,
+    cfprApExtvmmUpLinkPPRn                                           SnmpAdminString,
+    cfprApExtvmmUpLinkPPDescr                                        SnmpAdminString,
+    cfprApExtvmmUpLinkPPFltAggr                                      Unsigned64,
+    cfprApExtvmmUpLinkPPGuid                                         SnmpAdminString,
+    cfprApExtvmmUpLinkPPIntId                                        SnmpAdminString,
+    cfprApExtvmmUpLinkPPName                                         SnmpAdminString,
+    cfprApExtvmmUpLinkPPPolicyLevel                                  Gauge32,
+    cfprApExtvmmUpLinkPPPolicyOwner                                  CfprApPolicyPolicyOwner,
+    cfprApExtvmmUpLinkPPRefOperState                                 CfprApExtvmmRefOperState
+}
+
+cfprApExtvmmUpLinkPPInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmUpLinkPPEntry 1 }
+
+cfprApExtvmmUpLinkPPDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP:dn managed object property"
+    ::= { cfprApExtvmmUpLinkPPEntry 2 }
+
+cfprApExtvmmUpLinkPPRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP:rn managed object property"
+    ::= { cfprApExtvmmUpLinkPPEntry 3 }
+
+cfprApExtvmmUpLinkPPDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP:descr managed object property"
+    ::= { cfprApExtvmmUpLinkPPEntry 4 }
+
+cfprApExtvmmUpLinkPPFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP:fltAggr managed object property"
+    ::= { cfprApExtvmmUpLinkPPEntry 5 }
+
+cfprApExtvmmUpLinkPPGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP:guid managed object property"
+    ::= { cfprApExtvmmUpLinkPPEntry 6 }
+
+cfprApExtvmmUpLinkPPIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP:intId managed object property"
+    ::= { cfprApExtvmmUpLinkPPEntry 7 }
+
+cfprApExtvmmUpLinkPPName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP:name managed object property"
+    ::= { cfprApExtvmmUpLinkPPEntry 8 }
+
+cfprApExtvmmUpLinkPPPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP:policyLevel managed
+        object property"
+    ::= { cfprApExtvmmUpLinkPPEntry 9 }
+
+cfprApExtvmmUpLinkPPPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP:policyOwner managed
+        object property"
+    ::= { cfprApExtvmmUpLinkPPEntry 10 }
+
+cfprApExtvmmUpLinkPPRefOperState OBJECT-TYPE
+    SYNTAX       CfprApExtvmmRefOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:UpLinkPP:refOperState managed
+        object property"
+    ::= { cfprApExtvmmUpLinkPPEntry 11 }
+
+cfprApExtvmmVMNDRefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmVMNDRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef managed object table"
+    ::= { cfprApExtvmmObjects 14 }
+
+cfprApExtvmmVMNDRefEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmVMNDRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmVMNDRefTable table."
+    INDEX { cfprApExtvmmVMNDRefInstanceId }
+    ::= { cfprApExtvmmVMNDRefTable 1 }
+
+CfprApExtvmmVMNDRefEntry ::= SEQUENCE {
+    cfprApExtvmmVMNDRefInstanceId                                    CfprApManagedObjectId,
+    cfprApExtvmmVMNDRefDn                                            CfprApManagedObjectDn,
+    cfprApExtvmmVMNDRefRn                                            SnmpAdminString,
+    cfprApExtvmmVMNDRefConfigQualifier                               CfprApExtvmmNetworkSetConfigQualifier,
+    cfprApExtvmmVMNDRefDescr                                         SnmpAdminString,
+    cfprApExtvmmVMNDRefFnDefName                                     SnmpAdminString,
+    cfprApExtvmmVMNDRefFnName                                        SnmpAdminString,
+    cfprApExtvmmVMNDRefIntId                                         SnmpAdminString,
+    cfprApExtvmmVMNDRefName                                          SnmpAdminString,
+    cfprApExtvmmVMNDRefOperVmNetworkDefName                          SnmpAdminString,
+    cfprApExtvmmVMNDRefPolicyLevel                                   Gauge32,
+    cfprApExtvmmVMNDRefPolicyOwner                                   CfprApPolicyPolicyOwner,
+    cfprApExtvmmVMNDRefVmNetworkDefName                              SnmpAdminString
+}
+
+cfprApExtvmmVMNDRefInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmVMNDRefEntry 1 }
+
+cfprApExtvmmVMNDRefDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:dn managed object property"
+    ::= { cfprApExtvmmVMNDRefEntry 2 }
+
+cfprApExtvmmVMNDRefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:rn managed object property"
+    ::= { cfprApExtvmmVMNDRefEntry 3 }
+
+cfprApExtvmmVMNDRefConfigQualifier OBJECT-TYPE
+    SYNTAX       CfprApExtvmmNetworkSetConfigQualifier
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:configQualifier
+        managed object property"
+    ::= { cfprApExtvmmVMNDRefEntry 4 }
+
+cfprApExtvmmVMNDRefDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:descr managed object property"
+    ::= { cfprApExtvmmVMNDRefEntry 5 }
+
+cfprApExtvmmVMNDRefFnDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:fnDefName managed object property"
+    ::= { cfprApExtvmmVMNDRefEntry 6 }
+
+cfprApExtvmmVMNDRefFnName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:fnName managed object property"
+    ::= { cfprApExtvmmVMNDRefEntry 7 }
+
+cfprApExtvmmVMNDRefIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:intId managed object property"
+    ::= { cfprApExtvmmVMNDRefEntry 8 }
+
+cfprApExtvmmVMNDRefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:name managed object property"
+    ::= { cfprApExtvmmVMNDRefEntry 9 }
+
+cfprApExtvmmVMNDRefOperVmNetworkDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:operVmNetworkDefName
+        managed object property"
+    ::= { cfprApExtvmmVMNDRefEntry 10 }
+
+cfprApExtvmmVMNDRefPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:policyLevel managed
+        object property"
+    ::= { cfprApExtvmmVMNDRefEntry 11 }
+
+cfprApExtvmmVMNDRefPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:policyOwner managed
+        object property"
+    ::= { cfprApExtvmmVMNDRefEntry 12 }
+
+cfprApExtvmmVMNDRefVmNetworkDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNDRef:vmNetworkDefName
+        managed object property"
+    ::= { cfprApExtvmmVMNDRefEntry 13 }
+
+cfprApExtvmmVMNetworkTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmVMNetworkEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork managed object table"
+    ::= { cfprApExtvmmObjects 15 }
+
+cfprApExtvmmVMNetworkEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmVMNetworkEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmVMNetworkTable table."
+    INDEX { cfprApExtvmmVMNetworkInstanceId }
+    ::= { cfprApExtvmmVMNetworkTable 1 }
+
+CfprApExtvmmVMNetworkEntry ::= SEQUENCE {
+    cfprApExtvmmVMNetworkInstanceId                                  CfprApManagedObjectId,
+    cfprApExtvmmVMNetworkDn                                          CfprApManagedObjectDn,
+    cfprApExtvmmVMNetworkRn                                          SnmpAdminString,
+    cfprApExtvmmVMNetworkDescr                                       SnmpAdminString,
+    cfprApExtvmmVMNetworkFabricNetworkName                           SnmpAdminString,
+    cfprApExtvmmVMNetworkFltAggr                                     Unsigned64,
+    cfprApExtvmmVMNetworkGuid                                        SnmpAdminString,
+    cfprApExtvmmVMNetworkIntId                                       SnmpAdminString,
+    cfprApExtvmmVMNetworkName                                        SnmpAdminString,
+    cfprApExtvmmVMNetworkOperFabricNetworkName                       SnmpAdminString,
+    cfprApExtvmmVMNetworkPolicyLevel                                 Gauge32,
+    cfprApExtvmmVMNetworkPolicyOwner                                 CfprApPolicyPolicyOwner
+}
+
+cfprApExtvmmVMNetworkInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmVMNetworkEntry 1 }
+
+cfprApExtvmmVMNetworkDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:dn managed object property"
+    ::= { cfprApExtvmmVMNetworkEntry 2 }
+
+cfprApExtvmmVMNetworkRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:rn managed object property"
+    ::= { cfprApExtvmmVMNetworkEntry 3 }
+
+cfprApExtvmmVMNetworkDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:descr managed object property"
+    ::= { cfprApExtvmmVMNetworkEntry 4 }
+
+cfprApExtvmmVMNetworkFabricNetworkName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:fabricNetworkName
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkEntry 5 }
+
+cfprApExtvmmVMNetworkFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:fltAggr managed object property"
+    ::= { cfprApExtvmmVMNetworkEntry 6 }
+
+cfprApExtvmmVMNetworkGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:guid managed object property"
+    ::= { cfprApExtvmmVMNetworkEntry 7 }
+
+cfprApExtvmmVMNetworkIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:intId managed object property"
+    ::= { cfprApExtvmmVMNetworkEntry 8 }
+
+cfprApExtvmmVMNetworkName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:name managed object property"
+    ::= { cfprApExtvmmVMNetworkEntry 9 }
+
+cfprApExtvmmVMNetworkOperFabricNetworkName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:operFabricNetworkName
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkEntry 10 }
+
+cfprApExtvmmVMNetworkPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:policyLevel managed
+        object property"
+    ::= { cfprApExtvmmVMNetworkEntry 11 }
+
+cfprApExtvmmVMNetworkPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetwork:policyOwner managed
+        object property"
+    ::= { cfprApExtvmmVMNetworkEntry 12 }
+
+cfprApExtvmmVMNetworkDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmVMNetworkDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition managed object table"
+    ::= { cfprApExtvmmObjects 16 }
+
+cfprApExtvmmVMNetworkDefinitionEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmVMNetworkDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmVMNetworkDefinitionTable table."
+    INDEX { cfprApExtvmmVMNetworkDefinitionInstanceId }
+    ::= { cfprApExtvmmVMNetworkDefinitionTable 1 }
+
+CfprApExtvmmVMNetworkDefinitionEntry ::= SEQUENCE {
+    cfprApExtvmmVMNetworkDefinitionInstanceId                        CfprApManagedObjectId,
+    cfprApExtvmmVMNetworkDefinitionDn                                CfprApManagedObjectDn,
+    cfprApExtvmmVMNetworkDefinitionRn                                SnmpAdminString,
+    cfprApExtvmmVMNetworkDefinitionDescr                             SnmpAdminString,
+    cfprApExtvmmVMNetworkDefinitionExtIpPoolName                     SnmpAdminString,
+    cfprApExtvmmVMNetworkDefinitionGuid                              SnmpAdminString,
+    cfprApExtvmmVMNetworkDefinitionIntId                             SnmpAdminString,
+    cfprApExtvmmVMNetworkDefinitionIpPoolGuid                        SnmpAdminString,
+    cfprApExtvmmVMNetworkDefinitionMaxPorts                          Gauge32,
+    cfprApExtvmmVMNetworkDefinitionName                              SnmpAdminString,
+    cfprApExtvmmVMNetworkDefinitionOperExtIpPoolName                 SnmpAdminString,
+    cfprApExtvmmVMNetworkDefinitionPolicyLevel                       Gauge32,
+    cfprApExtvmmVMNetworkDefinitionPolicyOwner                       CfprApPolicyPolicyOwner,
+    cfprApExtvmmVMNetworkDefinitionPrimaryVlanId                     Gauge32,
+    cfprApExtvmmVMNetworkDefinitionRefOperState                      CfprApExtvmmRefOperState,
+    cfprApExtvmmVMNetworkDefinitionVlanName                          SnmpAdminString
+}
+
+cfprApExtvmmVMNetworkDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 1 }
+
+cfprApExtvmmVMNetworkDefinitionDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:dn
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 2 }
+
+cfprApExtvmmVMNetworkDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:rn
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 3 }
+
+cfprApExtvmmVMNetworkDefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:descr
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 4 }
+
+cfprApExtvmmVMNetworkDefinitionExtIpPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:extIpPoolName
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 5 }
+
+cfprApExtvmmVMNetworkDefinitionGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:guid
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 6 }
+
+cfprApExtvmmVMNetworkDefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:intId
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 7 }
+
+cfprApExtvmmVMNetworkDefinitionIpPoolGuid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:ipPoolGuid
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 8 }
+
+cfprApExtvmmVMNetworkDefinitionMaxPorts OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:maxPorts
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 9 }
+
+cfprApExtvmmVMNetworkDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:name
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 10 }
+
+cfprApExtvmmVMNetworkDefinitionOperExtIpPoolName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:operExtIpPoolName
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 11 }
+
+cfprApExtvmmVMNetworkDefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:policyLevel
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 12 }
+
+cfprApExtvmmVMNetworkDefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:policyOwner
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 13 }
+
+cfprApExtvmmVMNetworkDefinitionPrimaryVlanId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:primaryVlanId
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 14 }
+
+cfprApExtvmmVMNetworkDefinitionRefOperState OBJECT-TYPE
+    SYNTAX       CfprApExtvmmRefOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:refOperState
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 15 }
+
+cfprApExtvmmVMNetworkDefinitionVlanName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkDefinition:vlanName
+        managed object property"
+    ::= { cfprApExtvmmVMNetworkDefinitionEntry 16 }
+
+cfprApExtvmmVMNetworkSetsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApExtvmmVMNetworkSetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkSets managed object table"
+    ::= { cfprApExtvmmObjects 17 }
+
+cfprApExtvmmVMNetworkSetsEntry OBJECT-TYPE
+    SYNTAX           CfprApExtvmmVMNetworkSetsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApExtvmmVMNetworkSetsTable table."
+    INDEX { cfprApExtvmmVMNetworkSetsInstanceId }
+    ::= { cfprApExtvmmVMNetworkSetsTable 1 }
+
+CfprApExtvmmVMNetworkSetsEntry ::= SEQUENCE {
+    cfprApExtvmmVMNetworkSetsInstanceId                              CfprApManagedObjectId,
+    cfprApExtvmmVMNetworkSetsDn                                      CfprApManagedObjectDn,
+    cfprApExtvmmVMNetworkSetsRn                                      SnmpAdminString,
+    cfprApExtvmmVMNetworkSetsFltAggr                                 Unsigned64,
+    cfprApExtvmmVMNetworkSetsGenNum                                  Gauge32
+}
+
+cfprApExtvmmVMNetworkSetsInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApExtvmmVMNetworkSetsEntry 1 }
+
+cfprApExtvmmVMNetworkSetsDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkSets:dn managed object property"
+    ::= { cfprApExtvmmVMNetworkSetsEntry 2 }
+
+cfprApExtvmmVMNetworkSetsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkSets:rn managed object property"
+    ::= { cfprApExtvmmVMNetworkSetsEntry 3 }
+
+cfprApExtvmmVMNetworkSetsFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkSets:fltAggr managed
+        object property"
+    ::= { cfprApExtvmmVMNetworkSetsEntry 4 }
+
+cfprApExtvmmVMNetworkSetsGenNum OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower extvmm:VMNetworkSets:genNum managed
+        object property"
+    ::= { cfprApExtvmmVMNetworkSetsEntry 5 }
+
+END

@@ -1,0 +1,1645 @@
+-- $ID$
+-- ********************************************************************
+-- CISCO-GGSN-QOS-MIB.my: GGSN Quality of Service(Qos) MIB
+--
+-- Dec 2001, Rajesh M. L.
+-- Oct 2008, Annie Mishalini Devasahayam
+--
+-- Copyright (c), 2001, 2002, 2003, 2005, 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ********************************************************************
+-- $Endlog$
+
+CISCO-GGSN-QOS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Gauge32,
+        Integer32, 
+        Unsigned32
+                FROM SNMPv2-SMI
+        SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+        RowStatus,
+        TruthValue,
+        TEXTUAL-CONVENTION
+            FROM SNMPv2-TC
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+cggsnQosMIB    MODULE-IDENTITY
+        LAST-UPDATED    "200812170000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-gprs@cisco.com"
+        DESCRIPTION
+                "This MIB module manages the Quality of Service 
+                parameters of GGSN in a GPRS system.
+
+                GGSN is the Gateway GPRS Support Node in the GPRS
+                architecture. It provides interworking of GPRS 
+                network with external packet-switched networks 
+                - PDNs or other data networks.
+
+                The following diagram illustrates a simplified GPRS
+                logical architecture with the name of inter-node
+                interface:
+
+                +---------------------------------------------+
+                |                         +======+   a PLMN   |
+                |                         | SGSN |            |
+                |                         +======+            |
+                |                            |                |
+                |                            Gn               |
+                |                            |                |
+                |+====+   +====+ +=====+ +======+    +======+ |    +===+
+                || TE |-R-| MT |-| BSS |-| SGSN |-Gn-| GGSN |-|-Gi-|PDN|
+                |+====+   +====+ +=====+ +======+    +======+ |    +===+
+                |                                        |    |
+                |                                        |    |
+                +----------------------------------------|----+
+                                                         Gp
+                                                         |
+                                +-----------------------------+
+                                | +====+   +=====+   +======+ |
+                                | | MS |---| BSS |---| SGSN | |
+                                | +====+   +=====+   +======+ |
+                                |                             |
+                                |                other PLMN   |
+                                +-----------------------------+
+
+                A PDP Context is an information set maintained by MS
+                and GSNs which describes the mobile wireless service
+                call or session.
+
+                Three types of QoS mapping method are supported on GGSN:
+                canonical, delay and UMTS. Canonical QoS mapping 
+                consists of Best Effort, Normal and Premium QoS classes.
+                Delay QoS mapping consists of four classes: delay1, 
+                delay2, delay3 and delay-besteffort. UMTS QoS has the 
+                following traffic classes: signalling, conversational, 
+                streaming, interactive and background. UMTS QoS is 
+                based on differentiated services network model.
+
+                A QoS Profile is associated with each PDP context which
+                defines multiple attributes like precedence, delay,
+                reliability, peak throughput, mean throughput and 
+                traffic class.  Based on the precedence, delay and mean
+                throughput an user is classified into different 
+                canonical and delay QoS classes .  Based on delay, 
+                jitter, bandwidth and reliability user is classified 
+                into the UMTS traffic classes.
+
+                In GGSN, the QoS remapping mechanism is that, for 
+                uplink traffic, the GGSN remaps the TOS in the user 
+                traffic before forwarding the packet to the Gi 
+                interface and for downlink traffic, the GGSN will 
+                only setup the TOS for the IP header for the Tunnel, 
+                not the IP header for user traffic. Traffic from MS 
+                to PDN is considered as uplink and the reverse is 
+                considered as downlink traffic.
+
+                Acronyms and terms:
+
+                APN      Access Point Name
+                BSS      Base Station System
+                ETSI     European Telecommunications Standards
+                         Institute
+                DS       Differentiated Service 
+                DSCP     DS Code Point
+                GGSN     Gateway GPRS Support Node
+                GPRS     General Packet Radio Service
+                GSM      Global System for Mobile communication
+                GSN      GPRS Support Node
+                G-PDU    GTP PDU
+                MS       Mobile Station
+                MT       Mobile Terminal
+                PDN      Packet Data Network
+                PDP      Packet Data Protocol
+                PDU      Protocol Data Unit
+                PHB      Per-hop Behavior
+                PLMN     Public Land Mobile Network
+                SGSN     Serving GPRS support Node
+                TE       Terminal Equipment
+                T-PDU    the payload of G-PDU
+                UMTS     Universal Mobile Telecommunication System
+                IMS      IP Multimedia Subsystem
+                GBR      Guaranteed Bit Rate
+                MBR      Maximum Bit Rate
+                CAC      Call Admission Control
+                QOS      Quality Of Service
+
+                REFERENCE
+
+                [1] GSM 03.60: Digital cellular telecommunications
+                    system (Phase 2+); General Packet Radio Service
+                    (GPRS); Service description; Stage 2. V7.1.0
+
+                [2] GSM 09.60: Digital cellular telecommunication
+                    system (Phase 2+); General Packet Radio Service
+                    (GPRS); GPRS Tunnelling Protocol (GTP) across
+                    Gn and Gp Interface. V7.3.0
+
+                [3] 3GPP; Technical Specification Group Services
+                    and System Aspects; QoS Concept and Architecture.
+                    3G TS 23.107 v3.2.0.
+
+                [4] 3GPP; Technical Specification Group Core Network;
+                    General Packet Radio Service(GPRS); GPRS 
+                    Tunnelling Protocol (GTP) across Gn and Gp 
+                    Interface (Release 1999). 3G TS 29.060 v3.5.0.
+
+                [5] 3GPP; Technical Specification Group Services
+                    and System Aspects; General Packet Radio 
+                    Service(GPRS); Service description; Stage 2 
+                    (Release 1999) 3G TS 23.060 v3.3.1.
+                "
+        REVISION       "200812170000Z"
+        DESCRIPTION
+            "Deprecated cggsnUmtsQosCacTcBitRate.
+             Added cggsnUmtsQosCacTcRevBitRate to
+             cggsnUmtsQosCacTcTable."
+        REVISION       "200609110000Z"
+        DESCRIPTION
+                " Deprecated following objects from cggsnQosUmtsCac:
+                      cggsnUmtsQosMapImsSigTrafClass,
+                      cggsnUmtsQosMapImsSigTrafHandPri.
+
+                  Deprecated following Group, Compliance:
+                      cggsnQosUmtsCacGroup,
+                      cggsnQosMIBComplianceRev2.
+
+                  Added following Group, Compliance:
+                      cggsnQosUmtsCacGroupRev1,
+                      cggsnQosMIBComplianceRev3."
+        REVISION       "200503211700Z"
+        DESCRIPTION
+                "Modified the range for the object
+                cggsnUmtsQosCacTcBitRate."
+        REVISION       "200311271300Z"
+        DESCRIPTION
+                "Added cggsnUmtsQosMapImsSigTrafClass,
+                cggsnUmtsQosMapImsSigTrafHandPri,
+                cggsnUmtsQosCacPolicyTable, cggsnUmtsQosCacTcTable,
+                cggsnUmtsQosCacBWPoolTable, cggsnQosBWPoolTrafClassTable
+                to cggsnQosUmtsCac." 
+        REVISION       "200204181400Z"
+        DESCRIPTION
+                "
+                Added the enumeration 'umts' to 
+                cggsnQosMappingMethod.
+
+                Added the following objects:
+                cggsnQosUmtsTrafficClass,
+                cggsnQosUmtsDiffServPhbgroup, cggsnQosUmtsPdps,
+                cggsnQosDiffServPhb, cggsnQosDscp and 
+                cggsnQosUmtsDscpUnmodified.
+                "
+        REVISION       "200112061330Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 241 }
+
+--
+-- Textual Conventions
+--
+
+UmtsQosTrafficClass ::= TEXTUAL-CONVENTION
+    STATUS        current   
+    DESCRIPTION
+        "A value that represents the UMTS traffic class.
+
+        conversational(1)  This class of traffic sends data at almost 
+                           constant bitrate (i.e. non-burst traffic), 
+                           and has low latency and low jitter 
+                           requirements, For this class of traffic, 
+                           maximum bit rate is not guaranteed, thus the 
+                           guaranteed bit rate is only an important 
+                           parameter to be taken as resource (QoS) 
+                           requirement.
+
+        streaming(2)       This class also has low latency and low 
+                           jitter requirements, but not as sensitive 
+                           as conversational class.  
+
+        interactive(3)     This class of traffic is not delay 
+                           sensitive. Thus guaranteed bit rate is not 
+                           guaranteed, and only maximum bit rate is 
+                           limited to ensure that it does not exceed 
+                           configured maximum bit rate.
+
+        background(4)      This class of traffic is same as interactive
+                           class, only requested maximum is limited to 
+                           ensure it does not exceed configured maximum 
+                           bit rate.
+        "
+    SYNTAX        INTEGER {
+                      conversational(1),
+                      streaming(2),
+                      interactive(3),
+                      background(4)
+                  }
+
+--
+-- Object definitions
+--
+
+cggsnQosMIBObjects      OBJECT IDENTIFIER
+                            ::= { cggsnQosMIB 1 }
+
+cggsnQosGeneralConfig   OBJECT IDENTIFIER
+                            ::= { cggsnQosMIBObjects 1 }
+cggsnQosCanonicalQos    OBJECT IDENTIFIER
+                            ::= { cggsnQosMIBObjects 2 }
+
+cggsnQosUmtsQos    OBJECT IDENTIFIER
+                            ::= { cggsnQosMIBObjects 3 }
+
+--
+-- MIBObjects
+--
+
+--
+-- General Configurations
+--
+
+cggsnQosMappingMethod        OBJECT-TYPE
+    SYNTAX                   INTEGER {
+                                none(1),
+                                canonical(2),
+                                delay(3),
+                                umts(4)
+                             }
+    MAX-ACCESS                read-write
+    STATUS                    current
+    DESCRIPTION
+       "This object specifies the type of QoS method (canonical
+        or delay or none (best-effort) or umts) mapped to GPRS QoS.
+       "
+    DEFVAL { none }
+    ::= { cggsnQosGeneralConfig 1 }
+
+cggsnQosClassIpTosMapTable       OBJECT-TYPE
+    SYNTAX                       SEQUENCE OF CggsnQosClassIpTosMapEntry
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+        "This table represents the mapping for different 
+         QoS classes to TOS precedence classes in the IP 
+         header. 
+
+         If cggsnQosMappingMethod is set to delay(3),
+         the length of the table is 4 with the following 
+         default mapping: delay1 = 3 (flash), delay2 = 2 (immediate),
+         delay3 = 1 (priority), delay_besteffort = 0 (routine).
+
+         If cggsnQosMappingMethod is set to canonical(2),
+         the length of the table is 3 with the following 
+         default mapping: premium = 2 (immediate), normal
+         = 1 (priority), best_effort = 0 (routine).
+          
+         If cggsnQosMappingMethod is set to umts(4) or none(1),
+         the table will be empty."
+    ::= { cggsnQosGeneralConfig 2 }
+
+cggsnQosClassIpTosMapEntry       OBJECT-TYPE
+    SYNTAX                       CggsnQosClassIpTosMapEntry
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+        "Entry which denotes mapping of different QoS classes 
+        to TOS precedence class and also the number of PDP
+        contexts associated with each QoS Class."
+    INDEX    { cggsnQosClass }
+    ::= { cggsnQosClassIpTosMapTable 1 }
+
+CggsnQosClassIpTosMapEntry   ::= SEQUENCE {
+     cggsnQosClass               Integer32,
+     cggsnQosMappedIpTos         Integer32,
+     cggsnQosCurrentPdps         Gauge32
+     }
+
+cggsnQosClass                    OBJECT-TYPE
+    SYNTAX                       Integer32 (1..4)
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+         "This object specifies different QoS Classes of
+         either 'canonical' or 'delay' QoS based on the 
+         value set to cggsnQosMappingMethod. The following
+         is how the value needs to be interpreted.
+
+         If cggsnQosMappingMethod is set to delay(3),
+         1 - delay1, 2 - delay2, 3 - delay3, 
+         4 - delay_best_effort.
+
+         If cggsnQosMappingMethod is set to canonical(2),
+         1 - premium, 2 - normal, 3 - best_effort."
+   ::= { cggsnQosClassIpTosMapEntry 1 }
+
+cggsnQosMappedIpTos              OBJECT-TYPE
+    SYNTAX                       Integer32 (0..5)
+    MAX-ACCESS                   read-write
+    STATUS                       current
+    DESCRIPTION
+         "This object specifies the IP TOS precedence to which
+        cggsnQosClass is mapped. Higher TOS precedence
+        value indicates a higher service priority. The values
+        '6 (internetwork_control)' and '7 (network_control)' 
+        of TOS are not used in mapping."
+    ::= { cggsnQosClassIpTosMapEntry 2 }
+
+cggsnQosCurrentPdps              OBJECT-TYPE
+    SYNTAX                       Gauge32
+    MAX-ACCESS                   read-only
+    STATUS                       current
+    DESCRIPTION
+        "This object specifies the current number of PDP contexts
+         that have cggsnQosClass."
+    ::= { cggsnQosClassIpTosMapEntry 3 }
+
+--
+--  Canonical QoS specific Objects: The objects in the following 
+--  group can only be retrieved if cggsnQosMappingMethod is set 
+--  to 'canonical(2)'.
+--
+
+cggsnQosTotalBandwidthResrc  OBJECT-TYPE
+    SYNTAX                   Unsigned32 (1..4294967295)
+    UNITS                    "bits/sec"
+    MAX-ACCESS               read-write
+    STATUS                   current
+    DESCRIPTION
+        "The total amount of bandwidth resource on the GGSN,
+         this total depends on various factors like system
+         throughput, memory size, maximum number of PDP contexts
+         supported.  A portion of the total resources will be
+         allocated to a user at the PDP context activation time
+         based on the QoS class the user is assigned to. This
+         object can only be retrieved if cggsnQosMappingMethod 
+         is set to canonical(2)."
+    ::= { cggsnQosCanonicalQos 1 }
+
+cggsnQosCurrentUsedBandwidth      OBJECT-TYPE
+    SYNTAX                        Gauge32
+    UNITS                         "bits/sec"
+    MAX-ACCESS                    read-only
+    STATUS                        current
+    DESCRIPTION
+        "The current amount of bandwidth resource used on the GGSN.
+         This object can only be retrieved if cggsnQosMappingMethod
+         is set to canonical(2)."
+    ::= { cggsnQosCanonicalQos 2 }
+
+cggsnQosPremiumMtDeviationFactor  OBJECT-TYPE
+    SYNTAX                        Unsigned32 (1..1000)
+    MAX-ACCESS                    read-write
+    STATUS                        current
+    DESCRIPTION
+       "This object specifies the mean throughput deviation
+       factor that the GGSN uses to calculate the allowable
+       data throughput for Premium QoS. This object can
+       only be retrieved if cggsnQosMappingMethod is set
+       to canonical(2)."
+    DEFVAL { 100 }
+    ::= { cggsnQosCanonicalQos 3 }
+
+cggsnQosBestEffrtBandWidthFactor  OBJECT-TYPE
+    SYNTAX                        Unsigned32 (1..4000000)
+    UNITS                         "bits/sec"
+    MAX-ACCESS                    read-write
+    STATUS                        current
+    DESCRIPTION
+       "This object specifies the bandwidth factor to be 
+       applied to canonical best-effort QoS class. This 
+       object can only be retrieved if cggsnQosMappingMethod 
+       is set to canonical(2)."
+    DEFVAL { 10 }
+    ::= { cggsnQosCanonicalQos 4 }
+
+cggsnQosPremiumMeanThroughput  OBJECT-TYPE
+    SYNTAX                     Gauge32
+    UNITS                      "bytes/sec"
+    MAX-ACCESS                 read-only
+    STATUS                     current
+    DESCRIPTION
+       "The sum of the mean throughput of premium class QOS
+        users on the GSN. This object can only be retrieved
+        if cggsnQosMappingMethod is set to canonical(2)."
+    ::= { cggsnQosCanonicalQos 5 }
+
+cggsnQosNormalMeanThroughput    OBJECT-TYPE
+    SYNTAX                      Gauge32
+    UNITS                       "bytes/sec"
+    MAX-ACCESS                  read-only
+    STATUS                      current
+    DESCRIPTION
+       "The sum of the mean throughput of normal class QOS
+        users on the GSN. This object can only be retrieved
+        if cggsnQosMappingMethod is set to canonical(2)."
+    ::= { cggsnQosCanonicalQos 6 }
+
+cggsnQosBestEffortMeanThroughput  OBJECT-TYPE
+    SYNTAX                        Gauge32
+    UNITS                         "bytes/sec"
+    MAX-ACCESS                    read-only
+    STATUS                        current
+    DESCRIPTION
+       "The sum of the mean throughput of best-effort class
+        QOS users on the GSN. This object can only be retrieved
+        if cggsnQosMappingMethod is set to canonical(2)."
+    ::= { cggsnQosCanonicalQos 7 }
+
+--
+--  UMTS QoS specific Objects: The objects in the following
+--  group can only be retrieved if cggsnQosMappingMethod is set
+--  to 'umts(4)'.
+--
+ 
+cggsnQosTrafficClassPhbTable  OBJECT-TYPE
+    SYNTAX                    SEQUENCE OF CggsnQosTrafficClassPhbEntry
+    MAX-ACCESS                not-accessible
+    STATUS                    current
+    DESCRIPTION
+        "This table represents the mapping between a given traffic 
+        class and the corresponding DS PHB group. 
+
+        The table has one entry for each possible traffic class type.
+
+        The table will be empty if the cggsnQosMappingMethod is not 
+        set to 'umts'.
+        "
+    ::= { cggsnQosUmtsQos 1 } 
+
+cggsnQosTrafficClassPhbEntry  OBJECT-TYPE
+    SYNTAX                       CggsnQosTrafficClassPhbEntry
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+        "Entry which denotes mapping between a given traffic 
+        class and the corresponding DS PHB group and the number 
+        of PDP contexts associated with each traffic class.
+        "
+    INDEX    { cggsnQosUmtsTrafficClass }
+    ::= { cggsnQosTrafficClassPhbTable 1 }
+
+CggsnQosTrafficClassPhbEntry   ::= SEQUENCE {
+     cggsnQosUmtsTrafficClass     INTEGER,
+     cggsnQosUmtsDiffServPhbgroup INTEGER,
+     cggsnQosUmtsPdps             Gauge32
+     }
+
+cggsnQosUmtsTrafficClass         OBJECT-TYPE
+    SYNTAX                       INTEGER {
+                                    signalling(1),
+                                    conversational(2),
+                                    streaming(3),
+                                    interactive(4),
+                                    background(5)
+                                 } 
+    MAX-ACCESS              not-accessible
+    STATUS                  current
+    DESCRIPTION
+        "This object denotes the UMTS QoS traffic class.  UMTS QoS
+        uses this parameter to make assumptions about the traffic 
+        source, and determine the maximum bitrate, and guaranteed 
+        bitrate for the traffic class when performing admission 
+        control. The signalling traffic class only applies to the 
+        UMTS signalling messages.  
+        "
+   ::= { cggsnQosTrafficClassPhbEntry 1 }
+
+cggsnQosUmtsDiffServPhbgroup OBJECT-TYPE
+    SYNTAX                   INTEGER {
+                                 signallingClass(1),
+                                 efClass(2),
+                                 afClass1(3),
+                                 afClass2(4),
+                                 afClass3(5),
+                                 afClass4(6),
+                                 bestEffort(7)
+                            }
+    MAX-ACCESS              read-write
+    STATUS                  current
+    DESCRIPTION
+        "This object denotes the PHB which is mapped to the traffic
+        class given by cggsnQosUmtsTrafficClass.
+
+        DS architecture is based on number of functional elements,
+        one of which is PHB.  PHBs specify queuing, queue management 
+        and scheduling characteristics that allow a means of 
+        allocating buffer and bandwidth resources at each node among 
+        the competing traffic streams.
+        
+        The various DS PHBs include:
+                signalling - signallingClass(1)
+                The signalling class PHB is only used for the UMTS 
+                signalling messages. This DS PHB does not apply to 
+                any other IP data packets.
+
+                expedited forwarding - efClass(2)
+                The expedited forwarding PHB is used for providing 
+                a low loss, low latency, low jitter, assured 
+                bandwidth, end-to-end service through the DS domains. 
+                Such a service appears to the endpoints like a 
+                point-to-point connection, or a virtual leased line.
+
+                assured forwarding - afClass(3-6)
+                The assured forwarding PHB provides a means for a 
+                provider DS domain to offer different levels of 
+                delivery assurances for packets received from a 
+                customer DS domain. Four assured forwarding classes: 
+                afClass1, afClass2, afClass3 and afClass4 are defined,
+                where each AF class is in each DS node allocated a
+                certain amouont of forwarding resoources(buffer space
+                and bandwidth). IP packets are assigned into one or 
+                more of these classes, according to the subscribed 
+                service.  Within each class the packets are marked 
+                by a mobile subscriber, or by the provider DS domain,
+                with one of the three possible drop precedence 
+                values. In case of congestion, the drop precedence 
+                of a packet determines the relative importance of a 
+                packet within the class. Packets in one class are 
+                forwarded independently of the packets in another 
+                class.
+
+                best effort - bestEffort(7)
+                This is the default PHB.  The packets of this 
+                aggregate are forwarded on an output link whenever
+                the link is not required to satisfy any other PHB.
+                "
+    DEFVAL { bestEffort }
+    ::= { cggsnQosTrafficClassPhbEntry 2 }
+
+cggsnQosUmtsPdps                 OBJECT-TYPE
+    SYNTAX                       Gauge32
+    MAX-ACCESS                   read-only
+    STATUS                       current
+    DESCRIPTION
+        "This object specifies the current number of PDP contexts
+         associated with each traffic class identified by
+         cggsnQosUmtsTrafficClass.
+        "
+    ::= { cggsnQosTrafficClassPhbEntry 3 }
+
+cggsnQosPhbToDscpMapTable        OBJECT-TYPE
+    SYNTAX                       SEQUENCE OF CggsnQosPhbToDscpMapEntry
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+        "This table represents the DiffServ Code Point (DSCP) 
+        mappings for different types of DiffServ PHB groups. 
+
+        The table has one entry for each possible DS PHB.
+        "
+    ::= { cggsnQosUmtsQos 2 }
+
+cggsnQosPhbToDscpMapEntry        OBJECT-TYPE
+    SYNTAX                       CggsnQosPhbToDscpMapEntry
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+        "Entry which denotes mapping of different DS PHBs to the 
+        DSCP.
+        "
+    INDEX    { cggsnQosDiffServPhb }
+    ::= { cggsnQosPhbToDscpMapTable 1 }
+
+CggsnQosPhbToDscpMapEntry        ::= SEQUENCE {
+     cggsnQosDiffServPhb         INTEGER,
+     cggsnQosDscp                INTEGER
+     }
+
+cggsnQosDiffServPhb              OBJECT-TYPE
+    SYNTAX                       INTEGER {
+                                     signallingClass(1),
+                                     efClass(2),
+                                     afClass1Low(3),
+                                     afClass1Medium(4),
+                                     afClass1High(5),
+                                     afClass2Low(6),
+                                     afClass2Medium(7),
+                                     afClass2High(8),
+                                     afClass3Low(9),
+                                     afClass3Medium(10),
+                                     afClass3High(11),
+                                     afClass4Low(12),
+                                     afClass4Medium(13),
+                                     afClass4High(14),
+                                     bestEffort(15)
+                                 }
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+        "This object denotes the various possible values of PHB.
+
+        It can take up one of the following values:
+            signallingClass(1) - Signalling class
+            efClass(2) - expedited forwarding class
+            afClass1Low(3) - assured forwarding class 1
+                             low drop precedence
+            afClass1Medium(4) - assured forwarding class 1
+                             medium drop precedence
+            afClass1High(5) - assured forwarding class 1
+                             high drop precedence
+            afClass2Low(6) - assured forwarding class 2
+                             low drop precedence
+            afClass2Medium(7) - assured forwarding class 2
+                             medium drop precedence
+            afClass2High(8) - assured forwarding class 2
+                             high drop precedence
+            afClass3Low(9) - assured forwarding class 3
+                             low drop precedence
+            afClass3Medium(10) - assured forwarding class 3
+                             medium drop precedence
+            afClass3High(11) - assured forwarding class 3
+                             high drop precedence
+            afClass4Low(12) - assured forwarding class 4
+                             low drop precedence
+            afClass4Medium(13) - assured forwarding class 4
+                             medium drop precedence
+            afClass4High(14) - assured forwarding class 4
+                             high drop precedence
+            bestEffort(15) - best effort class
+        "
+    ::= { cggsnQosPhbToDscpMapEntry 1 }
+
+cggsnQosDscp                  OBJECT-TYPE
+    SYNTAX                    INTEGER (0 .. 63)
+    MAX-ACCESS                read-write
+    STATUS                    current
+    DESCRIPTION
+        "This object denotes the DSCP for the corresponding PHB
+        defined by cggsnQosDiffServPhb.
+
+        The values recommended for the various values of 
+        cggsnQosDiffServPhb are:
+            signallingClass - '101000'
+            efClass         - '101110'
+            afClass1Low     - '001010'
+            afClass1Medium  - '001100'
+            afClass1High    - '001110'
+            afClass2Low     - '010010'
+            afClass2Medium  - '010100'
+            afClass2High    - '010110'
+            afClass3Low     - '011010'
+            afClass3Medium  - '011100'
+            afClass3High    - '011110'
+            afClass4Low     - '100010'
+            afClass4Medium  - '100100'
+            afClass4High    - '100110'
+            bestEffort      - '000000'
+        "
+    ::= { cggsnQosPhbToDscpMapEntry 2 }
+ 
+cggsnQosUmtsDscpUnmodified    OBJECT-TYPE
+    SYNTAX                    INTEGER {
+                                up(1),
+                                down(2),
+                                all(3),
+                                none(4)
+                              }
+    MAX-ACCESS                read-write
+    STATUS                    current
+    DESCRIPTION
+        "This object defines if the DSCP in the subscriber datagram
+         will be forwarded in the uplink/downlink path with or without
+         modification.
+
+         The various values that this object can take up are:
+                up(1) - DSCP will not be modified in the uplink 
+                        path alone
+                down(2) - DSCP will not be modified in downlink 
+                         path alone
+                all(3) - DSCP will not be modified in both 
+                         uplink/downlink path
+                none(4) - DSCP will be modified both in uplink and 
+                         in downlink path
+        "
+    DEFVAL { none }
+    ::= { cggsnQosUmtsQos 3 }
+
+cggsnQosUmtsCac    OBJECT IDENTIFIER
+                        ::= { cggsnQosUmtsQos 4 }
+
+
+cggsnUmtsQosMapImsSigTrafClass        OBJECT-TYPE
+    SYNTAX                            UmtsQosTrafficClass
+    MAX-ACCESS                        read-write
+    STATUS                            deprecated 
+    DESCRIPTION
+        "This object is to map the IP Multimedia Subsystem (IMS)
+        signaling traffic to one of UMTS traffic class.
+
+        Only 'interactive' or 'background' traffic class can be
+        set to this object.
+
+        If the traffic class is set to 'interactive', then the
+        priority has to be set in cggsnUmtsQosMapImsSigTrafHandPri.
+        This object is deprecated as the IMS is not supported from
+        GGSN release 5.0 onwards."
+    DEFVAL { interactive }
+    ::= { cggsnQosUmtsCac 1 }
+
+cggsnUmtsQosMapImsSigTrafHandPri      OBJECT-TYPE
+    SYNTAX                            INTEGER {
+                                          priority1(1),
+                                          priority2(2),
+                                          priority3(3)
+                                      }
+    MAX-ACCESS                        read-write
+    STATUS                            deprecated 
+    DESCRIPTION
+        "This object is to set the priority of traffic handling
+        for interactive class. This object can be set only if
+        the traffic class is set to 'interactive' in
+        cggsnUmtsQosMapImsSigTrafClass.   This object is 
+        deprecated as the IMS is not supported from GGSN release 
+        5.0 onwards."
+    DEFVAL { priority1 }
+    ::= { cggsnQosUmtsCac 2 }                           
+
+cggsnUmtsQosCacPolicyTable       OBJECT-TYPE
+    SYNTAX                       SEQUENCE OF CggsnUmtsQosCacPolicyEntry
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+        "Call Admission Control (CAC) is to ensure that network 
+        resources are not oversubscribed to protect real-time traffic 
+        such as voice (conversational) and video (streaming), etc. 
+        Therefore before admitting a new PDP create, call admission 
+        control will be performed to ensure there is sufficient 
+        resource for the new PDP create request.
+
+        This table contains policy profiles (containing all the QOS
+        parameter needed for the PDP activation) which can be attached 
+        to the one or more APN.
+
+        The SNMP entity adds a conceptual row to this table when
+        the user configures a policy profile.
+
+        The SNMP entity deletes a conceptual row from this table when
+        the user removes the policy profile. However, if there is
+        an APN associated with this policy, the conceptual row cannot
+        be deleted.
+
+        The SNMP entity modifies the conceptual row when the user
+        changes any QOS parameters of the profile. However, if there 
+        are existing PDP contexts in the APN which is using this 
+        policy, the maximum QOS parameter can only be changed to 
+        greater or higher than previous configuration.
+        "
+    ::= { cggsnQosUmtsCac 3 }
+
+cggsnUmtsQosCacPolicyEntry            OBJECT-TYPE
+    SYNTAX                            CggsnUmtsQosCacPolicyEntry
+    MAX-ACCESS                        not-accessible
+    STATUS                            current
+    DESCRIPTION
+        "Each entry in this table contains a set of QOS parameter
+        needed for the PDP activation (policy profile)."
+    INDEX { cggsnUmtsQosCacPolicyName }
+    ::= { cggsnUmtsQosCacPolicyTable 1 }
+
+CggsnUmtsQosCacPolicyEntry        ::= SEQUENCE {
+    cggsnUmtsQosCacPolicyName             SnmpAdminString,
+    cggsnUmtsQosCacRowStatus              RowStatus,
+    cggsnUmtsQosCacMaxPdp                 Unsigned32,
+    cggsnUmtsQosCacPdpThreshold           Unsigned32,
+    cggsnUmtsQosCacMaxTrafficClass        UmtsQosTrafficClass,
+    cggsnUmtsQosCacMaxTrafHandPrio        INTEGER,
+    cggsnUmtsQosCacMaxThruPut             Unsigned32,
+    cggsnUmtsQosCacMaxThruPutReject       TruthValue,
+    cggsnUmtsQosCacMaxDelayClass          INTEGER,
+    cggsnUmtsQosCacMaxDelayClassRej       TruthValue
+}
+
+cggsnUmtsQosCacPolicyName             OBJECT-TYPE
+    SYNTAX                            SnmpAdminString (SIZE (1..40))
+    MAX-ACCESS                        not-accessible
+    STATUS                            current
+    DESCRIPTION
+        "This object is the CAC policy name which will be attached
+        to one or more APN's." 
+    ::= { cggsnUmtsQosCacPolicyEntry 1 }
+
+cggsnUmtsQosCacRowStatus              OBJECT-TYPE
+    SYNTAX                            RowStatus
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object is used to create a new row or delete an
+        existing row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cggsnUmtsQosCacPolicyEntry 2 }
+
+cggsnUmtsQosCacMaxPdp                 OBJECT-TYPE
+    SYNTAX                            Unsigned32(0..4294967295)
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object defines maximum number of  PDPs that can be 
+        created. If total number of activated PDPs exceeds the maximum  
+        number, the PDP context will be rejected.
+
+        Value '0' means there is no limit on PDP context creation."
+    DEFVAL { 0 }
+    ::= { cggsnUmtsQosCacPolicyEntry 3 }
+
+cggsnUmtsQosCacPdpThreshold           OBJECT-TYPE
+    SYNTAX                            Unsigned32(0..4294967295)
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object defines the threshold value to accept only
+        PDP context with allocation/retention priority 1 when the
+        threshold is reached.
+
+        This object can be set only when cggsnUmtsQosCacMaxPdp is
+        set to some value and also the this object should have lesser
+        value that cggsnUmtsQosCacMaxPdp.
+
+        Value '0' means PDP context creation with allocation/retention 
+        will not be checked."
+    DEFVAL { 0 }
+    ::= { cggsnUmtsQosCacPolicyEntry 4 }
+
+cggsnUmtsQosCacMaxTrafficClass        OBJECT-TYPE
+    SYNTAX                            UmtsQosTrafficClass
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object defines the highest traffic class that can be
+        accepted. If the requested traffic class is higher than
+        configured one, the PDP context create request will be
+        rejected. Traffic class can not be downgraded."
+    ::= { cggsnUmtsQosCacPolicyEntry 5 }
+
+cggsnUmtsQosCacMaxTrafHandPrio        OBJECT-TYPE
+    SYNTAX                            INTEGER {
+                                          none(0),
+                                          priority1(1),
+                                          priority2(2),
+                                          priority3(3)
+                                      }
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object defines the priority for the traffic class
+        set in cggsnUmtsQosCacMaxTrafficClass, but this priority
+        is applicable only for traffic class type 'interactive'.
+
+        If not set, then any priority will be accepted."
+    DEFVAL { none }
+    ::= { cggsnUmtsQosCacPolicyEntry 6 }
+
+cggsnUmtsQosCacMaxThruPut             OBJECT-TYPE
+    SYNTAX                            Unsigned32(0..4294967295)
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object defines highest peak throughput class for 
+        R97/98 QoS can be accepted in a particular APN. This is used 
+        only for GTP v0 PDP or GTP v1 PDP containing R97/98 QoS. If 
+        the requested Peak throughput class is higher than highest 
+        number, the request will be either downgrade to the value set,
+        or rejected. If this object is not set, it will be mapped to 
+        R99 maximum bit rate rules for determining R99 attributes from 
+        R97/98 attributes that is defined in 23.107. The Maximum Bit 
+        Rate parameter will be applied.
+
+        If the value is set to '0', then any throughput will be 
+        accepted."
+    REFERENCE
+        "3GPP; QoS Concept and Architecture. 3G TS 23.107"
+    DEFVAL { 0 }
+    ::= { cggsnUmtsQosCacPolicyEntry 7 }
+
+cggsnUmtsQosCacMaxThruPutReject       OBJECT-TYPE
+    SYNTAX                            TruthValue
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object is used for downgrading or PDP to be rejected
+         when cggsnUmtsQosCacMaxThruPut is set.
+
+         'true'  - Reject the exceeding max throughput traffic.
+         'false' - Downgrade to the max throughput value set in
+                   cggsnUmtsQosCacMaxThruPut
+         
+         This object can be set to 'true', only when 
+         cggsnUmtsQosCacMaxThruPut is set to a non-zero value."
+    DEFVAL { false }
+    ::= { cggsnUmtsQosCacPolicyEntry 8 }
+
+cggsnUmtsQosCacMaxDelayClass          OBJECT-TYPE
+    SYNTAX                            INTEGER {
+                                         none(0),
+                                         delayClass1(1),
+                                         delayClass2(2),
+                                         delayClass3(3),
+                                         delayClass4(4)
+                                      }
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object defines highest delay class for R97/98 QoS 
+        can be accepted in a particular APN. This object is used only 
+        for GTP v0 PDP, or GTP v1 PDP containing R97/98 QoS. If Delay 
+        class is higher than highest number, the request will be either 
+        downgraded to the configured number, or rejected. If this 
+        object is not set, the request will be mapped to R99 
+        Interactive or Background traffic class based on the rules 
+        for determining R99 attributes from R97/98 attributes that is 
+        defined in 23.107.  The Highest Traffic Handling Priority will 
+        be applied if the class is mapped Interactive traffic class."
+    REFERENCE
+        "3GPP; QoS Concept and Architecture. 3G TS 23.107"
+    DEFVAL { none }
+    ::= { cggsnUmtsQosCacPolicyEntry 9 }
+
+cggsnUmtsQosCacMaxDelayClassRej       OBJECT-TYPE
+    SYNTAX                            TruthValue
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object is used for downgrading or PDP to be rejected
+         when cggsnUmtsQosCacMaxDelayClass is set.
+
+         'true'  - Reject the exceeding max delay class.
+         'false' - Downgrade to the max delay class value set in
+                   cggsnUmtsQosCacMaxDelayClass
+
+         This object can be set to 'true', only when 
+         cggsnUmtsQosCacMaxDelayClass is set to a delay class."
+    DEFVAL { false }
+    ::= { cggsnUmtsQosCacPolicyEntry 10 }
+
+cggsnUmtsQosCacTcTable      OBJECT-TYPE
+    SYNTAX                       SEQUENCE OF CggsnUmtsQosCacTcEntry
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+        "This table defines Maximum Bit Rate and/or Guaranteed Bit rate
+        that can be allowed for each traffic class in both uplink and
+        downlink directions. For the IMS PDP context, this parameter is
+        taken from authorized QoS obtained from PDF.
+
+        The SNMP entity creates a conceptual row when the user
+        configures the MBR/GBR for a particular traffic class with
+        either uplink or downlink traffic type and there must be a 
+        corresponding conceptual row existing in 
+        cggsnUmtsQosCacPolicyTable.
+
+        The SNMP entity deletes the conceptual row(s), when the user
+        deletes the MBR/GBR configuration or the corresponding 
+        conceptual row is deleted from cggsnUmtsQosCacPolicyTable. 
+        However, if some PDP context is active in the APN using this 
+        policy, then the conceptual row(s) cannot be deleted.
+
+        The SNMP entity modifies the conceptual row, when the user
+        changes the MBR/GBR value or the optional reject parameter. 
+        However, if any PDP context is active in the APN using this
+        policy, then the MBR/GBR value can be changed to higher than
+        the previously configured."
+    ::= { cggsnQosUmtsCac 4 }
+
+cggsnUmtsQosCacTcEntry           OBJECT-TYPE
+    SYNTAX                            CggsnUmtsQosCacTcEntry
+    MAX-ACCESS                        not-accessible
+    STATUS                            current
+    DESCRIPTION
+        "Entry which has all the details of each traffic class
+        with their MBR/GBR values for uplink/downlink traffic and
+        also the condition for rejecting or downgrading if the
+        requested MBR/GBR exceeds."
+    INDEX { cggsnUmtsQosCacPolicyName,
+            cggsnUmtsQosCacTcTrafClass,
+            cggsnUmtsQosCacTcBitRateType,
+            cggsnUmtsQosCacTcDirection }
+    ::= { cggsnUmtsQosCacTcTable 1 }
+
+CggsnUmtsQosCacTcEntry  ::= SEQUENCE {
+    cggsnUmtsQosCacTcTrafClass       UmtsQosTrafficClass,
+    cggsnUmtsQosCacTcBitRateType     INTEGER,
+    cggsnUmtsQosCacTcDirection       INTEGER,
+    cggsnUmtsQosCacTcRowStatus       RowStatus,
+    cggsnUmtsQosCacTcBitRate         Integer32,
+    cggsnUmtsQosCacTcReject          TruthValue,
+    cggsnUmtsQosCacTcRevBitRate      Unsigned32
+}
+
+cggsnUmtsQosCacTcTrafClass            OBJECT-TYPE
+    SYNTAX                            UmtsQosTrafficClass
+    MAX-ACCESS                        not-accessible
+    STATUS                            current
+    DESCRIPTION
+        "This object specifies the UMTS traffic class for which
+        MBR/GBR in uplink/downlink has to be set.
+
+        When cggsnUmtsQosCacTcBitRateType is set to 'guaranteed',
+        the values 'conversational' and 'streaming' can only be
+        set to this object."
+    ::= { cggsnUmtsQosCacTcEntry 1 }
+
+cggsnUmtsQosCacTcBitRateType          OBJECT-TYPE
+    SYNTAX                            INTEGER {
+                                          maximum(1),
+                                          guaranteed(2)
+                                      }
+    MAX-ACCESS                        not-accessible
+    STATUS                            current
+    DESCRIPTION
+        "This object specifies the type of bit rate applicable for
+        traffic class denoted by cggsnUmtsQosCacTcTrafClass."
+    ::= { cggsnUmtsQosCacTcEntry 2 }
+
+cggsnUmtsQosCacTcDirection            OBJECT-TYPE
+    SYNTAX                            INTEGER {
+                                         uplink(1),
+                                         downlink(2)
+                                      }
+    MAX-ACCESS                        not-accessible
+    STATUS                            current
+    DESCRIPTION
+        "This object specifies the direction of traffic."
+    ::= { cggsnUmtsQosCacTcEntry 3 }
+
+cggsnUmtsQosCacTcRowStatus            OBJECT-TYPE
+    SYNTAX                            RowStatus
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object is used to create a new row or delete an
+        existing row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+        cggsnUmtsQosCacTcBitRate is mandatory object for creating
+        a row.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cggsnUmtsQosCacTcEntry 4 }
+
+cggsnUmtsQosCacTcBitRate              OBJECT-TYPE
+    SYNTAX                            Integer32 (1..16000)
+    UNITS                             "Kbps"
+    MAX-ACCESS                        read-create
+    STATUS                            deprecated 
+    DESCRIPTION
+        "This object specifies the MBR/GBR allowed for the traffic class
+        defined by cggsnUmtsQosCacTcTrafClass. This object is deprecated
+        and replaced by cggsnUmtsQosCacTcRevBitRate. While retrieving the
+        the value of cggsnUmtsQosCacTcBitRate, the maximum value of 16000
+        will be returned if the value of cggsnUmtsQosCacTcRevBitRate for
+        the same instance exceeds 16000."
+    ::= { cggsnUmtsQosCacTcEntry 5 }
+
+cggsnUmtsQosCacTcReject               OBJECT-TYPE
+    SYNTAX                            TruthValue
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object is to specify whether the requested MBR/GBR
+        be downgraded or PDP to be rejected if the requested MBR/GBR
+        exceeds the value set in cggsnUmtsQosCacTcBitRate.
+
+        'true' -  The request will be rejected if exceeded.
+        'false' - The requested MBR will be downgraded if
+                  exceeded."
+    DEFVAL { false }
+    ::= { cggsnUmtsQosCacTcEntry 6 }
+
+cggsnUmtsQosCacTcRevBitRate           OBJECT-TYPE
+    SYNTAX                            Unsigned32(1..256000)
+    UNITS                             "Kbps"
+    MAX-ACCESS                        read-create
+    STATUS                            current 
+    DESCRIPTION
+        "This object specifies the MBR/GBR allowed for the traffic
+        class defined by cggsnUmtsQosCacTcTrafClass."
+    ::= { cggsnUmtsQosCacTcEntry 7 }
+
+cggsnUmtsQosCacBWPoolTable       OBJECT-TYPE
+    SYNTAX                       SEQUENCE OF CggsnUmtsQosCacBWPoolEntry
+    MAX-ACCESS                   not-accessible
+    STATUS                       current
+    DESCRIPTION
+        "This table defines allocation of virtual bandwidth pool for
+        the traffic classes. Basically there are two types of bandwidth
+        pool, Physical & Virtual. Physical bandwidth is the egress
+        interface bandwidth. It is not supported and will not be 
+        explained more.
+
+        Virtual bandwidth is user defined bandwidth. Virtual bandwidth 
+        provides an easy and flexible way to implement bandwidth pool 
+        for call admission control to avoid physical bandwidth 
+        limitations. In contrast to per-interface based physical 
+        bandwidth management, Virtual bandwidth management is per-APN 
+        based, that is, each APN has its own pool to admit request.  
+        To use this type of bandwidth, user needs to make assumption of 
+        what interface type and total bandwidth of Gi and Gn in both 
+        directions to allocate bandwidth for each class.
+
+        The SNMP entity creates a conceptual row when the user
+        configures the bandwidth pool with some bandwidth value in the
+        range described in cggsnUmtsQosCacBWPoolBWVal.
+
+        The SNMP entity deletes the conceptual row, when the user
+        deletes the bandwidth pool. However, if the bandwidth pool is 
+        associated with an APN or if bandwidth is currently been
+        utilized, then the conceptual row cannot be deleted.
+
+        The SNMP entity modifies the conceptual row, when the user
+        changes the bandwidth value. However, if any PDP context is 
+        active in the APN using this pool, then the bandwidth value 
+        can be changed to higher than the previously configured."
+    ::= { cggsnQosUmtsCac 5 }
+
+cggsnUmtsQosCacBWPoolEntry            OBJECT-TYPE
+    SYNTAX                            CggsnUmtsQosCacBWPoolEntry
+    MAX-ACCESS                        not-accessible
+    STATUS                            current
+    DESCRIPTION
+        "Each entry in this table holds the total bandwidth that
+        this pool provides and the corresponding allocation to
+        the traffic classes."
+    INDEX { cggsnUmtsQosCacBWPoolName }
+    ::= { cggsnUmtsQosCacBWPoolTable 1 }
+
+CggsnUmtsQosCacBWPoolEntry    ::= SEQUENCE {
+    cggsnUmtsQosCacBWPoolName         SnmpAdminString,
+    cggsnUmtsQosCacBWPoolRowStatus    RowStatus,
+    cggsnUmtsQosCacBWPoolBWVal        Unsigned32
+}
+
+cggsnUmtsQosCacBWPoolName             OBJECT-TYPE
+    SYNTAX                            SnmpAdminString (SIZE (1..40))
+    MAX-ACCESS                        not-accessible
+    STATUS                            current
+    DESCRIPTION
+        "This object is the name of the virtual bandwidth pool
+        which will be attached to the APN."
+    ::= { cggsnUmtsQosCacBWPoolEntry 1 }
+
+cggsnUmtsQosCacBWPoolRowStatus        OBJECT-TYPE
+    SYNTAX                            RowStatus
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object is used to create a new row or delete an
+        existing row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+
+        To delete a row, set this object to 'destroy'."
+    ::= { cggsnUmtsQosCacBWPoolEntry 2 }
+
+cggsnUmtsQosCacBWPoolBWVal            OBJECT-TYPE
+    SYNTAX                            Unsigned32(1..4294967295)
+    UNITS                             "Kbps"
+    MAX-ACCESS                        read-create
+    STATUS                            current        
+    DESCRIPTION
+        "This object defines the total bandwidth for this pool.
+        This object is a must while creating a row in this table."
+    ::= { cggsnUmtsQosCacBWPoolEntry 3 }
+
+cggsnQosBWPoolTrafClassTable    OBJECT-TYPE
+    SYNTAX                      SEQUENCE OF CggsnQosBWPoolTrafClassEntry
+    MAX-ACCESS                  not-accessible
+    STATUS                      current
+    DESCRIPTION
+        "This table is the sub table of cggsnUmtsQosCacBWPoolTable.
+        This contains all the traffic class bandwidth allocation in
+        percentage or absolute value. The total value of the 
+        bandwidth allocated for different traffic class per pool
+        must not exceed 100 percent or the absolute 
+        value (4294967295).
+
+        The SNMP entity creates a conceptual row when the user 
+        configures the bandwidth allocation for the traffic class 
+        defined in cggsnQosBWPoolTrafClass and if the corresponding 
+        conceptual row is present in cggsnUmtsQosCacBWPoolTable.
+
+        The SNMP entity deletes the conceptual row(s) when the user
+        unconfigures the bandwidth allocation for the traffic class
+        or the corresponding conceptual row is deleted from
+        cggsnUmtsQosCacBWPoolTable. However, if there are active PDP
+        in the APN using this pool, then the conceptual row cannot
+        be deleted.
+
+        The SNMP entity modifies the conceptual row when the user
+        changes the bandwidth allocation for a traffic class. However,
+        if there are active PDPs in the APN using this pool, then only
+        value greater than previous allocation is accepted." 
+    ::= { cggsnQosUmtsCac 6 } 
+
+cggsnQosBWPoolTrafClassEntry          OBJECT-TYPE 
+    SYNTAX                            CggsnQosBWPoolTrafClassEntry 
+    MAX-ACCESS                        not-accessible 
+    STATUS                            current 
+    DESCRIPTION 
+        "Each entry in this table holds the allocation of
+        bandwidth for a traffic class in percentage or absolute
+        value."
+    INDEX { cggsnUmtsQosCacBWPoolName,
+            cggsnQosBWPoolTrafClass }
+    ::= { cggsnQosBWPoolTrafClassTable 1 }
+
+CggsnQosBWPoolTrafClassEntry ::= SEQUENCE {
+    cggsnQosBWPoolTrafClass           UmtsQosTrafficClass,
+    cggsnQosBWPoolTrafClassRowStatus  RowStatus,
+    cggsnQosBWPoolTrafClassPercent    TruthValue,
+    cggsnQosBWPoolTrafClassPerVal     Integer32,
+    cggsnQosBWPoolTrafClassAbsVal     Unsigned32,
+    cggsnQosBWPoolTrafClassAvailBw    Unsigned32
+}
+
+cggsnQosBWPoolTrafClass               OBJECT-TYPE
+    SYNTAX                            UmtsQosTrafficClass
+    MAX-ACCESS                        not-accessible
+    STATUS                            current
+    DESCRIPTION
+        "This object defines the traffic class for which the
+        allocation of bandwidth is needed."
+    ::= { cggsnQosBWPoolTrafClassEntry 1 }
+
+cggsnQosBWPoolTrafClassRowStatus      OBJECT-TYPE
+    SYNTAX                            RowStatus
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object is used to create a new row or delete an
+        existing row in this table.
+
+        To create a row, set this object to 'createAndGo'.
+
+        To delete a row, set this object to 'destroy'." 
+    ::= { cggsnQosBWPoolTrafClassEntry 2 }
+
+cggsnQosBWPoolTrafClassPercent        OBJECT-TYPE
+    SYNTAX                            TruthValue
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object is to specify whether the bandwidth allocation
+        should be considered as percentage or absolute value.
+        If this object is set to 'true', then the bandwidth reserved 
+        will be in percentage, given by cggsnQosBWPoolTrafClassPerVal. 
+        If this object is set to 'false', then the bandwidth reserved 
+        will be in absolute value given by 
+        cggsnQosBWPoolTrafClassAbsVal.  All the entries can either
+        have the unit as percent or absolute but not both."
+    DEFVAL { false }
+    ::= { cggsnQosBWPoolTrafClassEntry 3 }
+
+cggsnQosBWPoolTrafClassPerVal         OBJECT-TYPE
+    SYNTAX                            Integer32(0..100)
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object denotes the percent of bandwidth allocated for
+        the traffic class set in cggsnQosBWPoolTrafClass. This object 
+        will be valid and can be set only if
+        cggsnQosBWPoolTrafClassPercent is set to 'true'."
+    DEFVAL { 0 }
+    ::= { cggsnQosBWPoolTrafClassEntry 4 }
+
+cggsnQosBWPoolTrafClassAbsVal         OBJECT-TYPE
+    SYNTAX                            Unsigned32(0..4294967295)
+    MAX-ACCESS                        read-create
+    STATUS                            current
+    DESCRIPTION
+        "This object denotes the absolute value of bandwidth allocated
+        for the traffic class set in cggsnQosBWPoolTrafClass. This 
+        object will be valid and can be set only if
+        cggsnQosBWPoolTrafClassPercent is set to 'false'." 
+    DEFVAL { 0 }
+    ::= { cggsnQosBWPoolTrafClassEntry 5 }
+
+cggsnQosBWPoolTrafClassAvailBw        OBJECT-TYPE
+    SYNTAX                            Unsigned32 (0..4294967295)
+    MAX-ACCESS                        read-only
+    STATUS                            current
+    DESCRIPTION
+        "This object denotes the absolute available bandwidth left
+        unused for traffic class set in cggsnQosBWPoolTrafClass."
+    ::= { cggsnQosBWPoolTrafClassEntry 6 }
+
+--
+-- Conformances definitions
+--
+
+cggsnQosMIBConformances   OBJECT IDENTIFIER
+                           ::= { cggsnQosMIB 2 }
+
+cggsnQosMIBCompliances    OBJECT IDENTIFIER
+                           ::= { cggsnQosMIBConformances 1 }
+cggsnQosMIBGroups         OBJECT IDENTIFIER
+                           ::= { cggsnQosMIBConformances 2 }
+--
+-- Compliances statements
+--
+
+cggsnQosMIBCompliance   MODULE-COMPLIANCE
+        STATUS          obsolete
+        DESCRIPTION
+             "The compliance statements for entities which
+             implement the CISCO-GGSN-QOS-MIB.
+
+             This compliance has been deprecated by 
+             cggsnQosMIBComplianceRev1."
+        MODULE      -- this module
+        MANDATORY-GROUPS { cggsnQosGeneralConfigGroup,
+                           cggsnQosCanonicalQosGroup
+                         }
+        ::= { cggsnQosMIBCompliances  1 }
+
+cggsnQosMIBComplianceRev1 MODULE-COMPLIANCE
+        STATUS            deprecated
+        DESCRIPTION
+             "The compliance statements for entities which
+             implement the CISCO-GGSN-QOS-MIB."
+        MODULE      -- this module
+        MANDATORY-GROUPS { cggsnQosGeneralConfigGroup,
+                           cggsnQosCanonicalQosGroup,
+                           cggsnQosUmtsQosGroup
+                         }
+        ::= { cggsnQosMIBCompliances  2 }
+
+cggsnQosMIBComplianceRev2 MODULE-COMPLIANCE
+        STATUS            deprecated
+        DESCRIPTION
+             "The compliance statements for entities which
+             implement the CISCO-GGSN-QOS-MIB."
+        MODULE      -- this module
+        MANDATORY-GROUPS { cggsnQosGeneralConfigGroup,
+                           cggsnQosCanonicalQosGroup,
+                           cggsnQosUmtsQosGroup,
+                           cggsnQosUmtsCacGroup
+                         }
+        OBJECT           cggsnUmtsQosCacRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        OBJECT           cggsnUmtsQosCacTcRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        OBJECT           cggsnUmtsQosCacBWPoolRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        OBJECT           cggsnQosBWPoolTrafClassRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        ::= { cggsnQosMIBCompliances  3 }
+
+cggsnQosMIBComplianceRev3 MODULE-COMPLIANCE
+        STATUS            deprecated
+        DESCRIPTION
+             "The compliance statements for entities which
+             implement the CISCO-GGSN-QOS-MIB. This is
+             deprecated by cggsnQosMIBComplianceRev4."
+        MODULE      -- this module
+        MANDATORY-GROUPS { cggsnQosGeneralConfigGroup,
+                           cggsnQosCanonicalQosGroup,
+                           cggsnQosUmtsQosGroup,
+                           cggsnQosUmtsCacGroupRev1
+                         }
+        OBJECT           cggsnUmtsQosCacRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        OBJECT           cggsnUmtsQosCacTcRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        OBJECT           cggsnUmtsQosCacBWPoolRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        OBJECT           cggsnQosBWPoolTrafClassRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        ::= { cggsnQosMIBCompliances  4 }
+
+cggsnQosMIBComplianceRev4 MODULE-COMPLIANCE
+        STATUS            current
+        DESCRIPTION
+             "The compliance statements for entities which
+             implement the CISCO-GGSN-QOS-MIB."
+        MODULE      -- this module
+        MANDATORY-GROUPS { cggsnQosGeneralConfigGroup,
+                           cggsnQosCanonicalQosGroup,
+                           cggsnQosUmtsQosGroup,
+                           cggsnQosUmtsCacGroupRev2
+                         }
+        OBJECT           cggsnUmtsQosCacRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        OBJECT           cggsnUmtsQosCacTcRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        OBJECT           cggsnUmtsQosCacBWPoolRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        OBJECT           cggsnQosBWPoolTrafClassRowStatus
+        SYNTAX           INTEGER { active(1),
+                                   createAndGo(4),
+                                   destroy(6)
+                                 }
+        DESCRIPTION
+             "The states notInService(2), notReady(3) and
+             createAndWait(5) need not be supported."
+        ::= { cggsnQosMIBCompliances  5 }
+
+-- units of conformance
+
+cggsnQosGeneralConfigGroup OBJECT-GROUP
+    OBJECTS                { cggsnQosMappingMethod,
+                             cggsnQosMappedIpTos,
+                             cggsnQosCurrentPdps
+                           }
+    STATUS                 current
+    DESCRIPTION
+        "A collection of objects providing general QoS 
+        configurations."
+    ::= { cggsnQosMIBGroups 1 }
+
+cggsnQosCanonicalQosGroup  OBJECT-GROUP
+    OBJECTS                { cggsnQosTotalBandwidthResrc,
+                             cggsnQosCurrentUsedBandwidth,
+                             cggsnQosPremiumMtDeviationFactor,
+                             cggsnQosBestEffrtBandWidthFactor,
+                             cggsnQosPremiumMeanThroughput,
+                             cggsnQosNormalMeanThroughput,
+                             cggsnQosBestEffortMeanThroughput
+                           }
+    STATUS                 current
+    DESCRIPTION
+        "A collection of objects specific to Canonical QoS
+        on GGSN."
+    ::= { cggsnQosMIBGroups 2 }
+
+cggsnQosUmtsQosGroup OBJECT-GROUP
+    OBJECTS                { cggsnQosUmtsDiffServPhbgroup,
+                             cggsnQosUmtsPdps,
+                             cggsnQosDscp,
+                             cggsnQosUmtsDscpUnmodified
+                           }
+    STATUS                 current
+    DESCRIPTION
+        "A collection of objects pertaining to the UMTS QoS on
+        GGSN.
+        "
+    ::= { cggsnQosMIBGroups 3 }
+
+cggsnQosUmtsCacGroup OBJECT-GROUP
+    OBJECTS                { cggsnUmtsQosMapImsSigTrafClass,
+                             cggsnUmtsQosMapImsSigTrafHandPri,
+                             cggsnUmtsQosCacRowStatus,
+                             cggsnUmtsQosCacMaxPdp,
+                             cggsnUmtsQosCacPdpThreshold,
+                             cggsnUmtsQosCacMaxTrafficClass,
+                             cggsnUmtsQosCacMaxTrafHandPrio,
+                             cggsnUmtsQosCacMaxThruPut,
+                             cggsnUmtsQosCacMaxThruPutReject,
+                             cggsnUmtsQosCacMaxDelayClass,
+                             cggsnUmtsQosCacMaxDelayClassRej,
+                             cggsnUmtsQosCacTcRowStatus,
+                             cggsnUmtsQosCacTcBitRate,
+                             cggsnUmtsQosCacTcReject,
+                             cggsnUmtsQosCacBWPoolRowStatus,
+                             cggsnUmtsQosCacBWPoolBWVal,
+                             cggsnQosBWPoolTrafClassRowStatus,
+                             cggsnQosBWPoolTrafClassPercent,
+                             cggsnQosBWPoolTrafClassPerVal,
+                             cggsnQosBWPoolTrafClassAbsVal,
+                             cggsnQosBWPoolTrafClassAvailBw
+                           }
+    STATUS                 deprecated 
+    DESCRIPTION
+        "A collection of objects pertaining to the CAC on GGSN.
+        This group is deprecated by cggsnQosUmtsCacGroupRev1."
+    ::= { cggsnQosMIBGroups 4 }
+
+cggsnQosUmtsCacGroupRev1 OBJECT-GROUP
+    OBJECTS                { cggsnUmtsQosCacRowStatus,
+                             cggsnUmtsQosCacMaxPdp,
+                             cggsnUmtsQosCacPdpThreshold,
+                             cggsnUmtsQosCacMaxTrafficClass,
+                             cggsnUmtsQosCacMaxTrafHandPrio,
+                             cggsnUmtsQosCacMaxThruPut,
+                             cggsnUmtsQosCacMaxThruPutReject,
+                             cggsnUmtsQosCacMaxDelayClass,
+                             cggsnUmtsQosCacMaxDelayClassRej,
+                             cggsnUmtsQosCacTcRowStatus,
+                             cggsnUmtsQosCacTcBitRate,
+                             cggsnUmtsQosCacTcReject,
+                             cggsnUmtsQosCacBWPoolRowStatus,
+                             cggsnUmtsQosCacBWPoolBWVal,
+                             cggsnQosBWPoolTrafClassRowStatus,
+                             cggsnQosBWPoolTrafClassPercent,
+                             cggsnQosBWPoolTrafClassPerVal,
+                             cggsnQosBWPoolTrafClassAbsVal,
+                             cggsnQosBWPoolTrafClassAvailBw
+                           }
+    STATUS                 deprecated 
+    DESCRIPTION
+        "A collection of objects pertaining to the CAC on GGSN.
+         This is deprecated by cggsnQosUmtsCacGroupRev2."
+    ::= { cggsnQosMIBGroups 5 }
+
+cggsnQosUmtsCacGroupRev2 OBJECT-GROUP
+    OBJECTS                { cggsnUmtsQosCacRowStatus,
+                             cggsnUmtsQosCacMaxPdp,
+                             cggsnUmtsQosCacPdpThreshold,
+                             cggsnUmtsQosCacMaxTrafficClass,
+                             cggsnUmtsQosCacMaxTrafHandPrio,
+                             cggsnUmtsQosCacMaxThruPut,
+                             cggsnUmtsQosCacMaxThruPutReject,
+                             cggsnUmtsQosCacMaxDelayClass,
+                             cggsnUmtsQosCacMaxDelayClassRej,
+                             cggsnUmtsQosCacTcRowStatus,
+                             cggsnUmtsQosCacTcReject,
+                             cggsnUmtsQosCacTcRevBitRate,
+                             cggsnUmtsQosCacBWPoolRowStatus,
+                             cggsnUmtsQosCacBWPoolBWVal,
+                             cggsnQosBWPoolTrafClassRowStatus,
+                             cggsnQosBWPoolTrafClassPercent,
+                             cggsnQosBWPoolTrafClassPerVal,
+                             cggsnQosBWPoolTrafClassAbsVal,
+                             cggsnQosBWPoolTrafClassAvailBw
+                           }
+    STATUS                 current
+    DESCRIPTION
+        "A collection of objects pertaining to the CAC on GGSN."
+    ::= { cggsnQosMIBGroups 6 }
+
+END

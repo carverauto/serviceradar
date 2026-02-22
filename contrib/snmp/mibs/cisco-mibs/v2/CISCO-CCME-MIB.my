@@ -1,0 +1,4343 @@
+-- *****************************************************************
+-- Cisco CallManager Express MIB
+--   
+-- May 2005, Shanmukh Rao
+--   
+-- Copyright (c) 2005, 2010 by cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-CCME-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Integer32,
+    Gauge32,
+    Unsigned32,
+    Counter32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    MacAddress,
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    InetAddress,
+    InetAddressType,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoCcmeMIB MODULE-IDENTITY
+    LAST-UPDATED    "201010130000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-ccme-srst@cisco.com"
+    DESCRIPTION
+        "This MIB allows management of Cisco CallManager Express
+        (CCME) feature in Cisco IOS. CCME is optional software
+        feature that enables Cisco routers to deliver Key System
+        or Hybrid PBX functionality for enterprise branch 
+        offices or small businesses."
+    REVISION        "201010130000Z"
+    DESCRIPTION
+        "1. Added ccmeEphonePrimaryDn in ccmeEphoneConfTable.
+        2. Deprecated ciscoCcmeMIBComplianceRev1 and added
+           ciscoCcmeMIBComplianceRev2 MODULE-COMPLIANCE.
+        3. Added ccmeActiveStatsGroupEM."
+    REVISION        "201004010000Z"
+    DESCRIPTION
+        "1. Add ccmeEphonePrimaryDn in ccmeEphoneConfTable.
+        2. Deprecated ciscoCcmeMIBCompliance and added
+        ciscoCcmeMIBComplianceRev1 MODULE-COMPLIANCE.
+        3. Added ccmeConfigGroup1."
+    REVISION        "200505310000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 439 }
+
+
+-- CCME MIB Groups
+
+ciscoCcmeMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoCcmeMIB 0 }
+
+ciscoCcmeMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoCcmeMIB 1 }
+
+ciscoCcmeMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoCcmeMIB 2 }
+
+-- CCME MIB object groups
+
+ccmeConfig  OBJECT IDENTIFIER
+    ::= { ciscoCcmeMIBObjects 1 }
+
+ccmeActiveStats  OBJECT IDENTIFIER
+    ::= { ciscoCcmeMIBObjects 2 }
+
+ccmeHistoryStats  OBJECT IDENTIFIER
+    ::= { ciscoCcmeMIBObjects 3 }
+
+
+-- Textual Conventions
+
+CcmeDigitPatternString ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "A E.164 address string limited to the character
+        set '0123456789*#.+ABCDT'. An address of length zero 
+        indicates that no address is specified."
+    SYNTAX          OCTET STRING (SIZE (0 | 32))
+
+CcmeNightServiceCodeString ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+        "A code string limited to character set '0123456789*'
+        This code begins with first character as * (asteric) 
+        and followed by at least one digit. Example - *9234 
+        Users enters at an IP phone to disable or enable
+        night service."
+    SYNTAX          OCTET STRING (SIZE (0 | 16))
+
+-- CCME, Ephone and EphoneDN Configuration Group
+--   
+-- Displays the current running configuration  of CCME on this
+-- gateway. Note: This MIB supports only the display.
+
+ccmeEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the Cisco CallManager Express
+        feature is enabled on the device.  
+
+        'true' means that the CCME feature is enabled on 
+         this device.
+
+        'false' means that the CCME feature is disabled." 
+    ::= { ccmeConfig 1 }
+
+ccmeVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The version of Cisco CallManager Express on
+        the device." 
+    ::= { ccmeConfig 2 }
+
+ccmeIPAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Address type of ccmeIPAddress. Only IPv4 and IPv6
+        addresses are expected." 
+    ::= { ccmeConfig 3 }
+
+ccmeIPAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the IP address through which the IP
+        phones communicate with CCME.
+        The type of this address is determined by the
+        value of the ccmeSysIPAddressType object.
+        This IP address is usually the IP address
+        bound to the Ethernet port on the gateway 
+        to which the phones are connected." 
+    ::= { ccmeConfig 4 }
+
+ccmePortNumber OBJECT-TYPE
+    SYNTAX          InetPortNumber (2000..9999)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the TCP port
+        number to use for Skinny Client Control
+        Protocol (SCCP).
+        This port also indicates through which 
+        IP phones communicate with this device."
+    DEFVAL          { 2000 } 
+    ::= { ccmeConfig 5 }
+
+ccmeMaxEphones OBJECT-TYPE
+    SYNTAX          Integer32 (0..120)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Maximum number of IP phones allowed by the
+        configuration for the Cisco CallManager Express 
+        on the device. Maximum permissible range is 
+        IOS version and platform dependent.
+        A value of zero indicates no IP phones are permitted 
+        to register to this device." 
+    ::= { ccmeConfig 6 }
+
+ccmeMaxDirectoryNumber OBJECT-TYPE
+    SYNTAX          Integer32 (0..288)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum number of
+        IP phones extensions (ephone-dns) or directory 
+        numbers supported by this device.
+        Maximum permissible range is IOS version and 
+        platform dependent. A value of zero indicates 
+        no IP phones extensions could be created." 
+    ::= { ccmeConfig 7 }
+
+ccmeMaxConferences OBJECT-TYPE
+    SYNTAX          Integer32 (0..16)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Maximum number of simultaneous three-party
+        conferences supported by the Cisco CallManager
+        Express on the device.
+
+        Range is IOS version and platform dependent.
+
+        With CCME Version 3.1, the following are the 
+        maximum values for each platform -
+            Cisco 1750, Cisco 1751, Cisco 2600, Cisco 3640
+                - 8 conferences.
+            Cisco 3660, Cisco 3725, Cisco 3745
+                - 16 conferences.
+
+        Default is half the maximum number of simultaneous
+        three-party conferences for each platform.    
+
+        A value of zero indicates no three-party conferences 
+        allowed on this device." 
+    ::= { ccmeConfig 8 }
+
+ccmeMaxRedirect OBJECT-TYPE
+    SYNTAX          Integer32 (5..20)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the maximum number of times that a
+        call can be redirected by call forwarding or 
+        transfer within this device." 
+    ::= { ccmeConfig 9 }
+
+ccmeScriptName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the session-level IVR
+        application script in Tool Command Language (TCL) 
+        for all extensions (ephone-dns) in CCME system. 
+        By default no application script is selected for 
+        all extensions and the object length in this case
+        will return a zero length string." 
+    ::= { ccmeConfig 10 }
+
+ccmeVoiceMailNumber OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the E.164 phone number
+        that is associated with a voice-mail (speed-dial)
+        on this device.
+        If voice-mail number is not configured, 
+        this object has a length of zero."
+    REFERENCE       "ITU-T E.164, Q.931 chapter 4.5.10" 
+    ::= { ccmeConfig 11 }
+
+ccmeMwiRelay OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the device can relay
+        message-waiting indication (MWI) notification
+        to remote Cisco IP phones." 
+    ::= { ccmeConfig 12 }
+
+ccmeMwiExpires OBJECT-TYPE
+    SYNTAX          Integer32 (600..99999)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Expiration time in seconds, for the registration
+        of the message-waiting indication (MWI) client
+        or server. 
+        Range is 600 to 99999."
+    DEFVAL          { 86400 } 
+    ::= { ccmeConfig 13 }
+
+ccmeTransferSystem OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        blind(1),
+                        localConsult(2),
+                        fullBlind(3),
+                        fullConsult(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the call transfer method
+        for all configured Cisco IP phone extensions, 
+        that use the ITU-T H.450.2 standard. 
+
+        Call transfers that use the H.450.2 standard 
+        can be 'blind' or 'consultative'. 
+
+        A blind transfer is one in which the transferring 
+        extension connects the caller to a destination 
+        extension before ringback begins. 
+
+        A consultative transfer is one in which the 
+        transferring party either connects the caller 
+        to a ringing phone (ringback heard) or speaks 
+        with the third party before connecting the caller 
+        to the third party.
+
+        blind - Calls are transferred without consultation 
+                using a single phone line and the Cisco 
+                proprietary method. 
+
+        localConsult - Calls are transferred with local 
+                consultation using the second phone line 
+                if available, or the calls fall back to 
+                blind for nonlocal consultation or transfer 
+                target. This mode is intended for use 
+                primarily in voice over Frame Relay networks.
+
+        fullBlind - Calls are transferred without 
+                consultation using H.450.2 standard method.
+
+        fullConsult - Calls are transferred using H.450.2
+                with consultation using the second phone 
+                line if available, or the calls fall back 
+                to fullBlind if the second line is unavailable." 
+    ::= { ccmeConfig 14 }
+
+ccmeTimeFormat OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        twelve(1),
+                        twentyfour(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Time display format on Cisco IP phones in a
+        Cisco CallManager Express system.
+            twelve(1)     - 12 hour clock. 
+            twentyfour(2) - 24 hour clock." 
+    ::= { ccmeConfig 15 }
+
+ccmeDateFormat OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        mmddyy(1),
+                        ddmmyy(2),
+                        yymmdd(3),
+                        yyddmm(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the date display format on
+        Cisco IP phones in a Cisco CallManager 
+        Express system."
+    DEFVAL          { mmddyy } 
+    ::= { ccmeConfig 16 }
+
+ccmeUrlforServicesBtn OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the URL information for
+        the 'Services' button on the Cisco IP phone display. 
+        The Cisco IP Phone 7940 and Cisco IP phone 7960 
+        can support four URL's in association with the 
+        four programmable feature buttons on those IP 
+        phones - Directories, Information, Messages and 
+        Services. The fifth button, Settings, is managed 
+        entirely by the phone. Operation of these services 
+        is determined by the Cisco IP phone capabilities 
+        and the content of the referenced URL." 
+    ::= { ccmeConfig 17 }
+
+ccmeUrlforDirectoriesBtn OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the URL information for
+        the 'Directories' button on the Cisco IP phone 
+        display.
+        The Cisco IP Phone 7940 and Cisco IP phone 7960 
+        can support four URL's in association with the 
+        four programmable feature buttons on those IP 
+        phones - Directories, Information, Messages and 
+        Services. The fifth button, Settings, is managed 
+        entirely by the phone. Operation of these services 
+        is determined by the Cisco IP phone capabilities 
+        and the content of the referenced URL." 
+    ::= { ccmeConfig 18 }
+
+ccmeMohFlashFile OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the name of the audio file to
+        use for the Music on hold (MOH) audio stream.
+        Audio files that are used for MOH exist in the flash
+        file system on the device. A MOH file can be .au or .wav
+        file format. However, the file format must contain
+        8-bit 8-KHz data in a-law or mu-law.
+        Maximum length of filename is 128 characters long.
+        This object returns a zero length string if the MOH
+        from flash is not configured on this router." 
+    ::= { ccmeConfig 19 }
+
+ccmeMohMulticastFromFlashEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether music-on-hold (MOH) multicast from
+        flash file source is enabled or disabled on this router.
+        If ccmeMohFlashFile is zero length this 
+        object has no relevance." 
+    ::= { ccmeConfig 20 }
+
+ccmeMohFlashMulticastIPAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Address type of ccmeMohFlashMulticastIPAddr.
+        Only IPv4 and IPv6 addresses are expected." 
+    ::= { ccmeConfig 66 }
+
+ccmeMohFlashMulticastIPAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the destination IP address
+        for multicast of the audio stream from Flash file,
+        that is designated for MOH. If ccmeMohFlashFile is 
+        zero length this object has no relevance.
+        Cisco IP phones don not support multicast at 
+        224.x.x.x addresses." 
+    ::= { ccmeConfig 21 }
+
+ccmeMohFlashMulticastPortNum OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the media port for multicast
+        of the audio stream from Flash file that is 
+        designated for MOH. This object has no relevance 
+        if ccmeMohMulticastFromFlash object is zero length." 
+    ::= { ccmeConfig 22 }
+
+ccmePhoneFirmwareTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmePhoneFirmwareEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of firmware load configured for each
+        IP Phone on this device."
+    ::= { ccmeConfig 23 }
+
+ccmePhoneFirmwareEntry OBJECT-TYPE
+    SYNTAX          CcmePhoneFirmwareEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information on an Cisco IP phone type and its
+        configured firmware load.
+        There is an entry in this table for each IP Phone 
+        type firmware that is configured on this device."
+    INDEX           { ccmePhoneFirmwareIndex } 
+    ::= { ccmePhoneFirmwareTable 1 }
+
+CcmePhoneFirmwareEntry ::= SEQUENCE {
+        ccmePhoneFirmwareIndex Integer32,
+        ccmePhoneType          SnmpAdminString,
+        ccmePhoneFirmwareRev   SnmpAdminString
+}
+
+ccmePhoneFirmwareIndex OBJECT-TYPE
+    SYNTAX          Integer32 (0..255)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary and unique index for this
+        CcmePhoneFirmwareEntry." 
+    ::= { ccmePhoneFirmwareEntry 1 }
+
+ccmePhoneType OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Type or model of Cisco IP phone.
+        Cisco IP Phone types are 7902, 7905, 7910, 7912,
+        7914, 7920, 7935, 7936, 7940, 7960, ATA-186, ATA-188" 
+    ::= { ccmePhoneFirmwareEntry 2 }
+
+ccmePhoneFirmwareRev OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The vendor-specific firmware revision string
+        configured for the Cisco IP phone on this device." 
+    ::= { ccmePhoneFirmwareEntry 3 }
+ 
+
+
+ccmeTransferPatternTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeTransferPatternEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of transfer patterns configured
+        on this device."
+    ::= { ccmeConfig 24 }
+
+ccmeTransferPatternEntry OBJECT-TYPE
+    SYNTAX          CcmeTransferPatternEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information on a transfer pattern configured.
+        There is an entry in this table for each 
+        transfer pattern that is configured on this device."
+    INDEX           { ccmeTransferPatternIndex } 
+    ::= { ccmeTransferPatternTable 1 }
+
+CcmeTransferPatternEntry ::= SEQUENCE {
+        ccmeTransferPatternIndex Integer32,
+        ccmeTransferPattern      SnmpAdminString,
+        ccmeTransferPatternType  INTEGER
+}
+
+ccmeTransferPatternIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..32)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary and unique index for this
+        CcmeTransferPatternEntry." 
+    ::= { ccmeTransferPatternEntry 1 }
+
+ccmeTransferPattern OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "String of digits for permitted call transfers." 
+    ::= { ccmeTransferPatternEntry 2 }
+
+ccmeTransferPatternType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        blind(1),
+                        h4502(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the pattern for call transfer.
+        'blind(1)' indicates blind transfer pattern.
+        'h4502(2)' indicates H.450.2 consultative call transfer." 
+    ::= { ccmeTransferPatternEntry 3 }
+ 
+
+
+ccmeWebGUIEditEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates Cisco CallManager Express web-based
+        Graphical User Interface (GUI) is allowed to add 
+        extensions (ephone-dns)." 
+    ::= { ccmeConfig 25 }
+
+ccmeWebGUITimeEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates Cisco CallManager Express web-based
+        Graphical User Interface (GUI) is allowed to change 
+        or set time on this device." 
+    ::= { ccmeConfig 26 }
+
+ccmeAfterHrsBlockPatternTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeAfterHrsBlockPatternEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of after hour block patterns configured on
+        this device."
+    ::= { ccmeConfig 27 }
+
+ccmeAfterHrsBlockPatternEntry OBJECT-TYPE
+    SYNTAX          CcmeAfterHrsBlockPatternEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about a configured after hours block
+        pattern.
+        There is an entry in this table for each 
+        after hours block that is configured on 
+        this device."
+    INDEX           { ccmeAfterHrsBlockPatternTag } 
+    ::= { ccmeAfterHrsBlockPatternTable 1 }
+
+CcmeAfterHrsBlockPatternEntry ::= SEQUENCE {
+        ccmeAfterHrsBlockPatternTag     Integer32,
+        ccmeAfterHrsBlockPattern        CcmeDigitPatternString,
+        ccmeAfterHrsBlockPatternAllTime TruthValue
+}
+
+ccmeAfterHrsBlockPatternTag OBJECT-TYPE
+    SYNTAX          Integer32 (1..32)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An unique identifier tag configured for a pattern." 
+    ::= { ccmeAfterHrsBlockPatternEntry 1 }
+
+ccmeAfterHrsBlockPattern OBJECT-TYPE
+    SYNTAX          CcmeDigitPatternString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the configured string of outgoing call
+        digits that will be matched for blocking call at
+        specified after hours. 
+        Example - 9011" 
+    ::= { ccmeAfterHrsBlockPatternEntry 2 }
+
+ccmeAfterHrsBlockPatternAllTime OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether after hours block pattern is
+        applicable all time.
+        'true' means  ccmeAfterHrsBlockPattern 
+        pattern will always be applied, 7 days a week, 
+        24 hours a day. 
+        'false' means ccmeAfterHrsBlockPattern pattern  
+        will be blocked during the days and dates defined by
+        ccmeAfterHrsBlockDateTable and 
+        ccmeAfterHrsBlockDayTable objects." 
+    ::= { ccmeAfterHrsBlockPatternEntry 3 }
+ 
+
+
+ccmeAfterHrsBlockDateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeAfterHrsBlockDateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of recurring time period based on date during
+        which outgoing calls that match defined block patterns 
+        are blocked on IP phones."
+    ::= { ccmeConfig 28 }
+
+ccmeAfterHrsBlockDateEntry OBJECT-TYPE
+    SYNTAX          CcmeAfterHrsBlockDateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information on a configured after hour block pattern
+        date. There is an entry in this table for each entry 
+        that is configured on this device. An entry is deleted 
+        from this table once an after hour block configuration 
+        is removed from this device."
+    INDEX           { ccmeAfterHrsBlockDateIndex } 
+    ::= { ccmeAfterHrsBlockDateTable 1 }
+
+CcmeAfterHrsBlockDateEntry ::= SEQUENCE {
+        ccmeAfterHrsBlockDateIndex     Integer32,
+        ccmeAfterHrsBlockDateMonth     INTEGER,
+        ccmeAfterHrsBlockDate          Integer32,
+        ccmeAfterHrsBlockDateStartHour Integer32,
+        ccmeAfterHrsBlockDateStartMin  Integer32,
+        ccmeAfterHrsBlockDateStopHour  Integer32,
+        ccmeAfterHrsBlockDateStopMin   Integer32
+}
+
+ccmeAfterHrsBlockDateIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..32)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary and unique index for this
+        CcmeAfterHrsBlockDateEntry." 
+    ::= { ccmeAfterHrsBlockDateEntry 1 }
+
+ccmeAfterHrsBlockDateMonth OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        jan(1),
+                        feb(2),
+                        mar(3),
+                        apr(4),
+                        may(5),
+                        jun(6),
+                        jul(7),
+                        aug(8),
+                        sep(9),
+                        oct(10),
+                        nov(11),
+                        dec(12)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the month of the year during which
+        the 'after hours block' service is active." 
+    ::= { ccmeAfterHrsBlockDateEntry 2 }
+
+ccmeAfterHrsBlockDate OBJECT-TYPE
+    SYNTAX          Integer32 (1..31)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the day of the month during which
+        the 'after hours block' service is activated." 
+    ::= { ccmeAfterHrsBlockDateEntry 3 }
+
+ccmeAfterHrsBlockDateStartHour OBJECT-TYPE
+    SYNTAX          Integer32 (0..23)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the hour of the day during which
+        the 'after hours block' service is activated." 
+    ::= { ccmeAfterHrsBlockDateEntry 4 }
+
+ccmeAfterHrsBlockDateStartMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..59)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the minute in the
+        ccmeAfterHrsBlockDateStartHour from which the 'after 
+        hours block' service is activated." 
+    ::= { ccmeAfterHrsBlockDateEntry 5 }
+
+ccmeAfterHrsBlockDateStopHour OBJECT-TYPE
+    SYNTAX          Integer32 (0..23)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the hour of the day during which
+        during which the 'after hours block' service 
+        is deactivated." 
+    ::= { ccmeAfterHrsBlockDateEntry 6 }
+
+ccmeAfterHrsBlockDateStopMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..59)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the minute in the
+        ccmeAfterHrsBlockDateStopHour after which the 'after 
+        hours block' service is deactivated." 
+    ::= { ccmeAfterHrsBlockDateEntry 7 }
+ 
+
+
+ccmeAfterHrsBlockDayTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeAfterHrsBlockDayEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of recurring time period based on day of week
+        during which outgoing calls that match defined block 
+        patterns are blocked on IP phones."
+    ::= { ccmeConfig 29 }
+
+ccmeAfterHrsBlockDayEntry OBJECT-TYPE
+    SYNTAX          CcmeAfterHrsBlockDayEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information on a configured after hour block pattern
+        day. There is an entry in this table for each entry 
+        that is configured on this device. An entry is deleted 
+        from this table once an 'after hour block' day 
+        configuration is removed from this device."
+    INDEX           { ccmeAfterHrsBlockDayIndex } 
+    ::= { ccmeAfterHrsBlockDayTable 1 }
+
+CcmeAfterHrsBlockDayEntry ::= SEQUENCE {
+        ccmeAfterHrsBlockDayIndex     Integer32,
+        ccmeAfterHrsBlockDay          INTEGER,
+        ccmeAfterHrsBlockDayStartHour Integer32,
+        ccmeAfterHrsBlockDayStartMin  Integer32,
+        ccmeAfterHrsBlockDayStopHour  Integer32,
+        ccmeAfterHrsBlockDayStopMin   Integer32
+}
+
+ccmeAfterHrsBlockDayIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..7)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary and unique index for this
+        CcmeAfterHrsBlockDayEntry." 
+    ::= { ccmeAfterHrsBlockDayEntry 1 }
+
+ccmeAfterHrsBlockDay OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        sun(1),
+                        mon(2),
+                        tue(3),
+                        wed(4),
+                        thu(5),
+                        fri(6),
+                        sat(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the day of the week during which
+        the 'after hours block' service is active." 
+    ::= { ccmeAfterHrsBlockDayEntry 2 }
+
+ccmeAfterHrsBlockDayStartHour OBJECT-TYPE
+    SYNTAX          Integer32 (0..23)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the hour of the day during which
+        the 'after hours block' service is activated." 
+    ::= { ccmeAfterHrsBlockDayEntry 3 }
+
+ccmeAfterHrsBlockDayStartMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..59)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the minute in the
+        ccmeAfterHrsBlockDayStartHour from which the 'after 
+        hours block' service is activated." 
+    ::= { ccmeAfterHrsBlockDayEntry 4 }
+
+ccmeAfterHrsBlockDayStopHour OBJECT-TYPE
+    SYNTAX          Integer32 (0..23)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the hour of the day during which
+        during which the 'after hours block' service 
+        is deactivated." 
+    ::= { ccmeAfterHrsBlockDayEntry 5 }
+
+ccmeAfterHrsBlockDayStopMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..59)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the minute in the
+        ccmeAfterHrsBlockDayStopHour after which the 'after 
+        hours block' service is deactivated." 
+    ::= { ccmeAfterHrsBlockDayEntry 6 }
+ 
+
+
+ccmeNightServiceCode OBJECT-TYPE
+    SYNTAX          CcmeNightServiceCodeString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the configured night service
+        code that disables or enables night service on
+        IP phones. The code is the digit code that a user 
+        enters at an IP phone to disable or enable 
+        night service. The code begins with '*' (asterisk)." 
+    ::= { ccmeConfig 30 }
+
+ccmeNightServiceDateTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeNightServiceDateEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of recurring time period based on
+        date of month during which night service is active."
+    ::= { ccmeConfig 31 }
+
+ccmeNightServiceDateEntry OBJECT-TYPE
+    SYNTAX          CcmeNightServiceDateEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information on a configured night service date pattern.
+        There is an entry in this table for each entry that is
+        configured on this device. An entry is deleted from this
+        table once a night service configuration is removed
+        from this device."
+    INDEX           { ccmeNightServiceDateIndex } 
+    ::= { ccmeNightServiceDateTable 1 }
+
+CcmeNightServiceDateEntry ::= SEQUENCE {
+        ccmeNightServiceDateIndex     Integer32,
+        ccmeNightServiceDateMonth     INTEGER,
+        ccmeNightServiceDate          Integer32,
+        ccmeNightServiceDateStartHour Integer32,
+        ccmeNightServiceDateStartMin  Integer32,
+        ccmeNightServiceDateStopHour  Integer32,
+        ccmeNightServiceDateStopMin   Integer32
+}
+
+ccmeNightServiceDateIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..31)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary and unique index for this
+        CcmeNightServiceDateEntry." 
+    ::= { ccmeNightServiceDateEntry 1 }
+
+ccmeNightServiceDateMonth OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        jan(1),
+                        feb(2),
+                        mar(3),
+                        apr(4),
+                        may(5),
+                        jun(6),
+                        jul(7),
+                        aug(8),
+                        sep(9),
+                        oct(10),
+                        nov(11),
+                        dec(12)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the month of the year during which
+        the night service is active." 
+    ::= { ccmeNightServiceDateEntry 2 }
+
+ccmeNightServiceDate OBJECT-TYPE
+    SYNTAX          Integer32 (1..31)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the day of the month during which
+        the night service is activated." 
+    ::= { ccmeNightServiceDateEntry 3 }
+
+ccmeNightServiceDateStartHour OBJECT-TYPE
+    SYNTAX          Integer32 (0..23)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the hour of the date during which
+        the night service is activated." 
+    ::= { ccmeNightServiceDateEntry 4 }
+
+ccmeNightServiceDateStartMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..59)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the minute in the
+        ccmeNightServiceDateStartHour during which the 
+        night service is activated." 
+    ::= { ccmeNightServiceDateEntry 5 }
+
+ccmeNightServiceDateStopHour OBJECT-TYPE
+    SYNTAX          Integer32 (0..23)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the hour of the date during which
+        during which the night service is deactivated." 
+    ::= { ccmeNightServiceDateEntry 6 }
+
+ccmeNightServiceDateStopMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..59)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the minute in the
+        ccmeNightServiceDateStopHour during which the 
+        night service is deactivated." 
+    ::= { ccmeNightServiceDateEntry 7 }
+ 
+
+
+ccmeNightServiceDayTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeNightServiceDayEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of recurring time period associated with
+        a day of the week during which night service is 
+        active."
+    ::= { ccmeConfig 32 }
+
+ccmeNightServiceDayEntry OBJECT-TYPE
+    SYNTAX          CcmeNightServiceDayEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information on a configured night service day
+        pattern.  There is an entry in this table for each 
+        entry that is configured on this device. An entry 
+        is deleted from this table once a night service 
+        configuration is removed from this device."
+    INDEX           { ccmeNightServiceDayIndex } 
+    ::= { ccmeNightServiceDayTable 1 }
+
+CcmeNightServiceDayEntry ::= SEQUENCE {
+        ccmeNightServiceDayIndex     Integer32,
+        ccmeNightServiceDay          INTEGER,
+        ccmeNightServiceDayStartHour Integer32,
+        ccmeNightServiceDayStartMin  Integer32,
+        ccmeNightServiceDayStopHour  Integer32,
+        ccmeNightServiceDayStopMin   Integer32
+}
+
+ccmeNightServiceDayIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..7)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary and unique index for this
+        CcmeNightServiceDayEntry." 
+    ::= { ccmeNightServiceDayEntry 1 }
+
+ccmeNightServiceDay OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        sun(1),
+                        mon(2),
+                        tue(3),
+                        wed(4),
+                        thu(5),
+                        fri(6),
+                        sat(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the day of the week during which
+        the night service is active." 
+    ::= { ccmeNightServiceDayEntry 2 }
+
+ccmeNightServiceDayStartHour OBJECT-TYPE
+    SYNTAX          Integer32 (0..23)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the hour of the day during which
+        the night service is activated." 
+    ::= { ccmeNightServiceDayEntry 3 }
+
+ccmeNightServiceDayStartMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..59)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the minute in the
+        ccmeNightServiceDayStartHour during which the 
+        night service is activated." 
+    ::= { ccmeNightServiceDayEntry 4 }
+
+ccmeNightServiceDayStopHour OBJECT-TYPE
+    SYNTAX          Integer32 (0..23)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the hour of the day during which
+        during which the night service is deactivated." 
+    ::= { ccmeNightServiceDayEntry 5 }
+
+ccmeNightServiceDayStopMin OBJECT-TYPE
+    SYNTAX          Integer32 (0..59)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the minute in the
+        ccmeNightServiceDayStopHour during which the 
+        night service is deactivated." 
+    ::= { ccmeNightServiceDayEntry 6 }
+ 
+
+
+ccmeFXOHookFlashEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether Flash soft key display on IP Phone
+        is enabled.
+        Flash softkey is provided Cisco IP phones 7940 and 
+        7960 users on Foreign Exchange Office (FXO) lines 
+        attached to the Cisco CallManager Express system.
+        'true' means Flash soft key display on IP Phones is 
+        enabled.
+        'false' means that the Flash soft key on IP phones 
+        is not displayed in a Cisco CallManager Express system." 
+    ::= { ccmeConfig 33 }
+
+ccmeSecondaryDialTonePrefix OBJECT-TYPE
+    SYNTAX          CcmeDigitPatternString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates secondary dial tone access prefix digit
+        string. If secondary dial tone is not configured on 
+        this device, in such case the object returns a zero 
+        length string. Example - 9." 
+    ::= { ccmeConfig 34 }
+
+ccmeWebAdminSystemUser OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates login username for a Cisco CallManager
+        Express system administrator." 
+    ::= { ccmeConfig 35 }
+
+ccmeWebAdminCustomerUser OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates login username for a Cisco CallManager
+        Express customer administrator." 
+    ::= { ccmeConfig 36 }
+
+ccmeSystemMessage OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the configured text system message for
+        display on idle Cisco IP phone 7940's and 7960's in 
+        a Cisco CallManager Express system. 
+        The text message is Alpha numeric string of up 
+        to 32 characters to disply when the phone is idle." 
+    ::= { ccmeConfig 37 }
+
+ccmeDialplanPatternTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeDialplanPatternEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Dialplan patterns configured
+        on this device."
+    ::= { ccmeConfig 38 }
+
+ccmeDialplanPatternEntry OBJECT-TYPE
+    SYNTAX          CcmeDialplanPatternEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information on a dialplan pattern configured.
+        There is an entry in this table for each Dialplan 
+        Pattern that is configured on this device."
+    INDEX           { ccmeDialplanPatternIndex } 
+    ::= { ccmeDialplanPatternTable 1 }
+
+CcmeDialplanPatternEntry ::= SEQUENCE {
+        ccmeDialplanPatternIndex     Integer32,
+        ccmeDialplanPatternTag       Integer32,
+        ccmeDialplanExtLength        Integer32,
+        ccmeDialplanPattern          CcmeDigitPatternString,
+        ccmeDialplanExtPattern       CcmeDigitPatternString,
+        ccmeDialplanAllowRegiEnabled TruthValue
+}
+
+ccmeDialplanPatternIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..5)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary and unique index for this
+        ccmeDialplanPatternTable." 
+    ::= { ccmeDialplanPatternEntry 1 }
+
+ccmeDialplanPatternTag OBJECT-TYPE
+    SYNTAX          Integer32 (1..5)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the number that identifies the
+        dial-plan pattern." 
+    ::= { ccmeDialplanPatternEntry 2 }
+
+ccmeDialplanExtLength OBJECT-TYPE
+    SYNTAX          Integer32 (1..32)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates length of digit extension for Dial plan
+        pattern extension." 
+    ::= { ccmeDialplanPatternEntry 3 }
+
+ccmeDialplanPattern OBJECT-TYPE
+    SYNTAX          CcmeDigitPatternString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates string of digits forming a dial-plan
+        pattern, such as the area code, the prefix, 
+        and the first one or two digits of the extension 
+        number, plus wild card markers or dots (.) for the
+        remainder of the extension number digits.
+        Example - 40854....." 
+    ::= { ccmeDialplanPatternEntry 4 }
+
+ccmeDialplanExtPattern OBJECT-TYPE
+    SYNTAX          CcmeDigitPatternString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates string of digits forming the extension
+        number leading digit pattern that are used when the 
+        leading digits of the extension number are different 
+        from the E.164 telephone number leading digits 
+        defined by the ccmeDialplanPattern object." 
+    ::= { ccmeDialplanPatternEntry 5 }
+
+ccmeDialplanAllowRegiEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the E.164 number in the dial peer
+        is allowed to register with the gatekeeper.
+        'true' means that the registration is allowed.
+        'false' means that the registration is disabled." 
+    ::= { ccmeDialplanPatternEntry 6 }
+ 
+
+
+ccmeKeepAliveTimeout OBJECT-TYPE
+    SYNTAX          Integer32 (10..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the length of time interval
+        between successive keepalive messages 
+        from this device to IP phones."
+    DEFVAL          { 30 } 
+    ::= { ccmeConfig 39 }
+
+ccmeInterDigitTimeout OBJECT-TYPE
+    SYNTAX          Integer32 (2..120)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the length of time interval
+        for interdigit timeout for Cisco IP phones."
+    DEFVAL          { 10 } 
+    ::= { ccmeConfig 40 }
+
+ccmeBusyTimeout OBJECT-TYPE
+    SYNTAX          Integer32 (0..30)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates amount of wait time after which the
+        call is disconnected from a busy signal."
+    DEFVAL          { 10 } 
+    ::= { ccmeConfig 41 }
+
+ccmeAlertTimeout OBJECT-TYPE
+    SYNTAX          Integer32 (5..60000)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the length of time interval for which
+        Cisco CallManager Express allows the IP phone to 
+        alert (ring) if a call is not answered."
+    DEFVAL          { 180 } 
+    ::= { ccmeConfig 42 }
+-- Ephone Configuration Table
+--   
+-- This table indicates configuration information about each
+-- configured IP phone (Ephone) on this device.
+
+ccmeEphoneConfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeEphoneConfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of IP phones (Ephones or EthernetPhones)
+        configured on this device."
+    ::= { ccmeConfig 43 }
+
+ccmeEphoneConfEntry OBJECT-TYPE
+    SYNTAX          CcmeEphoneConfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about a configured IP phone.
+        There is an entry in this table for each IP Phone 
+        that is configured on this device.
+        An entry is deleted in this table once an IP Phone 
+        configuration is removed from this device."
+    INDEX           { ccmeEphoneTag } 
+    ::= { ccmeEphoneConfTable 1 }
+
+CcmeEphoneConfEntry ::= SEQUENCE {
+        ccmeEphoneTag                   Integer32,
+        ccmeEphoneIpAddressType         InetAddressType,
+        ccmeEphoneIpAddress             InetAddress,
+        ccmeEphoneMacAddress            MacAddress,
+        ccmeEphoneModel                 SnmpAdminString,
+        ccmeEphoneUsername              SnmpAdminString,
+        ccmeEphoneKeepAlive             Integer32,
+        ccmeEphoneAutoLineOut           Integer32,
+        ccmeEphonePagingDn              Integer32,
+        ccmeEphoneAddon                 Integer32,
+        ccmeEphoneTemplate              Integer32,
+        ccmeEphonePagingPolicy          INTEGER,
+        ccmeEphoneKeyPhone              TruthValue,
+        ccmeEphoneAutoLineInEnabled     TruthValue,
+        ccmeEphoneAftHrsBlkExmptEnabled TruthValue,
+        ccmeEphoneNightBellSvcEnabled   TruthValue,
+        ccmeEphoneKeepConfEnabled       TruthValue,
+        ccmeEphonePrimaryDn             Unsigned32,
+        ccmeEMUserProfileTag            Unsigned32,
+        ccmeEMLogOutProfileTag          Unsigned32
+}
+
+ccmeEphoneTag OBJECT-TYPE
+    SYNTAX          Integer32 (1..120)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An number that uniquely identifies a IP phone
+        configured on the device.
+        The maximum number of Ephone entries varies among
+        Cisco IOS platforms and may be less than 120." 
+    ::= { ccmeEphoneConfEntry 1 }
+
+ccmeEphoneIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Address type of ccmeEphoneIpAddress. Only IPv4 and IPv6
+        addresses are expected." 
+    ::= { ccmeEphoneConfEntry 2 }
+
+ccmeEphoneIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the designated IP address to this Cisco
+        IP phone (Ephone) configured on this device." 
+    ::= { ccmeEphoneConfEntry 3 }
+
+ccmeEphoneMacAddress OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The MAC address of a Cisco IP phone." 
+    ::= { ccmeEphoneConfEntry 4 }
+
+ccmeEphoneModel OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Type and model of Cisco IP phone." 
+    ::= { ccmeEphoneConfEntry 5 }
+
+ccmeEphoneUsername OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the username of the local Cisco
+        IP phone user. Default is 'Admin'.
+        The login account allows a phone user to 
+        access a web-based GUI to view information 
+        and change some personal settings for the 
+        phone user's own phone only. A login account 
+        is also required for users of Telephony 
+        Application Programming Interface (TAPI)
+        aware PC applications, which can register 
+        with this device and exercise 
+        remote-control operations of Cisco IP phones." 
+    ::= { ccmeEphoneConfEntry 6 }
+
+ccmeEphoneKeepAlive OBJECT-TYPE
+    SYNTAX          Integer32 (10..65535)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the time interval between successive
+        keepalive messages from this device to this 
+        particular IP phone. 
+        If the router fails to receive three successive 
+        keepalive messages, it considers the phone to be 
+        out of service until the phone re-registers."
+    DEFVAL          { 30 } 
+    ::= { ccmeEphoneConfEntry 7 }
+
+ccmeEphoneAutoLineOut OBJECT-TYPE
+    SYNTAX          Integer32 (0..34)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the line (Ephone-DN) that will be selected
+        for out going calls when this Cisco IP phone 
+        goes off-hook." 
+    ::= { ccmeEphoneConfEntry 8 }
+
+ccmeEphonePagingDn OBJECT-TYPE
+    SYNTAX          Integer32 (1..208)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the audio paging DN group configured
+        for this Cisco IP phone." 
+    ::= { ccmeEphoneConfEntry 9 }
+
+ccmeEphoneAddon OBJECT-TYPE
+    SYNTAX          Integer32 (1..2)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the number of add on modules (Cisco
+        IP phone 7914) that are attached to this phone." 
+    ::= { ccmeEphoneConfEntry 10 }
+
+ccmeEphoneTemplate OBJECT-TYPE
+    SYNTAX          Integer32 (1..5)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the Ephone template tag associated
+        with this IP phone." 
+    ::= { ccmeEphoneConfEntry 11 }
+
+ccmeEphonePagingPolicy OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unicast(1),
+                        multicast(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates paging mechanism associated with this
+        Cisco IP phone.
+        unicast(1) - Indicates the Cisco IP phone is not 
+                  capable of receiving audio paging through 
+                  multicast and requests that all pages to 
+                  this phone be sent through unicast.
+        multicast(2) - Audio paging is transmitted to the Cisco 
+                  IP phone using multicast." 
+    ::= { ccmeEphoneConfEntry 12 }
+
+ccmeEphoneKeyPhone OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the phone is marked as 'Key'
+        IP phone.
+        'true' indicates IP phone is configured as Key 
+               IP phone.
+        'false' indicates IP phone is not configured as 
+               key IP phone." 
+    ::= { ccmeEphoneConfEntry 13 }
+
+ccmeEphoneAutoLineInEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates automatic line (Ephone-Dn) selection for
+        incoming call is available.
+        'true' indicates automatic line selection for 
+        incoming calls is enabled. 
+        'false' indicates auto-line selection for incoming 
+        calls on this Cisco IP phone is disabled." 
+    ::= { ccmeEphoneConfEntry 14 }
+
+ccmeEphoneAftHrsBlkExmptEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether this Cisco IP phone is exempt
+        from after-hours blocking.
+
+        'true' indicates this Cisco IP phone is exempt 
+        from after-hour blocking. 
+        'false' indicates is this Cisco IP phone is included 
+        in after-hour blocking." 
+    ::= { ccmeEphoneConfEntry 15 }
+
+ccmeEphoneNightBellSvcEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates night-bell service is available on this
+        Cisco IP Phone.
+        'true' indicates night-bell service is enabled for 
+        this IP phone. 
+        'false' indicates night-bell service is disabled." 
+    ::= { ccmeEphoneConfEntry 16 }
+
+ccmeEphoneKeepConfEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the call would be disconnected
+        when conference initiator hangs-up.
+        'true' - Indicates not to disconnect conference when 
+                conference initiator hangs-up.
+                Connect remaining parties together 
+                directly using call transfer.
+        'false' - Disconnect conference when initiator 
+                hangs-up." 
+    ::= { ccmeEphoneConfEntry 17 }
+
+ccmeEphonePrimaryDn OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..208)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the primary extension DN (Ephone-Dn) for
+        this Cisco IP phone.
+        Zero value indicates no primary extension DN is set for this IP
+        phone" 
+    ::= { ccmeEphoneConfEntry 18 }
+
+ccmeEMUserProfileTag OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the user profile tag for this Cisco
+        Extension Mobility IP phone.
+        Zero value indicates no user logs into this phone." 
+    ::= { ccmeEphoneConfEntry 19 }
+
+ccmeEMLogOutProfileTag OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the logout profile tag configured for
+        this Cisco Extension Mobility IP phone.
+        Zero value indicates this phone is not an Extension Mobility
+        phone." 
+    ::= { ccmeEphoneConfEntry 20 }
+ 
+
+-- Ephone Speed-dial configuration Table
+
+ccmeEphoneSpeedDialConfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeEphoneSpeedDialConfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about configured speed dial entries
+        for all IP phones."
+    ::= { ccmeConfig 44 }
+
+ccmeEphoneSpeedDialConfEntry OBJECT-TYPE
+    SYNTAX          CcmeEphoneSpeedDialConfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about all configured speed dial
+        entries for an IP phone.
+        There is an entry created for each Speed Dial
+        configured on this device. An entry is deleted
+        from this table when the speed dial configuration
+        is removed."
+    INDEX           {
+                        ccmeEphoneTag,
+                        ccmeEphoneSpeedDialTableIndex
+                    } 
+    ::= { ccmeEphoneSpeedDialConfTable 1 }
+
+CcmeEphoneSpeedDialConfEntry ::= SEQUENCE {
+        ccmeEphoneSpeedDialTableIndex Integer32,
+        ccmeEphoneSpeedDialTag        Integer32,
+        ccmeEphoneSpeedDialNumber     CcmeDigitPatternString,
+        ccmeEphoneSpeedDialLabel      SnmpAdminString
+}
+
+ccmeEphoneSpeedDialTableIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..34)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary and unique index for this
+        CcmeEphoneSpeedDialConfEntry." 
+    ::= { ccmeEphoneSpeedDialConfEntry 1 }
+
+ccmeEphoneSpeedDialTag OBJECT-TYPE
+    SYNTAX          Integer32 (1..34)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "An unique identifier tag configured for a
+        speed-dial entry." 
+    ::= { ccmeEphoneSpeedDialConfEntry 2 }
+
+ccmeEphoneSpeedDialNumber OBJECT-TYPE
+    SYNTAX          CcmeDigitPatternString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured speed dial
+        E.164 phone extension number that is associated 
+        with a line (ephone-dn) on this Cisco IP phone."
+    REFERENCE       "ITU-T E.164, Q.931 chapter 4.5.10" 
+    ::= { ccmeEphoneSpeedDialConfEntry 3 }
+
+ccmeEphoneSpeedDialLabel OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..24))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the text to be displayed next to the
+        speed-dial button on Cisco IP Phone." 
+    ::= { ccmeEphoneSpeedDialConfEntry 4 }
+ 
+
+-- Ephone Fast-dial configuration Table
+
+ccmeEphoneFastDialConfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeEphoneFastDialConfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about configured fast dial entries
+        for all IP phones."
+    ::= { ccmeConfig 45 }
+
+ccmeEphoneFastDialConfEntry OBJECT-TYPE
+    SYNTAX          CcmeEphoneFastDialConfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about all configured fast dial
+        entries for an IP phone.
+        There is an entry created in this table for 
+        each Fast dial configured on this device. 
+        An entry is deleted from this table when Fast 
+        dial configuration is removed from this device."
+    INDEX           {
+                        ccmeEphoneTag,
+                        ccmeEphoneFastDialTableIndex
+                    } 
+    ::= { ccmeEphoneFastDialConfTable 1 }
+
+CcmeEphoneFastDialConfEntry ::= SEQUENCE {
+        ccmeEphoneFastDialTableIndex Integer32,
+        ccmeEphoneFastDialNumber     CcmeDigitPatternString,
+        ccmeEphoneFastDialName       SnmpAdminString
+}
+
+ccmeEphoneFastDialTableIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..24)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary and unique index for this
+        CcmeEphoneFastDialConfEntry." 
+    ::= { ccmeEphoneFastDialConfEntry 1 }
+
+ccmeEphoneFastDialNumber OBJECT-TYPE
+    SYNTAX          CcmeDigitPatternString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured fast dial
+        E.164 phone extension number that is 
+        associated with this Cisco IP phone.
+        No primary number is associated as a default."
+    REFERENCE       "ITU-T E.164, Q.931 chapter 4.5.10" 
+    ::= { ccmeEphoneFastDialConfEntry 2 }
+
+ccmeEphoneFastDialName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..30))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured name associated
+        with this fast dial E.164 phone extension number that 
+        is associated with this Cisco IP phone.
+        When no name is associated, in that 
+        case this object will return a string length of zero." 
+    ::= { ccmeEphoneFastDialConfEntry 3 }
+ 
+
+-- Ephone button and DN association Configuration Table
+-- Note: This table shows the rouge phones, that are registered
+-- but not associated with any lines.
+
+ccmeEphoneBtnDNAssocConfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeEphoneBtnDNAssocConfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about all configured DN and button
+        association for all IP phones."
+    ::= { ccmeConfig 46 }
+
+ccmeEphoneBtnDNAssocConfEntry OBJECT-TYPE
+    SYNTAX          CcmeEphoneBtnDNAssocConfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about a configured DN and button
+        association entries for an IP phone.
+        There is an entry in this table for each DN and 
+        button association that is configured on 
+        this device.
+        An entry is deleted once the configuration is 
+        deleted from this device."
+    INDEX           {
+                        ccmeEphoneTag,
+                        ccmeEphoneButtonNumber
+                    } 
+    ::= { ccmeEphoneBtnDNAssocConfTable 1 }
+
+CcmeEphoneBtnDNAssocConfEntry ::= SEQUENCE {
+        ccmeEphoneButtonNumber Integer32,
+        ccmeEphoneOverlayDN    SnmpAdminString
+}
+
+ccmeEphoneButtonNumber OBJECT-TYPE
+    SYNTAX          Integer32 (1..20)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The button number of an IP phone." 
+    ::= { ccmeEphoneBtnDNAssocConfEntry 1 }
+
+ccmeEphoneOverlayDN OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the overlay DN's configured
+        for this button on this IP phone." 
+    ::= { ccmeEphoneBtnDNAssocConfEntry 2 }
+ 
+
+-- Ephone-dn Table
+--   
+-- This table indicates information about each configured line
+
+ccmeEphoneDnConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeEphoneDnConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of configured Ephone-DN's (Directory Number
+        or extensions) for Cisco IP phone lines on this device."
+    ::= { ccmeConfig 47 }
+
+ccmeEphoneDnConfigEntry OBJECT-TYPE
+    SYNTAX          CcmeEphoneDnConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about each configured extension/DN.
+        There is an entry in this table for each Ephone DN
+        configured on this device. In SRST (Survivable Remote 
+        Site Telephone) mode, an entry is created for each 
+        Ephone-DN automatically generated. An entry is deleted 
+        from this table if the Ephone-DN is un-configured 
+        on this device."
+    INDEX           { ccmeEphoneDnTag } 
+    ::= { ccmeEphoneDnConfigTable 1 }
+
+CcmeEphoneDnConfigEntry ::= SEQUENCE {
+        ccmeEphoneDnTag                 Integer32,
+        ccmeEphoneDnType                INTEGER,
+        ccmeEphoneDnMode                INTEGER,
+        ccmeEphoneDnPriNum              SnmpAdminString,
+        ccmeEphoneDnSecNum              SnmpAdminString,
+        ccmeEphoneDnName                SnmpAdminString,
+        ccmeEphoneDnLabel               SnmpAdminString,
+        ccmeEphoneDnPriPref             Integer32,
+        ccmeEphoneDnSecPref             Integer32,
+        ccmeEphoneDnCFBusyNum           SnmpAdminString,
+        ccmeEphoneDnCFAllNum            SnmpAdminString,
+        ccmeEphoneDnCFNoAnNum           SnmpAdminString,
+        ccmeEphoneDnCFNoAnTo            Integer32,
+        ccmeEphoneDnMwiCapability       INTEGER,
+        ccmeEphoneDnHuntstop            TruthValue,
+        ccmeEphoneDnHuntstopCh          TruthValue,
+        ccmeEphoneDnHoldAltTo           Integer32,
+        ccmeEphoneDnHoldAltType         INTEGER,
+        ccmeEphoneDnMwiSipSubscrEnabled TruthValue,
+        ccmeEphoneDnScriptName          SnmpAdminString
+}
+
+ccmeEphoneDnTag OBJECT-TYPE
+    SYNTAX          Integer32 (1..288)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique sequence number that indicates an Cisco
+        IP phone extension (ephone-dn) configured on 
+        this device." 
+    ::= { ccmeEphoneDnConfigEntry 1 }
+
+ccmeEphoneDnType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        extension(1),
+                        intercom(2),
+                        paging(3),
+                        moh(4),
+                        mwi(5),
+                        parkslot(6),
+                        loopback(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Extension type of the line.
+        extension(1) - Cisco IP Phone line.
+        intercom(2) - Part of pair of intercom line.
+        paging(3) - type to receive audio pages.
+        moh(4) - type to address MoH.
+        mwi(5) - type to address MWI.
+        parkslot(6) - type to address call park slot.
+        loopback(7) - loopback directory number." 
+    ::= { ccmeEphoneDnConfigEntry 2 }
+
+ccmeEphoneDnMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        single(1),
+                        dual(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Mode of the line.
+        single(1) -  Single line mode.
+        dual(2) - Dual line mode, that has one virtual 
+               voice port and two channels to handle 
+               two independent calls. This capacity 
+               allows call waiting, call transfer 
+               and conference functions within a 
+               single line (ephone-dn)." 
+    ::= { ccmeEphoneDnConfigEntry 3 }
+
+ccmeEphoneDnPriNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the primary E.164 phone
+        extension number that is associated with a line 
+        (ephone-dn) on this device.
+        No primary number is associated as a default."
+    REFERENCE       "ITU-T E.164, Q.931 chapter 4.5.10" 
+    ::= { ccmeEphoneDnConfigEntry 4 }
+
+ccmeEphoneDnSecNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the second E.164 phone extension number
+        that is associated with a line (ephone-dn) 
+        on this device."
+    REFERENCE       "ITU-T E.164, Q.931 chapter 4.5.10" 
+    ::= { ccmeEphoneDnConfigEntry 5 }
+
+ccmeEphoneDnName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..30))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the name of the person
+        associated with this extension (ephone-dn).
+        If no specific name of person is associated with 
+        the IP phone, then this object will contain 
+        a zero-length string." 
+    ::= { ccmeEphoneDnConfigEntry 6 }
+
+ccmeEphoneDnLabel OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..30))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the text string that
+        is displayed on the Cisco IP phone console 
+        instead of the extension phone number." 
+    ::= { ccmeEphoneDnConfigEntry 7 }
+
+ccmeEphoneDnPriPref OBJECT-TYPE
+    SYNTAX          Integer32 (0..10)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object shows the preference
+        for the primary number associated with 
+        an extension. 
+
+        Range is from 0 to 10, where 0 is highest 
+        and 10 is lowest." 
+    ::= { ccmeEphoneDnConfigEntry 8 }
+
+ccmeEphoneDnSecPref OBJECT-TYPE
+    SYNTAX          Integer32 (0..10)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object shows the preference
+        for the secondary number associated with 
+        an extension. 
+
+        Range is from 0 to 10, where 0 is highest 
+        and 10 is lowest." 
+    ::= { ccmeEphoneDnConfigEntry 9 }
+
+ccmeEphoneDnCFBusyNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the E.164 phone number
+        to which calls are forwarded for all the incoming
+        calls to busy extension. 
+        If no specific call forwarding phone number 
+        is associated with the IP phone, then this object 
+        will contain a zero-length string."
+    REFERENCE       "ITU-T E.164, Q.931 chapter 4.5.10" 
+    ::= { ccmeEphoneDnConfigEntry 10 }
+
+ccmeEphoneDnCFAllNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the E.164 phone number
+        to which calls are forwarded for all the incoming 
+        calls to an extension (ephone-dn).
+        If no specific call forwarding all phone number is 
+        associated with the IP phone, then this object 
+        will contain a zero-length string."
+    REFERENCE       "ITU-T E.164, Q.931 chapter 4.5.10" 
+    ::= { ccmeEphoneDnConfigEntry 11 }
+
+ccmeEphoneDnCFNoAnNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the E.164 phone number
+        to which calls are forwarded for all the incoming 
+        calls to an extension (ephone-dn) that does not 
+        answer.
+        If no specific call forwarding number when extension 
+        does not answer is associated, then this object 
+        will contain a zero-length string."
+    REFERENCE       "ITU-T E.164, Q.931 chapter 4.5.10" 
+    ::= { ccmeEphoneDnConfigEntry 12 }
+
+ccmeEphoneDnCFNoAnTo OBJECT-TYPE
+    SYNTAX          Integer32 (3..60000)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the duration that a call can ring
+        with no answer before the call is forwarded to 
+        another extension/line/DN." 
+    ::= { ccmeEphoneDnConfigEntry 13 }
+
+ccmeEphoneDnMwiCapability OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        mwiOn(1),
+                        mwiOff(2),
+                        mwiOnoff(3),
+                        mwiDisabled(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the capability of an extension (ephone-dn)
+        to process message-waiting indication (MWI) 
+        notification from an external voice-messaging systems.
+
+        mwiOn - Extension can process MWI ON notifications 
+             using either the main or secondary phone number.
+        mwiOff - Extension can process MWI OFF notifications 
+             using either the main or secondary phone number.
+        mwiOnOff - Extension can process both MWI ON and OFF 
+             notifications using either the main or 
+             secondary phone number.
+        mwiDisabled - MWI notifications are disabled on 
+             an extension." 
+    ::= { ccmeEphoneDnConfigEntry 14 }
+
+ccmeEphoneDnHuntstop OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the call hunting behavior for an extension
+        (ephone-dn). If the value of this object is 'true', 
+        an incoming call does not roll over (hunt) to another 
+        ephone-dn if the called ephone-dn is busy or does not 
+        answer and a hunting strategy has been established that 
+        includes this ephone-dn." 
+    ::= { ccmeEphoneDnConfigEntry 15 }
+
+ccmeEphoneDnHuntstopCh OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the call hunting behavior for an
+        extension (ephone-dn) channel. If this object 
+        is enabled on dual-line extensions, an incoming 
+        call does not roll over (hunt) to another 
+        channel if the first channel is busy or does not 
+        answer on this ephone-dn." 
+    ::= { ccmeEphoneDnConfigEntry 16 }
+
+ccmeEphoneDnHoldAltTo OBJECT-TYPE
+    SYNTAX          Integer32 (0..300)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates time out for repeating audible alert
+        notification when a call is on hold on a Cisco IP 
+        phone.
+        Range is 15 to 300. 
+        By default hold alert feature is disabled. 
+        In such case, this object will return a zero value." 
+    ::= { ccmeEphoneDnConfigEntry 17 }
+
+ccmeEphoneDnHoldAltType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        idle(1),
+                        originator(2),
+                        shared(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates when hold alert audible notification will
+        be repeated on a Cisco IP phone.
+
+        idle(1) - Alerts only when the Cisco IP phone is idle.
+        originator(2) - Alerts when the Cisco IP phone is idle 
+                 or busy.
+        shared(3) - Alerts only when the Cisco IP phone is idle 
+                 but alerts all phones that share the line." 
+    ::= { ccmeEphoneDnConfigEntry 18 }
+
+ccmeEphoneDnMwiSipSubscrEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether this extension (DN) in a
+        Cisco CallManager Express system is subscribed 
+        to a SIP-based MWI server.
+        'true' indicates this extension can receive MWI 
+        from SIP-based MWI server.             
+        'false' indicates extension is not subscribed 
+        to receive MWI." 
+    ::= { ccmeEphoneDnConfigEntry 19 }
+
+ccmeEphoneDnScriptName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the session-level IVR application script
+        in Tool Command Language (TCL) for this extension
+        (ephone-dn) in CCME system.
+        By default no application script is selected for
+        an extension and the object length in this case
+        will return a string of zero length." 
+    ::= { ccmeEphoneDnConfigEntry 20 }
+ 
+
+
+-- Notification Configuration
+
+ccmeNotificationEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates whether the system produces the
+        Cisco CallManager Express notifications.
+
+        When this variable is 'true', generation of
+        CCME notifications are enabled.  
+        When this variable is 'false', generation of
+        CCME notifications is disabled."
+    DEFVAL          { true } 
+    ::= { ccmeConfig 48 }
+
+ccmeSysTrapSeverity OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        clear(1),
+                        minor(2),
+                        major(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The internally-defined severity of the particular alarm
+        condition, associated with the most recent notification.
+        A subsequent event in which the alarm condition changes
+        from its failed state back to a 'normal' state has a
+        severity of 'clear'." 
+    ::= { ccmeConfig 49 }
+
+ccmeSysNotificationReason OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The internally-defined failure cause of the particular
+        alarm condition, associated with the most recent trap." 
+    ::= { ccmeConfig 50 }
+
+ccmeEphoneUnRegThreshold OBJECT-TYPE
+    SYNTAX          Integer32 (1..120)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This variable sets the threshold to limit the
+        unregistration trap notification." 
+    ::= { ccmeConfig 51 }
+
+ccmeEphoneTrapReason OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The internally-defined failure cause of the particular
+        alarm condition, associated with the most recent Ephone 
+        trap." 
+    ::= { ccmeConfig 52 }
+
+ccmeUserAutoLogoutTo OBJECT-TYPE
+    SYNTAX          Integer32 (1..120)
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the length of time before the users of
+        IP phones in a Cisco CallManager Express system are 
+        automatically logged out." 
+    ::= { ccmeConfig 53 }
+
+ccmeUserLoginDeactivateTime OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the specified time of day when user logins
+        for all IP phones are deactivated." 
+    ::= { ccmeConfig 54 }
+
+ccmeMwiSipServerIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the designated IP address to an external
+        SIP based message-waiting indication (MWI) server.
+        The type of this address is determined by the
+        value of the ccmeSysIPAddressType object." 
+    ::= { ccmeConfig 55 }
+
+ccmeMwiSipServerTransportType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        tcp(1),
+                        udp(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the transport layer protocol used to
+        connect external SIP-based message-waiting 
+        indication (MWI) server.
+
+            tcp(1) - TCP as transport layer protocol.
+            udp(2) - UDP as transport layer protocol." 
+    ::= { ccmeConfig 56 }
+
+ccmeMwiSipServerPortNumber OBJECT-TYPE
+    SYNTAX          InetPortNumber (2000..9999)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the port number for the message-waiting
+        indication (MWI) server."
+    DEFVAL          { 5060 } 
+    ::= { ccmeConfig 57 }
+
+ccmeMwiSipServerRegE164Enabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether E.164 number is registered with
+        SIP proxy or Registrar rather than an extension number.
+        'true' indicates E.164 is registered.
+        'false' indicates extension number is registered." 
+    ::= { ccmeConfig 58 }
+
+ccmeMwiSipSvrUnsolicitedEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether SIP NOTIFY for MWI is sent
+        without a SUBSCRIBE from the Cisco CallManager Express.
+        'true' indicates SIP NOTIFY is sent without SIP 
+               SUBSCRIBE.
+        'false' indicates solicited NOTIFY is sent." 
+    ::= { ccmeConfig 59 }
+-- COR (Class of restriction) Configuration Table
+
+ccmeCorConfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeCorConfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Class of Restriction (COR) configured
+        on this device."
+    ::= { ccmeConfig 60 }
+
+ccmeCorConfEntry OBJECT-TYPE
+    SYNTAX          CcmeCorConfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about a Class of restriction (COR)
+        configured entry.
+        There is an entry for each COR configured on 
+        this device. An entry is deleted if the COR is 
+        removed from configuration."
+    INDEX           { ccmeCorTableIndex } 
+    ::= { ccmeCorConfTable 1 }
+
+CcmeCorConfEntry ::= SEQUENCE {
+        ccmeCorTableIndex         Unsigned32,
+        ccmeCorTag                Unsigned32,
+        ccmeCorListName           SnmpAdminString,
+        ccmeCorScope              INTEGER,
+        ccmeCorDirection          INTEGER,
+        ccmeCorStartingNumber     SnmpAdminString,
+        ccmeCorEndingNumber       SnmpAdminString,
+        ccmeCorVoiceRegPoolNumber Unsigned32,
+        ccmeCorListDefaultEnabled TruthValue
+}
+
+ccmeCorTableIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An arbitrary and unique index for this
+        CcmeCorConfEntry." 
+    ::= { ccmeCorConfEntry 1 }
+
+ccmeCorTag OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the tag number.
+        If ccmeEnabled object is 'true' for Cisco 
+        CallManager Express Mode then this object 
+        indicates the ephone-dn tag under which the 
+        COR was configured.  
+        If csrstEnabled object is 'true' for  Cisco 
+        Survivable Remote Site Telephony (SRST) mode, 
+        then this object indicates the COR list 
+        identifier configured under SRST configuration 
+        or Voice Registrar configuration." 
+    ::= { ccmeCorConfEntry 2 }
+
+ccmeCorListName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the COR list name configured
+        on this device." 
+    ::= { ccmeCorConfEntry 3 }
+
+ccmeCorScope OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ccme(1),
+                        srstSccp(2),
+                        srstSip(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the scope of this COR list for a
+        list of associated dial-peers.
+
+        ccme(1) - indicates this COR is applicable to 
+                  the dial-peer associated with ciscoCorTag 
+                  Ephone-DN object.
+        srstSccp(2) - indicates this COR is applicable to 
+                  all the dynamically created dial-peers 
+                  under SCCP SRST mode.
+        srstSip(3) -  indicates this COR is applicable to
+                  all the SIP SRST dial-peers that belong 
+                  to a specified voice registrar pool 
+                  indicated by ciscoCorVoiceRegPoolNumber 
+                  object." 
+    ::= { ccmeCorConfEntry 4 }
+
+ccmeCorDirection OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        incoming(1),
+                        outgoing(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the COR will be used by
+        incoming or outgoing dial peers." 
+    ::= { ccmeCorConfEntry 5 }
+
+ccmeCorStartingNumber OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the starting number of
+        a range of directory numbers for
+        a COR list configured on this
+        device." 
+    ::= { ccmeCorConfEntry 6 }
+
+ccmeCorEndingNumber OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the ending number of
+        a range of directory numbers for
+        a COR list configured on this
+        device." 
+    ::= { ccmeCorConfEntry 7 }
+
+ccmeCorVoiceRegPoolNumber OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the voice registrar pool
+        number under which this COR list is 
+        applied." 
+    ::= { ccmeCorConfEntry 8 }
+
+ccmeCorListDefaultEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the default COR list
+        is enabled or disabled for this COR entry.
+        'true' indicates this COR list assumes behavior 
+        of a pre-defined default COR list. 
+        'false' indicates default COR list is not 
+        applied." 
+    ::= { ccmeCorConfEntry 9 }
+ 
+
+-- Loopback DN Configuration Table
+
+ccmeLoopbackDnConfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeLoopbackDnConfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of loopback DN's (lines) configured
+        on this device."
+    ::= { ccmeConfig 61 }
+
+ccmeLoopbackDnConfEntry OBJECT-TYPE
+    SYNTAX          CcmeLoopbackDnConfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about a loopback DN configured
+        on this device.
+        There is an entry created for each loopback 
+        DN configured on this device. An entry is deleted 
+        if the loopback DN is removed from this device 
+        configuration."
+    INDEX           { ccmeLoopbackDnTag } 
+    ::= { ccmeLoopbackDnConfTable 1 }
+
+CcmeLoopbackDnConfEntry ::= SEQUENCE {
+        ccmeLoopbackDnTag     Unsigned32,
+        ccmeLoopbackDnforward Unsigned32,
+        ccmeLoopbackDnStrip   Unsigned32,
+        ccmeLoopbackDnPrefix  SnmpAdminString,
+        ccmeLoopbackDnSuffix  SnmpAdminString,
+        ccmeLoopbackDnRetryTo Integer32,
+        ccmeLoopbackDnAutoCon TruthValue,
+        ccmeLoopbackDnCodec   INTEGER
+}
+
+ccmeLoopbackDnTag OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique sequence number that identifies the
+        ephone-dn loopback pairs in this device." 
+    ::= { ccmeLoopbackDnConfEntry 1 }
+
+ccmeLoopbackDnforward OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..32)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the number of digits in the original
+        called number that will be forwarded to the other 
+        phone-dn in the loopback-dn pair." 
+    ::= { ccmeLoopbackDnConfEntry 2 }
+
+ccmeLoopbackDnStrip OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..32)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the number of leading digits that will
+        be stripped from the original called number that 
+        will be forwarded to the other phone-dn in the 
+        loopback-dn pair." 
+    ::= { ccmeLoopbackDnConfEntry 3 }
+
+ccmeLoopbackDnPrefix OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the string of digits that will be added
+        in the front of the forwarded called number." 
+    ::= { ccmeLoopbackDnConfEntry 4 }
+
+ccmeLoopbackDnSuffix OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the string of digits that will be added
+        in the end of the forwarded called number." 
+    ::= { ccmeLoopbackDnConfEntry 5 }
+
+ccmeLoopbackDnRetryTo OBJECT-TYPE
+    SYNTAX          Integer32 (0..32767)
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the number of seconds to wait before
+        retrying the loopback target when it is busy 
+        or unavailable.
+        A zero-value indicates that retry is disabled and
+        appropriate call-progress tones are passed to the 
+        call originator." 
+    ::= { ccmeLoopbackDnConfEntry 6 }
+
+ccmeLoopbackDnAutoCon OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the automatic connection
+        capability for the call during far-end alert.
+
+        'true' indicates call is immediately connected and 
+               in-band alerting is provided while waiting 
+               for the far-end destination to answer.
+        'false' indicates automatic connection is disabled." 
+    ::= { ccmeLoopbackDnConfEntry 7 }
+
+ccmeLoopbackDnCodec OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        g711alaw(1),
+                        g711ulaw(2),
+                        default(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The codec type applied to the calls that pass through
+        the loopback-dn.
+        g711alaw(1) - indicates the G.711 a-law is applied.
+        g711ulaw(2) - indicates the G.711 mu-law is applied.
+                      Option 1 and 2 overrides the G.711 codec 
+                      type that is negotiated for the call and 
+                      provides mu-law to a-law conversion 
+                      if needed.
+        default(3) - indicates the Real-Time Transport Protocol 
+                     (RTP) voice packets are passed through the 
+                     loopback-dn without considering the G.711 
+                     coding type negotiated for the calls." 
+    ::= { ccmeLoopbackDnConfEntry 8 }
+ 
+
+-- Intercom DN Configuration Table
+
+ccmeIntercomDnConfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeIntercomDnConfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of intercom DN's (lines) configured
+        on this device."
+    ::= { ccmeConfig 62 }
+
+ccmeIntercomDnConfEntry OBJECT-TYPE
+    SYNTAX          CcmeIntercomDnConfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about a intercom DN configured
+        on this device.
+        There is an entry created for each intercom 
+        DN configured on this device. An entry is deleted 
+        if the intercom DN is removed from this device 
+        configuration."
+    INDEX           { ccmeIntercomDnTag } 
+    ::= { ccmeIntercomDnConfTable 1 }
+
+CcmeIntercomDnConfEntry ::= SEQUENCE {
+        ccmeIntercomDnTag            Unsigned32,
+        ccmeIntercomDnExtensionNum   SnmpAdminString,
+        ccmeIntercomDnBargeInEnabled TruthValue,
+        ccmeIntercomDnAutoAnsEnabled TruthValue,
+        ccmeIntercomDnLabel          SnmpAdminString
+}
+
+ccmeIntercomDnTag OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Indicates Ephone-DN (line) tag number under
+        which this Intercom was configured." 
+    ::= { ccmeIntercomDnConfEntry 1 }
+
+ccmeIntercomDnExtensionNum OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the telephone number to which intercom
+        calls are placed." 
+    ::= { ccmeIntercomDnConfEntry 2 }
+
+ccmeIntercomDnBargeInEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the inbound intercom calls
+        behavior when existing call is active.
+
+        'true' indicates inbound intercom calls force the 
+        existing call into call-hold state and allows the 
+        intercom call to be answered immediately.
+        'false' indicates inbound intercom calls don't 
+        barge-in the existing calls." 
+    ::= { ccmeIntercomDnConfEntry 3 }
+
+ccmeIntercomDnAutoAnsEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the auto-answer feature is
+        applied to this EPhone-DN.
+
+        'true' indicates auto-answer feature is enabled.
+        'false' indicates auto-answer feature is disabled. 
+                This indicates the Ephone-DN a connection that 
+                resembles a private line, automatic ringdown 
+                (PLAR)." 
+    ::= { ccmeIntercomDnConfEntry 4 }
+
+ccmeIntercomDnLabel OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the label for the intercom configured
+        on this device." 
+    ::= { ccmeIntercomDnConfEntry 5 }
+ 
+
+
+ccmeMohMulticastIpAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Address type of ccmeMohMulticastIpAddress.
+        Only IPv4 and IPv6 addresses are expected." 
+    ::= { ccmeConfig 67 }
+
+ccmeMohMulticastIpAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the destination IP address
+        for multicast of the Music-on-hold audio stream.
+        The type of this address is determined by the
+        value of the ccmeSysIPAddressType object." 
+    ::= { ccmeConfig 63 }
+
+ccmeMohMulticastPortNumber OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the media port for multicast
+        of the Music-oh-hold audio stream." 
+    ::= { ccmeConfig 64 }
+
+ccmeMohMulticastRoute OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates a string of IP addresses, each separate
+        by other by a space, over which Music-oh-hold IP 
+        multicast packets are transmitted." 
+    ::= { ccmeConfig 65 }
+
+ccmeEMUserDirNumConfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeEMUserDirNumConfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Directory Number or extensions configured under user
+        profile which are downloaded to Cisco IP extension mobility
+        phones when an user log into it using this user profile."
+    ::= { ccmeConfig 68 }
+
+ccmeEMUserDirNumConfEntry OBJECT-TYPE
+    SYNTAX          CcmeEMUserDirNumConfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about each directory number configured under user
+        profile to be downloaded to an extension mobility IP phone when
+        an user logs into it using this user profile.
+        There is an entry in this table for each line on the logged in
+        ephone."
+    INDEX           {
+                        ccmEMUserProfileDirNumIndex,
+                        ccmeEMUserDirNumTag
+                    } 
+    ::= { ccmeEMUserDirNumConfTable 1 }
+
+CcmeEMUserDirNumConfEntry ::= SEQUENCE {
+        ccmEMUserProfileDirNumIndex Integer32,
+        ccmeEMUserDirNumTag         Integer32,
+        ccmeEMUserDirNum            CcmeDigitPatternString,
+        ccmeEMUserDirNumOverlay     SnmpAdminString
+}
+
+ccmEMUserProfileDirNumIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A number that uniquely identifies an Extension Mobility user
+        profile." 
+    ::= { ccmeEMUserDirNumConfEntry 1 }
+
+ccmeEMUserDirNumTag OBJECT-TYPE
+    SYNTAX          Integer32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A number that uniquely identifies a directory number entry." 
+    ::= { ccmeEMUserDirNumConfEntry 2 }
+
+ccmeEMUserDirNum OBJECT-TYPE
+    SYNTAX          CcmeDigitPatternString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the E.164 phone diretory or
+        extension number which is downloaded to a line on the extension
+        mobility phone when an user logs into it." 
+    ::= { ccmeEMUserDirNumConfEntry 3 }
+
+ccmeEMUserDirNumOverlay OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the overlay directory number configured
+        for this line under this user profile." 
+    ::= { ccmeEMUserDirNumConfEntry 4 }
+ 
+
+
+ccmeEMLogoutDirNumConfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeEMLogoutDirNumConfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of Directory Number or extensions configured under
+        logout profile which are downloaded to Cisco IP extension
+        mobility phones when an user log out or no one is logged in."
+    ::= { ccmeConfig 69 }
+
+ccmeEMLogoutDirNumConfEntry OBJECT-TYPE
+    SYNTAX          CcmeEMLogoutDirNumConfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about each directory number configured under logout
+        profile to be downloaded to an extension mobility IP phone at
+        logout state.
+        There is an entry in this table for each line on the ephone at
+        logout state.
+        There is an entry in this table for each logout profile."
+    INDEX           {
+                        ccmEMLogOutProfileDirNumIndex,
+                        ccmeEMLogoutDirNumTag
+                    } 
+    ::= { ccmeEMLogoutDirNumConfTable 1 }
+
+CcmeEMLogoutDirNumConfEntry ::= SEQUENCE {
+        ccmEMLogOutProfileDirNumIndex Integer32,
+        ccmeEMLogoutDirNumTag         Integer32,
+        ccmeEMLogoutDirNum            CcmeDigitPatternString,
+        ccmeEMLogoutDirNumOverlay     SnmpAdminString
+}
+
+ccmEMLogOutProfileDirNumIndex OBJECT-TYPE
+    SYNTAX          Integer32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A number that uniquely identifies an Extension Mobility logout
+        profile." 
+    ::= { ccmeEMLogoutDirNumConfEntry 1 }
+
+ccmeEMLogoutDirNumTag OBJECT-TYPE
+    SYNTAX          Integer32 (1..1000)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A number that uniquely identifies a directory number entry." 
+    ::= { ccmeEMLogoutDirNumConfEntry 2 }
+
+ccmeEMLogoutDirNum OBJECT-TYPE
+    SYNTAX          CcmeDigitPatternString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the E.164 phone diretory or extension
+        number which is downloaded to a line on the extension mobility
+        phone at the logout state." 
+    ::= { ccmeEMLogoutDirNumConfEntry 3 }
+
+ccmeEMLogoutDirNumOverlay OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the overlay directory number configured
+        for this line under this logout profile." 
+    ::= { ccmeEMLogoutDirNumConfEntry 4 }
+ 
+
+
+-- **************************************************************
+-- CCME, Ephone and EphoneDN Active status group
+-- **************************************************************
+
+ccmeEphoneCallLegs OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the active number of call legs
+        contributed from the Cisco IP Phones and TAPI 
+        clients interacting with this device at this
+        instance." 
+    ::= { ccmeActiveStats 1 }
+
+ccmeEphoneTot OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the total number of Cisco IP phones
+        (Ephones) seen by this device since the last reset." 
+    ::= { ccmeActiveStats 2 }
+
+ccmeEphoneTotRegistered OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the total number of Cisco IP phones
+        currently registered to this device." 
+    ::= { ccmeActiveStats 3 }
+
+ccmeEphoneTotKeyPhConfigured OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the total number of configured Cisco
+        IP phones that are marked as Key phones on this 
+        device." 
+    ::= { ccmeActiveStats 4 }
+
+ccmeEphoneTotKeyPhRegistered OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the total number of Key Cisco IP phones
+        currently registered to this device." 
+    ::= { ccmeActiveStats 5 }
+-- Active Ephone Table
+--   
+-- This table indicates active information about each
+-- IP phone seen by the device.
+
+ccmeEphoneActTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeEphoneActEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of all IP phones currently registered
+        on this device."
+    ::= { ccmeActiveStats 6 }
+
+ccmeEphoneActEntry OBJECT-TYPE
+    SYNTAX          CcmeEphoneActEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Information about an IP phone seen by this device.
+        There is an entry added for each new IP phone 
+        registration in this table. Entry is removed 
+        once the phone is deceased or re-registered."
+    INDEX           { ccmeEphoneTag } 
+    ::= { ccmeEphoneActTable 1 }
+
+CcmeEphoneActEntry ::= SEQUENCE {
+        ccmeEphoneDeviceName          SnmpAdminString,
+        ccmeEphoneRegState            INTEGER,
+        ccmeEphoneActiveDN            Integer32,
+        ccmeEphoneActivityStatus      INTEGER,
+        ccmeEphoneKeepAliveCnt        Counter32,
+        ccmeEphonePendingReset        TruthValue,
+        ccmeEphoneRegTime             SnmpAdminString,
+        ccmeEphoneCurrentFirmwareRev  SnmpAdminString,
+        ccmeEphonePreviousFirmwareRev SnmpAdminString,
+        ccmeEphoneLastError           SnmpAdminString,
+        ccmeEphoneObservedType        SnmpAdminString,
+        ccmeEphoneLoginStatus         TruthValue,
+        ccmeEphoneDnDStatus           TruthValue,
+        ccmeEphoneDebugStatus         TruthValue,
+        ccmeEphoneMediaActive         TruthValue,
+        ccmeEphoneTAPIClient          TruthValue,
+        ccmeEphoneMediaCapability     INTEGER,
+        ccmeEphoneRemote              TruthValue
+}
+
+ccmeEphoneDeviceName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Type and model of Cisco IP phone as seen in the
+        registration on this device." 
+    ::= { ccmeEphoneActEntry 1 }
+
+ccmeEphoneRegState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        registered(1),
+                        unregistered(2),
+                        deceased(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The registration state of the Cisco IP phone.
+        registered(1)   - indicates the phone is active.
+        unregistered(2) - indicates the connection to Cisco
+                          IP phone was closed in normal manner.
+        deceased(3)     - indicates the connection to the Cisco
+                          IP phone was closed because of a
+                          keep-alive timeout." 
+    ::= { ccmeEphoneActEntry 2 }
+
+ccmeEphoneActiveDN OBJECT-TYPE
+    SYNTAX          Integer32 (1..20)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Current active DN (line) on the IP phone." 
+    ::= { ccmeEphoneActEntry 3 }
+
+ccmeEphoneActivityStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        onhook(1),
+                        offhook(2),
+                        ringing(3),
+                        paging(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Current status of the Cisco IP phone as seen
+        on this device.
+        onhook(1)  - Phone is on-hook.
+        offhook(2) - Phone is off-hook.
+        ringing(3) - Phone is ringing.
+        paging(4)  - Phone is receiving an audio page." 
+    ::= { ccmeEphoneActEntry 4 }
+
+ccmeEphoneKeepAliveCnt OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of keepalive messages received from
+        the Cisco IP phone by this device since 
+        the phone registered." 
+    ::= { ccmeEphoneActEntry 5 }
+
+ccmeEphonePendingReset OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Pending reset operation on this IP phone as seen
+        by this device. True indicating reset is pending." 
+    ::= { ccmeEphoneActEntry 6 }
+
+ccmeEphoneRegTime OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Time this phone registered to this device." 
+    ::= { ccmeEphoneActEntry 7 }
+
+ccmeEphoneCurrentFirmwareRev OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The current vendor-specific firmware version
+        string provided by the Cisco IP phone during 
+        registration on this device." 
+    ::= { ccmeEphoneActEntry 8 }
+
+ccmeEphonePreviousFirmwareRev OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The previous vendor-specific firmware version
+        of Cisco IP phone provided by the Cisco IP phone 
+        during registration on this device." 
+    ::= { ccmeEphoneActEntry 9 }
+
+ccmeEphoneLastError OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reason for last reset of the phone as seen
+        by this device. Reason for last reset of phone 
+        could be 'TCP-timeout' or 'CallManager-closed-TCP' 
+        or 'Initialized'." 
+    ::= { ccmeEphoneActEntry 10 }
+
+ccmeEphoneObservedType OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Type and model of Cisco IP phone received
+        by this device during the registration of IP phone." 
+    ::= { ccmeEphoneActEntry 11 }
+
+ccmeEphoneLoginStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "True indicates that a phone user is currently
+        logged in on this phone. False indicates no phone 
+        user currently logged in on this phone." 
+    ::= { ccmeEphoneActEntry 12 }
+
+ccmeEphoneDnDStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "True indicates that phone is set do-not-disturb (DnD)
+        on one or more of the phone's extensions used by 
+        the Cisco IP phone. False indicates no DnD is set." 
+    ::= { ccmeEphoneActEntry 13 }
+
+ccmeEphoneDebugStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "True indicates that phone is set in debug mode.
+        False indicates no debug is disabled on this IP phone." 
+    ::= { ccmeEphoneActEntry 14 }
+
+ccmeEphoneMediaActive OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "True indicates that phone is in active conversation.
+        False indicates no conversation is ongoing." 
+    ::= { ccmeEphoneActEntry 15 }
+
+ccmeEphoneTAPIClient OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "True indicates that phone is a TAPI client.
+        False indicates the phone is not TAPI client." 
+    ::= { ccmeEphoneActEntry 16 }
+
+ccmeEphoneMediaCapability OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        audioOnly(1),
+                        audioVideo(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates whether the registered IP phone is
+        capable of supporting audio or video.
+        audioOnly(1) - IP phone is only audio capable.
+        audioVideo(2) - IP phone is audio and video capable." 
+    ::= { ccmeEphoneActEntry 17 }
+
+ccmeEphoneRemote OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "True indicates that phone is suspected not to
+        be on the local area network(LAN). This is derived 
+        from the ARP entry not seen on this device.
+        False indicates the phone is in the same LAN as 
+        device." 
+    ::= { ccmeEphoneActEntry 18 }
+ 
+
+
+ccmeMohSource OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        flash(1),
+                        liveFeed(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Cisco CallManager Express system can derive
+        music-on-hold (MOH) from two locations.
+        If flash (1) is displayed, the router is currently
+        picking MOH stream from an audio file configured
+        in flash file system. The location of the file is
+        provided by ccmeMohFlashFile object.
+        If liveFeed (2) is displayed, the router is
+        currently picking MOH stream from an incoming call
+        audio stream. Normally, a single ephone-dn would
+        be configured to accept liveFeed call.
+        ccmeEphoneDnType with moh type will specify this DN." 
+    ::= { ccmeActiveStats 7 }
+
+ccmeNightServiceEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the current Night service state.
+
+        'true' means that Night service is active.
+        'false' means that Night service is inactive." 
+    ::= { ccmeActiveStats 8 }
+
+ccmeEMphoneTot OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the total number of Cisco IP Extension Mobility
+        phones
+        (EMphones) seen by this device since the last reset." 
+    ::= { ccmeActiveStats 9 }
+
+ccmeEMphoneTotRegistered OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of Cisco IP Extension
+        Mobility phones registered to this CCME." 
+    ::= { ccmeActiveStats 10 }
+-- *****************************************************************
+-- CCME, Ephone and EphoneDN History group
+-- *****************************************************************
+
+ccmeEphoneDnChStatsHistoryTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CcmeEphoneDnChStatsHistoryEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of statistics for all Ephone-DN's (lines)
+        on this device."
+    ::= { ccmeHistoryStats 1 }
+
+ccmeEphoneDnChStatsHistoryEntry OBJECT-TYPE
+    SYNTAX          CcmeEphoneDnChStatsHistoryEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Statistical information about an Ephone-DN.
+        There is an entry added for each new Ephone-DN 
+        configured in this table. Entry is removed 
+        once the Ephone-DN is removed from this device
+        configuration."
+    INDEX           {
+                        ccmeEphoneDnTag,
+                        ccmeEphoneDnChNum
+                    } 
+    ::= { ccmeEphoneDnChStatsHistoryTable 1 }
+
+CcmeEphoneDnChStatsHistoryEntry ::= SEQUENCE {
+        ccmeEphoneDnChNum              Integer32,
+        ccmeEphoneDnChIncoming         Counter32,
+        ccmeEphoneDnChInAnswered       Counter32,
+        ccmeEphoneDnChOutbound         Counter32,
+        ccmeEphoneDnChOutAnswered      Counter32,
+        ccmeEphoneDnChOutBusy          Counter32,
+        ccmeEphoneDnChDiscAtConn       Counter32,
+        ccmeEphoneDnChDiscAtAlert      Counter32,
+        ccmeEphoneDnChDiscAtHold       Counter32,
+        ccmeEphoneDnChDiscAtRing       Counter32,
+        ccmeEphoneDnChDiscCauseNearEnd Integer32,
+        ccmeEphoneDnChDiscCauseFarEnd  Integer32
+}
+
+ccmeEphoneDnChNum OBJECT-TYPE
+    SYNTAX          Integer32 (1..2)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Ephone-DN (line) channel number for this entry." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 1 }
+
+ccmeEphoneDnChIncoming OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of incoming calls received by
+        this Ephone-DN (line) channel." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 2 }
+
+ccmeEphoneDnChInAnswered OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of incoming calls answered by this
+        Ephone-DN (line) channel." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 3 }
+
+ccmeEphoneDnChOutbound OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of calls placed by this
+        Ephone-DN (line) channel." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 4 }
+
+ccmeEphoneDnChOutAnswered OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of calls that were placed and
+        answered by this Ephone-DN (line) channel." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 5 }
+
+ccmeEphoneDnChOutBusy OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of calls that were placed from
+        this channel and were not answered because 
+        of busy line." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 6 }
+
+ccmeEphoneDnChDiscAtConn OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of calls that were placed from
+        this channel and were disconnected during 
+        call setup." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 7 }
+
+ccmeEphoneDnChDiscAtAlert OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of calls that were placed from
+        this channel and were disconnected during 
+        call alerting stage." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 8 }
+
+ccmeEphoneDnChDiscAtHold OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of calls that were placed from
+        this channel and were disconnected during 
+        call was put on hold." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 9 }
+
+ccmeEphoneDnChDiscAtRing OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Total number of calls that were received on
+        this channel and were disconnected during 
+        alerting state." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 10 }
+
+ccmeEphoneDnChDiscCauseNearEnd OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The last near end disconnect cause code
+        seen by this channel." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 11 }
+
+ccmeEphoneDnChDiscCauseFarEnd OBJECT-TYPE
+    SYNTAX          Integer32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The last far end disconnect cause code
+        seen by this channel." 
+    ::= { ccmeEphoneDnChStatsHistoryEntry 12 }
+ 
+
+-- *****************************************************************
+-- Notifications
+-- *****************************************************************
+
+ccmeMIBNotifications  OBJECT IDENTIFIER
+    ::= { ciscoCcmeMIBNotifs 0 }
+
+
+ccmeStatusChangeNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        ccmeSysTrapSeverity,
+                        ccmeEnabled,
+                        ccmeSysNotificationReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A ccmeStatusChangeNotif is generated if there is a change
+        in ccmeEnabled. This notification is generated only when 
+        value of the 'ccmeNotificationEnable' object is 'true'."
+   ::= { ccmeMIBNotifications 1 }
+
+ccmeEphoneUnRegThresholdExceed NOTIFICATION-TYPE
+    OBJECTS         { ccmeEphoneUnRegThreshold }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated every time the total
+        number of Ephones registered is exceeded and then dropped 
+        below threshold specified by 'ccmeEphoneUnRegThreshold' 
+        object. This objects is generated only if 
+        'ccmeNotificationEnable' object is 'true'."
+   ::= { ccmeMIBNotifications 2 }
+
+ccmeEPhoneDeceased NOTIFICATION-TYPE
+    OBJECTS         {
+                        ccmeEphoneIpAddress,
+                        ccmeEphoneRegState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated every time registered Ephone
+        changes state to 'Deceased', indicating that the connection
+        to the Cisco IP phone was closed because of a keepalive
+        timeout.  This objects is generated only if 
+        'ccmeNotificationEnable' object is 'true'."
+   ::= { ccmeMIBNotifications 3 }
+
+ccmeEPhoneRegFailed NOTIFICATION-TYPE
+    OBJECTS         {
+                        ccmeEphoneIpAddress,
+                        ccmeEphoneTrapReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated every time an Ephone
+        attempts to register but fails. This notification is
+        only for those failures seen by the CCME or SRST 
+        gateway. This objects is generated only if 
+        'ccmeNotificationEnable' object is 'true'."
+   ::= { ccmeMIBNotifications 4 }
+
+ccmeEphoneLoginFailed NOTIFICATION-TYPE
+    OBJECTS         {
+                        ccmeEphoneIpAddress,
+                        ccmeEphoneTrapReason
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is generated every time an Ephone user
+        login is rejected/failed.
+        This objects is generated only if 'ccmeNotificationEnable' 
+        object is 'true'."
+   ::= { ccmeMIBNotifications 5 }
+
+ccmeNightServiceChangeNotif NOTIFICATION-TYPE
+    OBJECTS         { ccmeEphoneTrapReason }
+    STATUS          current
+    DESCRIPTION
+        "A ccmeNightServiceChangeNotif notification is generated
+        if there is change in night service status on this 
+        device. This objects is generated only if 
+        'ccmeNotificationEnable' object is 'true'."
+   ::= { ccmeMIBNotifications 6 }
+
+ccmeLivefeedMohFailedNotif NOTIFICATION-TYPE
+    OBJECTS         { ccmeEphoneTrapReason }
+    STATUS          current
+    DESCRIPTION
+        "A ccmeLivefeedMohFailedNotif notification is generated
+        when the Music-on-hold (Moh) live feed has failed. This 
+        objects is generated only if 'ccmeNotificationEnable' 
+        object is 'true'."
+   ::= { ccmeMIBNotifications 7 }
+
+ccmeMaxConferenceNotif NOTIFICATION-TYPE
+    OBJECTS         { ccmeEphoneTrapReason }
+    STATUS          current
+    DESCRIPTION
+        "A ccmeMaxConferenceNotif notification is generated
+        if the maximum number of simultaneous three-party
+        conferences supported by the Cisco CallManager
+        Express is exceeded. This objects is generated only if
+        'ccmeNotificationEnable' object is 'true'."
+   ::= { ccmeMIBNotifications 8 }
+
+ccmeKeyEphoneRegChangeNotif NOTIFICATION-TYPE
+    OBJECTS         {
+                        ccmeEphoneIpAddress,
+                        ccmeEphoneRegState
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A ccmeKeyEphoneRegChangeNotif notification is generated
+        if there is a change in the registration status of Key 
+        IP phone.  This objects is generated only if
+        'ccmeNotificationEnable' object is 'true'."
+   ::= { ccmeMIBNotifications 9 }
+-- *****************************************************************
+-- Conformance
+-- *****************************************************************
+
+ciscoCcmeMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoCcmeMIBConform 1 }
+
+ciscoCcmeMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoCcmeMIBConform 2 }
+
+
+ciscoCcmeMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the Cisco CallManager Express
+        MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ccmeConfigGroup,
+                        ccmeActiveStatsGroup,
+                        ccmeHistoryStatsGroup,
+                        ccmeNotifGroup
+                    }
+    ::= { ciscoCcmeMIBCompliances 1 }
+
+ciscoCcmeMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for the Cisco CallManager Express
+        MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ccmeActiveStatsGroup,
+                        ccmeHistoryStatsGroup,
+                        ccmeNotifGroup,
+                        ccmeConfigGroup,
+                        ccmeConfigGroup1
+                    }
+    ::= { ciscoCcmeMIBCompliances 2 }
+
+ciscoCcmeMIBComplianceRev2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Add the enhancement to monitor Extension Mobility phones
+        including their configuration"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ccmeConfigGroup,
+                        ccmeActiveStatsGroup,
+                        ccmeHistoryStatsGroup,
+                        ccmeNotifGroup,
+                        ccmeConfigGroup1,
+                        ccmeConfigGroupEM,
+                        ccmeActiveStatsGroupEM
+                    }
+    ::= { ciscoCcmeMIBCompliances 3 }
+
+-- Units of Conformance
+
+ccmeConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccmeEnabled,
+                        ccmeVersion,
+                        ccmeIPAddressType,
+                        ccmeIPAddress,
+                        ccmePortNumber,
+                        ccmeMaxEphones,
+                        ccmeMaxDirectoryNumber,
+                        ccmeMaxConferences,
+                        ccmeMaxRedirect,
+                        ccmeScriptName,
+                        ccmeVoiceMailNumber,
+                        ccmeMwiRelay,
+                        ccmeMwiExpires,
+                        ccmeTransferSystem,
+                        ccmeTimeFormat,
+                        ccmeDateFormat,
+                        ccmeUrlforServicesBtn,
+                        ccmeUrlforDirectoriesBtn,
+                        ccmeMohFlashFile,
+                        ccmeMohMulticastFromFlashEnabled,
+                        ccmeMohFlashMulticastIPAddrType,
+                        ccmeMohFlashMulticastIPAddr,
+                        ccmeMohFlashMulticastPortNum,
+                        ccmePhoneType,
+                        ccmePhoneFirmwareRev,
+                        ccmeTransferPattern,
+                        ccmeTransferPatternType,
+                        ccmeWebGUIEditEnabled,
+                        ccmeWebGUITimeEnabled,
+                        ccmeAfterHrsBlockPattern,
+                        ccmeAfterHrsBlockPatternAllTime,
+                        ccmeAfterHrsBlockDateMonth,
+                        ccmeAfterHrsBlockDate,
+                        ccmeAfterHrsBlockDateStartHour,
+                        ccmeAfterHrsBlockDateStartMin,
+                        ccmeAfterHrsBlockDateStopHour,
+                        ccmeAfterHrsBlockDateStopMin,
+                        ccmeAfterHrsBlockDay,
+                        ccmeAfterHrsBlockDayStartHour,
+                        ccmeAfterHrsBlockDayStartMin,
+                        ccmeAfterHrsBlockDayStopHour,
+                        ccmeAfterHrsBlockDayStopMin,
+                        ccmeNightServiceCode,
+                        ccmeNightServiceDateMonth,
+                        ccmeNightServiceDate,
+                        ccmeNightServiceDateStartHour,
+                        ccmeNightServiceDateStartMin,
+                        ccmeNightServiceDateStopHour,
+                        ccmeNightServiceDateStopMin,
+                        ccmeNightServiceDay,
+                        ccmeNightServiceDayStartHour,
+                        ccmeNightServiceDayStartMin,
+                        ccmeNightServiceDayStopHour,
+                        ccmeNightServiceDayStopMin,
+                        ccmeFXOHookFlashEnabled,
+                        ccmeSecondaryDialTonePrefix,
+                        ccmeWebAdminSystemUser,
+                        ccmeWebAdminCustomerUser,
+                        ccmeSystemMessage,
+                        ccmeDialplanPatternTag,
+                        ccmeDialplanPattern,
+                        ccmeDialplanExtLength,
+                        ccmeDialplanExtPattern,
+                        ccmeDialplanAllowRegiEnabled,
+                        ccmeKeepAliveTimeout,
+                        ccmeInterDigitTimeout,
+                        ccmeBusyTimeout,
+                        ccmeAlertTimeout,
+                        ccmeEphoneIpAddressType,
+                        ccmeEphoneIpAddress,
+                        ccmeEphoneMacAddress,
+                        ccmeEphoneModel,
+                        ccmeEphoneDnType,
+                        ccmeEphoneDnMode,
+                        ccmeEphoneDnPriNum,
+                        ccmeEphoneDnSecNum,
+                        ccmeEphoneDnName,
+                        ccmeEphoneDnLabel,
+                        ccmeEphoneDnPriPref,
+                        ccmeEphoneDnSecPref,
+                        ccmeEphoneDnCFBusyNum,
+                        ccmeEphoneDnCFAllNum,
+                        ccmeEphoneDnCFNoAnNum,
+                        ccmeEphoneDnCFNoAnTo,
+                        ccmeEphoneDnMwiCapability,
+                        ccmeEphoneDnHuntstop,
+                        ccmeEphoneDnHuntstopCh,
+                        ccmeEphoneDnHoldAltTo,
+                        ccmeEphoneDnHoldAltType,
+                        ccmeEphoneDnMwiSipSubscrEnabled,
+                        ccmeEphoneDnScriptName,
+                        ccmeEphoneUsername,
+                        ccmeNotificationEnable,
+                        ccmeSysTrapSeverity,
+                        ccmeSysNotificationReason,
+                        ccmeEphoneUnRegThreshold,
+                        ccmeEphoneKeyPhone,
+                        ccmeEphoneKeepAlive,
+                        ccmeEphoneAutoLineInEnabled,
+                        ccmeEphoneAutoLineOut,
+                        ccmeEphonePagingDn,
+                        ccmeEphonePagingPolicy,
+                        ccmeEphoneTemplate,
+                        ccmeEphoneAftHrsBlkExmptEnabled,
+                        ccmeEphoneNightBellSvcEnabled,
+                        ccmeEphoneAddon,
+                        ccmeEphoneKeepConfEnabled,
+                        ccmeEphoneTrapReason,
+                        ccmeUserAutoLogoutTo,
+                        ccmeUserLoginDeactivateTime,
+                        ccmeMwiSipServerIpAddress,
+                        ccmeMwiSipServerTransportType,
+                        ccmeMwiSipServerPortNumber,
+                        ccmeMwiSipServerRegE164Enabled,
+                        ccmeMwiSipSvrUnsolicitedEnabled,
+                        ccmeCorTag,
+                        ccmeCorListName,
+                        ccmeCorScope,
+                        ccmeCorDirection,
+                        ccmeCorStartingNumber,
+                        ccmeCorEndingNumber,
+                        ccmeCorVoiceRegPoolNumber,
+                        ccmeCorListDefaultEnabled,
+                        ccmeLoopbackDnforward,
+                        ccmeLoopbackDnStrip,
+                        ccmeLoopbackDnPrefix,
+                        ccmeLoopbackDnSuffix,
+                        ccmeLoopbackDnRetryTo,
+                        ccmeLoopbackDnAutoCon,
+                        ccmeLoopbackDnCodec,
+                        ccmeIntercomDnExtensionNum,
+                        ccmeIntercomDnBargeInEnabled,
+                        ccmeIntercomDnAutoAnsEnabled,
+                        ccmeIntercomDnLabel,
+                        ccmeEphoneSpeedDialTag,
+                        ccmeEphoneSpeedDialNumber,
+                        ccmeEphoneSpeedDialLabel,
+                        ccmeEphoneFastDialNumber,
+                        ccmeEphoneFastDialName,
+                        ccmeEphoneOverlayDN,
+                        ccmeMohMulticastIpAddressType,
+                        ccmeMohMulticastIpAddress,
+                        ccmeMohMulticastPortNumber,
+                        ccmeMohMulticastRoute
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which are used to show the
+        configuration of Cisco CallManager Express feature."
+    ::= { ciscoCcmeMIBGroups 1 }
+
+ccmeActiveStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccmeEphoneCallLegs,
+                        ccmeEphoneTot,
+                        ccmeEphoneTotRegistered,
+                        ccmeEphoneTotKeyPhConfigured,
+                        ccmeEphoneTotKeyPhRegistered,
+                        ccmeEphoneDeviceName,
+                        ccmeEphoneRegState,
+                        ccmeEphoneActiveDN,
+                        ccmeEphoneActivityStatus,
+                        ccmeEphoneKeepAliveCnt,
+                        ccmeEphonePendingReset,
+                        ccmeEphoneRegTime,
+                        ccmeEphoneCurrentFirmwareRev,
+                        ccmeEphonePreviousFirmwareRev,
+                        ccmeEphoneLastError,
+                        ccmeEphoneObservedType,
+                        ccmeEphoneLoginStatus,
+                        ccmeEphoneDnDStatus,
+                        ccmeEphoneDebugStatus,
+                        ccmeEphoneMediaActive,
+                        ccmeEphoneTAPIClient,
+                        ccmeEphoneMediaCapability,
+                        ccmeEphoneRemote,
+                        ccmeMohSource,
+                        ccmeNightServiceEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that show the
+        active status of Cisco CallManager Express, Ephone 
+        and EphoneDN."
+    ::= { ciscoCcmeMIBGroups 2 }
+
+ccmeHistoryStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        ccmeEphoneDnChIncoming,
+                        ccmeEphoneDnChInAnswered,
+                        ccmeEphoneDnChOutbound,
+                        ccmeEphoneDnChOutAnswered,
+                        ccmeEphoneDnChOutBusy,
+                        ccmeEphoneDnChDiscAtConn,
+                        ccmeEphoneDnChDiscAtAlert,
+                        ccmeEphoneDnChDiscAtHold,
+                        ccmeEphoneDnChDiscAtRing,
+                        ccmeEphoneDnChDiscCauseNearEnd,
+                        ccmeEphoneDnChDiscCauseFarEnd
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Selects the group of objects that display the
+        history status of EphoneDN."
+    ::= { ciscoCcmeMIBGroups 3 }
+
+ccmeNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        ccmeStatusChangeNotif,
+                        ccmeEphoneUnRegThresholdExceed,
+                        ccmeEPhoneDeceased,
+                        ccmeEPhoneRegFailed,
+                        ccmeEphoneLoginFailed,
+                        ccmeNightServiceChangeNotif,
+                        ccmeLivefeedMohFailedNotif,
+                        ccmeMaxConferenceNotif,
+                        ccmeKeyEphoneRegChangeNotif
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of notifications for the Cisco
+        CallManager Express features."
+    ::= { ciscoCcmeMIBGroups 4 }
+
+ccmeConfigGroup1 OBJECT-GROUP
+    OBJECTS         { ccmeEphonePrimaryDn }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object which indicates the primary
+        extension DN of an IP phone."
+    ::= { ciscoCcmeMIBGroups 5 }
+
+ccmeConfigGroupEM OBJECT-GROUP
+    OBJECTS         {
+                        ccmeEMUserProfileTag,
+                        ccmeEMLogOutProfileTag,
+                        ccmeEMUserDirNum,
+                        ccmeEMUserDirNumOverlay,
+                        ccmeEMLogoutDirNum,
+                        ccmeEMLogoutDirNumOverlay
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of object which indicates a Cisco extension
+        mobility IP phone."
+    ::= { ciscoCcmeMIBGroups 6 }
+
+ccmeActiveStatsGroupEM OBJECT-GROUP
+    OBJECTS         {
+                        ccmeEMphoneTot,
+                        ccmeEMphoneTotRegistered
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that show the
+        active status of Extension Mobility phones on this Cisco
+        CallManager Express."
+    ::= { ciscoCcmeMIBGroups 7 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

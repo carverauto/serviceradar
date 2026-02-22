@@ -1,0 +1,546 @@
+-- MIB file created 21-Jun-2005 11:54:25, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-SECURE-SHELL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SECURE-SHELL-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TimeStamp, DisplayString, TruthValue
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoSecureShellMIB OBJECT IDENTIFIER ::= { ciscoMgmt 339 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200506010000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--     Tel: +1 800 553 -NETS
+--     E-mail: cs-san@cisco.com,
+--             cs-lan-switch-snmp@cisco.com
+--  Descr
+--    MIB module for displaying and configuring 
+--    accounting and Secure Shell (SSH) related  
+--    features in a device.
+--    
+--    SSH is a program to log into another computer over
+--    a network, to execute commands in a remote machine 
+--    and to move files from one machine to another. It
+--    provides strong authentication and secure communications
+--    over unsecure channels.
+--    
+--    For more information on SSH, please refer to IETF draft,
+--    draft-ietf-tls-ssh-00.txt.
+--  RevDate
+--    200506010000Z
+--  RevDescr
+--    Added cssKeyGenerationStatus
+--  RevDate
+--    200404050000Z
+--  RevDescr
+--    Added cssServiceModeCfgGroup and cssSessionInfoGroup
+--    to the MIB module.
+--  RevDate
+--    200309180000Z
+--  RevDescr
+--    Added cssKeyString object to the cssKeyTable.
+--     Changed the description of cssServiceActivation
+--  RevDate
+--    200210050000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoSecureShellMIBObjects OBJECT IDENTIFIER ::= { ciscoSecureShellMIB 1 }
+cssConfiguration OBJECT IDENTIFIER ::= { ciscoSecureShellMIBObjects 1 }
+cssSessionInfo  OBJECT IDENTIFIER ::= { ciscoSecureShellMIBObjects 2 }
+ciscoSecureShellMIBConformance OBJECT IDENTIFIER ::= { ciscoSecureShellMIB 2 }
+ciscoSecureShellMIBCompliances OBJECT IDENTIFIER ::= { ciscoSecureShellMIBConformance 1 }
+ciscoSecureShellMIBGroups OBJECT IDENTIFIER ::= { ciscoSecureShellMIBConformance 2 }
+
+CssVersions ::= OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   v1(0)
+        --   v2(1)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An indication of the Secure Shell protocol versions 
+--     supported or enabled on the device.
+
+cssServiceActivation OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Enables or disables the Secure Shell (SSH) service on 
+         the device. "
+    DEFVAL { false }
+    ::= { cssConfiguration 1 }
+
+cssKeyTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CssKeyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "cssKeyTable is a table that lets the user configure 
+         the SSH keys"
+    ::= { cssConfiguration 2 }
+
+cssKeyEntry OBJECT-TYPE
+    SYNTAX CssKeyEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A SSH key table entry. The index specifies which
+         protocol the user wants to generate the key for.
+        
+         To create the key for a protocol (for the first time),  
+         following steps are to be taken by the Network 
+         Management System.
+        
+         1. Choose the Protocol, by specifying the cssKeyIndex
+         2. Choose nbits, by specifying the cssKeyNBits value
+         3. cssKeyRowStatus as createAndGo (4)
+        
+         To delete the key for a protocol, following steps 
+         are to be taken by the Network Management System 
+        
+         1. Choose the Protocol, by specifying the cssKeyIndex
+         2. cssKeyRowStatus as destroy (6)
+        
+         To overwrite the existing key for a protocol 
+        
+         1. Choose the Protocol, by specifying the cssKeyIndex 
+         2. Choose the nbits, by specifying the cssKeyNBits value
+         3. cssKeyOverWrite as true(1)."
+    INDEX { cssKeyIndex }
+    ::= { cssKeyTable 1 }
+
+CssKeyEntry ::= SEQUENCE {
+    cssKeyIndex INTEGER,
+    cssKeyNBits INTEGER,
+    cssKeyOverWrite TruthValue,
+    cssKeyLastCreationTime TimeStamp,
+    cssKeyRowStatus RowStatus,
+    cssKeyString DisplayString
+    }
+
+cssKeyIndex OBJECT-TYPE
+    SYNTAX INTEGER {
+        rsa(1),
+        rsa1(2),
+        dsa(3)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The SSH Protocol Identifier for which this entry 
+         pertains to. The protocol can be rsa1, dsa or rsa.
+        
+         rsa  - A public-key cryptosystem defined by Rivest,
+               Shamir and Adleman. This is used with version 2 
+               of the SSH.
+        
+         rsa1 - Same as rsa, but this is used with version 1 of 
+                the SSH.
+        
+         dsa  - Digital Signature Algorithm, a public key
+               cipher used to generate digital signatures."
+    ::= { cssKeyEntry 1 }
+
+cssKeyNBits OBJECT-TYPE
+    SYNTAX INTEGER(512..2048)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The number of bits provided to generate the key.
+         This determines the length of the kestring
+         generated by the SSH.
+        
+         This object cannot be modified while this row is
+         active, unless the associated cssKeyOverWrite 
+         object is set to True in the same Set PDU."
+    ::= { cssKeyEntry 2 }
+
+cssKeyOverWrite OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether an existing key for 
+         the protocol should be overwritten with a new key.
+         No action is taken if this object is set to 'false'.
+         The value of this object when read is always 'false'."
+    ::= { cssKeyEntry 3 }
+
+cssKeyLastCreationTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time of the last creation of the key."
+    ::= { cssKeyEntry 4 }
+
+cssKeyRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Status of this row."
+    ::= { cssKeyEntry 5 }
+
+cssKeyString OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The SSH public key string that is generated."
+    ::= { cssKeyEntry 6 }
+
+cssServiceCapability OBJECT-TYPE
+    SYNTAX CssVersions
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           v1(0)
+--           v2(1)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates which versions of Secure Shell protocol
+        are supported by the device.
+        
+        If the bit 'v1' is set to 1, it indicates that the device 
+        supports SSH protocol version 1. 
+        
+        If the bit 'v2' is set to 1, it indicates that the device 
+        supports SSH protocol version 2."
+    ::= { cssConfiguration 3 }
+
+cssServiceMode OBJECT-TYPE
+    SYNTAX CssVersions
+--    Rsyntax OCTET STRING(SIZE(1..2))
+--         BITS are:
+--           v1(0)
+--           v2(1)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies which versions of Secure Shell 
+        protocol connections that device will accept from 
+        Secure Shell clients.
+        
+        If the bit 'v1' is set to 1, the device will accept 
+        SSH version 1 connections. 
+        
+        If the bit 'v2' is set to 1, the device will accept 
+        SSH version 2 connections. 
+        
+        At least one of the version bits must be set to 1."
+    ::= { cssConfiguration 4 }
+
+cssKeyGenerationStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        inProgress(1),
+        successful(2),
+        failed(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the status of the last key 
+         generation request."
+    ::= { cssConfiguration 5 }
+
+cssSessionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CssSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table to list detailed information about existing  
+        Secure Shell sessions on the device."
+    ::= { cssSessionInfo 1 }
+
+cssSessionEntry OBJECT-TYPE
+    SYNTAX CssSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cssSessionTable, that provides
+        detailed information about all the existing SSH sessions on
+        the device. 
+        
+        An entry will be created for every SSH session established
+        on the device. The entry will be removed upon termination
+        of the SSH session."
+    INDEX { cssSessionID }
+    ::= { cssSessionTable 1 }
+
+CssSessionEntry ::= SEQUENCE {
+    cssSessionID Gauge,
+    cssSessionVersion INTEGER,
+    cssSessionState INTEGER,
+    cssSessionPID Gauge,
+    cssSessionUserID SnmpAdminString,
+    cssSessionHostAddrType InetAddressType,
+    cssSessionHostAddr InetAddress
+    }
+
+cssSessionID OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An arbitrary index that uniquely identifies a Secure Shell
+        Session"
+    ::= { cssSessionEntry 1 }
+
+cssSessionVersion OBJECT-TYPE
+    SYNTAX INTEGER {
+        one(1),
+        two(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the version of Secure Shell used by
+        this session."
+    ::= { cssSessionEntry 2 }
+
+cssSessionState OBJECT-TYPE
+    SYNTAX INTEGER {
+        sshSessionVersionOk(1),
+        sshSessionKeysExchanged(2),
+        sshSessionAuthenticated(3),
+        sshSessionOpen(4),
+        sshSessionDisconnecting(5),
+        sshSessionDisconnected(6),
+        sshSessionClosed(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the current state of Secure Shell 
+        Session.
+        
+        The state sshSessionVersionOk(1) indicates that server and 
+        client versions of SSH are exchanged and are compatible.
+        
+        The state sshSessionKeysExchanged(2) indicates that key 
+        exchange has been completed.
+        
+        The state sshSessionAuthenticated(3) indicates that the 
+        client has been successfully authenticated.
+        
+        The state sshSessionOpen(4) indicates that the session has  
+        been successfully opened.
+        
+        The state sshSessionDisconnecting(5) indicates that the
+        session disconnection has begun.
+        
+        The state sshSessionDisconnected(6) indicates that the
+        session has been disconnected.
+        
+        The state sshSessionClosed(7) indicates that the session 
+        has closed."
+    ::= { cssSessionEntry 3 }
+
+cssSessionPID OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the process ID of the process
+        serving this SSH session on the device."
+    ::= { cssSessionEntry 4 }
+
+cssSessionUserID OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates user name associated with this 
+        SSH session."
+    ::= { cssSessionEntry 5 }
+
+cssSessionHostAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object describes the type of Internet address used
+        by host associated with this SSH session."
+    ::= { cssSessionEntry 6 }
+
+cssSessionHostAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the Internet address of the host
+        associated with this SSH session."
+    ::= { cssSessionEntry 7 }
+
+cssConfigurationGroup OBJECT IDENTIFIER ::= { ciscoSecureShellMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects for SSH configuration.
+--  objects
+--    cssServiceActivation, cssKeyNBits, cssKeyOverWrite, 
+--    cssKeyLastCreationTime, cssKeyRowStatus
+
+cssConfigurationGroupRev1 OBJECT IDENTIFIER ::= { ciscoSecureShellMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for SSH configuration.
+--  objects
+--    cssServiceActivation, cssKeyNBits, cssKeyOverWrite, 
+--    cssKeyLastCreationTime, cssKeyString, cssKeyRowStatus
+
+cssServiceModeCfgGroup OBJECT IDENTIFIER ::= { ciscoSecureShellMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for SSH mode configuration.
+--  objects
+--    cssServiceCapability, cssServiceMode
+
+cssSessionInfoGroup OBJECT IDENTIFIER ::= { ciscoSecureShellMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to display SSH 
+--    session related information.
+--  objects
+--    cssSessionVersion, cssSessionState, cssSessionPID, 
+--    cssSessionUserID, cssSessionHostAddrType, cssSessionHostAddr
+
+cssConfigurationGroupSupp1 OBJECT IDENTIFIER ::= { ciscoSecureShellMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for SSH configuration.
+--  objects
+--    cssKeyGenerationStatus
+
+ciscoSecureShellMIBCompliance OBJECT IDENTIFIER ::= { ciscoSecureShellMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-SECURE-SHELL-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cssConfigurationGroup
+--   ObjVar
+--    cssKeyRowStatus
+
+ciscoSecureShellMIBComplianceRv1 OBJECT IDENTIFIER ::= { ciscoSecureShellMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-SECURITY-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cssConfigurationGroupRev1
+--   ObjVar
+--    cssKeyRowStatus
+
+ciscoSecureShellMIBComplianceRv2 OBJECT IDENTIFIER ::= { ciscoSecureShellMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-SECURE-SHELL-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cssConfigurationGroupRev1
+--   ObjVar
+--    cssKeyRowStatus
+--   OptGroup
+--    cssServiceModeCfgGroup
+--   OptGroup
+--    cssSessionInfoGroup
+
+ciscoSecureShellMIBComplianceRv3 OBJECT IDENTIFIER ::= { ciscoSecureShellMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO-SECURE-SHELL-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cssConfigurationGroupRev1
+--   MandGroup
+--    cssConfigurationGroupSupp1
+--   ObjVar
+--    cssKeyRowStatus
+--   OptGroup
+--    cssServiceModeCfgGroup
+--   OptGroup
+--    cssSessionInfoGroup
+
+
+END
+

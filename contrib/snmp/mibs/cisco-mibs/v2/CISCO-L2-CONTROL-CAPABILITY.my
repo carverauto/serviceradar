@@ -1,0 +1,302 @@
+-- *********************************************************************
+-- CISCO-L2-CONTROL-CAPABILITY.my:
+-- Cisco CISCO-L2-CONTROL-MIB AGENT-CAPABILITIES
+--   
+-- Oct. 2003, Frank Chao
+--   
+-- Copyright(c) 2003, 2004, 2005, 2006, 2007, 2013 by
+-- Cisco Systems, Inc.
+--   
+-- *********************************************************************
+
+CISCO-L2-CONTROL-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoL2ControlCapability MODULE-IDENTITY
+    LAST-UPDATED    "201310160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The Agent capabilities for CISCO-L2-CONTROL-MIB."
+    REVISION        "201310160000Z"
+    DESCRIPTION
+        "Added clcCapabilityV6R0002U0102PN3K agent
+        capability statement."
+    REVISION        "200706300000Z"
+    DESCRIPTION
+        "Added clcCapabilityV12R0233SXHPCat6K agent
+        capability statement."
+    REVISION        "200702280000Z"
+    DESCRIPTION
+        "Added clcCapabilityCatOSV08R0601 agent
+        capability statement and added VARIATIONS 
+        of clcMacLimitExceededActionDefault to
+        clcCapabilityV12R0217aSXCat6K."
+    REVISION        "200411010000Z"
+    DESCRIPTION
+        "clcVlanMacAddressLimitGroup is supported in
+        clcCapabilityV12R0217aSXCat6K capability
+        statement."
+    REVISION        "200403290000Z"
+    DESCRIPTION
+        "Added clcCapabilityCatOSV08R0301 agent
+        capability statement."
+    REVISION        "200310310000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 397 }
+
+
+
+clcCapabilityV12R0217aSXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(17a)SX on Catalyst 6000/6500
+                      and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L2-CONTROL-MIB capabilities."
+
+    SUPPORTS        CISCO-L2-CONTROL-MIB
+    INCLUDES        {
+                        clcMacAddressLimitGroup,
+                        clcVlanMacAddressLimitGroup,
+                        clcVlanMacLimitNotifsGroup
+                    }
+    VARIATION       clcMacLimitExceededActionDefault
+    SYNTAX          INTEGER  {
+                        warning(1),
+                        limit(2),
+                        shutdown(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    ::= { ciscoL2ControlCapability 1 }
+
+clcCapabilityCatOSV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1)."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L2-CONTROL-MIB capabilities."
+
+    SUPPORTS        CISCO-L2-CONTROL-MIB
+    INCLUDES        { clcUnicastFloodGroup }
+    ::= { ciscoL2ControlCapability 2 }
+
+clcCapabilityCatOSV08R0601 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.6(1) on Catalyst 6000/6500
+                      and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L2-CONTROL-MIB capabilities."
+
+    SUPPORTS        CISCO-L2-CONTROL-MIB
+    INCLUDES        {
+                        clcMacAddressLimitGroup,
+                        clcVlanMacAddressLimitGroup,
+                        clcVlanMacLimitNotifsGroup,
+                        clcUnicastFloodGroup,
+                        clcMacAddressLimitIntervalGroup,
+                        clcMacAddressLimitGroup1,
+                        clcVlanMacAddressLimitGroup1,
+                        clcVlanMacLimitEnableGroup,
+                        clcVlanMacLimitNotifControlGroup,
+                        clcVlanMacLimitNotifControlGroup1,
+                        clcVlanMacLimitNotifsGroup1,
+                        clcIfMacAddressLimitGroup,
+                        clcIfMacLimitEnableGroup,
+                        clcIfMacLimitNotifControlGroup,
+                        clcIfMacLimitNotifsGroup,
+                        clcIfVlanMacAddressLimitGroup,
+                        clcIfVlanMacLimitEnableGroup,
+                        clcIfVlanMacLimitNotifControlGroup,
+                        clcIfVlanMacLimitNotifsGroup
+                    }
+    VARIATION       clcMaxMacLimitDefault
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation supports read-only access
+        for this object."
+
+    VARIATION       clcMacLimitExceededActionDefault
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation supports read-only access
+        for this object."
+
+    VARIATION       clcMacLimitExceedNotifOption
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation supports read-only access
+        for this object."
+
+    VARIATION       clcMacLimitHighDefault
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation supports read-only access
+        for this object."
+
+    VARIATION       clcMacLimitHighExceedActionDef
+    ACCESS          read-only
+    DESCRIPTION
+        "Implementation supports read-only access
+        for this object."
+
+    VARIATION       clcMacLimitInterval
+    SYNTAX          Unsigned32 (5..3600)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       clcVlanMaxMacLimit
+    SYNTAX          Unsigned32 (0 | 5..32000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       clcVlanMacLimitExceededAction
+    SYNTAX          INTEGER  {
+                        warning(1),
+                        limit(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       clcVlanMacLimitHigh
+    SYNTAX          Unsigned32 (0 | 5..32000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       clcVlanMacLimitHighExceedAction
+    SYNTAX          INTEGER  {
+                        warning(1),
+                        limit(2),
+                        shutdown(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       clcIfMacLimitLow
+    SYNTAX          Unsigned32 (0 | 5..32000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       clcIfMacLimitLowExceedAction
+    SYNTAX          INTEGER  {
+                        warning(1),
+                        limit(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       clcIfMacLimitHigh
+    SYNTAX          Unsigned32 (0 | 5..32000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       clcIfMacLimitHighExceedAction
+    SYNTAX          INTEGER  {
+                        warning(1),
+                        limit(2),
+                        shutdown(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       clcIfVlanMacLimitLow
+    SYNTAX          Unsigned32 (0 | 5..32000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       clcIfVlanMacLimitLowExceedAction
+    SYNTAX          INTEGER  {
+                        warning(1),
+                        limit(2)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    VARIATION       clcIfVlanMacLimitHigh
+    SYNTAX          Unsigned32 (0 | 5..32000)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       clcIfVlanMacLimitHiExceedAction
+    SYNTAX          INTEGER  {
+                        warning(1),
+                        limit(2),
+                        shutdown(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    ::= { ciscoL2ControlCapability 3 }
+
+clcCapabilityV12R0233SXHPCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                       series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L2-CONTROL-MIB capabilities."
+
+    SUPPORTS        CISCO-L2-CONTROL-MIB
+    INCLUDES        {
+                        clcMacAddressLimitGroup,
+                        clcVlanMacAddressLimitGroup,
+                        clcVlanMacLimitNotifsGroup,
+                        clcUnicastFloodGroup
+                    }
+    VARIATION       clcMacLimitExceededActionDefault
+    SYNTAX          INTEGER  {
+                        warning(1),
+                        limit(2),
+                        shutdown(4)
+                    }
+    DESCRIPTION
+        "Only limited set of enumerated values
+        are supported."
+
+    ::= { ciscoL2ControlCapability 4 }
+
+clcCapabilityV6R0002U0102PN3K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.0(2)U1(2) on Nexus 3000
+                       series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-L2-CONTROL-MIB capabilities."
+
+    SUPPORTS        CISCO-L2-CONTROL-MIB
+    INCLUDES        { clcMacAddressStatsGroup }
+    ::= { ciscoL2ControlCapability 5 }
+
+END
+
+
+
+
+
+

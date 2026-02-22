@@ -1,0 +1,647 @@
+-- *****************************************************************
+-- LLDP-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-LLDP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200Unsigned64 FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200LldpMib MODULE-IDENTITY
+    LAST-UPDATED "201403110000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the LLDP MIB"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310080000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 34 }
+
+
+ME1200lldpAdminState ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumerations the admin state."
+    SYNTAX      INTEGER { disabled(0), txAndRx(1), txOnly(2), rxOnly(3) }
+
+me1200LldpObjects OBJECT IDENTIFIER
+    ::= { me1200LldpMib 1 }
+
+me1200LldpConfig OBJECT IDENTIFIER
+    ::= { me1200LldpObjects 2 }
+
+me1200LldpGlobal OBJECT IDENTIFIER
+    ::= { me1200LldpConfig 1 }
+
+me1200LldpGlobalInitDelay OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set the LLDP tx reinitialization delay in seconds. Valid range 1-10.
+         Note: Must be less than 0.25 times the Tx interval."
+    ::= { me1200LldpGlobal 1 }
+
+me1200LldpGlobalMsgTxHold OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set the LLDP tx hold time in seconds. Valid range 2-10."
+    ::= { me1200LldpGlobal 2 }
+
+me1200LldpGlobalMsgTxInterval OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set the LLDP tx interval in seconds.. Valid range 5-32768."
+    ::= { me1200LldpGlobal 3 }
+
+me1200LldpGlobalTxDelay OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set the LLDP tx delay in seconds. Valid range 1-8192. Note: Must be
+         larger at least 4 times the size of Tx delay"
+    ::= { me1200LldpGlobal 4 }
+
+me1200LldpConfigurationTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpConfigurationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to configure LLDP configurations for a specific
+         interface."
+    ::= { me1200LldpConfig 2 }
+
+me1200LldpConfigurationEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpConfigurationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of control parameters"
+    INDEX       { me1200LldpConfigurationIfIndex }
+    ::= { me1200LldpConfigurationTable 1 }
+
+ME1200LldpConfigurationEntry ::= SEQUENCE {
+    me1200LldpConfigurationIfIndex    ME1200InterfaceIndex,
+    me1200LldpConfigurationAdminState     ME1200lldpAdminState,
+    me1200LldpConfigurationCdpAware   TruthValue,
+    me1200LldpConfigurationOptionalTlvs   ME1200Unsigned8
+}
+
+me1200LldpConfigurationIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LldpConfigurationEntry 1 }
+
+me1200LldpConfigurationAdminState OBJECT-TYPE
+    SYNTAX      ME1200lldpAdminState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Sets the LLDP admin state for the interface."
+    ::= { me1200LldpConfigurationEntry 3 }
+
+me1200LldpConfigurationCdpAware OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enables/disables CDP awareness for the interface."
+    ::= { me1200LldpConfigurationEntry 4 }
+
+me1200LldpConfigurationOptionalTlvs OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (0..31)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enables/Disables the LLDP optional TLVs. Bit mask, where setting the
+         bit to 1 means enable the optional TLV. Bit 0 represents Port
+         Description TLV. Bit 1 represents System Name TLV. Bit 2 represents
+         System Description. Bit 3 represents System Capabilities TLV. Bit 4
+         represents Management Address TLV."
+    ::= { me1200LldpConfigurationEntry 5 }
+
+me1200LldpStatus OBJECT IDENTIFIER
+    ::= { me1200LldpObjects 3 }
+
+me1200LldpStatistics OBJECT IDENTIFIER
+    ::= { me1200LldpStatus 2 }
+
+me1200LldpStatisticsGlobalCounters OBJECT IDENTIFIER
+    ::= { me1200LldpStatistics 1 }
+
+me1200LldpStatisticsGlobalCountersTableInserts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of new entries added since switch reboot."
+    ::= { me1200LldpStatisticsGlobalCounters 1 }
+
+me1200LldpStatisticsGlobalCountersTableDeletes OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of new entries deleted since switch reboot."
+    ::= { me1200LldpStatisticsGlobalCounters 2 }
+
+me1200LldpStatisticsGlobalCountersTableDrops OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of LLDP frames dropped due to the entry table being
+         full."
+    ::= { me1200LldpStatisticsGlobalCounters 3 }
+
+me1200LldpStatisticsGlobalCountersTableAgeOuts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of entries deleted due to Time-To-Live expiring."
+    ::= { me1200LldpStatisticsGlobalCounters 4 }
+
+me1200LldpStatisticsGlobalCountersLastChangeTime OBJECT-TYPE
+    SYNTAX      ME1200Unsigned64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the time when the last entry was last deleted or added. It also
+         shows the time elapsed since the last change was detected."
+    ::= { me1200LldpStatisticsGlobalCounters 5 }
+
+me1200LldpStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represents the LLDP interface counters"
+    ::= { me1200LldpStatistics 2 }
+
+me1200LldpStatisticsEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port interface has a set of statistics counters"
+    INDEX       { me1200LldpStatisticsIfIndex }
+    ::= { me1200LldpStatisticsTable 1 }
+
+ME1200LldpStatisticsEntry ::= SEQUENCE {
+    me1200LldpStatisticsIfIndex   ME1200InterfaceIndex,
+    me1200LldpStatisticsTxTotal   Unsigned32,
+    me1200LldpStatisticsRxTotal   Unsigned32,
+    me1200LldpStatisticsRxError   Unsigned32,
+    me1200LldpStatisticsRxDiscarded   Unsigned32,
+    me1200LldpStatisticsTLVsDiscarded     Unsigned32,
+    me1200LldpStatisticsTLVsUnrecognized      Unsigned32,
+    me1200LldpStatisticsTLVsOrgDiscarded      Unsigned32,
+    me1200LldpStatisticsAgeOuts   Unsigned32
+}
+
+me1200LldpStatisticsIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LldpStatisticsEntry 1 }
+
+me1200LldpStatisticsTxTotal OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of LLDP frames transmitted."
+    ::= { me1200LldpStatisticsEntry 2 }
+
+me1200LldpStatisticsRxTotal OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of LLDP frames received."
+    ::= { me1200LldpStatisticsEntry 3 }
+
+me1200LldpStatisticsRxError OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of received LLDP frames containing some kind of error."
+    ::= { me1200LldpStatisticsEntry 4 }
+
+me1200LldpStatisticsRxDiscarded OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Show the number of LLDP frames discarded. If a LLDP frame is received
+         at an interface, and the switch's internal table has run full, the LLDP
+         frame is counted and discarded. This situation is known as 'Too Many
+         Neighbors' in the LLDP standard. LLDP frames require a new entry in the
+         table when the Chassis ID or Remote Port ID is not already contained
+         within the table. Entries are removed from the table when a given
+         interface's link is down, an LLDP shutdown frame is received, or when
+         the entry ages out."
+    ::= { me1200LldpStatisticsEntry 5 }
+
+me1200LldpStatisticsTLVsDiscarded OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of TLVs discarded. Each LLDP frame can contain
+         multiple pieces of information, known as TLVs (TLV is short for 'Type
+         Length Value'). If a TLV is malformed, it is counted and discarded."
+    ::= { me1200LldpStatisticsEntry 6 }
+
+me1200LldpStatisticsTLVsUnrecognized OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of well-formed TLVs, but with an unknown type value."
+    ::= { me1200LldpStatisticsEntry 7 }
+
+me1200LldpStatisticsTLVsOrgDiscarded OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of well-formed TLVs, but with an organizationally TLV
+         which is not supported."
+    ::= { me1200LldpStatisticsEntry 8 }
+
+me1200LldpStatisticsAgeOuts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Show the number of age-outs. Each frame contains information about how
+         long time the LLDP information is valid (age-out time). If no new LLDP
+         frame is received within the age out time, the information is removed,
+         and the counter is incremented."
+    ::= { me1200LldpStatisticsEntry 9 }
+
+me1200LldpNeighborsInformationTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpNeighborsInformationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to show the LLDP neighbors information for a specific
+         interface."
+    ::= { me1200LldpStatus 3 }
+
+me1200LldpNeighborsInformationEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpNeighborsInformationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of neighbors information"
+    INDEX       { me1200LldpNeighborsInformationIfIndex, me1200LldpNeighborsInformationLldpIndex }
+    ::= { me1200LldpNeighborsInformationTable 1 }
+
+ME1200LldpNeighborsInformationEntry ::= SEQUENCE {
+    me1200LldpNeighborsInformationIfIndex     ME1200InterfaceIndex,
+    me1200LldpNeighborsInformationLldpIndex   Integer32,
+    me1200LldpNeighborsInformationChassisId   ME1200DisplayString,
+    me1200LldpNeighborsInformationPortId      ME1200DisplayString,
+    me1200LldpNeighborsInformationPortDescription     ME1200DisplayString,
+    me1200LldpNeighborsInformationSystemName      ME1200DisplayString,
+    me1200LldpNeighborsInformationSystemDescription   ME1200DisplayString,
+    me1200LldpNeighborsInformationSystemCapabilities      ME1200Unsigned16,
+    me1200LldpNeighborsInformationSystemCapabilitiesEnable    ME1200Unsigned16
+}
+
+me1200LldpNeighborsInformationIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LldpNeighborsInformationEntry 1 }
+
+me1200LldpNeighborsInformationLldpIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..192)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Neighbor information table entry index."
+    ::= { me1200LldpNeighborsInformationEntry 2 }
+
+me1200LldpNeighborsInformationChassisId OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..254))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's chassis Id."
+    ::= { me1200LldpNeighborsInformationEntry 4 }
+
+me1200LldpNeighborsInformationPortId OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..254))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's port id."
+    ::= { me1200LldpNeighborsInformationEntry 5 }
+
+me1200LldpNeighborsInformationPortDescription OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..254))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's port description."
+    ::= { me1200LldpNeighborsInformationEntry 6 }
+
+me1200LldpNeighborsInformationSystemName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..254))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's system name."
+    ::= { me1200LldpNeighborsInformationEntry 7 }
+
+me1200LldpNeighborsInformationSystemDescription OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..254))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's system description."
+    ::= { me1200LldpNeighborsInformationEntry 8 }
+
+me1200LldpNeighborsInformationSystemCapabilities OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's system capabilities."
+    ::= { me1200LldpNeighborsInformationEntry 9 }
+
+me1200LldpNeighborsInformationSystemCapabilitiesEnable OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's system capabilities which is enabled."
+    ::= { me1200LldpNeighborsInformationEntry 10 }
+
+me1200LldpNeighborsManagementInformationTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpNeighborsManagementInformationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to show the LLDP neighbor`s management information for
+         a specific interface."
+    ::= { me1200LldpStatus 4 }
+
+me1200LldpNeighborsManagementInformationEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpNeighborsManagementInformationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of neighbors information"
+    INDEX       { me1200LldpNeighborsManagementInformationIfIndex, me1200LldpNeighborsManagementInformationLldpIndex, me1200LldpNeighborsManagementInformationLldpManagement }
+    ::= { me1200LldpNeighborsManagementInformationTable 1 }
+
+ME1200LldpNeighborsManagementInformationEntry ::= SEQUENCE {
+    me1200LldpNeighborsManagementInformationIfIndex   ME1200InterfaceIndex,
+    me1200LldpNeighborsManagementInformationLldpIndex     Integer32,
+    me1200LldpNeighborsManagementInformationLldpManagement    Integer32,
+    me1200LldpNeighborsManagementInformationSystemManagementAddress   ME1200DisplayString
+}
+
+me1200LldpNeighborsManagementInformationIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LldpNeighborsManagementInformationEntry 1 }
+
+me1200LldpNeighborsManagementInformationLldpIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..192)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Neighbor information table entry index."
+    ::= { me1200LldpNeighborsManagementInformationEntry 2 }
+
+me1200LldpNeighborsManagementInformationLldpManagement OBJECT-TYPE
+    SYNTAX      Integer32 (0..1)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Neighbor management information table entry index."
+    ::= { me1200LldpNeighborsManagementInformationEntry 3 }
+
+me1200LldpNeighborsManagementInformationSystemManagementAddress OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..166))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's management address."
+    ::= { me1200LldpNeighborsManagementInformationEntry 5 }
+
+me1200LldpControl OBJECT IDENTIFIER
+    ::= { me1200LldpObjects 4 }
+
+me1200LldpStatisticsClear OBJECT IDENTIFIER
+    ::= { me1200LldpControl 1 }
+
+me1200LldpControlStatisticsClearTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpControlStatisticsClearEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to clear LLDP statistics for a specific interface."
+    ::= { me1200LldpStatisticsClear 1 }
+
+me1200LldpControlStatisticsClearEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpControlStatisticsClearEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each interface has a set of statistics counters"
+    INDEX       { me1200LldpControlStatisticsClearIfIndex }
+    ::= { me1200LldpControlStatisticsClearTable 1 }
+
+ME1200LldpControlStatisticsClearEntry ::= SEQUENCE {
+    me1200LldpControlStatisticsClearIfIndex   ME1200InterfaceIndex,
+    me1200LldpControlStatisticsClearStatisticsClear   TruthValue
+}
+
+me1200LldpControlStatisticsClearIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number index."
+    ::= { me1200LldpControlStatisticsClearEntry 1 }
+
+me1200LldpControlStatisticsClearStatisticsClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to TRUE to clear the LLDP statistics of an interface."
+    ::= { me1200LldpControlStatisticsClearEntry 2 }
+
+me1200LldpControlStatisticsClearGlobal OBJECT IDENTIFIER
+    ::= { me1200LldpStatisticsClear 2 }
+
+me1200LldpControlStatisticsClearGlobalClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to TRUE to clear the LLDP global statistics."
+    ::= { me1200LldpControlStatisticsClearGlobal 1 }
+
+me1200LldpMibConformance OBJECT IDENTIFIER
+    ::= { me1200LldpMib 3 }
+
+me1200LldpMibCompliances OBJECT IDENTIFIER
+    ::= { me1200LldpMibConformance 1 }
+
+me1200LldpMibGroups OBJECT IDENTIFIER
+    ::= { me1200LldpMibConformance 2 }
+
+me1200LldpGlobalInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpGlobalInitDelay, me1200LldpGlobalMsgTxHold, 
+                  me1200LldpGlobalMsgTxInterval, me1200LldpGlobalTxDelay }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpMibGroups 1 }
+
+me1200LldpConfigurationInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpConfigurationAdminState, me1200LldpConfigurationCdpAware, 
+                  me1200LldpConfigurationOptionalTlvs }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpMibGroups 2 }
+
+me1200LldpStatisticsGlobalCountersInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpStatisticsGlobalCountersTableInserts, 
+                  me1200LldpStatisticsGlobalCountersTableDeletes, 
+                  me1200LldpStatisticsGlobalCountersTableDrops, 
+                  me1200LldpStatisticsGlobalCountersTableAgeOuts, 
+                  me1200LldpStatisticsGlobalCountersLastChangeTime }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpMibGroups 3 }
+
+me1200LldpStatisticsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpStatisticsTxTotal, me1200LldpStatisticsRxTotal, 
+                  me1200LldpStatisticsRxError, me1200LldpStatisticsRxDiscarded, 
+                  me1200LldpStatisticsTLVsDiscarded, 
+                  me1200LldpStatisticsTLVsUnrecognized, 
+                  me1200LldpStatisticsTLVsOrgDiscarded, me1200LldpStatisticsAgeOuts }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpMibGroups 4 }
+
+me1200LldpNeighborsInformationInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpNeighborsInformationChassisId, 
+                  me1200LldpNeighborsInformationPortId, 
+                  me1200LldpNeighborsInformationPortDescription, 
+                  me1200LldpNeighborsInformationSystemName, 
+                  me1200LldpNeighborsInformationSystemDescription, 
+                  me1200LldpNeighborsInformationSystemCapabilities, 
+                  me1200LldpNeighborsInformationSystemCapabilitiesEnable }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpMibGroups 5 }
+
+me1200LldpNeighborsManagementInformationInfoGroup OBJECT-GROUP
+    OBJECTS     { 
+                  me1200LldpNeighborsManagementInformationSystemManagementAddress }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpMibGroups 6 }
+
+me1200LldpControlStatisticsClearTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpControlStatisticsClearStatisticsClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpMibGroups 7 }
+
+me1200LldpControlStatisticsClearGlobalInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpControlStatisticsClearGlobalClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpMibGroups 8 }
+
+me1200LldpMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200LldpGlobalInfoGroup, 
+                  me1200LldpConfigurationInfoGroup, 
+                  me1200LldpStatisticsGlobalCountersInfoGroup, 
+                  me1200LldpStatisticsTableInfoGroup, 
+                  me1200LldpNeighborsInformationInfoGroup, 
+                  me1200LldpNeighborsManagementInformationInfoGroup, 
+                  me1200LldpControlStatisticsClearTableInfoGroup, 
+                  me1200LldpControlStatisticsClearGlobalInfoGroup }
+
+    ::= { me1200LldpMibCompliances 1 }
+
+END

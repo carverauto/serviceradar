@@ -1,0 +1,115 @@
+-- *****************************************************************
+-- CISCO-NDE-CAPABILITY.my:
+-- Cisco CISCO-NDE-MIB AGENT-CAPABILITIES
+--   
+-- Aug 2003, Jayakumar Kadirvelu
+-- Jan 2004, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2003-2004, 2009, 2010 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-NDE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoNdeCapability MODULE-IDENTITY
+    LAST-UPDATED    "201011040000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The agent capabilities description of CISCO-NDE-MIB."
+    REVISION        "201011040000Z"
+    DESCRIPTION
+        "Added agent capability object
+        ciscoNdeCapV12R0250SYPCat6kPfc4."
+    REVISION        "200401270000Z"
+    DESCRIPTION
+        "Added agent capability object
+        ciscoNdeCapCatOSV08R0301."
+    REVISION        "200308260000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 328 }
+
+
+
+ciscoNdeCapabilityV12R0119E AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.1(19E) on Catalyst 6000/6500 
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-NDE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-NDE-MIB
+    INCLUDES        { cndeCollectorConfigurationGroup }
+    VARIATION       cndeCollectorAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only ipv4(1) address type is supported.
+        Other values are not supported."
+
+    ::= { ciscoNdeCapability 1 }
+
+ciscoNdeCapCatOSV08R0301 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500 
+                    and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-NDE-MIB agent capabilities."
+
+    SUPPORTS        CISCO-NDE-MIB
+    INCLUDES        { cndeCollectorConfigurationGroup }
+    VARIATION       cndeCollectorAddressType
+    SYNTAX          INTEGER  {
+                        ipv4(1)
+                    }
+    DESCRIPTION
+        "Only ipv4(1) address type is supported.
+        Other values are not supported."
+
+    ::= { ciscoNdeCapability 2 }
+
+ciscoNdeCapV12R0250SYPCat6kPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500 
+                    series devices with PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-NDE-MIB is not supported."
+
+    ::= { ciscoNdeCapability 3 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+

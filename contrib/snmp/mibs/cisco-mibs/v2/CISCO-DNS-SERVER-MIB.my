@@ -1,0 +1,2320 @@
+-- *********************************************************************
+-- CISCO-DNS-SERVER-MIB.my : 
+-- Cisco Domain Name Service Server MIB
+-- 
+-- January 2005, Shobana Sampath
+--  
+-- Copyright (c) 2005 by Cisco Systems, Inc.
+-- All rights reserved. 
+--  
+-- *********************************************************************
+--%DNP% The initial implementation of this MIB is for environment that 
+--%DNP% does not support 64 BIT counters or objects within tables. 
+--%DNP% Therefore, the objects under cDnsQueryIntervalStats, 
+--%DNP% cDnsPerfIntervalStats, cDnsSecurityIntervalStats, 
+--%DNP% cDnsErrorIntervalStats, cDnsMaxCounterIntervalStats and 
+--%DNP% cDnsHaIntervalStats are provided as scalars rather than in a 
+--%DNP% table that provides history.
+
+CISCO-DNS-SERVER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY, OBJECT-TYPE, Counter32, Unsigned32, Gauge32
+                FROM SNMPv2-SMI
+
+        TEXTUAL-CONVENTION, TimeInterval, TimeStamp
+                FROM SNMPv2-TC
+
+        MODULE-COMPLIANCE, OBJECT-GROUP
+                FROM SNMPv2-CONF
+
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+ciscoDnsServerMIB MODULE-IDENTITY
+        LAST-UPDATED        "200805310000Z"
+        ORGANIZATION        "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-dns-mib@cisco.com"
+        DESCRIPTION
+            "The MIB module for entities implementing the server side
+             of the Domain Name System (DNS) protocol. 
+             P. Mockapetris, 'Domain names - implementation and 
+             specification', RFC 1035, November 1987
+
+             Descriptions of acronyms and definitions:
+          
+             Reporting       The interval in seconds over which 
+             interval        the server last calculated the sample 
+                             interval statistics
+
+             RR              Resource Record for DNS
+
+             AXFR            Full zone transfer
+
+             IXFR            Incremental zone transfer
+                             M.Ohta, 'Incremental Zone Transfer in 
+                             DNS', RFC-1995, August 1996
+
+             ACL             DNS Access Control List
+
+             RCODE           Flag in a DNS packet
+                             P. Vixie, S. Thomson, Y. Rekhter, J. Bound,
+                             'Dynamic Updates in the Domain Name System 
+                             (DNS UPDATE)', RFC-2136, April 1997
+
+                             The following are values of RCODE in the 
+                             update packet: 
+
+                             FORMERR    The name server was unable to 
+                                        interpret the request due to a 
+                                        format error. 
+           
+                             REFUSED    The name server refuses to 
+                                        perform the specified operation 
+                                        for policy or security reasons. 
+ 
+             TSIG            A transaction signature of secret key 
+                             transaction  authentication for DNS. 
+                             O. Gudmundsson, D. Eastlake 3rd, 
+                             B. Wellington, 'Secret Key Transaction 
+                             Authentication for DNS (TSIG)', RFC-2845, 
+                             May 2000
+
+                             The following are TSIG related error 
+                             conditions, while processing incoming 
+                             messages:
+
+                             BADTIME    The time in the TSIG message is 
+                                        off the limit
+
+                             BADKEY     The key in the TSIG message is 
+                                        not valid
+ 
+                             BADSIG     The signature in the TSIG 
+                                        message is not valid
+
+             HA             High Availability DNS servers to eliminate  
+                            single-point-of-failure for dynamic DNS 
+                            updates"
+         
+
+        REVISION        "200805310000Z"
+        DESCRIPTION
+                "Added new HA-DNS counters."
+        REVISION        "200503010000Z"
+        DESCRIPTION
+                "Updated to add new DNS counters."
+        REVISION        "200402010000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 405 }
+
+-- Textual Conventions
+
+CDnsTime ::= TEXTUAL-CONVENTION
+    DISPLAY-HINT "d"
+    STATUS  current
+    DESCRIPTION
+            "DnsTime values are 32-bit unsigned integers which
+             measure time in seconds."
+    REFERENCE
+            "R. Austein, J. Saperia, 'DNS Server MIB Extensions',
+             RFC-1611, May 1994, DnsTime."
+    SYNTAX  Unsigned32
+
+
+-- CISCO-DNS-SERVER-MIB definitions
+
+cDnsServMIBNotifs  OBJECT IDENTIFIER ::=  { ciscoDnsServerMIB 0 }
+cDnsServMIBObjects OBJECT IDENTIFIER ::=  { ciscoDnsServerMIB 1 }
+cDnsServMIBConform OBJECT IDENTIFIER ::=  { ciscoDnsServerMIB 2 }
+
+cDnsServConfig     OBJECT IDENTIFIER 
+   ::=  { cDnsServMIBObjects 1 }
+cDnsQueryStats      OBJECT IDENTIFIER 
+   ::=  { cDnsServMIBObjects 2 }
+cDnsQueryIntervalStats      OBJECT IDENTIFIER 
+   ::=  { cDnsServMIBObjects 3 }
+cDnsPerfStats      OBJECT IDENTIFIER 
+   ::=  { cDnsServMIBObjects 4 }
+cDnsPerfIntervalStats      OBJECT IDENTIFIER 
+   ::=  { cDnsServMIBObjects 5 }
+cDnsSecurityStats      OBJECT IDENTIFIER 
+   ::=  { cDnsServMIBObjects 6 }
+cDnsSecurityIntervalStats      OBJECT IDENTIFIER 
+   ::=  { cDnsServMIBObjects 7 }
+cDnsErrorStats      OBJECT IDENTIFIER 
+   ::=  { cDnsServMIBObjects 8 }
+cDnsErrorIntervalStats      OBJECT IDENTIFIER 
+   ::=  { cDnsServMIBObjects 9 }
+cDnsMaxCounterStats      OBJECT IDENTIFIER
+   ::=  { cDnsServMIBObjects 10 }
+cDnsMaxCounterIntervalStats      OBJECT IDENTIFIER
+   ::=  { cDnsServMIBObjects 11 }
+cDnsHaStats               OBJECT IDENTIFIER
+   ::=  { cDnsServMIBObjects 12 }
+cDnsHaIntervalStats       OBJECT IDENTIFIER
+   ::=  { cDnsServMIBObjects 13 }
+
+
+-- cDnsServConfig
+
+
+cDnsServConfigImplementIdent OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+          "The implementation identification string for the DNS
+           server software in use on the system, for example;
+           `FNS-2.1'"
+    REFERENCE
+          "R. Austein, J. Saperia, 'DNS Server MIB Extensions',
+           RFC-1611, May 1994, dnsServConfigImplementIdent."
+    ::= { cDnsServConfig 1 }
+
+cDnsServConfigRecurs OBJECT-TYPE
+    SYNTAX      INTEGER {
+                        available(1),
+                        restricted(2),
+                        unavailable(3)
+    }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+          "This represents the recursion services offered by this
+           name server.  The values that can be read are:
+
+           available(1) - performs recursion on requests from
+           clients.
+
+           restricted(2) - recursion is performed on requests only
+           from certain clients, for example; clients on an access
+           control list.
+
+           unavailable(3) - recursion is not available."
+    REFERENCE
+          "R. Austein, J. Saperia, 'DNS Server MIB Extensions',
+           RFC-1611, May 1994, dnsServConfigRecurs."
+    ::= { cDnsServConfig 2 }
+
+cDnsServConfigUpTime OBJECT-TYPE
+    SYNTAX      CDnsTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+          "If the server has a persistent state (e.g., a process),
+           this value will be the time elapsed since it started.
+           For software without persistent state, this value will
+           be zero."
+    REFERENCE
+          "R. Austein, J. Saperia, 'DNS Server MIB Extensions',
+           RFC-1611, May 1994, dnsServConfigUpTime."
+    ::= { cDnsServConfig 3 }
+
+cDnsServConfigResetTime OBJECT-TYPE
+    SYNTAX      CDnsTime
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+         "If the server has a persistent state (e.g., a process)
+          and supports a `reset' operation (e.g., can be told to
+          re-read configuration files), this value will be the
+          time elapsed since the last time the name server was
+          `reset.'  For software that does not have persistence or
+          does not support a `reset' operation, this value will be
+          zero."
+    REFERENCE
+          "R. Austein, J. Saperia, 'DNS Server MIB Extensions',
+           RFC-1611, May 1994, dnsServConfigResetTime."
+    ::= { cDnsServConfig 4 }
+
+cDnsServConfigReset OBJECT-TYPE
+    SYNTAX      INTEGER {
+                        other(1),
+                        reset(2),
+                        initializing(3),
+                        running(4)
+    }
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+         "Status/action object to reinitialize any persistant name
+          server state.  When set to reset(2), any persistant
+          name server state (such as a process) is reinitialized as
+          if the name server had just been started.  This value
+          will never be returned by a read operation.  When read,
+          one of the following values will be returned:
+              other(1) - server in some unknown state;
+              initializing(3) - server (re)initializing;
+              running(4) - server currently running."
+    REFERENCE
+          "R. Austein, J. Saperia, 'DNS Server MIB Extensions',
+           RFC-1611, May 1994, dnsServConfigReset."
+    ::= { cDnsServConfig 5 }
+   
+cDnsServConfigIntervalSample OBJECT-TYPE
+   SYNTAX TimeInterval
+   UNITS  "milliseconds"
+   MAX-ACCESS read-write
+   STATUS current
+   DESCRIPTION
+      "Configures the sample time for the various interval counters."
+   ::= { cDnsServConfig 6 } 
+
+-- cDnsQueryStats
+
+cDnsQueryAuthAnswers OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+           "Number of queries which were authoritatively answered."
+    ::= { cDnsQueryStats 1 }
+
+cDnsQueryAuthNoNames OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries for which `authoritative no such name'
+            responses were made."
+    ::= { cDnsQueryStats 2 }
+
+cDnsQueryAuthNoDataResps OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries for which `authoritative no such data'
+            (empty answer) responses were made."
+    ::= { cDnsQueryStats 3 }
+
+cDnsQueryReferrals OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of requests that were referred to other servers."
+    ::= { cDnsQueryStats 4 }
+
+cDnsQueryNonAuthAnswers OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries which were non-authoritatively 
+             answered (from cached data)."
+    ::= { cDnsQueryStats 5 }
+
+cDnsQueryNonAuthNoDataResps OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries which were non-authoritatively 
+             answered with no data."
+    ::= { cDnsQueryStats 6 }
+
+cDnsQueryRelNameRequests OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of requests received by the server for names 
+             that are only one label long (i.e. in text form - 
+             no internal dots)."
+    ::= { cDnsQueryStats 7 }
+
+cDnsQueryLameDelegations OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of query lame delegations."
+    ::= { cDnsQueryStats 8 }
+
+cDnsQueryMemCacheHits OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of mem-cache lookup hits."
+    ::= { cDnsQueryStats 9 }
+
+cDnsQueryMemCacheMisses OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of mem-cache lookup misses."
+    ::= { cDnsQueryStats 10 }
+
+cDnsQueryMemCacheWrites OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of mem-cache writes."
+    ::= { cDnsQueryStats 11 }
+
+cDnsQueryRefusals OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries refused."
+    ::= { cDnsQueryStats 12 }
+
+-- cDnsQueryIntervalStats
+
+cDnsQueryIntAuthAnswers OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+           "Number of queries which were authoritatively answered
+            during reporting interval."
+    ::= { cDnsQueryIntervalStats 1 }
+
+cDnsQueryIntAuthNoNames OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries for which `authoritative no such name'
+            responses were made during reporting interval."
+    ::= { cDnsQueryIntervalStats 2 }
+
+cDnsQueryIntAuthNoDataResps OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries for which `authoritative no such data'
+            (empty answer) responses were made during reporting 
+            interval."
+    ::= { cDnsQueryIntervalStats 3 }
+
+cDnsQueryIntReferrals OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of requests that were referred to other servers
+             during reporting interval."
+    ::= { cDnsQueryIntervalStats 4 }
+
+cDnsQueryIntNonAuthAnswers OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries which were non-authoritatively 
+             answered (from cached data) during reporting interval."
+    ::= { cDnsQueryIntervalStats 5 }
+
+cDnsQueryIntNonAuthNoDataResps OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries which were non-authoritatively 
+             answered with no data during reporting interval."
+    ::= { cDnsQueryIntervalStats 6 }
+
+cDnsQueryIntRelNameRequests OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of requests received by the server for names 
+             that are only one label long (i.e. in text form - 
+             no internal dots) during reporting interval."
+    ::= { cDnsQueryIntervalStats 7 }
+
+cDnsQueryIntLameDelegations OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of query lame delegations during reporting 
+             interval."
+    ::= { cDnsQueryIntervalStats 8 }
+
+cDnsQueryIntMemCacheHits OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of mem-cache lookup hits during reporting 
+             interval."
+    ::= { cDnsQueryIntervalStats 9 }
+
+cDnsQueryIntMemCacheMisses OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of mem-cache lookup misses during reporting 
+             interval."
+    ::= { cDnsQueryIntervalStats 10 }
+
+cDnsQueryIntMemCacheWrites OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of mem-cache writes during reporting interval."
+    ::= { cDnsQueryIntervalStats 11 }
+
+cDnsQueryIntRefusals OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries refused during reporting interval."
+    ::= { cDnsQueryIntervalStats 12 }
+
+cDnsQueryIntSampleTime OBJECT-TYPE
+   SYNTAX      TimeStamp
+   MAX-ACCESS  read-only
+   STATUS      current
+   DESCRIPTION
+           "The time stamp of last sample."
+    ::= { cDnsQueryIntervalStats 13 }
+
+cDnsQueryIntSampleInterval OBJECT-TYPE
+    SYNTAX      TimeInterval
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The interval in seconds over which the server last 
+             calculated the sample interval statistics. This is the
+             configured reporting interval and the statistics are reset
+             since the last cDnsQueryIntSampleTime."
+    ::= { cDnsQueryIntervalStats 14 }
+-- cDnsPerfStats
+cDnsPerfUpdateRRs  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of RR's added and deleted."
+    ::= { cDnsPerfStats 1 }
+
+cDnsPerfUpdatePkts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of update packets successfully processed."
+    ::= { cDnsPerfStats 2 }
+
+cDnsPerfOutboundIxfrs  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of successful outbound incremental 
+             transfers."
+    ::= { cDnsPerfStats 3 }
+
+
+cDnsPerfInboundIxfrs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of successful inbound incremental 
+             transfers."
+    ::= { cDnsPerfStats 4 }
+  
+cDnsPerfFullRespIxfrs  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of outbound full zone transfers in 
+             response to IXFR requests."
+    ::= { cDnsPerfStats 5 }
+
+cDnsPerfOutboundAxfrs   OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of successful outbound full zone transfers."
+    ::= { cDnsPerfStats 6 }
+
+cDnsPerfInboundAxfrs  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of successful inbound AXFRs."
+    ::= { cDnsPerfStats 7 }
+
+cDnsPerfQueries  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of queries responded to."
+    ::= { cDnsPerfStats 8 }
+
+cDnsPerfOutboundAtLimitXfrs  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of occasions that outbound transfers 
+             reached the concurrent limit."
+    ::= { cDnsPerfStats 9 }
+
+cDnsPerfInboundAtLimitXfrs  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of occasions that inbound transfers 
+             reached the concurrent limit."
+    ::= { cDnsPerfStats 10 }
+
+cDnsPerfOutboundNotifies  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of outbound notifies."
+    ::= { cDnsPerfStats 11 }
+
+cDnsPerfInboundNotifies  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of inbound notifies."
+    ::= { cDnsPerfStats 12 }
+
+-- cDnsPerfIntervalStats
+cDnsPerfIntUpdateRRs  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of RR's added and deleted during 
+             reporting interval."
+    ::= { cDnsPerfIntervalStats 1 }
+
+cDnsPerfIntUpdatePkts  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of update packets successfully processed          
+             during reporting interval."
+    ::= { cDnsPerfIntervalStats 2 }
+
+cDnsPerfIntOutboundIxfrs  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of successful outbound incremental 
+             transfers during reporting interval."
+    ::= { cDnsPerfIntervalStats 3 }
+
+
+cDnsPerfIntInboundIxfrs OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of successful inbound incremental 
+             transfers during reporting interval."
+    ::= { cDnsPerfIntervalStats 4 }
+  
+cDnsPerfIntFullRespIxfrs  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of outbound full zone transfers in response to 
+             IXFR requests during reporting interval."
+    ::= { cDnsPerfIntervalStats 5 }
+
+cDnsPerfIntOutboundAxfrs   OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of successful outbound full zone transfers 
+             during reporting interval."
+    ::= { cDnsPerfIntervalStats 6 }
+
+cDnsPerfIntInboundAxfrs  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of successful inbound AXFRs during reporting 
+             interval."
+    ::= { cDnsPerfIntervalStats 7 }
+
+cDnsPerfIntQueries  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries responded to during reporting interval."
+    ::= { cDnsPerfIntervalStats 8 }
+
+cDnsPerfIntOutboundAtLimitXfrs  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of occasions that outbound transfers 
+             reached the concurrent limit during reporting interval."
+    ::= { cDnsPerfIntervalStats 9 }
+
+cDnsPerfIntInboundAtLimitXfrs  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of occasions that inbound transfers 
+             reached the concurrent limit during reporting interval."
+    ::= { cDnsPerfIntervalStats 10 }
+
+cDnsPerfIntOutboundNotifies  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of outbound notifies during reporting interval."
+    ::= { cDnsPerfIntervalStats 11 }
+
+cDnsPerfIntInboundNotifies  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of inbound notifies during reporting interval."
+    ::= { cDnsPerfIntervalStats 12 }
+
+cDnsPerfIntSampleTime OBJECT-TYPE
+   SYNTAX      TimeStamp
+   MAX-ACCESS  read-only
+   STATUS      current
+   DESCRIPTION
+           "The time stamp of last sample."
+    ::= { cDnsPerfIntervalStats 13 }
+
+cDnsPerfIntSampleInterval OBJECT-TYPE
+    SYNTAX      TimeInterval
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The interval in seconds over which the server last 
+             calculated the sample interval statistics. This is the
+             configured reporting interval and the statistics are reset
+             since the last cDnsQueryIntSampleTime."
+    ::= { cDnsPerfIntervalStats 14 }
+
+-- cDnsSecurityStats
+
+cDnsSecurityRcvdTsigPackets OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of packets with a TSIG RR that are 
+             processed."
+    ::= { cDnsSecurityStats 1 }
+
+cDnsSecurityDetecTsigBadTimes OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Returns BADTIME error code if value of bad timestamp in 
+             TSIG is detected in an incoming packet."
+    ::= { cDnsSecurityStats 2 }
+
+cDnsSecurityDetectTsigBadKeys OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Returns BADKEY error code if value of bad keyname in 
+             TSIG is detected in an incoming packet."
+    ::= { cDnsSecurityStats 3 }
+
+cDnsSecurityDetectTsigBadSigs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Returns BADSIG error code if value of bad signature in 
+             TSIG is detected in an incoming packet."
+    ::= { cDnsSecurityStats 4 }
+
+cDnsSecurityRcvdTsigBadTimes OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of BADTIME errors received after sending 
+             a TSIG."
+    ::= { cDnsSecurityStats 5  }
+
+cDnsSecurityRcvdTsigBadKeys OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of BADKEY errors received after sending 
+             a TSIG."
+    ::= { cDnsSecurityStats 6 }
+
+cDnsSecurityRcvdTsigBadSigs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of BADSIG errors received after sending 
+             a TSIG."
+    ::= { cDnsSecurityStats 7 }
+
+cDnsSecurityUnauthXferReqs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of ACL authorization failures if zone 
+             transfer restriction has been enabled."
+
+    ::= { cDnsSecurityStats 8 }
+
+cDnsSecurityUnauthUpdateReqs OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of updates which result in ACL 
+             authorization failure, or which target zones which do
+             not support updates."
+    ::= { cDnsSecurityStats 9 }
+
+cDnsSecurityRestrictQueryAcls OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of queries to be restricted by the 
+             DNS server through the global or zone Access 
+             Control List."
+    ::= { cDnsSecurityStats 10 }
+
+-- cDnsSecurityIntervalStats
+
+cDnsSecurityIntRcvdTsigPackets OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of packets with a TSIG RR that are 
+             processed during reporting interval."
+    ::= { cDnsSecurityIntervalStats 1 }
+
+cDnsSecurityIntDetecTsigBadTimes OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Value of bad timestamp in TSIG in an incoming packet 
+             during reporting interval." 
+    ::= { cDnsSecurityIntervalStats 2 }
+
+cDnsSecurityIntDetectTsigBadKeys OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Value of bad keyname in TSIG in an incoming packet 
+             during reporting interval."
+    ::= { cDnsSecurityIntervalStats 3 }
+
+cDnsSecurityIntDetectTsigBadSigs OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Value of bad signature in TSIG in an incoming packet 
+             during reporting interval."
+    ::= { cDnsSecurityIntervalStats 4 }
+
+cDnsSecurityIntRcvdTsigBadTimes OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of BADTIME errors received after sending a 
+             TSIG during reporting interval."
+    ::= { cDnsSecurityIntervalStats 5  }
+
+cDnsSecurityIntRcvdTsigBadKeys OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of BADKEY errors received after sending a 
+             TSIG during reporting interval."
+    ::= { cDnsSecurityIntervalStats 6 }
+
+cDnsSecurityIntRcvdTsigBadSigs OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of BADSIG errors received after sending 
+             a TSIG during reporting interval."
+    ::= { cDnsSecurityIntervalStats 7 }
+
+cDnsSecurityIntUnauthXferReqs OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of ACL authorization failures if zone transfer
+             restriction has been enabled during reporting interval."
+    ::= { cDnsSecurityIntervalStats 8 }
+
+cDnsSecurityIntUnauthUpdateReqs OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of updates which result in ACL 
+             not support updates during reporting interval."
+    ::= { cDnsSecurityIntervalStats 9 }
+
+cDnsSecurityIntRestrictQueryAcls OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of queries to be restricted by the 
+             DNS server through the global or zone Access 
+             Control List during reporting interval."
+    ::= { cDnsSecurityIntervalStats 10 }
+
+cDnsSecurityIntSampleTime OBJECT-TYPE
+   SYNTAX      TimeStamp
+   MAX-ACCESS  read-only
+   STATUS      current
+   DESCRIPTION
+           "The time stamp of last sample."
+    ::= { cDnsSecurityIntervalStats 11 }
+
+cDnsSecurityIntSampleInterval OBJECT-TYPE
+    SYNTAX      TimeInterval
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The interval in seconds over which the server last 
+             calculated the sample interval statistics. This is the
+             configured reporting interval and the statistics are reset
+             since the last cDnsSecurityIntSampleTime."
+    ::= { cDnsSecurityIntervalStats 12 }
+
+-- cDnsErrorStats
+cDnsErrorUpdateErrors  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of updates resulting in errors or failures."
+    ::= { cDnsErrorStats 1 }
+
+cDnsErrorIxfrInErrors OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total in-bound IXFR errors."
+    ::= { cDnsErrorStats 2 }  
+
+cDnsErrorIxfrOutErrors OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total IXFR error responses sent."
+    ::= { cDnsErrorStats 3 } 
+
+cDnsErrorAxfrInErrors OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total in-bound AXFR errors."
+    ::= { cDnsErrorStats 4 }  
+
+cDnsErrorAxfrOutErrors OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total AXFR error responses sent."
+    ::= { cDnsErrorStats 5 } 
+
+cDnsErrorSentTotalErrors OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of requests the server answered with 
+             errors."
+    ::= { cDnsErrorStats 6 } 
+
+cDnsErrorSentFormatErrors OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of requests received which were 
+             unparseable."
+    ::= { cDnsErrorStats 7 } 
+
+cDnsErrorSentOtherErrors OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of requests which were aborted for other 
+             local server errors."
+    ::= { cDnsErrorStats 8 }  
+
+cDnsErrorSentRefusalErrors OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of requests which resulted in REFUSED."
+    ::= { cDnsErrorStats 9 } 
+
+cDnsErrorRcvdFormatErrors OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of responses received with FORMERR status."
+    ::= { cDnsErrorStats 10 }  
+
+-- cDnsErrorIntervalStats
+cDnsErrorIntUpdateErrors  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of updates resulting in errors or failures."
+    ::= { cDnsErrorIntervalStats 1 }
+
+cDnsErrorIntIxfrInErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total in-bound IXFR errors."
+    ::= { cDnsErrorIntervalStats 2 }  
+
+cDnsErrorIntIxfrOutErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total IXFR error responses sent."
+    ::= { cDnsErrorIntervalStats 3 } 
+
+cDnsErrorIntAxfrInErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total in-bound AXFR errors."
+    ::= { cDnsErrorIntervalStats 4 }  
+
+cDnsErrorIntAxfrOutErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total AXFR error responses sent."
+    ::= { cDnsErrorIntervalStats 5 } 
+
+cDnsErrorIntSentTotalErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of requests the server answered with 
+             errors."
+    ::= { cDnsErrorIntervalStats 6 } 
+
+cDnsErrorIntSentFormatErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of requests received which were 
+             unparseable."
+    ::= { cDnsErrorIntervalStats 7 } 
+
+cDnsErrorIntSentOtherErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of requests which were aborted for other 
+             local server errors."
+    ::= { cDnsErrorIntervalStats 8 }  
+
+cDnsErrorIntSentRefusalErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of requests which resulted in REFUSED."
+    ::= { cDnsErrorIntervalStats 9 } 
+
+cDnsErrorIntRcvdFormatErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of responses received with FORMERR status."
+    ::= { cDnsErrorIntervalStats 10 }  
+
+
+cDnsErrorIntSampleTime OBJECT-TYPE
+   SYNTAX      TimeStamp
+   MAX-ACCESS  read-only
+   STATUS      current
+   DESCRIPTION
+           "The time stamp of last sample."
+    ::= { cDnsErrorIntervalStats 11 }
+
+cDnsErrorIntSampleInterval OBJECT-TYPE
+    SYNTAX      TimeInterval
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The interval in seconds over which the server last 
+             calculated the sample interval statistics. This is the
+             configured reporting interval and the statistics are reset
+             since the last cDnsErrorIntSampleTime."
+    ::= { cDnsErrorIntervalStats 12 }
+
+
+-- cDnsMaxCounterStats
+cDnsMaxCntrConcurXfrsInCnts OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum number of concurrent threads processing inbound 
+             transfers."
+    ::= { cDnsMaxCounterStats 1 }  
+
+cDnsMaxCntrConcurXfrsOutCnts OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum number of concurrent threads processing outbound 
+             transfers."
+    ::= { cDnsMaxCounterStats 2 }  
+
+cDnsMaxCntrHaSvrNoRespTime  OBJECT-TYPE
+    SYNTAX      TimeInterval
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total time in seconds, where the partner of the server 
+             was not responding."
+    ::= { cDnsMaxCounterStats 3 }
+
+cDnsMaxCntrHaSvrMaxNoRespTime  OBJECT-TYPE
+    SYNTAX      TimeInterval
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum contiguous time in seconds, where the partner
+             of the server was not responding."
+    ::= { cDnsMaxCounterStats 4 }
+
+cDnsMaxCntrHaBatchLimitCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of occurrences where maximum batch count is reached 
+             in active server."
+    ::= { cDnsMaxCounterStats 5 }  
+
+cDnsMaxCntrHaRRPendListCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum number of RRs in the pending list waiting 
+             acknowledgement from the backup server."
+    ::= { cDnsMaxCounterStats 6 }  
+
+cDnsMaxCntrHaRRActiveListCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum number of RRs in the active list waiting to be 
+             sent to the backup server."
+    ::= { cDnsMaxCounterStats 7 }  
+
+cDnsMaxCntrHaPersEditListCnts OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum number of names persisted in the edits list db."
+    ::= { cDnsMaxCounterStats 8 }  
+
+cDnsMaxCntrHaUpdLatencyMax       OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum DNS update latency in seconds. Latency is measured 
+             as the time an update remains in the pending list."
+    ::= { cDnsMaxCounterStats 9 }  
+ 
+-- cDnsMaxCounterIntervalStats
+cDnsMaxCntrIntConcurXfrsInCnts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum number of concurrent threads processing inbound 
+             transfers during reporting interval."
+    ::= { cDnsMaxCounterIntervalStats 1 }  
+
+cDnsMaxCntrIntConcurXfrsOutCnts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum number of concurrent threads processing outbound 
+             transfers during reporting interval."
+    ::= { cDnsMaxCounterIntervalStats 2 }  
+
+cDnsMaxCntrIntHaSvrNoRespTime  OBJECT-TYPE
+    SYNTAX      TimeInterval
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total time in seconds, where the partner of the server
+             was not responding during reporting interval."
+    ::= { cDnsMaxCounterIntervalStats 3 }
+
+cDnsMaxCntrIntHaSvrMaxNoRespTime  OBJECT-TYPE
+    SYNTAX      TimeInterval
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum time in seconds, where the partner of the server
+             was not responding during reporting interval."
+    ::= { cDnsMaxCounterIntervalStats 4 }
+
+cDnsMaxCntrIntHaBatchLimitCnts  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of occurrences where maximum batch count is reached 
+             in active server during reporting interval."
+    ::= { cDnsMaxCounterIntervalStats 5 }  
+
+cDnsMaxCntrIntHaRRPendListCnts  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum number of RRs in the pending list waiting 
+             acknowledgement from the backup server during reporting
+             interval."
+    ::= { cDnsMaxCounterIntervalStats 6 }  
+
+cDnsMaxCntrIntHaRRActiveListCnts  OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum number of RRs in the active list waiting to be 
+             sent to the backup server during reporting interval."
+    ::= { cDnsMaxCounterIntervalStats 7 }  
+
+cDnsMaxCntrIntHaPersEditListCnts OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum number of names persisted in the edits list db
+             during reporting interval."
+    ::= { cDnsMaxCounterIntervalStats 8 }  
+
+cDnsMaxCntrIntHaUpdLatencyMax       OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Maximum DNS update latency in seconds during reporting 
+             interval. Latency is measured as the time an update remains
+             in the pending list."
+    ::= { cDnsMaxCounterIntervalStats 9 }  
+
+
+cDnsMaxCntrIntSampleTime OBJECT-TYPE
+   SYNTAX      TimeStamp
+   MAX-ACCESS  read-only
+   STATUS      current
+   DESCRIPTION
+           "The time stamp of last sample."
+    ::= { cDnsMaxCounterIntervalStats 10 }
+
+cDnsMaxCntrIntSampleInterval OBJECT-TYPE
+    SYNTAX      TimeInterval
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The interval in seconds over which the server last 
+             calculated the sample interval statistics. This is the
+             configured reporting interval and the statistics are reset
+             since the last cDnsMaxCntrIntSampleTime."
+    ::= { cDnsMaxCounterIntervalStats 11 }
+
+ 
+-- cDnsHaStats
+cDnsHaCommInterruptedStates         OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of occurrences where the server enters 
+             the HA communication-interrupted state."
+    ::= { cDnsHaStats 1 }  
+
+cDnsHaPartnerDownStates             OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total of occurrences where the server enters the 
+             HA partner-down state."
+    ::= { cDnsHaStats 2 }  
+
+cDnsHaSyncs             OBJECT-TYPE  
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total of occurrences where the server enters the 
+             HA synchronization state."
+    ::= { cDnsHaStats 3 }  
+
+cDnsHaMsgConnectSentCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA connection establishment messages sent."
+    ::= { cDnsHaStats 4 }  
+
+cDnsHaMsgReconcileSentCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA zone reconciliation messages sent." 
+    ::= { cDnsHaStats 5 }  
+
+cDnsHaMsgHeartBeatSentCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA heartbeat messages sent." 
+    ::= { cDnsHaStats 6 }  
+
+cDnsHaMsgZoneSyncSentCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA zone synchronization messages sent." 
+    ::= { cDnsHaStats 7 }  
+
+cDnsHaMsgRRSyncSentCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA rr-sync messages sent." 
+    ::= { cDnsHaStats 8 }
+
+cDnsHaMsgRRUpdateSentCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA rr-update messages sent." 
+    ::= { cDnsHaStats 9 }
+  
+cDnsHaMsgResponseSentCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA response messages sent." 
+    ::= { cDnsHaStats 10 }
+
+cDnsHaMsgConnectRcvdCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA connection establishment messages 
+             received."
+    ::= { cDnsHaStats 11 }
+
+cDnsHaMsgReconcileRcvdCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA zone reconciliation messages received."
+    ::= { cDnsHaStats 12 }
+
+cDnsHaMsgHeartbeatRcvdCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA heartbeat messages received."
+    ::= { cDnsHaStats 13 }
+
+cDnsHaMsgZoneSyncRcvdCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA zone synchronization messages received."
+    ::= { cDnsHaStats 14 }
+
+cDnsHaMsgRRSyncRcvdCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA rr-sync  messages received."
+    ::= { cDnsHaStats 15 }
+
+cDnsHaMsgRRUpdateRcvdCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA rr-update  messages received."
+    ::= { cDnsHaStats 16 }
+
+cDnsHaMsgResponseRcvdCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA response messages received."
+    ::= { cDnsHaStats 17 }
+
+cDnsHaHeartbeatTimeoutCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA heartbeat timeouts."
+    ::= { cDnsHaStats 18 }
+
+cDnsHaUpdateRejectCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA DNS updates rejected by the server."
+    ::= { cDnsHaStats 19 }
+
+cDnsHaResponseMismatchCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA responses reporting a mismatch error."
+    ::= { cDnsHaStats 20 }
+
+cDnsHaResponseServFailCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA responses reporting a server failure 
+             error."
+    ::= { cDnsHaStats 21 }
+
+cDnsHaRespInconsistentCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA responses reporting an inconsistent 
+             server state."
+    ::= { cDnsHaStats 22 }
+
+cDnsHaRespUnknownCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA responses with an unknown message type."
+    ::= { cDnsHaStats 23 }
+
+cDnsHaFullZoneResyncCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of zones requiring HA full-zone ???
+             resynchronization for nameset reconciliation. "
+    ::= { cDnsHaStats 24 }
+
+cDnsHaUpdatePrivateReqCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA DNS updates received containing a 
+             private request RR."    
+    ::= { cDnsHaStats 25 }
+
+cDnsHaUpdatePrivateRespCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA DNS update responses sent containing a 
+             private response RR."
+    ::= { cDnsHaStats 26 }
+
+cDnsHaSyncConflictCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA zones with name conflicts during nameset
+             reconciliation."
+    ::= { cDnsHaStats 27 }
+
+cDnsHaSyncDiscardNameCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA name conflicts where one nameset must 
+             be discarded to synchronize the zone."
+    ::= { cDnsHaStats 28 }
+
+cDnsHaSyncMergeNameCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA name conflicts which the namesets 
+             can be merged to synchronize the zone. "
+    ::= { cDnsHaStats 29 }
+
+cDnsHaUpdateLatencyAverage           OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Average HA DNS update latency in seconds. Latency is 
+             measured as the time an update remains in the pending 
+             list."
+    ::= { cDnsHaStats 30 }
+
+cDnsHaMsgSyncPendingRcvdCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA_DNS_SYNCPENDING messages received." 
+    ::= { cDnsHaStats 31 }
+
+cDnsHaMsgSyncPendingSentCnts           OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA_DNS_SYNCPENDING messages sent." 
+    ::= { cDnsHaStats 32 }
+
+cDnsHaMsgShutdownRcvdCnts              OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA_DNS_SHUTDOWN messages received."
+    ::= { cDnsHaStats 33 }
+
+cDnsHaMsgShutdownSentCnts              OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA_DNS_SHUTDOWN messages sent."
+    ::= { cDnsHaStats 34 }
+
+-- cDnsHaIntervalStats
+cDnsHaIntCommInterruptedStates         OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of occurrences where the server enters 
+             the HA communication-interrupted state."
+    ::= { cDnsHaIntervalStats 1 }  
+
+
+cDnsHaIntPartnerDownStates             OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total of occurrences where the server enters the 
+             HA partner-down state during reporting interval." 
+    ::= { cDnsHaIntervalStats 2 }  
+
+cDnsHaIntSyncs             OBJECT-TYPE  
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total of occurrences where the server enters the 
+             HA synchronization state during reporting interval."
+    ::= { cDnsHaIntervalStats 3 }  
+
+cDnsHaIntMsgConnectSentCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA connection establishment messages sent during 
+             reporting interval." 
+    ::= { cDnsHaIntervalStats 4 }  
+
+cDnsHaIntMsgReconcileSentCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA zone reconciliation messages sent during 
+             reporting interval." 
+    ::= { cDnsHaIntervalStats 5 }  
+
+cDnsHaIntMsgHeartBeatSentCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA heartbeat messages sent during reporting 
+             interval." 
+    ::= { cDnsHaIntervalStats 6 }  
+
+cDnsHaIntMsgZoneSyncSentCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA zone synchronization messages sent during 
+             reporting interval." 
+    ::= { cDnsHaIntervalStats 7 }  
+
+cDnsHaIntMsgRRSyncSentCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA rr-sync messages sent during reporting 
+             interval." 
+    ::= { cDnsHaIntervalStats 8 }
+
+cDnsHaIntMsgRRUpdateSentCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA rr-update messages sent during reporting 
+             interval." 
+    ::= { cDnsHaIntervalStats 9 }
+  
+cDnsHaIntMsgResponseSentCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA response messages sent during reporting 
+             interval." 
+    ::= { cDnsHaIntervalStats 10 }
+
+cDnsHaIntMsgConnectRcvdCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA connection establishment messages received 
+             during reporting interval."
+    ::= { cDnsHaIntervalStats 11 }
+
+cDnsHaIntMsgReconcileRcvdCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA zone reconciliation messages received during 
+             reporting interval."
+    ::= { cDnsHaIntervalStats 12 }
+
+cDnsHaIntMsgHeartbeatRcvdCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA heartbeat messages received during reporting 
+             interval."
+    ::= { cDnsHaIntervalStats 13 }
+
+cDnsHaIntMsgZoneSyncRcvdCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA zone synchronization messages received during 
+             reporting interval."
+    ::= { cDnsHaIntervalStats 14 }
+
+cDnsHaIntMsgRRSyncRcvdCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA rr-sync messages received during reporting 
+             interval."
+    ::= { cDnsHaIntervalStats 15 }
+
+cDnsHaIntMsgRRUpdateRcvdCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA rr-update messages received during reporting 
+             interval."
+    ::= { cDnsHaIntervalStats 16 }
+
+cDnsHaIntMsgResponseRcvdCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA response messages received during reporting 
+             interval."
+    ::= { cDnsHaIntervalStats 17 }
+
+cDnsHaIntHeartbeatTimeoutCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA heartbeat timeouts during reporting interval."
+    ::= { cDnsHaIntervalStats 18 }
+
+cDnsHaIntUpdateRejectCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA DNS updates rejected by the server during 
+             reporting interval."
+    ::= { cDnsHaIntervalStats 19 }
+
+cDnsHaIntResponseMismatchCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA responses reporting a mismatch error during 
+             reporting interval."
+    ::= { cDnsHaIntervalStats 20 }
+
+cDnsHaIntResponseServFailCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA responses reporting a server failure 
+             error during reporting interval."
+    ::= { cDnsHaIntervalStats 21 }
+
+cDnsHaIntRespInconsistentCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA responses reporting an inconsistent 
+             server state during reporting interval."
+    ::= { cDnsHaIntervalStats 22 }
+
+cDnsHaIntRespUnknownCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA responses with an unknown message type during 
+             reporting interval."
+    ::= { cDnsHaIntervalStats 23 }
+
+cDnsHaIntFullZoneResyncCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA zones requiring full-zone 
+             resynchronization for nameset reconciliation during 
+             reporting interval." 
+    ::= { cDnsHaIntervalStats 24 }
+
+cDnsHaIntUpdatePrivateReqCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA DNS updates received containing a 
+             private request RR during reporting interval."    
+    ::= { cDnsHaIntervalStats 25 }
+
+cDnsHaIntUpdatePrivateRespCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA DNS update responses sent containing a 
+             private response RR during reporting interval."
+    ::= { cDnsHaIntervalStats 26 }
+
+cDnsHaIntSyncConflictCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA zones with name conflicts during nameset
+             reconciliation during reporting interval."
+    ::= { cDnsHaIntervalStats 27 }
+
+cDnsHaIntSyncDiscardNameCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA name conflicts where one nameset must 
+             be discarded to synchronize the zone during reporting 
+             interval."
+    ::= { cDnsHaIntervalStats 28 }
+
+cDnsHaIntSyncMergeNameCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Number of HA name conflicts which the namesets 
+             can be merged to synchronize the zone during reporting 
+             interval."
+    ::= { cDnsHaIntervalStats 29 }
+
+cDnsHaIntUpdateLatencyAverage           OBJECT-TYPE
+    SYNTAX      Gauge32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Average HA DNS update latency in seconds during reporting 
+             interval. Latency is measured as the time an update 
+             remains in the pending list."
+    ::= { cDnsHaIntervalStats 30 }
+
+
+cDnsHaIntSampleTime OBJECT-TYPE
+   SYNTAX      TimeStamp
+   MAX-ACCESS  read-only
+   STATUS      current
+   DESCRIPTION
+           "The time stamp of last HA sample."
+    ::= { cDnsHaIntervalStats 31 }
+
+cDnsHaIntSampleInterval OBJECT-TYPE
+    SYNTAX      TimeInterval
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The interval in seconds over which the server last 
+             calculated the HA sample interval statistics. This is the
+             configured reporting interval and the statistics are reset
+             since the last cDnsHaIntSampleTime."
+    ::= { cDnsHaIntervalStats 32 }
+
+cDnsHaIntMsgSyncPendingRcvdCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA_DNS_SYNCPENDING messages received 
+             during reporting interval." 
+    ::= { cDnsHaIntervalStats 33 }
+
+cDnsHaIntMsgSyncPendingSentCnts           OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA_DNS_SYNCPENDING messages sent 
+             during reporting interval." 
+    ::= { cDnsHaIntervalStats 34 }
+
+cDnsHaIntMsgShutdownRcvdCnts              OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA_DNS_SHUTDOWN messages received
+             during reporting interval."
+    ::= { cDnsHaIntervalStats 35 }
+
+cDnsHaIntMsgShutdownSentCnts              OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "Total number of HA_DNS_SHUTDOWN messages sent 
+	     during reporting interval."
+    ::= { cDnsHaIntervalStats 36 }
+
+
+-- Conformance
+
+
+cDnsServMIBCompliances OBJECT IDENTIFIER ::= { cDnsServMIBConform 1 }
+cDnsServMIBGroups      OBJECT IDENTIFIER ::= { cDnsServMIBConform 2 }
+
+-- Compliance
+
+cDnsServMIBCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+           "The compliance statement for entities which implement the
+           CISCO-DNS-SERVER-MIB."
+        MODULE -- This MIB module
+        MANDATORY-GROUPS { 
+                          cDnsQueryStatsGroup,
+                          cDnsQueryStatsIntervalGroup,
+                          cDnsPerfStatsGroup,
+                          cDnsPerfStatsIntervalGroup,
+                          cDnsSecurityStatsGroup,
+                          cDnsSecurityStatsIntervalGroup,
+                          cDnsErrorStatsGroup,
+                          cDnsErrorStatsIntervalGroup,
+                          cDnsMaxCounterStatsGroup,
+                          cDnsMaxCounterStatsIntervalGroup,
+                          cDnsHaStatsGroup,
+                          cDnsHaStatsIntervalGroup
+                          }
+
+        OBJECT cDnsServConfigRecurs
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "This object need not be writable."
+
+        OBJECT cDnsServConfigReset
+        MIN-ACCESS read-only
+        DESCRIPTION
+            "This object need not be writable."
+
+        GROUP cDnsServConfigGroup
+        DESCRIPTION
+              "Group of configuration objecst for DNS"
+
+        OBJECT cDnsServConfigIntervalSample
+        MIN-ACCESS read-only
+        DESCRIPTION
+             "Write access is not required."
+        ::= { cDnsServMIBCompliances 1 }
+
+-- Units of Conformance
+
+cDnsServConfigGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsServConfigImplementIdent,
+                cDnsServConfigRecurs,
+                cDnsServConfigUpTime,
+                cDnsServConfigResetTime,
+                cDnsServConfigReset,
+                cDnsServConfigIntervalSample
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing basic configuration
+                control of a DNS name server."
+        ::= { cDnsServMIBGroups 1 }
+
+cDnsQueryStatsGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsQueryAuthAnswers,
+                cDnsQueryAuthNoNames,
+                cDnsQueryAuthNoDataResps,
+                cDnsQueryReferrals,
+                cDnsQueryNonAuthAnswers,
+                cDnsQueryNonAuthNoDataResps,
+                cDnsQueryRelNameRequests,
+                cDnsQueryLameDelegations, 
+                cDnsQueryMemCacheHits,  
+                cDnsQueryMemCacheMisses,
+                cDnsQueryMemCacheWrites,
+                cDnsQueryRefusals  
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing total query 
+                 stats for a DNS name server."
+        ::= { cDnsServMIBGroups 2 }
+
+cDnsQueryStatsIntervalGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsQueryIntAuthAnswers,
+                cDnsQueryIntAuthNoNames,
+                cDnsQueryIntAuthNoDataResps,
+                cDnsQueryIntReferrals,
+                cDnsQueryIntNonAuthAnswers,
+                cDnsQueryIntNonAuthNoDataResps,
+                cDnsQueryIntRelNameRequests,
+                cDnsQueryIntLameDelegations, 
+                cDnsQueryIntMemCacheHits,  
+                cDnsQueryIntMemCacheMisses,
+                cDnsQueryIntMemCacheWrites,
+                cDnsQueryIntRefusals,  
+                cDnsQueryIntSampleTime,
+                cDnsQueryIntSampleInterval  
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interval query 
+                 stats for a DNS name server."
+        ::= { cDnsServMIBGroups 3 }
+
+cDnsPerfStatsGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsPerfUpdateRRs,  
+                cDnsPerfUpdatePkts,
+                cDnsPerfOutboundIxfrs,
+                cDnsPerfInboundIxfrs,
+                cDnsPerfFullRespIxfrs,
+                cDnsPerfOutboundAxfrs,
+                cDnsPerfInboundAxfrs,
+                cDnsPerfQueries,
+                cDnsPerfOutboundAtLimitXfrs,
+                cDnsPerfInboundAtLimitXfrs,
+                cDnsPerfOutboundNotifies,
+                cDnsPerfInboundNotifies  
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing total performance 
+                 stats for a DNS name server."
+        ::= { cDnsServMIBGroups 4 }
+
+cDnsPerfStatsIntervalGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsPerfIntUpdateRRs,  
+                cDnsPerfIntUpdatePkts,
+                cDnsPerfIntOutboundIxfrs,
+                cDnsPerfIntInboundIxfrs,
+                cDnsPerfIntFullRespIxfrs,
+                cDnsPerfIntOutboundAxfrs,
+                cDnsPerfIntInboundAxfrs,
+                cDnsPerfIntQueries,
+                cDnsPerfIntOutboundAtLimitXfrs,
+                cDnsPerfIntInboundAtLimitXfrs,
+                cDnsPerfIntOutboundNotifies,
+                cDnsPerfIntInboundNotifies,
+                cDnsPerfIntSampleTime,
+                cDnsPerfIntSampleInterval 
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interval performance 
+                 stats for a DNS name server."
+        ::= { cDnsServMIBGroups 5 }
+
+cDnsSecurityStatsGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsSecurityRcvdTsigPackets, 
+                cDnsSecurityDetecTsigBadTimes, 
+                cDnsSecurityDetectTsigBadKeys, 
+                cDnsSecurityDetectTsigBadSigs, 
+                cDnsSecurityRcvdTsigBadTimes, 
+                cDnsSecurityRcvdTsigBadKeys, 
+                cDnsSecurityRcvdTsigBadSigs, 
+                cDnsSecurityUnauthXferReqs, 
+                cDnsSecurityUnauthUpdateReqs, 
+                cDnsSecurityRestrictQueryAcls 
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing total security 
+                 stats for a DNS name server."
+        ::= { cDnsServMIBGroups 6 }
+
+cDnsSecurityStatsIntervalGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsSecurityIntRcvdTsigPackets, 
+                cDnsSecurityIntDetecTsigBadTimes, 
+                cDnsSecurityIntDetectTsigBadKeys, 
+                cDnsSecurityIntDetectTsigBadSigs, 
+                cDnsSecurityIntRcvdTsigBadTimes, 
+                cDnsSecurityIntRcvdTsigBadKeys, 
+                cDnsSecurityIntRcvdTsigBadSigs, 
+                cDnsSecurityIntUnauthXferReqs, 
+                cDnsSecurityIntUnauthUpdateReqs, 
+                cDnsSecurityIntRestrictQueryAcls,
+                cDnsSecurityIntSampleTime,
+                cDnsSecurityIntSampleInterval
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interval security 
+                 stats for a DNS name server."
+        ::= { cDnsServMIBGroups 7 }
+
+cDnsErrorStatsGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsErrorUpdateErrors,
+                cDnsErrorIxfrInErrors, 
+                cDnsErrorIxfrOutErrors, 
+                cDnsErrorAxfrInErrors, 
+                cDnsErrorAxfrOutErrors, 
+                cDnsErrorSentTotalErrors, 
+                cDnsErrorSentFormatErrors, 
+                cDnsErrorSentOtherErrors, 
+                cDnsErrorSentRefusalErrors, 
+                cDnsErrorRcvdFormatErrors 
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing total error 
+                 stats for a DNS name server."
+        ::= { cDnsServMIBGroups 8 }
+
+cDnsErrorStatsIntervalGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsErrorIntUpdateErrors,
+                cDnsErrorIntIxfrInErrors, 
+                cDnsErrorIntIxfrOutErrors, 
+                cDnsErrorIntAxfrInErrors, 
+                cDnsErrorIntAxfrOutErrors, 
+                cDnsErrorIntSentTotalErrors, 
+                cDnsErrorIntSentFormatErrors, 
+                cDnsErrorIntSentOtherErrors, 
+                cDnsErrorIntSentRefusalErrors, 
+                cDnsErrorIntRcvdFormatErrors,
+                cDnsErrorIntSampleTime,
+                cDnsErrorIntSampleInterval 
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interval error 
+                 stats for a DNS name server."
+        ::= { cDnsServMIBGroups 9 }
+
+cDnsMaxCounterStatsGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsMaxCntrConcurXfrsInCnts,
+                cDnsMaxCntrConcurXfrsOutCnts,
+                cDnsMaxCntrHaSvrNoRespTime,
+                cDnsMaxCntrHaSvrMaxNoRespTime,
+                cDnsMaxCntrHaBatchLimitCnts,
+                cDnsMaxCntrHaRRPendListCnts,
+                cDnsMaxCntrHaRRActiveListCnts,
+                cDnsMaxCntrHaPersEditListCnts,
+                cDnsMaxCntrHaUpdLatencyMax
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing total max 
+                 counter stats for a DNS name server."
+        ::= { cDnsServMIBGroups 10 }
+
+cDnsMaxCounterStatsIntervalGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsMaxCntrIntConcurXfrsInCnts,
+                cDnsMaxCntrIntConcurXfrsOutCnts,
+                cDnsMaxCntrIntHaSvrNoRespTime,
+                cDnsMaxCntrIntHaSvrMaxNoRespTime,
+                cDnsMaxCntrIntHaBatchLimitCnts,
+                cDnsMaxCntrIntHaRRPendListCnts,
+                cDnsMaxCntrIntHaRRActiveListCnts,
+                cDnsMaxCntrIntHaPersEditListCnts,
+                cDnsMaxCntrIntHaUpdLatencyMax,
+                cDnsMaxCntrIntSampleTime,
+                cDnsMaxCntrIntSampleInterval
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interval max 
+                 counter stats for a DNS name server."
+        ::= { cDnsServMIBGroups 11 }
+
+cDnsHaStatsGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsHaCommInterruptedStates,
+                cDnsHaPartnerDownStates,
+                cDnsHaSyncs,
+                cDnsHaMsgConnectSentCnts,
+                cDnsHaMsgReconcileSentCnts,
+                cDnsHaMsgHeartBeatSentCnts,
+                cDnsHaMsgZoneSyncSentCnts,
+                cDnsHaMsgRRSyncSentCnts,
+                cDnsHaMsgRRUpdateSentCnts,
+                cDnsHaMsgResponseSentCnts,
+                cDnsHaMsgConnectRcvdCnts,
+                cDnsHaMsgReconcileRcvdCnts,
+                cDnsHaMsgHeartbeatRcvdCnts,
+                cDnsHaMsgZoneSyncRcvdCnts,
+                cDnsHaMsgRRSyncRcvdCnts,
+                cDnsHaMsgRRUpdateRcvdCnts,
+                cDnsHaMsgResponseRcvdCnts,
+                cDnsHaHeartbeatTimeoutCnts,
+                cDnsHaUpdateRejectCnts,
+                cDnsHaResponseMismatchCnts,
+                cDnsHaResponseServFailCnts,
+                cDnsHaRespInconsistentCnts,
+                cDnsHaRespUnknownCnts,
+                cDnsHaFullZoneResyncCnts,
+                cDnsHaUpdatePrivateReqCnts,
+                cDnsHaUpdatePrivateRespCnts,
+                cDnsHaSyncConflictCnts,
+                cDnsHaSyncDiscardNameCnts,
+                cDnsHaSyncMergeNameCnts,
+                cDnsHaUpdateLatencyAverage,
+                cDnsHaMsgSyncPendingRcvdCnts,
+                cDnsHaMsgSyncPendingSentCnts,
+                cDnsHaMsgShutdownRcvdCnts,
+                cDnsHaMsgShutdownSentCnts
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing total HA DNS counter 
+                 stats for a DNS name server."
+        ::= { cDnsServMIBGroups 12 }
+
+cDnsHaStatsIntervalGroup OBJECT-GROUP
+        OBJECTS {
+                cDnsHaIntCommInterruptedStates,
+                cDnsHaIntPartnerDownStates,
+                cDnsHaIntSyncs,
+                cDnsHaIntMsgConnectSentCnts,
+                cDnsHaIntMsgReconcileSentCnts,
+                cDnsHaIntMsgHeartBeatSentCnts,
+                cDnsHaIntMsgZoneSyncSentCnts,
+                cDnsHaIntMsgRRSyncSentCnts,
+                cDnsHaIntMsgRRUpdateSentCnts,
+                cDnsHaIntMsgResponseSentCnts,
+                cDnsHaIntMsgConnectRcvdCnts,
+                cDnsHaIntMsgReconcileRcvdCnts,
+                cDnsHaIntMsgHeartbeatRcvdCnts,
+                cDnsHaIntMsgZoneSyncRcvdCnts,
+                cDnsHaIntMsgRRSyncRcvdCnts,
+                cDnsHaIntMsgRRUpdateRcvdCnts,
+                cDnsHaIntMsgResponseRcvdCnts,
+                cDnsHaIntHeartbeatTimeoutCnts,
+                cDnsHaIntUpdateRejectCnts,
+                cDnsHaIntResponseMismatchCnts,
+                cDnsHaIntResponseServFailCnts,
+                cDnsHaIntRespInconsistentCnts,
+                cDnsHaIntRespUnknownCnts,
+                cDnsHaIntFullZoneResyncCnts,
+                cDnsHaIntUpdatePrivateReqCnts,
+                cDnsHaIntUpdatePrivateRespCnts,
+                cDnsHaIntSyncConflictCnts,
+                cDnsHaIntSyncDiscardNameCnts,
+                cDnsHaIntSyncMergeNameCnts,
+                cDnsHaIntUpdateLatencyAverage,
+                cDnsHaIntSampleTime,
+                cDnsHaIntSampleInterval,
+                cDnsHaIntMsgSyncPendingRcvdCnts,
+                cDnsHaIntMsgSyncPendingSentCnts,
+                cDnsHaIntMsgShutdownRcvdCnts,
+                cDnsHaIntMsgShutdownSentCnts
+
+        }
+        STATUS current
+        DESCRIPTION
+                "A collection of objects providing interval HA DNS 
+                 counter stats for a DNS name server."
+        ::= { cDnsServMIBGroups 13 }
+
+END
+
+
+--%DNP%  MLC -Submitted MLC
+
+--%DNP%  MTF -TRUE MTF

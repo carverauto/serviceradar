@@ -1,0 +1,299 @@
+-- *****************************************************************
+-- CISCO-BULK-FILE-CAPABILITY.my: CISCO-BULK-FILE-MIB AGENT-CAPABILITIES
+--
+-- November, 2003, Yizhong Shen
+--
+-- Copyright (c) 2000, 2002, 2003, 2006 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-BULK-FILE-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        DisplayString
+                FROM SNMPv2-TC
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+ciscoBulkFileCapability MODULE-IDENTITY
+                LAST-UPDATED    "200602060000Z"
+                ORGANIZATION    "Cisco Systems, Inc."
+                CONTACT-INFO
+                        "       Cisco Systems
+                                Customer Service
+
+                        Postal: 170 West Tasman Drive
+                                San Jose, CA  95134
+                                USA
+
+                           Tel: +1 800 553-NETS
+
+                        E-mail: cs-snmp@cisco.com"
+                DESCRIPTION
+                        "Agent capabilities for CISCO-BULK-FILE-MIB"
+
+                REVISION        "200602060000Z"
+                DESCRIPTION
+                        "Added ciscoBulkFileCapCRS1V2R0
+                         Agent Capabilities for IOS XR 2.0"
+
+                REVISION        "200311130000Z"
+                DESCRIPTION
+                        "Added VXSM 5.0.0 PRODUCT-RELEASE of 
+                         ciscoBulkFileCapabilityV3R00"
+
+                REVISION        "200202170000Z"
+                DESCRIPTION
+                        "Added following capabilities for
+                         MGX8850/SES Products:
+
+                         - ciscoBulkFileCapabilityV2R00
+                         - ciscoBulkFileCapabilityV3R00."
+
+                REVISION        "200012040000Z"
+                DESCRIPTION
+                        "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 188 }
+
+ciscoBulkFileCapabilityV1R0 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS mc 1.0"
+STATUS          current
+DESCRIPTION     "Cisco Bulk File MIB capabilities"
+
+SUPPORTS        CISCO-BULK-FILE-MIB
+INCLUDES        { ciscoBulkFileDefineGroup }
+
+VARIATION   cbfDefineFileFormat
+SYNTAX      INTEGER { standardBER(1), bulkBinary(2), bulkASCII(3) }
+DESCRIPTION "standardBER(1) is not supported"
+
+VARIATION   cbfDefineFileStorage
+SYNTAX      INTEGER { volatile(2) }
+DESCRIPTION "ephemeral(1) and permanent(3) are not supported"
+
+VARIATION   cbfDefineFileName
+SYNTAX      DisplayString (SIZE (1..255))
+DESCRIPTION "The files can only be stored in the '/tmp' directory.
+            The implementation attaches '/tmp' to the start of the
+            NMS specified file name. Therefore, if the NMS specifies
+            the file name as 'xyz', it'll be stored in '/tmp/xyz' and
+            if its 'xyz/pqr', it'll be stored in '/tmp/xyz/pqr'. But
+            if the name is '/tmp/xyz', the file will be created in
+            '/tmp/xyz' and not '/tmp/tmp/xyz'"
+
+        ::= { ciscoBulkFileCapability 1 }
+
+ciscoBulkFileCapabilityV2R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 2.00,
+                          BPX SES Release 1.00."
+    STATUS               current
+    DESCRIPTION          "CISCO-BULK-FILE-MIB Capabilities."
+
+    SUPPORTS CISCO-BULK-FILE-MIB
+    INCLUDES { ciscoBulkFileDefineGroup,
+                   ciscoBulkFileStatusGroup }
+
+    VARIATION    cbfDefineMaxFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineHighFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineFilesRefused
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineMaxObjects
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineObjects
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineHighObjects
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineObjectsRefused
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+        VARIATION    cbfDefineFileName
+        ACCESS       read-only
+        DESCRIPTION "Write operation is not supported."
+
+        VARIATION    cbfDefineFileStorage
+        ACCESS       read-only
+        DESCRIPTION "Write operation is not supported."
+
+        VARIATION    cbfDefineFileFormat
+        SYNTAX       INTEGER {
+                         standardBER(1),
+                         bulkBinary(2)
+                     }
+        ACCESS       read-only
+        DESCRIPTION "Write operation is not supported.
+                     Do not support bulkASCII(3)."
+
+        VARIATION    cbfDefineFileEntryStatus
+        ACCESS       read-only
+        DESCRIPTION "Write operation is not supported."
+
+    VARIATION    cbfDefineObjectClass
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineObjectID
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineObjectEntryStatus
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfStatusMaxFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfStatusFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfStatusHighFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfStatusFilesBumped
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfStatusFileEntryStatus
+    ACCESS         read-only
+        DESCRIPTION "Write operation is not supported."
+    ::= { ciscoBulkFileCapability 2 }
+
+
+ciscoBulkFileCapabilityV3R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 3.00,
+                          BPX SES Release 3.00,
+                          VXSM  Release 5.0.0."
+    STATUS               current
+    DESCRIPTION          "CISCO-BULK-FILE-MIB Capabilities."
+
+    SUPPORTS CISCO-BULK-FILE-MIB
+    INCLUDES { ciscoBulkFileDefineGroup,
+                   ciscoBulkFileStatusGroup }
+
+    VARIATION    cbfDefineMaxFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineHighFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineFilesRefused
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineMaxObjects
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineObjects
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineHighObjects
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineObjectsRefused
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+        VARIATION    cbfDefineFileName
+        ACCESS       read-only
+        DESCRIPTION "Write operation is not supported."
+
+        VARIATION    cbfDefineFileStorage
+        ACCESS       read-only
+        DESCRIPTION "Write operation is not supported."
+
+        VARIATION    cbfDefineFileFormat
+        SYNTAX       INTEGER {
+                         variantBERWithCksum(4),
+                         variantBinWithCksum(5)
+                     }
+        ACCESS       read-only
+        DESCRIPTION "Write operation is not supported.
+                     Do not support standardBER(1),
+                     bulkBinary(2),bulkASCII(3)."
+
+        VARIATION    cbfDefineFileEntryStatus
+        ACCESS       read-only
+        DESCRIPTION "Write operation is not supported."
+
+    VARIATION    cbfDefineObjectClass
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineObjectID
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfDefineObjectEntryStatus
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfStatusMaxFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfStatusFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfStatusHighFiles
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfStatusFilesBumped
+    ACCESS         not-implemented
+    DESCRIPTION  "Not supported."
+
+    VARIATION    cbfStatusFileEntryStatus
+    ACCESS         read-only
+        DESCRIPTION "Write operation is not supported."
+    ::= { ciscoBulkFileCapability 3 }
+
+ciscoBulkFileCapCRS1V2R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "Cisco IOS XR 2.0 for CRS-1"
+    STATUS               current
+    DESCRIPTION          "CISCO-BULK-FILE-MIB Capabilities
+                         for IOS XR release 2.0"
+
+    SUPPORTS             CISCO-BULK-FILE-MIB
+    INCLUDES             { ciscoBulkFileDefineGroupRev1,
+                           ciscoBulkFileStatusGroup
+                         }
+    ::= { ciscoBulkFileCapability 4 }
+END
+     

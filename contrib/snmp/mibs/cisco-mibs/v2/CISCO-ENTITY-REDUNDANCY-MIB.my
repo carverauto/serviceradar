@@ -1,0 +1,1565 @@
+-- *********************************************************************
+-- CISCO-ENTITY-REDUNDANCY-MIB.my
+-- Extension to the ENTITY-MIB in order to support provisioning,
+-- monitoring and control of redundant system entities.
+--
+-- Feb 2005, Fred Frazer
+--
+-- Copyright (c) 2005, 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *********************************************************************
+
+CISCO-ENTITY-REDUNDANCY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+     MODULE-IDENTITY, 
+     NOTIFICATION-TYPE,
+     OBJECT-TYPE,
+     Gauge32, 
+     Counter64, 
+     Unsigned32,
+     Integer32
+                                    FROM SNMPv2-SMI
+     RowStatus,
+     TimeStamp,
+     TruthValue,
+     StorageType,
+     AutonomousType
+                                    FROM SNMPv2-TC
+     SnmpAdminString
+                                    FROM SNMP-FRAMEWORK-MIB
+     PhysicalIndex
+                                    FROM ENTITY-MIB
+     InetAddressType,
+     InetAddress
+                                    FROM INET-ADDRESS-MIB
+     MODULE-COMPLIANCE, 
+     OBJECT-GROUP, 
+     NOTIFICATION-GROUP
+                                    FROM SNMPv2-CONF
+     CeRedunType,
+     CeRedunScope,
+     CeRedunArch,
+     CeRedunSwitchCommand,
+     CeRedunMode,
+     CeRedunMbrStatus,
+     CeRedunStateCategories,
+     CeRedunReasonCategories
+                                    FROM CISCO-ENTITY-REDUNDANCY-TC-MIB
+     ciscoMgmt                    
+                                    FROM CISCO-SMI
+     ;
+
+ciscoEntityRedunMIB MODULE-IDENTITY
+    LAST-UPDATED    "200510010000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+                    "Cisco Systems, Inc.
+                     Customer Service
+                     Postal: 170 W. Tasman Drive
+                             San Jose, CA  95134-1706
+                             USA
+                     Tel: +1 800 553-NETS
+                     Email: cs-ha@cisco.com"
+
+    DESCRIPTION
+        "This management information module supports 
+         configuration, control and monitoring of redundancy 
+         protection for various kinds of components on 
+         Cisco managed devices. 
+
+         It is meant to be generic enough to handle basic 
+         redundancy control and monitoring for many types of 
+         redundant member components and redundancy architectures
+         as long as there is an Entity MIB entPhysicalIndex and 
+         entPhysicalVendorType assigned to each member component.
+
+         It is designed so that the tables can be augmented in
+         other extension MIBS which build upon this MIB by 
+         adding additional objects that may be specific to a 
+         particular type of redundancy or member component.
+
+         This MIB can also be used in cases where some types of
+         redundancy groups and members don't require explicit 
+         user configuration. One example may be redundant fan
+         assemblies. In those cases, the managed system should 
+         internally assign group and member indexes, so that 
+         it can provide read-only access to the group and member 
+         tables. This allows MIB monitoring for these types of 
+         redundant entities.
+        "
+    REVISION      "200510010000Z"
+    DESCRIPTION
+         "The initial version of this MIB module."
+    ::= { ciscoMgmt 498 }
+
+ciscoEntityRedunMIBNotifs OBJECT IDENTIFIER
+    ::= { ciscoEntityRedunMIB 0 }
+
+ciscoEntityRedunMIBObjects OBJECT IDENTIFIER
+    ::= { ciscoEntityRedunMIB 1 }
+
+ciscoEntityRedunMIBConform OBJECT IDENTIFIER
+    ::= { ciscoEntityRedunMIB 2 }
+
+--
+-- Redundancy Group Tables
+--
+-- These tables allow managed systems to report information about 
+-- the types of redundancy groups available on the reporting system.
+-- They also allow configuration and monitoring of objects which
+-- apply to each redundancy group.
+--
+ceRedunGroup   OBJECT IDENTIFIER ::= {ciscoEntityRedunMIBObjects 1 }
+
+-- Redundancy Group Types Table
+ceRedunGroupTypesTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CeRedunGroupTypesEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table lists the basic types of redundancy groups 
+         supported on the managed device along with additional 
+         information about each group type.
+        "
+    ::= {ceRedunGroup 1 }
+
+ceRedunGroupTypesEntry OBJECT-TYPE
+    SYNTAX      CeRedunGroupTypesEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A conceptual row in the ceRedunGroupTypesTable."
+    INDEX { ceRedunGroupTypeIndex }
+    ::= {ceRedunGroupTypesTable 1 }
+
+CeRedunGroupTypesEntry ::= SEQUENCE {
+    ceRedunGroupTypeIndex              Unsigned32,
+    ceRedunGroupTypeName               SnmpAdminString,
+    ceRedunGroupCounts                 Gauge32,
+    ceRedunNextUnusedGroupIndex        Unsigned32,
+    ceRedunMaxMbrsInGroup              Unsigned32,
+    ceRedunUsesGroupName               TruthValue,
+    ceRedunGroupDefinitionChanged      TimeStamp
+}
+
+ceRedunGroupTypeIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An index assigned for each type of redundancy group supported 
+         on a managed system that requires its own table listing 
+         entPhysicalVendorTypes allowed as members for its groups.
+
+         For instance, port groups have a different set of allowed
+         entPhysicalVendorTypes than linecard groups. So each should 
+         have a separate ceRedunGroupTypeIndex. 
+
+         For this example, a command line interface may differentiate
+         by using separate keywords (port-group versus linecard-group) 
+         rather than exposing the ceRedunGroupTypeIndex to a user.
+        "
+    ::= { ceRedunGroupTypesEntry 1 }
+
+ceRedunGroupTypeName OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The textual name of the redundancy group type.  The value
+         of this object should be the name of the redundancy group 
+         type assigned by the local device as it would appear
+         for display commands entered at the device's `console'.
+         Examples are port-group, linecard-group, fan-group, etc.
+        "
+    ::= { ceRedunGroupTypesEntry 2 }
+
+ceRedunGroupCounts OBJECT-TYPE
+    SYNTAX      Gauge32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The current count of redundancy groups for a specific 
+         ceRedunGroupTypeIndex. This count indicates the number 
+         of rows in the ceRedunGroupTable for a specific 
+         ceRedunGroupTypeIndex.
+        "
+    ::= { ceRedunGroupTypesEntry 3 }
+
+ceRedunNextUnusedGroupIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The next unused group index available for configuring 
+         a new redundancy group for this group type.
+
+         In order to avoid unnecessary collisions between competing 
+         management stations, `adjacent' retrievals of this object 
+         should give different index values. 
+         
+         But in order to prevent leaks of unused indexes, it is 
+         acceptable to cycle through and report unused indexes again 
+         if all of the indexes have already been retrieved previously, 
+         yet some remain unused.  So the retrieval of an index 
+         should not be considered a permanent longterm reservation.
+
+         If there are no more unused group indexes available, the 
+         managed system should return 0. 
+         
+         Note: 0 may be an acceptable group index on some 
+         managed systems.
+        "
+    ::= { ceRedunGroupTypesEntry 4 }
+
+ceRedunMaxMbrsInGroup OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The maximum number of primary plus secondary members allowed
+         in a group for a specific ceRedunGroupTypeIndex. If only
+         1:1 or 1+1 is supported, this should be 2.
+
+         If the maximum number is unknown or not determinable, the 
+         managed system should return 0.
+        "
+    ::= { ceRedunGroupTypesEntry 5 }
+
+ceRedunUsesGroupName OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Boolean to indicate whether this type of redundancy group 
+         uses the ceRedunGroupString object as a group name 
+         identifier. If it is reported as 'true', the 
+         ceRedunGroupString name must contain no internal spaces.
+
+         If it's reported as 'false', the ceRedunGroupString object
+         is just used as an optional description for the group
+         rather than as the group name. 
+        "
+    ::= { ceRedunGroupTypesEntry 6 }
+
+ceRedunGroupDefinitionChanged OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The value of sysUpTime when there was the most recent change
+         to any objects in the ceRedunGroupTypesTable except for
+         ceRedunGroupCounts or ceRedunNextUnusedGroupIndex.
+         The sysUpTime should also reflect changes to either the 
+         ceRedunVendorTypesTable, ceRedunInternalStatesTable 
+         or ceRedunSwitchoverReasonTable.
+
+         Normally these objects are static, but if there was an in 
+         service upgrade to the software image of the managed system
+         then the tables may change and should be read again.
+
+         If there has been no change since the last initialization
+         of the local network management system, this object should
+         contain the value 0.
+        "
+    ::= { ceRedunGroupTypesEntry 7 }
+
+-- Redundancy VendorTypes Table
+ceRedunVendorTypesTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CeRedunVendorTypesEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table lists all entPhysicalVendorTypes allowed as
+         members for a specific ceRedunGroupTypeIndex on the 
+         managed device, inclusive for all configurable values for 
+         ceRedunType, ceRedunScope, ceRedunArch, etc.
+
+         If the ceRedunGroupDefinitionChanged object changes for
+         a particular ceRedunGroupTypeIndex, then this table may 
+         have changed and should be read again.
+                
+         Note: Although a specific ceRedunGroupTypeIndex may allow
+         groups of different entPhysicalVendorTypes, managed devices 
+         typically enforce all members within a specific group to 
+         have the same entPhysicalVendorType.
+        "
+    ::= {ceRedunGroup 2 }
+
+ceRedunVendorTypesEntry OBJECT-TYPE
+    SYNTAX       CeRedunVendorTypesEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A conceptual row in the ceRedunVendorTypesTable."
+    INDEX { ceRedunGroupTypeIndex,
+            ceRedunVendorType
+          }
+    ::= {ceRedunVendorTypesTable 1 }
+
+CeRedunVendorTypesEntry ::= SEQUENCE {
+    ceRedunVendorType       AutonomousType
+}
+
+ceRedunVendorType OBJECT-TYPE
+    SYNTAX      AutonomousType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "Each row lists a specific entPhysicalVendorType which is 
+         allowed as a member for groups of the type specified by
+         the ceRedunGroupTypeIndex. 
+
+         Note: Normally an index object would have MAX-ACCESS of
+         not-accessible, but since the table contains only this
+         index object, the access is read-only.
+        "
+    ::= { ceRedunVendorTypesEntry 1 }
+
+-- Internal State Description table
+ceRedunInternalStatesTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CeRedunInternalStatesEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table allows the managed system to report a read-only 
+         list of internal state numbers and the corresponding 
+         descriptions which apply for the members of a particular 
+         redundancy group type.
+         
+         If the ceRedunGroupDefinitionChanged object changes for
+         a particular ceRedunGroupTypeIndex, then this table may 
+         have changed and should be read again.
+        " 
+    ::= { ceRedunGroup 3 }
+
+ceRedunInternalStatesEntry OBJECT-TYPE
+    SYNTAX      CeRedunInternalStatesEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row in the ceRedunInternalStatesTable. 
+        "
+    INDEX { ceRedunGroupTypeIndex, 
+            ceRedunInternalStateIndex
+           }
+    ::= { ceRedunInternalStatesTable 1 }
+
+CeRedunInternalStatesEntry ::= SEQUENCE {
+    ceRedunInternalStateIndex       Unsigned32,
+    ceRedunStateCategory            CeRedunStateCategories,
+    ceRedunInternalStateDescr       SnmpAdminString
+}
+
+ceRedunInternalStateIndex OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This is an index corresponding to an internal state of a 
+         member for a redundancy group of type ceRedunGroupTypeIndex.
+         The state may include any of the initialization or 
+         intermediate progression states necessary to reach a stable 
+         active or standby state. 
+        "
+    ::= { ceRedunInternalStatesEntry 1 }
+
+ceRedunStateCategory OBJECT-TYPE
+    SYNTAX     CeRedunStateCategories
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This places the specific internal state into one of several
+         categories of internal states which are significant for 
+         redundancy.
+        "
+    ::= { ceRedunInternalStatesEntry 2 }
+
+ceRedunInternalStateDescr OBJECT-TYPE
+    SYNTAX     SnmpAdminString
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This is a string description for the specific internal 
+         member state.
+        "
+    ::= { ceRedunInternalStatesEntry 3 }
+
+-- Switchover Reason Description table
+ceRedunSwitchoverReasonTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CeRedunSwitchoverReasonEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table allows the managed system to report a read-only 
+         list of switchover reason indexes and the corresponding 
+         descriptions.
+         
+         If the ceRedunGroupDefinitionChanged object changes for
+         a particular ceRedunGroupTypeIndex, then this table may 
+         have changed and should be read again.
+        " 
+    ::= { ceRedunGroup 4 }
+
+ceRedunSwitchoverReasonEntry OBJECT-TYPE
+    SYNTAX      CeRedunSwitchoverReasonEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row in the ceRedunSwitchoverReasonTable. 
+        "
+    INDEX { ceRedunGroupTypeIndex, 
+            ceRedunSwitchoverReasonIndex
+           }
+    ::= { ceRedunSwitchoverReasonTable 1 }
+
+CeRedunSwitchoverReasonEntry ::= SEQUENCE {
+    ceRedunSwitchoverReasonIndex    Unsigned32,
+    ceRedunReasonCategory           CeRedunReasonCategories,
+    ceRedunSwitchoverReasonDescr    SnmpAdminString
+}
+
+ceRedunSwitchoverReasonIndex OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "This is an index corresponding to a switchover reason code.
+        "
+    ::= { ceRedunSwitchoverReasonEntry 1 }
+
+ceRedunReasonCategory OBJECT-TYPE
+    SYNTAX     CeRedunReasonCategories
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This categorizes the specific switchover reason into one
+         of several categories.
+        "
+    ::= { ceRedunSwitchoverReasonEntry 2 }
+
+ceRedunSwitchoverReasonDescr OBJECT-TYPE
+    SYNTAX     SnmpAdminString
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This is a string description for the specific switchover
+         reason.
+        "
+    ::= { ceRedunSwitchoverReasonEntry 3 }
+
+-- Redundancy Group Table
+ceRedunGroupLastChanged OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The value of sysUpTime corresponding to the last change
+         for any object in the ceRedunGroupTable. 
+         
+         The source of the change can be due to either an SNMP message 
+         affecting an object in the table or due to any other source of
+         user input such as a command line interface.
+
+         The timestamp applies to all read-create objects even for 
+         cases where the managed device only supports read-only 
+         access because it doesn't require user configuration of 
+         those objects.
+
+         If there has been no change since the last time the sysUpTime
+         was zero then report the sysUpTime as zero.
+        "
+    ::= { ceRedunGroup 5 }
+
+ceRedunGroupTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CeRedunGroupEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table lists group configuration and status objects
+         for a specific redundancy group. However, the members are 
+         configured separately in the ceRedunMbrTable. 
+        "
+    ::= { ceRedunGroup 6 }
+
+ceRedunGroupEntry OBJECT-TYPE
+    SYNTAX       CeRedunGroupEntry
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "A conceptual row in the ceRedunGroupTable."
+    INDEX { ceRedunGroupTypeIndex, 
+            ceRedunGroupIndex 
+          }
+    ::= {ceRedunGroupTable  1 }
+
+CeRedunGroupEntry ::= SEQUENCE {
+    ceRedunGroupIndex                 Unsigned32,
+    ceRedunGroupString                SnmpAdminString,
+    ceRedunGroupRedunType             CeRedunType,
+    ceRedunGroupScope                 CeRedunScope,
+    ceRedunGroupArch                  CeRedunArch,
+    ceRedunGroupRevert                INTEGER,
+    ceRedunGroupWaitToRestore         Unsigned32,
+    ceRedunGroupDirection             INTEGER,
+    ceRedunGroupStorageType           StorageType,
+    ceRedunGroupRowStatus             RowStatus
+}
+
+ceRedunGroupIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A group number assigned to a particular redundancy group. 
+         A group consists of one or more primary members which are 
+         protected by one or more secondary members.
+        "
+    ::= { ceRedunGroupEntry 1 }
+
+ceRedunGroupString OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "If ceRedunUsesGroupName is 'true' for this redundancy group
+         type, this object is a group name identifier and the value
+         of this object has to be specified and should contain no 
+         internal spaces when configuring this group entry. 
+
+         If ceRedunUsesGroupName is 'false', the ceRedunGroupString 
+         object is just used as an optional description for the 
+         group rather than as the group name. In that case it's
+         allowed to have spaces in the string.
+        "
+
+    ::= { ceRedunGroupEntry 2 }
+
+ceRedunGroupRedunType OBJECT-TYPE
+    SYNTAX      CeRedunType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The intended type of redundancy protection such as 'yCable'
+         or 'aps' for this redundancy group.  
+        "
+    ::= { ceRedunGroupEntry 3 }
+
+ceRedunGroupScope OBJECT-TYPE
+    SYNTAX      CeRedunScope
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object determines the local/remote scope of the 
+         redundancy group. 
+         
+         This object may not be modified if the associated
+         ceRedunGroupRowStatus object is equal to active(1).
+        "
+    DEFVAL {local}
+    ::= { ceRedunGroupEntry 4 }
+
+ceRedunGroupArch OBJECT-TYPE
+    SYNTAX      CeRedunArch
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The architecture of the redundancy group, such as
+         1:1 or 1:n, etc.
+
+         This object may not be modified if the associated
+         ceRedunGroupRowStatus object is equal to active(1).
+        "
+    DEFVAL {onePlusOne}
+    ::= { ceRedunGroupEntry 5 }
+
+ceRedunGroupRevert OBJECT-TYPE
+    SYNTAX      INTEGER { nonrevertive(1), revertive(2) }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The revertive mode of the redundancy group.
+
+         nonrevertive(1)
+
+         The secondary member remains active until another
+         switchable event takes place.
+
+         revertive(2)
+
+         When the condition that caused a switch to the 
+         secondary member has been cleared, a switch is made
+         back to the primary member after a configured delay.
+         
+         Switching should normally be revertive for the 
+         1:n and load-sharing architectures. Switching may 
+         optionally be revertive with the 1:1 and 1+1 
+         architectures.
+
+         This object may not be modified if the associated
+         ceRedunGroupRowStatus object is equal to active(1).
+         "
+    ::= { ceRedunGroupEntry 6 }
+
+ceRedunGroupWaitToRestore OBJECT-TYPE
+    SYNTAX      Unsigned32
+    UNITS       "seconds"
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The Wait To Restore period in seconds. This object is
+         only applicable to groups which are configured as revertive
+         and does not need to be instantiated for groups which 
+         are non-revertive.
+
+         After clearing of a condition that necessitated an
+         automatic switch, the wait to restore period must elapse
+         before reverting. This is intended to avoid rapid switch
+         oscillations.
+
+         This object may not be modified if the associated
+         ceRedunGroupRowStatus object is equal to active(1).
+        "
+    DEFVAL { 300 }
+    ::= { ceRedunGroupEntry 7 }
+
+
+ceRedunGroupDirection OBJECT-TYPE
+    SYNTAX      INTEGER { unidirectional(1), bidirectional(2) }
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object is applicable only for those types of redundancy
+         such as APS where switchovers can take place independently at 
+         near and far ends of a pair of interconnecting links and does
+         not need to be instantiated for other redundancy types.
+
+         unidirectional(1)
+
+         Switchovers are allowed to take place independently at 
+         protection equipment at the near and far ends of 
+         interconnecting links. 
+
+         bidirectional(2)
+
+         When a switchover happens at the near end protection
+         equipment there is some form of signalling which should 
+         cause a corresponding switchover at the far end protection
+         equipment. 
+
+         This object may not be modified if the associated
+         ceRedunGroupRowStatus object is equal to active(1).
+         "
+    ::= { ceRedunGroupEntry 8 }
+
+ceRedunGroupStorageType OBJECT-TYPE
+    SYNTAX      StorageType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The storage type for this conceptual row. By default,
+         the row will not be saved into non-volatile memory
+         unless this object is set to the value nonVolatile.
+
+         Note: Conceptual rows having the value 'readOnly' 
+         can be used for redundancy groups that aren't configurable
+         and need not allow write-access to any columnar objects 
+         in the row.
+        "
+    DEFVAL { volatile }
+    ::= { ceRedunGroupEntry 9 }
+
+ceRedunGroupRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The configuration status of this redundancy group entry.
+
+         An entry may not exist in the active RowStatus state 
+         unless all configurable read-create objects in the entry 
+         have an appropriate value. 
+         
+         No other read-create objects in this group may be modified 
+         if the ceRedunGroupRowStatus object is equal to active(1).
+
+         When set to 'notInService', changes may be made to 
+         configurable read-create objects. Also, associated
+         ceRedunMbrTable objects may be added, deleted and 
+         modified. After modifying a conceptual row in this table, 
+         the management client must set this object to 'active'
+         in order for the changes to take effect.
+        "
+
+    ::= { ceRedunGroupEntry 10 }
+
+--
+-- Group member Configuration Table
+--
+-- This table supports the addition, modification and deletion of
+-- members in entity redundancy groups. 
+--
+ceRedunMembers   OBJECT IDENTIFIER ::= {ciscoEntityRedunMIBObjects 2 }
+
+ceRedunMbrLastChanged OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The value of sysUpTime corresponding to the last change
+         to any read-create objects in this table.
+         
+         The source of the change can be due to either an SNMP message 
+         affecting this table or due to any other source of user input
+         such as a command line interface.
+
+         The timestamp applies to all read-create objects even for 
+     cases where the managed device only supports read-only 
+         access because it doesn't require user configuration of 
+         those objects.
+
+         If there has been no change since the last time the sysUpTime
+         was zero then report the sysUpTime as zero.
+        "
+    ::= { ceRedunMembers 1 }
+
+ceRedunMbrConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CeRedunMbrConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table lists the group members and generic redundancy
+         objects which are associated with configuring redundancy 
+         group members.
+        
+         The switchover granularity should be for one member at a 
+         time.  In other words if a member is allowed to be an 
+         individual port, then switchovers on multi-port linecards 
+         would be expected to take place independently for each 
+         port on the linecard.  But if the members are full linecards,
+         then all ports on the linecard would be expected to switch
+         at the same time.
+        " 
+    ::= { ceRedunMembers 2 }
+
+ceRedunMbrConfigEntry OBJECT-TYPE
+    SYNTAX      CeRedunMbrConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row in the ceRedunMbrConfigTable. "
+    INDEX { ceRedunGroupTypeIndex, 
+            ceRedunGroupIndex, 
+            ceRedunMbrNumber }
+    ::= { ceRedunMbrConfigTable 1 }
+
+CeRedunMbrConfigEntry ::= SEQUENCE {
+    ceRedunMbrNumber                Unsigned32,
+    ceRedunMbrPhysIndex             PhysicalIndex,
+    ceRedunMbrMode                  CeRedunMode,
+    ceRedunMbrAddressType           InetAddressType,
+    ceRedunMbrRemoteAddress         InetAddress,
+    ceRedunMbrPriority              INTEGER,
+    ceRedunMbrStorageType           StorageType,
+    ceRedunMbrRowStatus             RowStatus
+}
+
+ceRedunMbrNumber OBJECT-TYPE
+    SYNTAX       Unsigned32
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "This field should be assigned as a unique member number 
+         within a redundancy group. The value 0 always indicates a 
+         secondary member. Primary members should have numbers 
+         which are higher than secondary members.
+
+         Note: This definition of member values, including the use 
+         of the value 0 for the secondary member allows compatibility
+         with existing 1:n SONET APS channel numbering. Yet the 
+         numbering definition has also been expanded to allow support 
+         for the most general m:n redundancy architectures.  
+        "
+    ::= { ceRedunMbrConfigEntry 1 }
+
+ceRedunMbrPhysIndex OBJECT-TYPE
+    SYNTAX       PhysicalIndex
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "This field specifies the entity PhysicalIndex which is being
+         configured as a redundancy member.
+
+         It is the responsibility of the managed device to enforce 
+         any restrictions on matching entPhysicalVendorType, slot 
+         positions etc. among members of the same redundancy group. 
+        "
+    ::= { ceRedunMbrConfigEntry 2 }
+
+ceRedunMbrMode OBJECT-TYPE
+    SYNTAX     CeRedunMode
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This field is set to the 'primary' (working) or 
+         'secondary' (protection) role within the redundancy group.
+         The designation as 'primary' or 'secondary' is configured 
+         and is static. It doesn't change due to a switchover.
+        "
+    ::= { ceRedunMbrConfigEntry 3 }
+
+ceRedunMbrAddressType OBJECT-TYPE
+    SYNTAX     InetAddressType
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This field specifies the type of address used for the
+         ceRedunMbrAddress object. It does not need to be 
+         instantiated when the ceRedunGroupScope value is 
+         'remoteSystem' or 'remoteChassis'.
+        "
+    ::= { ceRedunMbrConfigEntry 4 }
+
+ceRedunMbrRemoteAddress OBJECT-TYPE
+    SYNTAX     InetAddress
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "This field specifies the remote management address of the 
+         shelf or system where the peer member is expected to be 
+         configured. It does not need to be instantiated when the 
+         ceRedunGroupScope value is 'remoteSystem' or 'remoteChassis'.
+        "
+    ::= { ceRedunMbrConfigEntry 5 }
+
+ceRedunMbrPriority OBJECT-TYPE
+    SYNTAX     INTEGER {low(1), high(2)}
+    MAX-ACCESS read-create
+    STATUS     current
+    DESCRIPTION
+        "The priority of the member. For 1:n architectures if
+         the secondary member has already become active for
+         a primary member with a lower priority, it can instead 
+         take over for a different primary member if that member 
+         has higher priority.
+ 
+         This field is only applicable if the member is to be
+         included in a group using the 1:n architecture. It is
+         not applicable if the member is to be included in a
+         group using the 1:1 or 1+1 architecture, and is ignored
+         in that case.
+        "
+    DEFVAL { low }
+    ::= { ceRedunMbrConfigEntry 6 }
+
+ceRedunMbrStorageType OBJECT-TYPE
+    SYNTAX      StorageType
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The storage type for this conceptual row. By default,
+         the row will not be saved into non-volatile memory
+         unless this object is set to the value nonVolatile.
+
+         Note: Conceptual rows having the value 'readOnly' 
+         can be used for redundancy groups that aren't configurable
+         and need not allow write-access to any columnar objects 
+         in the row.
+        "
+    DEFVAL { volatile }
+    ::= { ceRedunMbrConfigEntry 8 }
+
+ceRedunMbrRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "The configuration status of this member entry.
+        
+         A row in the ceRedunMbrConfigTable may not be created,
+         deleted, or set to notInService if the associated
+         ceRedunGroupRowStatus object is equal to active. However,
+         if the ceRedunGroupRowStatus object is equal to
+         notInService, a row may be created, deleted or modified.
+         In other words, a member may not be added, deleted or
+         modified if the including group is active.
+        "
+    ::= { ceRedunMbrConfigEntry 9 }
+
+--
+-- Group member Status Table
+--
+-- This table supports status reporting for members in entity 
+-- redundancy groups. 
+--
+
+ceRedunMbrStatusLastChanged OBJECT-TYPE
+    SYNTAX      TimeStamp
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The value of sysUpTime corresponding to the last change
+         to any objects in the ceRedunMbrStatusTable table.
+
+         If there has been no change since the last time the sysUpTime
+         was zero then report the sysUpTime as zero.
+        "
+    ::= { ceRedunMembers 3 }
+
+ceRedunMbrStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CeRedunMbrStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table lists the redundancy status and other read-only
+         redundancy objects which are associated with redundancy 
+         group members.
+
+         Status associated with member alarm conditions should be
+         reported separately using the CISCO-ENTITY-ALARM-MIB.
+        " 
+    ::= { ceRedunMembers 4 }
+
+ceRedunMbrStatusEntry OBJECT-TYPE
+    SYNTAX      CeRedunMbrStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row in the ceRedunMbrStatusTable. 
+        "
+    AUGMENTS { ceRedunMbrConfigEntry }
+    ::= { ceRedunMbrStatusTable  1 }
+
+CeRedunMbrStatusEntry ::= SEQUENCE {
+    ceRedunMbrStatusCurrent         CeRedunMbrStatus,
+    ceRedunMbrProtectingMbr         Unsigned32,
+    ceRedunMbrInternalState         Unsigned32,
+    ceRedunMbrSwitchoverCounts      Gauge32,
+    ceRedunMbrLastSwitchover        TimeStamp,
+    ceRedunMbrSwitchoverReason      Unsigned32,
+    ceRedunMbrSwitchoverSeconds     Counter64
+}
+
+ceRedunMbrStatusCurrent OBJECT-TYPE
+    SYNTAX     CeRedunMbrStatus
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "Indicates the current status bitflags for the member.
+        "
+    ::= { ceRedunMbrStatusEntry 1 }
+ 
+ceRedunMbrProtectingMbr OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This field is valid only for a secondary member. When the
+         secondary member is active, this value indicates the
+         primary member it has taken over for.  When the secondary
+         member is standby, it should return its own member number.
+ 
+         Primary members should return their own member number.
+        "
+ 
+    ::= { ceRedunMbrStatusEntry 2 }
+ 
+ceRedunMbrInternalState OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This is the current internal state index for a member.
+         The corresponding state category and description can be 
+         found in the ceRedunInternalStatesTable.
+         
+         It may include any of the initialization or intermediate 
+         progression states necessary to reach a stable active or
+         standby state. 
+        "
+    ::= { ceRedunMbrStatusEntry 3 }
+
+ceRedunMbrSwitchoverCounts OBJECT-TYPE
+    SYNTAX     Gauge32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The number of times this primary or secondary member has 
+         changed from being active to being standby due to
+         a switchover.  The counter should monotonically increase 
+         but never wrap or decrease, except at a system restart.
+         
+         When queried for a secondary member that has never gone
+         active since the last system restart, then no switchovers
+         should be reported so it should return 0.
+        "
+    ::= { ceRedunMbrStatusEntry 4 }
+
+ceRedunMbrLastSwitchover OBJECT-TYPE
+    SYNTAX     TimeStamp
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The value of sysUpTime when this primary member last 
+         completed a switchover to the secondary member. If this 
+         member has never switched to standby, or this is a 
+         secondary member, the value 0 should be returned.
+        "
+    ::= { ceRedunMbrStatusEntry 5 }
+
+ceRedunMbrSwitchoverReason OBJECT-TYPE
+    SYNTAX     Unsigned32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The reported reason code for the last switchover.
+         The corresponding reason category and description can 
+         be found from the ceRedunSwitchoverReasonTable.
+        "
+    ::= { ceRedunMbrStatusEntry 6 }
+
+ceRedunMbrSwitchoverSeconds OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The cumulative switching duration time in seconds. For a 
+         primary member, this is the cumulative number of seconds that 
+         service was carried by the secondary member. For the secondary 
+         member, this is the cumulative number of seconds that the 
+         secondary member has been used to protect a primary member. 
+
+         This information is only valid if revertive switching is 
+         enabled.  The value 0 should be returned otherwise.
+        "
+    ::= { ceRedunMbrStatusEntry 8 }
+
+--
+-- Redundancy Switchover Command Table
+--
+-- This table provides the ability to initiate switchover commands.
+--
+
+ceRedunCommandTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CeRedunCommandEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table allows switchover commands to be sent to members of
+         configured redundancy groups.
+        "
+    ::= {ciscoEntityRedunMIBObjects 3 }
+
+ceRedunCommandEntry OBJECT-TYPE
+    SYNTAX      CeRedunCommandEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "A conceptual row in the ceRedunCommandTable. This
+         row exists only if the associated ceRedunGroupEntry
+         is active and has at least one primary and secondary
+         member active.
+        "
+    INDEX { ceRedunGroupTypeIndex, 
+            ceRedunGroupIndex
+          }
+    ::= {ceRedunCommandTable  1 }
+
+CeRedunCommandEntry ::= SEQUENCE {
+    ceRedunCommandMbrNumber       Integer32,
+    ceRedunCommandSwitch          CeRedunSwitchCommand
+}
+
+ceRedunCommandMbrNumber OBJECT-TYPE
+    SYNTAX      Integer32 (-1..2147483647)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Specifies the redundancy group member to which the 
+         switch command applies. 
+         
+         The value -1 for this object is only valid for a clear 
+         command and indicates the clear command applies to
+         all members of the redundancy group type. 
+        "
+    ::= { ceRedunCommandEntry 1 }
+
+ceRedunCommandSwitch OBJECT-TYPE
+    SYNTAX      CeRedunSwitchCommand
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "Allows the initiation of a redundancy switchover command 
+         for the redundant member. When a valid member is specified,
+         the command applies to the specified member.
+
+         If the redundancy switchover command cannot be executed 
+         because an equal or higher priority request is in effect,
+         an error is returned.
+
+         When read, this object returns the last command written
+         which is currently still in effect or 'noCmdInEffect' if
+         no command is currently in effect.
+         
+         And for the specific case of a 'manualSwitchAway' command, 
+         some managed devices and redundancy types may do an initial 
+         switch, but may optionally not keep the switch in effect as 
+         a permanent state. 
+         
+         In order to determine the current switchover state of the
+         redundancy group it is necessary to read the 
+         ceRedunMbrProtectingMbr object for the secondary member(s).
+         "
+    ::= { ceRedunCommandEntry 2 }
+
+
+--
+-- Redundancy notifications 
+--
+
+ceRedunEnableSwitchoverNotifs OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object controls whether the system produces 
+         ceRedunEventSwitchover notifications. A false value will 
+         prevent ceRedunEventSwitchover notifications from being 
+         generated by this system.
+        "
+    DEFVAL { false }
+    ::= { ciscoEntityRedunMIBObjects 4 }
+
+ceRedunEnableStatusChangeNotifs OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object controls whether the system produces 
+         ceRedunProtectStatusChange notifications. A false value 
+         will prevent ceRedunProtectStatusChange notifications 
+         from being generated by this system.
+        "
+    DEFVAL { false }
+    ::= { ciscoEntityRedunMIBObjects 5 }
+
+ceRedunEventSwitchover NOTIFICATION-TYPE
+    OBJECTS {ceRedunMbrProtectingMbr,
+             ceRedunMbrStatusCurrent
+            }
+    STATUS  current
+    DESCRIPTION
+        "A ceRedunEventSwitchover notification is sent when the
+         ceRedunMbrProtectingMbr object changes value for a 
+         secondary member. The objects should correspond to 
+         the secondary member which changed its status.
+
+         The objects should reflect the status following the 
+         switchover. 
+        "
+    ::= {ciscoEntityRedunMIBNotifs 1 }
+
+ceRedunProtectStatusChange NOTIFICATION-TYPE
+    OBJECTS {ceRedunMbrStatusCurrent
+            }
+    STATUS  current
+    DESCRIPTION
+        "A ceRedunProtectStatusChange notification is sent when a
+         protectionProvided bit gets set or cleared for an active
+         member. This is intended to allow notification when 
+         protection becomes available or unavailable for an active 
+         member of a redundancy group.
+
+         It should be suppressed if there's a simultaneous change 
+         to the standby bit, which would indicate a switchover 
+         trap is being sent.
+
+         Object values sent should reflect the newer status following 
+         the change.
+        "
+    ::= {ciscoEntityRedunMIBNotifs 2 }
+
+
+-- MIB conformance statements
+
+ceRedunCompliances OBJECT IDENTIFIER
+                            ::= {ciscoEntityRedunMIBConform 1 }
+ceRedunGroups      OBJECT IDENTIFIER 
+                            ::= {ciscoEntityRedunMIBConform 2 }
+
+-- Compliance 
+ceRedunCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+        "The compliance statement for Cisco entity redundancy groups.
+        "
+
+    MODULE  -- this module
+    MANDATORY-GROUPS {ceRedunGroupTypeGroup, 
+                      ceRedunGroupObjects,
+                      ceRedunMemberConfig,
+                      ceRedunMemberStatus
+                     }
+
+        OBJECT  ceRedunGroupString
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunGroupRedunType
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunGroupScope
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunGroupArch
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunGroupRevert
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunGroupWaitToRestore
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunGroupStorageType
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunGroupRowStatus
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunMbrPhysIndex
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunMbrMode
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunMbrAddressType
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunMbrRemoteAddress
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunMbrPriority
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunMbrStorageType
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT  ceRedunMbrRowStatus
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+
+        GROUP       ceRedunOptionalGroupTypes
+        DESCRIPTION
+            "Implementation of this group is optional for all
+             redundancy implementations."
+
+        GROUP       ceRedunInternalStates
+        DESCRIPTION
+            "Implementation of this group is optional for all
+             redundancy implementations."
+
+        GROUP       ceRedunSwitchoverReason
+        DESCRIPTION
+            "Implementation of this group is optional for all
+             redundancy implementations."
+
+        GROUP       ceRedunRevertiveGroup
+        DESCRIPTION
+            "This group is mandatory for all groups supporting 
+             revertive switchover capability."
+
+       GROUP       ceRedunBidirectional
+        DESCRIPTION
+            "This group is mandatory for all groups supporting 
+             bidirectional switchovers."
+
+       GROUP       ceRedunRemoteSystem
+        DESCRIPTION
+            "This group is mandatory for all groups with 
+             ceRedunGroupScope of 'remoteSystem' or 'remoteChassis'."
+
+       GROUP       ceRedunOneToN
+        DESCRIPTION
+            "This group is mandatory for all groups implementing 
+             the 1:n architecture."
+
+       GROUP       ceRedunOptionalMbrStatus
+        DESCRIPTION
+            "Implementation of this group is optional for all
+             redundancy implementations."
+       
+       GROUP       ceRedunCommandsGroup
+        DESCRIPTION
+            "This group is mandatory for all implementations 
+             supporting commanded switchover capability."
+
+       GROUP       ceRedunNotifEnables
+        DESCRIPTION
+            "This group is mandatory for all implementations 
+             supporting redundancy notification enable/disable."
+
+       GROUP       ceRedunSwitchNotifGroup
+        DESCRIPTION
+            "This group is mandatory for all groups supporting 
+             switchover notifications."
+
+       GROUP       ceRedunProtectStatusNotifGroup
+        DESCRIPTION
+            "This group is mandatory for all groups supporting 
+             protection status notifications."
+
+    ::= { ceRedunCompliances 1 }
+
+-- units of conformance
+
+ceRedunGroupTypeGroup    OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunNextUnusedGroupIndex,
+        ceRedunMaxMbrsInGroup,
+        ceRedunUsesGroupName,
+        ceRedunGroupDefinitionChanged
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of mandatory objects providing configuration 
+         information applicable to redundancy entity group types.
+        "
+    ::= { ceRedunGroups 1 }
+
+ceRedunOptionalGroupTypes OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunGroupTypeName,
+        ceRedunGroupCounts
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of optional objects from the 
+         ceRedunGroupTypesTable.
+        " 
+    ::= { ceRedunGroups 2 }
+
+ceRedunInternalStates OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunStateCategory,
+        ceRedunInternalStateDescr
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects giving internal redundancy
+         state information.
+        " 
+    ::= { ceRedunGroups 3 }
+
+ceRedunSwitchoverReason OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunReasonCategory,
+        ceRedunSwitchoverReasonDescr
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects giving switchover reason
+         information.
+        " 
+    ::= { ceRedunGroups 4 }
+
+ceRedunGroupObjects    OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunGroupLastChanged,
+        ceRedunGroupString,
+        ceRedunGroupRedunType,
+        ceRedunGroupScope,
+        ceRedunGroupArch,
+        ceRedunGroupStorageType,
+        ceRedunGroupRowStatus
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of mandatory objects providing information 
+         applicable to redundancy entity groups.
+        "
+    ::= { ceRedunGroups 5 }
+
+ceRedunRevertiveGroup    OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunGroupRevert,
+        ceRedunGroupWaitToRestore
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing revertive 
+         switchover capability.
+        "
+    ::= { ceRedunGroups 6 }
+
+ceRedunBidirectional    OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunGroupDirection
+    }
+    STATUS  current
+    DESCRIPTION
+        "The objects which provide information which is applicable 
+         to groups supporting bi-directional operation.
+        "
+    ::= { ceRedunGroups 7 }
+
+ceRedunMemberConfig     OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunMbrLastChanged,
+        ceRedunMbrPhysIndex,
+        ceRedunMbrMode,
+        ceRedunMbrStorageType,
+        ceRedunMbrRowStatus
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of mandatory member objects providing 
+         configuration information applicable to all redundancy
+         members.
+        "
+    ::= { ceRedunGroups 8 }
+
+ceRedunRemoteSystem    OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunMbrAddressType,
+        ceRedunMbrRemoteAddress
+    }
+    STATUS  current
+    DESCRIPTION
+        "The objects which provide information which is only 
+         applicable to 'remoteSystem' or 'remoteChassis' groups.
+        "
+    ::= { ceRedunGroups 9 }
+
+ceRedunOneToN    OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunMbrPriority
+    }
+    STATUS  current
+    DESCRIPTION
+        "The objects which provide information which is only 
+         applicable to groups implementing the 1:n architecture.
+        "
+    ::= { ceRedunGroups 10 }
+
+ceRedunMemberStatus    OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunMbrStatusLastChanged,
+        ceRedunMbrStatusCurrent,
+        ceRedunMbrProtectingMbr,
+        ceRedunMbrSwitchoverCounts,
+        ceRedunMbrLastSwitchover
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of mandatory ceRedunStatusTable objects 
+         providing status information applicable to redundancy 
+         members.
+        "
+    ::= { ceRedunGroups 11 }
+
+ceRedunOptionalMbrStatus OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunMbrInternalState,
+        ceRedunMbrSwitchoverReason,
+        ceRedunMbrSwitchoverSeconds
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing additional member 
+         status.
+        " 
+    ::= { ceRedunGroups 12 }
+
+ceRedunCommandsGroup    OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunCommandMbrNumber,
+        ceRedunCommandSwitch
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing commanded 
+         switchover capability.
+        "
+    ::= { ceRedunGroups 13 }
+
+ceRedunNotifEnables    OBJECT-GROUP
+    OBJECTS
+    {
+        ceRedunEnableSwitchoverNotifs,
+        ceRedunEnableStatusChangeNotifs
+    }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects providing configuration information
+         applicable to all redundancy entity groups.
+        "
+    ::= { ceRedunGroups 14 }
+
+ceRedunSwitchNotifGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {ceRedunEventSwitchover
+                  }
+    STATUS    current
+    DESCRIPTION
+        "A collection of entity redundancy notifications that 
+         may optionally be implemented.
+        "
+    ::= { ceRedunGroups 15 }
+
+ceRedunProtectStatusNotifGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { ceRedunProtectStatusChange
+                  }
+    STATUS    current
+    DESCRIPTION
+        "A collection of entity redundancy notifications that 
+         may optionally be implemented.
+        "
+    ::= { ceRedunGroups 16 }
+
+END
+
+  
+ 
+ 

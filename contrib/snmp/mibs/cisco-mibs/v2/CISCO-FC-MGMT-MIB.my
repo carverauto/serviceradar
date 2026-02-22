@@ -1,0 +1,2237 @@
+-- *****************************************************************
+-- CISCO-FC-MGMT-MIB: Cisco Fibre Channel Management MIB file
+--
+-- August 2002,  Arvind Prabhudev
+--
+-- Copyright (c) 2002 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-FC-MGMT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE,
+    Integer32, Unsigned32, Counter32, Counter64
+                            FROM SNMPv2-SMI
+    MODULE-COMPLIANCE, OBJECT-GROUP
+                            FROM SNMPv2-CONF
+    TruthValue, TEXTUAL-CONVENTION
+                            FROM SNMPv2-TC
+    ifIndex                 FROM IF-MIB
+    ciscoExperiment         FROM CISCO-SMI
+    SnmpAdminString         FROM SNMP-FRAMEWORK-MIB;
+
+ciscoFcMgmtMIB MODULE-IDENTITY
+    LAST-UPDATED    "200209120000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO    "Cisco Systems
+                     Customer Service
+
+                     Postal: 170 W Tasman Drive
+                     San Jose, CA  95134
+                     USA
+
+                     Tel: +1 800 553-NETS
+
+                     E-mail: cs-dwdm@cisco.com"
+    DESCRIPTION
+            "This module defines management information specific to
+            Fibre Channel-attached devices. This module is an
+            adaptation of IETF's IPS working group's draft,
+            draft-ietf-ips-fcmgmt-mib-02"
+    REVISION        "200209120000Z"
+    DESCRIPTION
+            "Initial version of Cisco Fibre Channel Management MIB
+            module."
+    ::= { ciscoExperiment 999999 }
+
+cfcmgmtObjects       OBJECT IDENTIFIER ::= { ciscoFcMgmtMIB 1 }
+cfcmgmtNotifications OBJECT IDENTIFIER ::= { ciscoFcMgmtMIB 2 }
+cfcmgmtNotifPrefix   OBJECT IDENTIFIER ::= { cfcmgmtNotifications 0 }
+cfcmgmtConformance   OBJECT IDENTIFIER ::= { ciscoFcMgmtMIB 3 }
+
+
+--  ********************************
+--  Textual Conventions
+--
+
+CfcmFcNameIdOrZero ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "The World Wide Name (WWN) associated with a Fibre Channel
+            (FC) entity.  WWNs were initially defined as 64-bits in
+            length.  The latest definition (for future use) is 128-bits
+            long.  The zero-length string value is used in circumstances
+            where the WWN is unassigned/unknown."
+    SYNTAX  OCTET STRING (SIZE(0 | 8 | 16))
+
+CfcmFcAddressId ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "A Fibre Channel Address ID, a 24-bit value unique within
+            the address space of a Fabric."
+    SYNTAX  OCTET STRING (SIZE(0 | 3))
+
+CfcmDomainIdOrZero ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "The Domain Id (of a FC switch), or zero if no Domain Id
+            has been assigned."
+    SYNTAX  INTEGER(0..239)
+
+CfcmFcPortType ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "The type of a Fibre Channel port, being one of the types
+            described below.
+
+            unknown - Fibre Channel port type is not known.
+
+            other - the port type is something other than the ones
+                    described below.
+
+            dynamic - the port could be one of the below port types
+            and this varies dynamically.
+
+            nPort - Any port on a node device, e.g., a disk, PC, etc.
+            that is directly attached to a Fabric port.
+            (Refer FC-PH, FC-FS).
+
+            nlPort - An 'nPort' that also has arbitrated loop
+            capabilities. (Refer FC-AL-2).
+
+            fPort - A port on a fibre channel fabric.
+            (Refer FC-PH, FC-FS).
+
+            flPort - A 'fPort' that also has arbitrated loop
+            capabilities. (Refer FC-AL-2).
+
+            ePort - A fabric expansion port which attaches to
+            another 'ePort' or 'bPort' to create an Inter-Switch
+            Link. (Refer FC-SW-2).
+
+            bPort - A bridge port on a device that implements FC-BBW
+            and connects to an E_port on a switch. (Refer FC-BB)."
+    SYNTAX     INTEGER {
+                   unknown(1),
+                   other(2),    -- none of the below
+                   dynamic(3),  -- determined dynamically
+                   nPort(4),
+                   nlPort(5),
+                   fPort(6),
+                   flPort(7),
+                   ePort(8),
+                   bPort(9)
+               }
+
+CfcmFcClasses ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "A set of Fibre Channel classes of service."
+    REFERENCE
+            "Classes of service are described in FC-FS Section 13."
+    SYNTAX   BITS { classF(0), class1(1), class2(2), class3(3),
+                    class4(4), class5(5), class6(6) }
+
+CfcmFcBbCredit ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "The buffer-to-buffer credit of an FC port. i.e., the number
+            of frames a FC device can receive at a time without causing
+            a buffer overrun condition."
+    SYNTAX     Integer32 (0..32767)
+
+CfcmFcBbCreditModel ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "The buffer-to-buffer credit model of an Fx_Port."
+    SYNTAX    INTEGER { regular(1), alternate (2) }
+
+CfcmFcDataFieldSize ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "The Receive Data Field Size associated with an FC port."
+    SYNTAX     Integer32 (128..2112)
+
+CfcmFcUnitFunctions ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "A set of functions that a Fibre Channel Interconnect
+            Element or Platform might perform.  A value with no bits
+            set, indicates the function(s) are unknown.  The individual
+            bits have the following meanings:
+
+            other - none of the following.
+
+            hub - a device that interconnects L_Ports, but does not
+            operate as an FL_Port.
+
+            switch - a fabric element conforming to the Fibre Channel
+            switch fabric set of standards (e.g., FC-SW, FC-SW-2).
+
+            bridge - a device that encapsulates Fibre Channel frames
+            within another protocol (e.g., FC-BB, FC-BB-2).
+
+            gateway - a device that converts an FC-4 to another protocol
+            (e.g., FCP to iSCSI).
+
+            host - a computer system that provides end users services
+            such as computation and storage access.
+
+            storageSubsys - an integrated collection of storage
+            controllers, storage devices, and necessary software, that
+            provides storage services to one or more hosts.
+
+            storageAccessDev - a device that provides storage management
+            and access for heterogeneous hosts and heterogeneous devices
+            (e.g., medium changer).
+
+            nas - a device that connects to a network and provides file
+            access services.
+
+            wdmux - a device that modulates/demodulates each of several
+            data streams (e.g., Fibre Channel protocol data streams)
+            onto/from a different part of the light spectrum in an
+            optical fiber."
+    SYNTAX  BITS {
+                other(0),        -- none of the following
+                hub(1),
+                switch(2),
+                bridge(3),
+                gateway(4),
+                host(5),
+                storageSubsys(6),
+                storageAccessDev(7),
+                nas(8),
+                wdmux(9)
+            }
+
+CfcmPhysicalIndexOrZero ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "The index value for a physical entity's row in the Entity
+            MIB's entPhysicalTable.  A zero value indicates that no row
+            in the entPhysicalTable is applicable."
+    REFERENCE
+            "entPhysicalTable is defined in the Entity MIB, RFC 2737."
+    SYNTAX   INTEGER (0..2147483647)
+
+CfcmHrSWInstalledIndexOrZero ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "The index value for a software module's row in the Host
+            Resources MIB's hrSWInstalledTable.  A zero value indicates
+            that no row in the hrSWInstalledTable is applicable."
+    REFERENCE
+            "hrSWInstalledTable is defined in the Host Resources MIB,
+            RFC 2790."
+    SYNTAX   Integer32 (0..2147483647)
+
+CfcmMilliSeconds ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "Time units in milliseconds."
+    SYNTAX   Unsigned32
+
+CfcmMicroSeconds ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+            "Time units in microseconds."
+    SYNTAX   Unsigned32
+
+
+--********************************
+--  MIB object definitions
+--
+
+cfcmInstanceTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfcmInstanceEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Information about the local Fibre Channel management
+            instances."
+    ::= { cfcmgmtObjects 1 }
+
+cfcmInstanceEntry OBJECT-TYPE
+    SYNTAX     CfcmInstanceEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "A list of attributes for a particular local Fibre Channel
+            management instance."
+    INDEX { cfcmInstanceIndex }
+    ::= { cfcmInstanceTable 1 }
+
+CfcmInstanceEntry ::=
+    SEQUENCE {
+        cfcmInstanceIndex             Unsigned32,
+        cfcmInstanceWwn               CfcmFcNameIdOrZero,
+        cfcmInstanceFunctions         CfcmFcUnitFunctions,
+        cfcmInstancePhysicalIndex     CfcmPhysicalIndexOrZero,
+        cfcmInstanceSoftwareIndex     CfcmHrSWInstalledIndexOrZero,
+        cfcmInstanceStatus            INTEGER,
+        cfcmInstanceTextName          SnmpAdminString,
+        cfcmInstanceDescr             SnmpAdminString,
+        cfcmInstanceFabricId          CfcmFcNameIdOrZero
+    }
+
+cfcmInstanceIndex OBJECT-TYPE
+    SYNTAX     Unsigned32 (1..4294967295)
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An arbitrary integer value which uniquely identifies this
+            instance amongst all local Fibre Channel management
+            instances.
+
+            It is mandatory that this value remain constant between
+            restarts of the agent except, in case of certain re-
+            configurations of the local system where it is natural
+            for it to change.  It is desirable that this value remain
+            constant across restarts."
+    ::= { cfcmInstanceEntry 1 }
+
+cfcmInstanceWwn  OBJECT-TYPE
+    SYNTAX     CfcmFcNameIdOrZero
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "If the instance has one (or more) WWN(s), then this object
+            contains that (or one of those) WWN(s).
+
+            If the instance does not have a WWN associated with it, then
+            this object contains the zero-length string."
+    ::= { cfcmInstanceEntry 2 }
+
+cfcmInstanceFunctions OBJECT-TYPE
+    SYNTAX     CfcmFcUnitFunctions
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "One (or more) Fibre Channel unit functions being performed
+            by this instance."
+    ::= { cfcmInstanceEntry 3 }
+
+cfcmInstancePhysicalIndex OBJECT-TYPE
+    SYNTAX     CfcmPhysicalIndexOrZero
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "If this management instance corresponds to a physical
+            component (or to a hierarchy of physical components), then
+            this object's value is the value of the entPhysicalIndex of
+            that component (or of the component at the root of that
+            hierarchy).  If there is no correspondence to a physical
+            component (or no component which has an entPhysicalIndex
+            value), then the value of this object is zero."
+    REFERENCE
+        "entPhysicalIndex is defined in the Entity MIB, RFC 2737."
+    ::= { cfcmInstanceEntry 4 }
+
+cfcmInstanceSoftwareIndex OBJECT-TYPE
+    SYNTAX     CfcmHrSWInstalledIndexOrZero
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "If this management instance corresponds to an installed
+            software module, then this object's value is the value of
+            the hrSWInstalledIndex of that module.  If there is no
+            correspondence to an installed software module (or no module
+            which has a hrSWInstalledIndex value), then the value of
+            this object is zero."
+    REFERENCE
+        "hrSWInstalledIndex is defined in the Host Resources MIB,
+         RFC 2790"
+    ::= { cfcmInstanceEntry 5 }
+
+cfcmInstanceStatus OBJECT-TYPE
+    SYNTAX     INTEGER {
+                   unknown(1),
+                   ok(2),      -- able to operate correctly
+                   warning(3), -- needs attention
+                   failed(4)   -- something has failed
+               }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "Overall status of the Fibre Channel entity/entities managed
+            by this management instance.  The value should reflect the
+            most serious status of such entities."
+    ::= { cfcmInstanceEntry 6 }
+
+cfcmInstanceTextName OBJECT-TYPE
+    SYNTAX     SnmpAdminString (SIZE(0..79))
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "A textual name for this management instance and the Fibre
+            Channel entity/entities that it is managing."
+    ::= { cfcmInstanceEntry 7 }
+
+cfcmInstanceDescr OBJECT-TYPE
+    SYNTAX     SnmpAdminString
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "A textual description of this management instance and the
+            Fibre Channel entity/entities that it is managing."
+    ::= { cfcmInstanceEntry 8 }
+
+cfcmInstanceFabricId OBJECT-TYPE
+    SYNTAX     CfcmFcNameIdOrZero
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The globally unique Fabric Identifier which identifies the
+            fabric to which the Fibre Channel entity/entities managed by
+            this management instance are connected, or, of which they
+            are a part.  This is typically the Node WWN of the principal
+            switch of a Fibre Channel fabric.  The zero-length string
+            indicates that the fabric identifier is unknown (or not
+            applicable)."
+    ::= { cfcmInstanceEntry 9 }
+
+--********************************
+-- The Fibre Channel Switch Table
+--
+
+cfcmSwitchTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfcmSwitchEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "A table of information about Fibre Channel switches which
+            are managed by Fibre Channel management instances.  Each
+            Fibre Channel management instance can manage one or more
+            Fibre Channel switches."
+    ::= { cfcmgmtObjects 2 }
+
+cfcmSwitchEntry OBJECT-TYPE
+    SYNTAX     CfcmSwitchEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Information about a particular Fibre Channel switch which
+            is managed by the management instance given by
+            cfcmInstanceIndex."
+    INDEX { cfcmInstanceIndex, cfcmSwitchIndex }
+    ::= { cfcmSwitchTable 1 }
+
+
+CfcmSwitchEntry ::=
+    SEQUENCE {
+        cfcmSwitchIndex         Unsigned32,
+        cfcmSwitchDomainId      CfcmDomainIdOrZero,
+        cfcmSwitchPrincipal     TruthValue
+    }
+
+cfcmSwitchIndex OBJECT-TYPE
+    SYNTAX     Unsigned32 (1..4294967295)
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An arbitrary integer which uniquely identifies a Fibre
+            Channel switch amongst those managed by one Fibre Channel
+            management instance."
+    ::= { cfcmSwitchEntry 1 }
+
+cfcmSwitchDomainId OBJECT-TYPE
+    SYNTAX     CfcmDomainIdOrZero
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The Domain Id of this switch.  A value of zero indicates
+            that a switch has not (yet) been assigned a Domain Id."
+    ::= { cfcmSwitchEntry 2 }
+
+cfcmSwitchPrincipal OBJECT-TYPE
+    SYNTAX     TruthValue
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "An indication of whether this switch is the principal
+            switch within its fabric."
+    ::= { cfcmSwitchEntry 3 }
+
+--********************************
+-- The Fibre Channel Port Table
+--
+
+cfcmPortTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfcmPortEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Information about Fibre Channel ports.  Each Fibre Channel
+            port is represented by one entry in the IF-MIB's ifTable."
+    REFERENCE
+        "RFC 2863, The Interfaces Group MIB, June 2000."
+    ::= { cfcmgmtObjects 3 }
+
+cfcmPortEntry OBJECT-TYPE
+    SYNTAX     CfcmPortEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Each entry contains information about a specific port."
+    INDEX { ifIndex }
+    ::= { cfcmPortTable 1 }
+
+CfcmPortEntry ::=
+    SEQUENCE {
+        cfcmPortInstanceIndex    Unsigned32,
+        cfcmPortWwn              CfcmFcNameIdOrZero,
+        cfcmPortNodeWwn          CfcmFcNameIdOrZero,
+        cfcmPortAdminType        CfcmFcPortType,
+        cfcmPortOperType         CfcmFcPortType,
+        cfcmPortFcCapClass       CfcmFcClasses,
+        cfcmPortFcOperClass      CfcmFcClasses,
+        cfcmPortTransmitterType  INTEGER,
+        cfcmPortConnectorType    INTEGER,
+        cfcmPortSerialNumber     SnmpAdminString,
+        cfcmPortPhysicalNumber   Unsigned32,
+        cfcmPortAdminSpeed       INTEGER,
+        cfcmPortCapProtocols     BITS,
+        cfcmPortOperProtocols    BITS
+    }
+
+cfcmPortInstanceIndex OBJECT-TYPE
+    SYNTAX     Unsigned32 (1..4294967295)
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The value of cfcmInstanceIndex by which the Fibre Channel
+            management instance, which manages this port, is identified
+            in the cfcmInstanceTable."
+    ::= { cfcmPortEntry 1 }
+
+cfcmPortWwn OBJECT-TYPE
+    SYNTAX     CfcmFcNameIdOrZero
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The World Wide Name of the port, or the zero-length string
+            if the port does not have a WWN."
+     ::= { cfcmPortEntry 2 }
+
+cfcmPortNodeWwn OBJECT-TYPE
+    SYNTAX     CfcmFcNameIdOrZero
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The World Wide Name of the Node which contains this port,
+            or the zero-length string if the port does not have a node
+            WWN."
+     ::= { cfcmPortEntry 3 }
+
+cfcmPortAdminType OBJECT-TYPE
+    SYNTAX     CfcmFcPortType
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The administratively desired type of this port.  Each port
+            will typically only be able to support a subset of these
+            types."
+    ::= { cfcmPortEntry 4 }
+
+cfcmPortOperType OBJECT-TYPE
+    SYNTAX     CfcmFcPortType
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The current operational type of this port."
+    ::= { cfcmPortEntry 5 }
+
+cfcmPortFcCapClass OBJECT-TYPE
+    SYNTAX     CfcmFcClasses
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The classes of service capability of this port."
+    ::= { cfcmPortEntry 6 }
+
+cfcmPortFcOperClass OBJECT-TYPE
+    SYNTAX     CfcmFcClasses
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The classes of service that are currently operational on
+            this port.  For an FL_Port, this is the union of the classes
+            being supported across all attached NL_Ports."
+    ::= { cfcmPortEntry 7 }
+
+cfcmPortTransmitterType OBJECT-TYPE
+    SYNTAX     INTEGER {
+        unknown(1),
+        other(2),
+        shortwave850nm(3),
+        longwave1550nm(4),
+        longwave1310nm(5),
+        electrical(6)
+     }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The technology of the port transceiver."
+    REFERENCE
+        "FC-GS-3 Rev 7.01, 28 Nov 2000, sect 6.1.2.2.3"
+    ::= { cfcmPortEntry 8 }
+
+cfcmPortConnectorType OBJECT-TYPE
+    SYNTAX     INTEGER {
+        unknown(1),
+        other(2),
+        gbic(3),
+        embedded(4),
+        glm(5),
+        gbicSerialId(6),
+        gbicNoSerialId(7),
+        sfpSerialId(8),
+        sfpNoSerialId(9)
+    }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The module type of the port connector. This object refers
+            to the hardware implementation of the port.  It will be
+            'embedded' if the hardware equivalent to Gigabit interface
+            card (GBIC) is part of the line card and is unremovable. It
+            will be 'glm' if it's a gigabit link module (GLM).  It will
+            be 'gbicSerialId' if the GBIC serial id can be read, else it
+            will be 'gbicNoSerialId'.  It will be 'sfpSerialId', if the
+            small form factor (SFP) pluggable GBICs serial id can be
+            read, else it will be 'sfpNoSerialId'."
+    REFERENCE
+        "FC-GS-3 Rev 7.01, 28 Nov 2000, sect 6.1.2.2.4"
+    ::= { cfcmPortEntry 9 }
+
+cfcmPortSerialNumber OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The serial number associated with the port (e.g., for a
+            GBIC). If not applicable, the object's value is a zero-
+            length string."
+    REFERENCE
+        "FC-GS-3 Rev 7.01, 28 Nov 2000, sect 6.1.2.2.4"
+    ::= { cfcmPortEntry 10 }
+
+cfcmPortPhysicalNumber OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "This is the port's 'Physical Port Number' as defined by
+            GS-3."
+    REFERENCE
+        "FC-GS-3 Rev 7.01, 28 Nov 2000, sect 6.1.2.2.5"
+    ::= { cfcmPortEntry 11 }
+
+cfcmPortAdminSpeed OBJECT-TYPE
+    SYNTAX     INTEGER {
+                   auto(1),
+                   eighthGbs(2),   -- 125Mbs
+                   quarterGbs(3),  -- 250Mbs
+                   halfGbs(4),     -- 500Mbs
+                   oneGbs(5),      --   1Gbs
+                   twoGbs(6),      --   2Gbs
+                   fourGbs(7),     --   4Gbs
+                   tenGbs(8)       --  10Gbs
+               }
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+            "The speed of the interface:
+                'auto'        - auto-negotiation
+                'tenGbs'      - 10Gbs
+                'fourGbs'     -  4Gbs
+                'twoGbs'      -  2Gbs
+                'oneGbs'      -  1Gbs
+                'halfGbs'     - 500Mbs
+                'quarterGbs'  - 250Mbs
+                'eighthGbs'   - 125Mbs"
+    ::= { cfcmPortEntry 12 }
+
+cfcmPortCapProtocols OBJECT-TYPE
+    SYNTAX     BITS {
+                   unknown(0),
+                   loop(1),
+                   fabric(2),
+                   scsi(3),
+                   tcpIp(4),
+                   vi(5),
+                   ficon(6)
+               }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "A bit mask specifying the higher level protocols which are
+            supported on this port.  Note that for generic Fx_Ports,
+            E_Ports and B_Ports, this object will indicate all
+            protocols."
+    ::= { cfcmPortEntry 13 }
+
+cfcmPortOperProtocols OBJECT-TYPE
+    SYNTAX     BITS {
+                   unknown(0),
+                   loop(1),
+                   fabric(2),
+                   scsi(3),
+                   tcpIp(4),
+                   vi(5),
+                   ficon(6)
+               }
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "A bit mask specifying the higher level protocols which are
+            currently operational on this port.  For Fx_Ports, E_Ports
+            and B_Ports, this object will typically have the value
+            'unknown'."
+    ::= { cfcmPortEntry 14 }
+
+--********************************
+-- Port Statistics
+--
+
+cfcmPortStatsTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfcmPortStatsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "A list of statistics for Fibre Channel ports."
+    ::= { cfcmgmtObjects 4 }
+
+cfcmPortStatsEntry OBJECT-TYPE
+    SYNTAX     CfcmPortStatsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry containing statistics for a Fibre Channel port."
+    AUGMENTS   { cfcmPortEntry }
+    ::= { cfcmPortStatsTable 1 }
+
+CfcmPortStatsEntry ::=
+    SEQUENCE {
+        cfcmPortBBCreditZeros       Counter64,
+        cfcmPortFullInputBuffers    Counter64,
+        cfcmPortClass2RxFrames      Counter64,
+        cfcmPortClass2RxOctets      Counter64,
+        cfcmPortClass2TxFrames      Counter64,
+        cfcmPortClass2TxOctets      Counter64,
+        cfcmPortClass2Discards      Counter64,
+        cfcmPortClass2RxFbsyFrames  Counter64,
+        cfcmPortClass2RxPbsyFrames  Counter64,
+        cfcmPortClass2RxFrjtFrames  Counter64,
+        cfcmPortClass2RxPrjtFrames  Counter64,
+        cfcmPortClass2TxFbsyFrames  Counter64,
+        cfcmPortClass2TxPbsyFrames  Counter64,
+        cfcmPortClass2TxFrjtFrames  Counter64,
+        cfcmPortClass2TxPrjtFrames  Counter64,
+        cfcmPortClass3RxFrames      Counter64,
+        cfcmPortClass3RxOctets      Counter64,
+        cfcmPortClass3TxFrames      Counter64,
+        cfcmPortClass3TxOctets      Counter64,
+        cfcmPortClass3Discards      Counter64,
+        cfcmPortClassFRxFrames      Counter32,
+        cfcmPortClassFRxOctets      Counter32,
+        cfcmPortClassFTxFrames      Counter32,
+        cfcmPortClassFTxOctets      Counter32,
+        cfcmPortClassFDiscards      Counter32
+    }
+
+cfcmPortBBCreditZeros OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of transitions in/out of the buffer-to-buffer
+            credit zero state.  The other side is not providing any
+            credit."
+    ::= { cfcmPortStatsEntry 1 }
+
+cfcmPortFullInputBuffers OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of occurrences when all input buffers of a port
+            were full and outbound buffer-to-buffer credit transitioned
+            to zero, i.e., there became no credit to provide to other
+            side."
+    ::= { cfcmPortStatsEntry 2 }
+
+cfcmPortClass2RxFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 2 frames received at this port."
+    ::= { cfcmPortStatsEntry 3 }
+
+cfcmPortClass2RxOctets OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of octets contained in Class 2 frames received
+            at this port."
+    ::= { cfcmPortStatsEntry 4 }
+
+cfcmPortClass2TxFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 2 frames transmitted out of this port."
+    ::= { cfcmPortStatsEntry 5 }
+
+cfcmPortClass2TxOctets OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of octets contained in Class 2 frames
+            transmitted out of this port."
+    ::= { cfcmPortStatsEntry 6 }
+
+cfcmPortClass2Discards OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 2 frames that were discarded upon
+            reception at this port."
+    ::= { cfcmPortStatsEntry 7 }
+
+cfcmPortClass2RxFbsyFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that F_BSY was returned to this port as
+            a result of a Class 2 frame that could not be delivered to
+            the other end of the link. This can occur when either the
+            fabric or the destination port is temporarily busy.  Note
+            that this counter will never increment for an F_Port."
+    ::= { cfcmPortStatsEntry 8 }
+
+cfcmPortClass2RxPbsyFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that P_BSY was returned to this port as
+            a result of a Class 2 frame that could not be delivered to
+            the other end of the link. This can occur when the
+            destination port is temporarily busy."
+    ::= { cfcmPortStatsEntry 9 }
+
+cfcmPortClass2RxFrjtFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that F_RJT was returned to this port as
+            a result of a Class 2 frame that was rejected by the fabric.
+            Note that this counter will never increment for an F_Port."
+    ::= { cfcmPortStatsEntry 10 }
+
+cfcmPortClass2RxPrjtFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that P_RJT was returned to this port as
+            a result of a Class 2 frame that was rejected at the
+            destination N_Port."
+    ::= { cfcmPortStatsEntry 11 }
+
+cfcmPortClass2TxFbsyFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that F_BSY was generated by this port
+            as a result of a Class 2 frame that could not be delivered
+            because either the Fabric or the destination port was
+            temporarily busy.  Note that this counter will never
+            increment for an N_Port."
+    ::= { cfcmPortStatsEntry 12 }
+
+cfcmPortClass2TxPbsyFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that P_BSY was generated by this port
+            as a result of a Class 2 frame that could not be delivered
+            because the destination port was temporarily busy.  Note
+            that this counter will never increment for an F_Port."
+    ::= { cfcmPortStatsEntry 13 }
+
+cfcmPortClass2TxFrjtFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that F_RJT was generated by this port
+            as a result of a Class 2 frame being rejected by the fabric.
+            Note that this counter will never increment for an N_Port."
+    ::= { cfcmPortStatsEntry 14 }
+
+cfcmPortClass2TxPrjtFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that P_RJT was generated by this port
+            as a result of a Class 2 frame being rejected at the
+            destination N_Port.  Note that this counter will never
+            increment for an F_Port."
+    ::= { cfcmPortStatsEntry 15 }
+
+cfcmPortClass3RxFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 3 frames received at this port."
+    ::= { cfcmPortStatsEntry 16 }
+
+cfcmPortClass3RxOctets OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of octets contained in Class 3 frames received
+            at this port."
+    ::= { cfcmPortStatsEntry 17 }
+
+cfcmPortClass3TxFrames OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 3 frames transmitted out of this port."
+    ::= { cfcmPortStatsEntry 18 }
+
+cfcmPortClass3TxOctets OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of octets contained in Class 3 frames
+            transmitted out of this port."
+    ::= { cfcmPortStatsEntry 19 }
+
+cfcmPortClass3Discards OBJECT-TYPE
+    SYNTAX     Counter64
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 3 frames that were discarded upon
+            reception at this port."
+    ::= { cfcmPortStatsEntry 20 }
+
+cfcmPortClassFRxFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class F frames received at this port."
+    ::= { cfcmPortStatsEntry 21 }
+
+cfcmPortClassFRxOctets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of octets contained in Class F frames received
+            at this port."
+    ::= { cfcmPortStatsEntry 22 }
+
+cfcmPortClassFTxFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class F frames transmitted out of this port."
+    ::= { cfcmPortStatsEntry 23 }
+
+cfcmPortClassFTxOctets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of octets contained in Class F frames
+            transmitted out of this port."
+    ::= { cfcmPortStatsEntry 24 }
+
+cfcmPortClassFDiscards OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class F frames that were discarded upon
+            reception at this port."
+    ::= { cfcmPortStatsEntry 25 }
+
+--********************************
+-- Port Low-capacity Statistics
+--
+-- these are Counter32 "low-capacity" counters for systems
+-- which do not support Counter64's
+
+cfcmPortLcStatsTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfcmPortLcStatsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "A list of Counter32-based statistics which are a shadow of
+            the Counter64 statistics in the cfcmPortStatsTable, for
+            systems which do not support Counter64."
+    ::= { cfcmgmtObjects 5 }
+
+cfcmPortLcStatsEntry OBJECT-TYPE
+    SYNTAX     CfcmPortLcStatsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "An entry containing low-capacity (i.e., based on Counter32)
+            statistics for a Fibre Channel port."
+    AUGMENTS   { cfcmPortEntry }
+    ::= { cfcmPortLcStatsTable 1 }
+
+CfcmPortLcStatsEntry ::=
+    SEQUENCE {
+        cfcmPortLcBBCreditZeros       Counter32,
+        cfcmPortLcFullInputBuffers    Counter32,
+        cfcmPortLcClass2RxFrames      Counter32,
+        cfcmPortLcClass2RxOctets      Counter32,
+        cfcmPortLcClass2TxFrames      Counter32,
+        cfcmPortLcClass2TxOctets      Counter32,
+        cfcmPortLcClass2Discards      Counter32,
+        cfcmPortLcClass2RxFbsyFrames  Counter32,
+        cfcmPortLcClass2RxPbsyFrames  Counter32,
+        cfcmPortLcClass2RxFrjtFrames  Counter32,
+        cfcmPortLcClass2RxPrjtFrames  Counter32,
+        cfcmPortLcClass2TxFbsyFrames  Counter32,
+        cfcmPortLcClass2TxPbsyFrames  Counter32,
+        cfcmPortLcClass2TxFrjtFrames  Counter32,
+        cfcmPortLcClass2TxPrjtFrames  Counter32,
+        cfcmPortLcClass3RxFrames      Counter32,
+        cfcmPortLcClass3RxOctets      Counter32,
+        cfcmPortLcClass3TxFrames      Counter32,
+        cfcmPortLcClass3TxOctets      Counter32,
+        cfcmPortLcClass3Discards      Counter32
+    }
+
+cfcmPortLcBBCreditZeros OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of transitions in/out of the buffer-to-buffer
+            credit zero state.  The other side is not providing any
+            credit."
+    ::= { cfcmPortLcStatsEntry 1 }
+
+cfcmPortLcFullInputBuffers OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of occurrences when all input buffers of a port
+            were full and outbound buffer-to-buffer credit transitioned
+            to zero, i.e., there became no credit to provide to other
+            side."
+    ::= { cfcmPortLcStatsEntry 2 }
+
+cfcmPortLcClass2RxFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 2 frames received at this port."
+    ::= { cfcmPortLcStatsEntry 3 }
+
+cfcmPortLcClass2RxOctets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of octets contained in Class 2 frames received
+            at this port."
+    ::= { cfcmPortLcStatsEntry 4 }
+
+cfcmPortLcClass2TxFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 2 frames transmitted out of this port."
+    ::= { cfcmPortLcStatsEntry 5 }
+
+cfcmPortLcClass2TxOctets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of octets contained in Class 2 frames
+            transmitted out of this port."
+    ::= { cfcmPortLcStatsEntry 6 }
+
+cfcmPortLcClass2Discards OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 2 frames that were discarded upon
+            reception at this port."
+    ::= { cfcmPortLcStatsEntry 7 }
+
+cfcmPortLcClass2RxFbsyFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that F_BSY was returned to this port as
+            a result of a Class 2 frame that could not be delivered to
+            the other end of the link. This can occur when either the
+            fabric or the destination port is temporarily busy.  Note
+            that this counter will never increment for an F_Port."
+    ::= { cfcmPortLcStatsEntry 8 }
+
+cfcmPortLcClass2RxPbsyFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that P_BSY was returned to this port as
+            a result of a Class 2 frame that could not be delivered to
+            the other end of the link. This can occur when the
+            destination port is temporarily busy."
+    ::= { cfcmPortLcStatsEntry 9 }
+
+cfcmPortLcClass2RxFrjtFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that F_RJT was returned to this port as
+            a result of a Class 2 frame that was rejected by the fabric.
+            Note that this counter will never increment for an F_Port."
+    ::= { cfcmPortLcStatsEntry 10 }
+
+cfcmPortLcClass2RxPrjtFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that P_RJT was returned to this port as
+            a result of a Class 2 frame that was rejected at the
+            destination N_Port."
+    ::= { cfcmPortLcStatsEntry 11 }
+
+cfcmPortLcClass2TxFbsyFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that F_BSY was generated by this port
+            as a result of a Class 2 frame that could not be delivered
+            because either the Fabric or the destination port was
+            temporarily busy.  Note that this counter will never
+            increment for an N_Port."
+    ::= { cfcmPortLcStatsEntry 12 }
+
+cfcmPortLcClass2TxPbsyFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that P_BSY was generated by this port
+            as a result of a Class 2 frame that could not be delivered
+            because the destination port was temporarily busy.  Note
+            that this counter will never increment for an F_Port."
+    ::= { cfcmPortLcStatsEntry 13 }
+
+cfcmPortLcClass2TxFrjtFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that F_RJT was generated by this port
+            as a result of a Class 2 frame being rejected by the fabric.
+            Note that this counter will never increment for an N_Port."
+    ::= { cfcmPortLcStatsEntry 14 }
+
+cfcmPortLcClass2TxPrjtFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times that P_RJT was generated by this port
+            as a result of a Class 2 frame being rejected at the
+            destination N_Port.  Note that this counter will never
+            increment for an F_Port."
+    ::= { cfcmPortLcStatsEntry 15 }
+
+cfcmPortLcClass3RxFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 3 frames received at this port."
+    ::= { cfcmPortLcStatsEntry 16 }
+
+cfcmPortLcClass3RxOctets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of octets contained in Class 3 frames received
+            at this port."
+    ::= { cfcmPortLcStatsEntry 17 }
+
+cfcmPortLcClass3TxFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 3 frames transmitted out of this port."
+    ::= { cfcmPortLcStatsEntry 18 }
+
+cfcmPortLcClass3TxOctets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of octets contained in Class 3 frames
+            transmitted out of this port."
+    ::= { cfcmPortLcStatsEntry 19 }
+
+cfcmPortLcClass3Discards OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Class 3 frames that were discarded upon
+            reception at this port."
+    ::= { cfcmPortLcStatsEntry 20 }
+
+
+--********************************
+-- Port Error Counters
+--
+
+cfcmPortErrorsTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfcmPortErrorsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Error counters for Fibre Channel ports."
+    ::= { cfcmgmtObjects 6 }
+
+cfcmPortErrorsEntry OBJECT-TYPE
+    SYNTAX     CfcmPortErrorsEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Error counters for a Fibre Channel port."
+    AUGMENTS   { cfcmPortEntry }
+    ::= { cfcmPortErrorsTable 1 }
+
+CfcmPortErrorsEntry ::=
+    SEQUENCE {
+        cfcmPortRxLinkResets             Counter32,
+        cfcmPortTxLinkResets             Counter32,
+        cfcmPortLinkResets               Counter32,
+        cfcmPortRxOfflineSequences       Counter32,
+        cfcmPortTxOfflineSequences       Counter32,
+        cfcmPortLinkFailures             Counter32,
+        cfcmPortLossofSynchs             Counter32,
+        cfcmPortLossofSignals            Counter32,
+        cfcmPortPrimSeqProtocolErrors    Counter32,
+        cfcmPortInvalidTxWords           Counter32,
+        cfcmPortInvalidCRCs              Counter32,
+        cfcmPortInvalidOrderedSets       Counter32,
+        cfcmPortFrameTooLongs            Counter32,
+        cfcmPortTruncatedFrames          Counter32,
+        cfcmPortAddressErrors            Counter32,
+        cfcmPortDelimiterErrors          Counter32,
+        cfcmPortEncodingDisparityErrors  Counter32,
+        cfcmPortOtherErrors              Counter32
+    }
+
+cfcmPortRxLinkResets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Link resets (LR primitives) received."
+    ::= { cfcmPortErrorsEntry 1 }
+
+cfcmPortTxLinkResets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Link resets (LRs primitive) transmitted."
+    ::= { cfcmPortErrorsEntry 2 }
+
+cfcmPortLinkResets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of times the reset link protocol was initiated
+            on this port.  This includes the number of Loop
+            Initialization Primitive (LIP) events on an arbitrated loop
+            port."
+    ::= { cfcmPortErrorsEntry 3 }
+
+cfcmPortRxOfflineSequences OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Offline Primitive OLS received at this port."
+    ::= { cfcmPortErrorsEntry 4 }
+
+cfcmPortTxOfflineSequences OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of Offline Primitive OLS transmitted by this
+            port."
+    ::= { cfcmPortErrorsEntry 5 }
+
+cfcmPortLinkFailures OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of link failures. This count is part of FC-PH's
+            Link Error Status Block (LESB)."
+    REFERENCE
+           "FC-PH, rev 4.3, 1 June 1994, section 29.8."
+    ::= { cfcmPortErrorsEntry 6 }
+
+cfcmPortLossofSynchs OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of instances of synchronization loss detected at
+            this port. This count is part of FC-PH's Link Error Status
+            Block (LESB)."
+    REFERENCE
+           "FC-PH, rev 4.3, 1 June 1994, section 29.8."
+    ::= { cfcmPortErrorsEntry 7 }
+
+cfcmPortLossofSignals OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of instances of signal loss detected at this
+            port. This count is part of FC-PH's Link Error Status Block
+            (LESB)."
+    REFERENCE
+           "FC-PH, rev 4.3, 1 June 1994, section 29.8."
+    ::= { cfcmPortErrorsEntry 8 }
+
+cfcmPortPrimSeqProtocolErrors OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of primitive sequence protocol errors detected
+            at this port. This count is part of CFC-PH's Link Error
+            Status Block (LESB)."
+    REFERENCE
+           "FC-PH, rev 4.3, 1 June 1994, section 29.8."
+    ::= { cfcmPortErrorsEntry 9 }
+
+cfcmPortInvalidTxWords OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of invalid transmission words received at this
+            port. This count is part of FC-PH's Link Error Status Block
+            (LESB)."
+    REFERENCE
+           "FC-PH, rev 4.3, 1 June 1994, section 29.8."
+    ::= { cfcmPortErrorsEntry 10 }
+
+cfcmPortInvalidCRCs OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of frames received with invalid CRC. This count
+            is part of FC-PH's Link Error Status Block (LESB)."
+    REFERENCE
+           "FC-PH, rev 4.3, 1 June 1994, section 29.8."
+    ::= { cfcmPortErrorsEntry 11 }
+
+cfcmPortInvalidOrderedSets OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of invalid ordered sets received at this port."
+    ::= { cfcmPortErrorsEntry 12 }
+
+cfcmPortFrameTooLongs OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of frames received at this port where the frame
+            length was greater than what was agreed to in FLOGI/PLOGI.
+            This could be caused by losing the end of frame delimiter."
+    ::= { cfcmPortErrorsEntry 13 }
+
+cfcmPortTruncatedFrames OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of frames received at this port where the frame
+            length was less than the minimum indicated by the frame
+            header - normally 24 bytes, but it could be more if the
+            DFCTL field indicates an optional header should have been
+            present."
+    ::= { cfcmPortErrorsEntry 14 }
+
+cfcmPortAddressErrors OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of frames received with unknown addressing.
+            e.x. unknown SID or DID. the SID or DID is not known to the
+            routing algorithm."
+    ::= { cfcmPortErrorsEntry 15 }
+
+cfcmPortDelimiterErrors OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of invalid frame delimiters received at this
+            port. An example is a frame with a class 2 start and a class
+            3 at the end."
+    ::= { cfcmPortErrorsEntry 16 }
+
+cfcmPortEncodingDisparityErrors OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of encoding disparity errors received at this
+            port."
+    ::= { cfcmPortErrorsEntry 17 }
+
+cfcmPortOtherErrors OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+            "The number of errors which were detected on this port but
+            which were not counted by any other error counter in this
+            row."
+    ::= { cfcmPortErrorsEntry 18 }
+
+
+--********************************
+-- The Fibre Channel Fx_Port Table
+--
+
+cfcmFxPortTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfcmFxPortEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Additional information about Fibre Channel ports which is
+            specific to Fx_Ports.  This table will contain one entry for
+            each cfcmPortTable entry which represents an Fx_Port."
+    ::= { cfcmgmtObjects 7 }
+
+cfcmFxPortEntry OBJECT-TYPE
+    SYNTAX     CfcmFxPortEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Each entry contains information about FC protocol related
+            timer values of a specific Fx_Port and information about
+            buffer capacity, maximum data field size of frames handled
+            by this port and other capability information."
+    INDEX { ifIndex }
+    ::= { cfcmFxPortTable 1 }
+
+CfcmFxPortEntry ::=
+    SEQUENCE {
+        cfcmFxPortRatov                  CfcmMilliSeconds,
+        cfcmFxPortEdtov                  CfcmMilliSeconds,
+        cfcmFxPortRttov                  CfcmMilliSeconds,
+        cfcmFxPortHoldTime               CfcmMicroSeconds,
+        cfcmFxPortCapBbCreditMax         CfcmFcBbCredit,
+        cfcmFxPortCapBbCreditMin         CfcmFcBbCredit,
+        cfcmFxPortCapDataFieldSizeMax    CfcmFcDataFieldSize,
+        cfcmFxPortCapDataFieldSizeMin    CfcmFcDataFieldSize,
+        cfcmFxPortCapClass2SeqDeliv      TruthValue,
+        cfcmFxPortCapClass3SeqDeliv      TruthValue,
+        cfcmFxPortCapHoldTimeMax         CfcmMicroSeconds,
+        cfcmFxPortCapHoldTimeMin         CfcmMicroSeconds
+    }
+
+cfcmFxPortRatov OBJECT-TYPE
+    SYNTAX      CfcmMilliSeconds
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The Resource_Allocation_Timeout Value configured for this
+            Fx_Port.  This is used as the timeout value for determining
+            when to reuse an Nx_Port resource such as a
+            Recovery_Qualifier.  It represents the Error_Detect_Timeout
+            value (see cfcmFxPortEdtov) plus twice the maximum time that
+            a frame may be delayed within the Fabric and still be
+            delivered."
+    ::= { cfcmFxPortEntry 1 }
+
+cfcmFxPortEdtov OBJECT-TYPE
+    SYNTAX      CfcmMilliSeconds
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The Error_Detect_Timeout value configured for this Fx_Port.
+            This is used as the timeout value for detecting an error
+            condition."
+    ::= { cfcmFxPortEntry 2 }
+
+cfcmFxPortRttov OBJECT-TYPE
+    SYNTAX      CfcmMilliSeconds
+    UNITS       "milliseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The Receiver_Transmitter_Timeout value of this Fx_Port.
+            This is used by the receiver logic to detect Loss of
+            Synchronization."
+    ::= { cfcmFxPortEntry 3 }
+
+cfcmFxPortHoldTime OBJECT-TYPE
+    SYNTAX      CfcmMicroSeconds
+    UNITS       "microseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The maximum time that this Fx_Port shall hold a frame
+            before discarding the frame if it is unable to deliver the
+            frame. The value 0 means that this Fx_Port does not support
+            this parameter."
+    ::= { cfcmFxPortEntry 4 }
+
+cfcmFxPortCapBbCreditMax OBJECT-TYPE
+    SYNTAX      CfcmFcBbCredit
+    UNITS       "buffers"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The maximum number of receive buffers which this port is
+            capable of making available for holding frames from attached
+            Nx_Port(s)."
+    ::= { cfcmFxPortEntry 5 }
+
+cfcmFxPortCapBbCreditMin OBJECT-TYPE
+    SYNTAX      CfcmFcBbCredit
+    UNITS       "buffers"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The minimum number of receive buffers which this port is
+            capable of making available for holding frames from attached
+            Nx_Port(s)."
+    ::= { cfcmFxPortEntry 6 }
+
+cfcmFxPortCapDataFieldSizeMax OBJECT-TYPE
+    SYNTAX      CfcmFcDataFieldSize
+    UNITS       "bytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The maximum size in bytes of the Data Field in a frame that
+            this Fx_Port is capable of receiving from an attached
+            Nx_Port."
+    ::= { cfcmFxPortEntry 7 }
+
+cfcmFxPortCapDataFieldSizeMin OBJECT-TYPE
+    SYNTAX      CfcmFcDataFieldSize
+    UNITS       "bytes"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The minimum size in bytes of the Data Field in a frame that
+            this Fx_Port is capable of receiving from an attached
+            Nx_Port."
+    ::= { cfcmFxPortEntry 8 }
+
+cfcmFxPortCapClass2SeqDeliv OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "An indication of whether this Fx_Port is capable of
+            supporting Class 2 Sequential Delivery."
+    ::= { cfcmFxPortEntry 9 }
+
+cfcmFxPortCapClass3SeqDeliv OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "An indication of whether this Fx_Port is capable of
+            supporting Class 3 Sequential Delivery."
+    ::= { cfcmFxPortEntry 10 }
+
+cfcmFxPortCapHoldTimeMax OBJECT-TYPE
+    SYNTAX      CfcmMicroSeconds
+    UNITS       "microseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The maximum holding time that this Fx_Port is capable of
+            supporting."
+    ::= { cfcmFxPortEntry 11 }
+
+cfcmFxPortCapHoldTimeMin OBJECT-TYPE
+    SYNTAX      CfcmMicroSeconds
+    UNITS       "microseconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The minimum holding time that this Fx_Port is capable of
+            supporting."
+    ::= { cfcmFxPortEntry 12 }
+
+
+--********************************
+-- The Fibre Channel Inter-Switch Port Table
+--
+
+cfcmISPortTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfcmISPortEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Additional information about E_Ports, B_Ports, and any
+            other type of Fibre Channel port to which inter-switch links
+            can be connected.  This table will contain one entry for
+            each cfcmPortTable entry which represents such a port."
+    ::= { cfcmgmtObjects 8 }
+
+cfcmISPortEntry OBJECT-TYPE
+    SYNTAX     CfcmISPortEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+            "Each entry contains information about a specific port
+            connected to an inter-switch link."
+    INDEX { ifIndex }
+    ::= { cfcmISPortTable 1 }
+
+CfcmISPortEntry ::=
+    SEQUENCE {
+        cfcmISPortClassFCredit           CfcmFcBbCredit,
+        cfcmISPortClassFDataFieldSize    CfcmFcDataFieldSize
+    }
+
+cfcmISPortClassFCredit OBJECT-TYPE
+    SYNTAX      CfcmFcBbCredit
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+            "The maximum number of Class F data frames which can be
+            transmitted by the inter-switch port without receipt of ACK
+            or Link_Response frames."
+    ::= { cfcmISPortEntry 1 }
+
+cfcmISPortClassFDataFieldSize OBJECT-TYPE
+    SYNTAX      CfcmFcDataFieldSize
+    UNITS       "bytes"
+    MAX-ACCESS  read-only
+
+
+    STATUS      current
+    DESCRIPTION
+            "The Receive Data Field Size which the inter-switch port has
+            agreed to support for Class F frames to/from this port.  The
+            size specifies the largest Data Field Size for an FT_1
+            frame."
+    ::= { cfcmISPortEntry 2 }
+
+--********************************
+-- The Fabric Login table
+--
+-- This table contains the information held by FC switches
+-- about the Nx_Ports which are logged-in/attached to their
+-- Fx_Ports
+
+cfcmFLoginTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CfcmFLoginEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "A table that contains one entry for each Nx_Port logged-
+            in/attached to a particular Fx_Port in the switch.  Each
+            entry contains the services parameters established during
+            the most recent Fabric Login, explicit or implicit.  Note
+            that an Fx_Port may have one or more Nx_Ports attached to
+            it."
+    ::= { cfcmgmtObjects 9 }
+
+cfcmFLoginEntry OBJECT-TYPE
+    SYNTAX      CfcmFLoginEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "An entry containing service parameters established from a
+            successful Fabric Login."
+    INDEX { ifIndex, cfcmFLoginNxPortIndex }
+    ::= { cfcmFLoginTable 1 }
+
+CfcmFLoginEntry ::=
+    SEQUENCE {
+        cfcmFLoginNxPortIndex             Unsigned32,
+        cfcmFLoginPortWwn                 CfcmFcNameIdOrZero,
+        cfcmFLoginNodeWwn                 CfcmFcNameIdOrZero,
+        cfcmFLoginBbCreditModel           CfcmFcBbCreditModel,
+        cfcmFLoginBbCredit                CfcmFcBbCredit,
+        cfcmFLoginClassesAgreed           CfcmFcClasses,
+        cfcmFLoginClass2SeqDelivAgreed    TruthValue,
+        cfcmFLoginClass2DataFieldSize     CfcmFcDataFieldSize,
+        cfcmFLoginClass3SeqDelivAgreed    TruthValue,
+        cfcmFLoginClass3DataFieldSize     CfcmFcDataFieldSize
+    }
+
+cfcmFLoginNxPortIndex OBJECT-TYPE
+    SYNTAX      Unsigned32 (1..4294967295)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "An arbitrary integer which uniquely identifies an Nx_Port
+            amongst all those attached to the Fx_Port indicated by
+            ifIndex."
+    ::= { cfcmFLoginEntry 1 }
+
+cfcmFLoginPortWwn  OBJECT-TYPE
+    SYNTAX      CfcmFcNameIdOrZero
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The port name of the attached Nx_Port, or the zero-length
+            string if unknown."
+    ::= { cfcmFLoginEntry 2 }
+
+cfcmFLoginNodeWwn  OBJECT-TYPE
+    SYNTAX      CfcmFcNameIdOrZero
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The node name of the attached Nx_Port, or the zero-length
+            string if unknown."
+    ::= { cfcmFLoginEntry 3 }
+
+cfcmFLoginBbCreditModel OBJECT-TYPE
+    SYNTAX      CfcmFcBbCreditModel
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The buffer-to-buffer credit model in use by the Fx_Port."
+    ::= { cfcmFLoginEntry 4 }
+
+cfcmFLoginBbCredit OBJECT-TYPE
+    SYNTAX      CfcmFcBbCredit
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The number of buffers available for holding frames to be
+            transmitted to the attached Nx_Port.  These buffers are for
+            buffer-to-buffer flow control in the direction from Fx_Port
+            to Nx_Port."
+    ::= { cfcmFLoginEntry 5 }
+
+cfcmFLoginClassesAgreed OBJECT-TYPE
+    SYNTAX      CfcmFcClasses
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The Classes of Service which the Fx_Port has agreed to
+            support for this Nx_Port."
+    ::= { cfcmFLoginEntry 6 }
+
+cfcmFLoginClass2SeqDelivAgreed OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "An indication of whether the Fx_Port has agreed to support
+            Class 2 sequential delivery for this Nx_Port.  This is only
+            meaningful if Class 2 service has been agreed."
+    ::= { cfcmFLoginEntry 7 }
+
+cfcmFLoginClass2DataFieldSize OBJECT-TYPE
+    SYNTAX      CfcmFcDataFieldSize
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The Receive Data Field Size which the Fx_Port has agreed to
+            support for Class 2 frames to/from this Nx_Port.  The size
+            specifies the largest Data Field Size for an FT_1 frame.
+            This is only meaningful if Class 2 service has been agreed."
+    ::= { cfcmFLoginEntry 8 }
+
+cfcmFLoginClass3SeqDelivAgreed OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "An indication of whether the Fx_Port has agreed to support
+            Class 3 sequential delivery for this Nx_Port.  This is only
+            meaningful if Class 3 service has been agreed."
+    ::= { cfcmFLoginEntry 9 }
+
+cfcmFLoginClass3DataFieldSize OBJECT-TYPE
+    SYNTAX      CfcmFcDataFieldSize
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The Receive Data Field Size which the Fx_Port has agreed to
+            support for Class 3 frames to/from this Nx_Port.  The size
+            specifies the largest Data Field Size for an FT_1 frame.
+            This is only meaningful if Class 3 service has been agreed."
+    ::= { cfcmFLoginEntry 10 }
+
+--********************************
+-- The Link table
+--
+-- This table is intended to assist management applications
+-- in determining the topology of the network.  The table
+-- contains any recent information which the agent knows
+-- about Fibre Channel links, both those which terminate at
+-- a local port, as well as any others for which information
+-- is known.
+
+cfcmLinkTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CfcmLinkEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "A table containing any Fibre Channel link information which
+            is known to local Fibre Channel managed instances.  One end
+            of such a link is typically at a local port, but the table
+            can also contain information on links for which neither end
+            is a local port.
+
+            If one end of a link terminates locally, then that end is
+            termed 'end1'; the other end is termed 'end2'."
+    ::= { cfcmgmtObjects 10 }
+
+cfcmLinkEntry OBJECT-TYPE
+    SYNTAX      CfcmLinkEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "An entry containing information which a particular Fibre
+            Channel managed instance has about a Fibre Channel link.
+
+            The two ends of the link are called 'end1' and 'end2'."
+    INDEX { cfcmInstanceIndex, cfcmLinkIndex }
+    ::= { cfcmLinkTable 1 }
+
+CfcmLinkEntry ::=
+   SEQUENCE {
+        cfcmLinkIndex               Unsigned32,
+        cfcmLinkEnd1NodeWwn         CfcmFcNameIdOrZero,
+        cfcmLinkEnd1PhysPortNumber  Unsigned32,
+        cfcmLinkEnd1PortWwn         CfcmFcNameIdOrZero,
+        cfcmLinkEnd2NodeWwn         CfcmFcNameIdOrZero,
+        cfcmLinkEnd2PhysPortNumber  Unsigned32,
+        cfcmLinkEnd2PortWwn         CfcmFcNameIdOrZero,
+        cfcmLinkEnd2AgentAddress    SnmpAdminString,
+        cfcmLinkEnd2PortType        CfcmFcPortType,
+        cfcmLinkEnd2UnitType        CfcmFcUnitFunctions,
+        cfcmLinkEnd2FcAddressId     CfcmFcAddressId
+   }
+
+cfcmLinkIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+            "An arbitrary integer which uniquely identifies one link
+            within the set of links about which a particular managed
+            instance has information."
+    ::= { cfcmLinkEntry 1 }
+
+cfcmLinkEnd1NodeWwn  OBJECT-TYPE
+    SYNTAX      CfcmFcNameIdOrZero
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The node name of end1, or the zero-length string if
+            unknown."
+    ::= { cfcmLinkEntry 2 }
+
+cfcmLinkEnd1PhysPortNumber OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The physical port number of end1, or zero if unknown."
+    REFERENCE
+        "FC-GS-3 Rev 7.01, 28 Nov 2000, sect 6.1.2.2.5"
+    ::= { cfcmLinkEntry 3 }
+
+cfcmLinkEnd1PortWwn OBJECT-TYPE
+    SYNTAX      CfcmFcNameIdOrZero
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The port WWN of end1, or the zero-length string if unknown.
+            ('end1' is local if this value is equal to the value of
+            cfcmPortWwn in one of the rows of the cfcmPortTable.)"
+    ::= { cfcmLinkEntry 4 }
+
+cfcmLinkEnd2NodeWwn  OBJECT-TYPE
+    SYNTAX      CfcmFcNameIdOrZero
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The node name of end2, or the zero-length string if
+            unknown."
+    ::= { cfcmLinkEntry 5 }
+
+cfcmLinkEnd2PhysPortNumber OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The physical port number of end2, or zero if unknown."
+    REFERENCE
+        "FC-GS-3 Rev 7.01, 28 Nov 2000, sect 6.1.2.2.5"
+    ::= { cfcmLinkEntry 6 }
+
+cfcmLinkEnd2PortWwn OBJECT-TYPE
+    SYNTAX      CfcmFcNameIdOrZero
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The port WWN of end2, or the zero-length string if
+            unknown."
+    ::= { cfcmLinkEntry 7 }
+
+
+cfcmLinkEnd2AgentAddress OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The address of the SNMP agent for the Fibre Channel
+            Interconnect Element or Platform of which end2 is a part.
+            If the address is unknown, the value of this object is the
+            zero-length string."
+    REFERENCE
+        "FC-GS-3 Rev 7.01, 28 Nov 2000, sect 6.1.2.1.7"
+    ::= { cfcmLinkEntry 8 }
+
+cfcmLinkEnd2PortType OBJECT-TYPE
+    SYNTAX      CfcmFcPortType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The port type of end2."
+    REFERENCE
+        "FC-GS-3 Rev 7.01, 28 Nov 2000, sect 6.1.2.2.2"
+    ::= { cfcmLinkEntry 9 }
+
+cfcmLinkEnd2UnitType OBJECT-TYPE
+    SYNTAX      CfcmFcUnitFunctions
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The type of/function(s) performed by the Fibre Channel
+            Interconnect Element or Platform of which end2 is a part."
+    REFERENCE
+        "FC-GS-3 Rev 7.01, 28 Nov 2000, sections 6.1.2.1.2
+         and 6.1.2.3.2"
+    ::= { cfcmLinkEntry 10 }
+
+cfcmLinkEnd2FcAddressId OBJECT-TYPE
+    SYNTAX      CfcmFcAddressId
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+            "The Fibre Channel Address ID of end2, or the zero-length
+            string if unknown."
+    ::= { cfcmLinkEntry 11 }
+
+
+--********************************
+-- Conformance Section
+--
+
+cfcmgmtCompliances OBJECT IDENTIFIER ::= { cfcmgmtConformance 1 }
+cfcmgmtGroups      OBJECT IDENTIFIER ::= { cfcmgmtConformance 2 }
+
+cfcmgmtCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "Describes the requirements for compliance to this Fibre
+            Channel Management MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS { cfcmInstanceBasicGroup,
+                           cfcmPortBasicGroup,
+                           cfcmPortStatsGroup,
+                           cfcmPortErrorsGroup }
+
+        GROUP   cfcmPortClass23StatsGroup
+        DESCRIPTION
+            "This group is mandatory only for systems which
+            keep class-specific traffic statistics on Class 2
+            on Class 3 traffic."
+
+        GROUP   cfcmPortClassFStatsGroup
+        DESCRIPTION
+            "This group is mandatory only for FC switches which
+            keep statistics on Class F traffic."
+
+        GROUP   cfcmPortLcStatsGroup
+        DESCRIPTION
+            "This group is mandatory only for agents which
+            do not provide Counter64 counters."
+
+        GROUP   cfcmSwitchBasicGroup
+        DESCRIPTION
+            "This group is mandatory only for Fibre Channel
+            managed instances which manage Fibre Channel
+            switches."
+
+        GROUP   cfcmSwitchPortGroup
+        DESCRIPTION
+            "This group is mandatory only for Fibre Channel
+            managed instances which manage Fibre Channel
+            switches."
+
+        GROUP   cfcmSwitchLoginGroup
+        DESCRIPTION
+            "This group is mandatory only for Fibre Channel
+            managed instances which manage Fibre Channel
+            switches."
+
+        OBJECT      cfcmInstancePhysicalIndex
+        SYNTAX      INTEGER (0)
+        DESCRIPTION
+            "Implementation of a non-zero value is not required."
+
+        OBJECT      cfcmInstanceSoftwareIndex
+        SYNTAX      Integer32 (0)
+        DESCRIPTION
+            "Implementation of a non-zero value is not required."
+
+        OBJECT      cfcmInstanceTextName
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT      cfcmInstanceDescr
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT      cfcmPortAdminType
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT      cfcmPortAdminSpeed
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT      cfcmSwitchDomainId
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+        OBJECT      cfcmISPortClassFCredit
+        MIN-ACCESS  read-only
+        DESCRIPTION
+            "Write access is not required."
+
+    ::= { cfcmgmtCompliances 1 }
+
+
+--********************************
+-- Object Groups
+--
+
+cfcmInstanceBasicGroup OBJECT-GROUP
+    OBJECTS { cfcmInstanceWwn, cfcmInstanceFunctions,
+              cfcmInstancePhysicalIndex, cfcmInstanceSoftwareIndex,
+              cfcmInstanceStatus, cfcmInstanceTextName,
+              cfcmInstanceDescr, cfcmInstanceFabricId }
+    STATUS  current
+    DESCRIPTION
+            "Basic information about Fibre Channel managed instances."
+    ::= { cfcmgmtGroups 1 }
+
+cfcmSwitchBasicGroup OBJECT-GROUP
+    OBJECTS { cfcmSwitchDomainId, cfcmSwitchPrincipal }
+    STATUS  current
+    DESCRIPTION
+            "Basic information about Fibre Channel switches."
+    ::= { cfcmgmtGroups 2 }
+
+cfcmPortBasicGroup OBJECT-GROUP
+    OBJECTS { cfcmPortInstanceIndex, cfcmPortWwn, cfcmPortNodeWwn,
+              cfcmPortAdminType, cfcmPortOperType, cfcmPortFcCapClass,
+              cfcmPortFcOperClass, cfcmPortTransmitterType,
+              cfcmPortConnectorType, cfcmPortSerialNumber,
+              cfcmPortPhysicalNumber, cfcmPortAdminSpeed,
+              cfcmPortCapProtocols, cfcmPortOperProtocols }
+    STATUS  current
+    DESCRIPTION
+            "Basic information about Fibre Channel ports."
+    ::= { cfcmgmtGroups 3 }
+
+cfcmPortStatsGroup OBJECT-GROUP
+    OBJECTS { cfcmPortBBCreditZeros, cfcmPortFullInputBuffers }
+    STATUS  current
+    DESCRIPTION
+            "Traffic statistics, which are not specific to any one class
+            of service, for Fibre Channel ports."
+    ::= { cfcmgmtGroups 4 }
+
+cfcmPortClass23StatsGroup OBJECT-GROUP
+    OBJECTS { cfcmPortClass2RxFrames, cfcmPortClass2RxOctets,
+              cfcmPortClass2TxFrames, cfcmPortClass2TxOctets,
+              cfcmPortClass2Discards, cfcmPortClass2RxFbsyFrames,
+              cfcmPortClass2RxPbsyFrames,
+              cfcmPortClass2RxFrjtFrames,
+              cfcmPortClass2RxPrjtFrames,
+              cfcmPortClass2TxFbsyFrames,
+              cfcmPortClass2TxPbsyFrames,
+              cfcmPortClass2TxFrjtFrames,
+              cfcmPortClass2TxPrjtFrames, cfcmPortClass3RxFrames,
+              cfcmPortClass3RxOctets, cfcmPortClass3TxFrames,
+              cfcmPortClass3TxOctets, cfcmPortClass3Discards }
+    STATUS  current
+    DESCRIPTION
+            "Traffic statistics for Class 2 and Class 3 traffic on Fibre
+            Channel ports."
+    ::= { cfcmgmtGroups 5 }
+
+cfcmPortClassFStatsGroup OBJECT-GROUP
+    OBJECTS { cfcmPortClassFRxFrames,
+              cfcmPortClassFRxOctets,
+              cfcmPortClassFTxFrames,
+              cfcmPortClassFTxOctets,
+              cfcmPortClassFDiscards }
+    STATUS  current
+    DESCRIPTION
+            "Traffic statistics for Class F traffic on Fibre Channel
+            ports."
+    ::= { cfcmgmtGroups 6 }
+
+cfcmPortLcStatsGroup OBJECT-GROUP
+    OBJECTS { cfcmPortLcBBCreditZeros, cfcmPortLcFullInputBuffers,
+              cfcmPortLcClass2RxFrames, cfcmPortLcClass2RxOctets,
+              cfcmPortLcClass2TxFrames, cfcmPortLcClass2TxOctets,
+              cfcmPortLcClass2Discards, cfcmPortLcClass3Discards,
+              cfcmPortLcClass3RxFrames, cfcmPortLcClass3RxOctets,
+              cfcmPortLcClass3TxFrames, cfcmPortLcClass3TxOctets,
+              cfcmPortLcClass2RxFbsyFrames,
+              cfcmPortLcClass2RxPbsyFrames,
+              cfcmPortLcClass2RxFrjtFrames,
+              cfcmPortLcClass2RxPrjtFrames,
+              cfcmPortLcClass2TxFbsyFrames,
+              cfcmPortLcClass2TxPbsyFrames,
+              cfcmPortLcClass2TxFrjtFrames,
+              cfcmPortLcClass2TxPrjtFrames }
+    STATUS  current
+    DESCRIPTION
+            "Low-capacity (32-bit) statistics for Fibre Channel ports."
+
+
+    ::= { cfcmgmtGroups 7 }
+
+cfcmPortErrorsGroup OBJECT-GROUP
+    OBJECTS { cfcmPortRxLinkResets, cfcmPortTxLinkResets,
+              cfcmPortLinkResets, cfcmPortRxOfflineSequences,
+              cfcmPortTxOfflineSequences, cfcmPortLinkFailures,
+              cfcmPortLossofSynchs, cfcmPortLossofSignals,
+              cfcmPortPrimSeqProtocolErrors, cfcmPortInvalidTxWords,
+              cfcmPortInvalidCRCs, cfcmPortInvalidOrderedSets,
+              cfcmPortFrameTooLongs, cfcmPortTruncatedFrames,
+              cfcmPortAddressErrors, cfcmPortDelimiterErrors,
+              cfcmPortEncodingDisparityErrors,
+              cfcmPortOtherErrors }
+    STATUS  current
+    DESCRIPTION
+            "Error statistics for Fibre Channel ports."
+    ::= { cfcmgmtGroups 8 }
+
+cfcmSwitchPortGroup OBJECT-GROUP
+    OBJECTS { cfcmFxPortRatov, cfcmFxPortEdtov, cfcmFxPortRttov,
+              cfcmFxPortHoldTime, cfcmFxPortCapBbCreditMax,
+              cfcmFxPortCapBbCreditMin,
+              cfcmFxPortCapDataFieldSizeMax,
+              cfcmFxPortCapDataFieldSizeMin,
+              cfcmFxPortCapClass2SeqDeliv,
+              cfcmFxPortCapClass3SeqDeliv,
+              cfcmFxPortCapHoldTimeMax,
+              cfcmFxPortCapHoldTimeMin,
+              cfcmISPortClassFCredit,
+              cfcmISPortClassFDataFieldSize }
+    STATUS  current
+    DESCRIPTION
+            "Information about ports on a Fibre Channel switch."
+    ::= { cfcmgmtGroups 9 }
+
+cfcmSwitchLoginGroup OBJECT-GROUP
+    OBJECTS { cfcmFLoginPortWwn, cfcmFLoginNodeWwn,
+              cfcmFLoginBbCreditModel, cfcmFLoginBbCredit,
+              cfcmFLoginClassesAgreed,
+              cfcmFLoginClass2SeqDelivAgreed,
+              cfcmFLoginClass2DataFieldSize,
+              cfcmFLoginClass3SeqDelivAgreed,
+              cfcmFLoginClass3DataFieldSize }
+    STATUS  current
+    DESCRIPTION
+            "Information known to a Fibre Channel switch about
+            attached/logged-in Nx_Ports."
+    ::= { cfcmgmtGroups 10 }
+
+cfcmLinkBasicGroup OBJECT-GROUP
+    OBJECTS { cfcmLinkEnd1NodeWwn , cfcmLinkEnd1PhysPortNumber,
+              cfcmLinkEnd1PortWwn, cfcmLinkEnd2NodeWwn ,
+              cfcmLinkEnd2PhysPortNumber, cfcmLinkEnd2PortWwn,
+              cfcmLinkEnd2AgentAddress, cfcmLinkEnd2PortType,
+              cfcmLinkEnd2UnitType, cfcmLinkEnd2FcAddressId }
+    STATUS  current
+    DESCRIPTION
+            "Information about Fibre Channel links."
+    ::= { cfcmgmtGroups 11 }
+
+END

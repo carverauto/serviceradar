@@ -1,0 +1,942 @@
+-- *********************************************************************
+-- CISCO-EXT-SCSI-MIB.my: Extension to SCSI MIB
+--
+-- October 2002, H K Vivek
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *********************************************************************
+CISCO-EXT-SCSI-MIB DEFINITIONS ::= BEGIN 
+    
+IMPORTS 
+   MODULE-IDENTITY, OBJECT-TYPE,  
+   Unsigned32, NOTIFICATION-TYPE             FROM SNMPv2-SMI
+   TimeStamp, TestAndIncr, TruthValue,
+   RowStatus, TEXTUAL-CONVENTION             FROM SNMPv2-TC
+   MODULE-COMPLIANCE, OBJECT-GROUP,
+   NOTIFICATION-GROUP                        FROM SNMPv2-CONF 
+   ciscoMgmt                                 FROM CISCO-SMI
+   VsanIndex, DomainId, FcAddressId          FROM CISCO-ST-TC
+   vsanIndex                                 FROM CISCO-VSAN-MIB
+   ciscoScsiInstanceEntry,
+   ciscoScsiDscTgtEntry, 
+   ciscoScsiDscLunEntry,
+   ScsiIndexValue                            FROM CISCO-SCSI-MIB;
+           
+                   
+    
+ciscoExtScsiMIB MODULE-IDENTITY 
+   LAST-UPDATED "200403140000Z"
+   ORGANIZATION "Cisco Systems Inc." 
+   CONTACT-INFO 
+                "     Cisco Systems
+                      Customer Service
+                Postal: 170 W Tasman Drive
+                      San Jose, CA  95134
+                      USA
+                Tel: +1 800 553 -NETS
+                E-mail: cs-san@cisco.com"
+   DESCRIPTION  "The Cisco extension to CISCO-SCSI-MIB
+                 which is a copy of the Internet draft, 
+                 the SCSI-MIB, from the IETF.
+
+                 Glossary of terms used in this MIB:
+
+                 VSAN - Virtual Storage Area Network, similar to 
+                        a VLAN.
+
+                 WWN  - World Wide Name. Mechanism of identifying
+                        devices in Fibre Channel Networks. It is
+                        8 bytes long.
+
+                 pWWN - port World Wide Name.
+
+                 nWWN - node World Wide Name.
+
+                 LUN  - Logical Unit Number is a 64-bit identifier for
+                        a logical unit."
+
+   REVISION     "200403140000Z"
+   DESCRIPTION  "Added ciscoExtScsiIntrDiscLunPortId object
+                 to ciscoExtScsiIntrDiscLunsTable.
+                 Changed the DEFVAL of ciscoExtScsiLunDiscOs
+                 object to 'windows' from 'all'.
+                 Added ciscoExtScsiDiscType object."
+
+   REVISION     "200311280000Z"
+   DESCRIPTION  "Added ciscoExtScsiLunDiscOs,
+                 ciscoExtScsiLunDiscVsanId, 
+                 ciscoExtScsiLunDiscPortId,
+                 ciscoExtScsiLunCacheScsiIndex,
+                 ciscoExtScsiLunCacheDevIndex,
+                 ciscoExtScsiLunCachePortIndex,
+                 ciscoExtScsiLunCacheTgtIndex scalar objects.
+                 Added ciscoExtScsiIntrDiscLunOs object to
+                 ciscoExtScsiIntrDiscLunsTable."
+
+   REVISION     "200301280000Z"
+   DESCRIPTION  "Added ciscoExtScsiPartialLunDiscTable to
+                 facilitate partial LUN discovery on a 
+                 fabric wide basis."
+
+   REVISION     "200210100000Z"
+   DESCRIPTION  "Added ciscoExtScsiNotificationCntl object
+                 and ciscoExtScsiLunDiscDoneNotify
+                 notification."
+
+   REVISION     "200210050000Z"            
+   DESCRIPTION  "Initial version of this MIB." 
+   ::= { ciscoMgmt 299 }
+    
+ciscoExtScsiMIBObjects     OBJECT IDENTIFIER ::= { ciscoExtScsiMIB 1 }
+ciscoExtScsiMIBConformance OBJECT IDENTIFIER 
+                           ::= { ciscoExtScsiMIB 2 }
+ciscoExtScsiConfiguration  OBJECT IDENTIFIER 
+                           ::= { ciscoExtScsiMIBObjects 1 }
+ciscoExtScsiNotification   OBJECT IDENTIFIER
+                           ::= { ciscoExtScsiMIBObjects 2 }
+ciscoExtScsiNotifications  OBJECT IDENTIFIER
+                           ::= { ciscoExtScsiNotification 0 }
+ciscoExtScsiStats          OBJECT IDENTIFIER
+                           ::= { ciscoExtScsiMIBObjects 3 }
+
+-- Textual Conventions
+LunDiscOS  ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+           "Represents a set of Operating Systems on which LUN 
+            discovery is to be done."
+        SYNTAX     INTEGER {
+                      windows(1),
+                      aix(2),
+                      solaris(3),
+                      linux(4),
+                      hpux(5),
+                      all(6)
+                   }
+
+-- Extensions to the ciscoScsiGenInstanceTable
+--
+ 
+ciscoExtScsiGenInstanceTable OBJECT-TYPE
+        SYNTAX         SEQUENCE OF CiscoExtScsiGenInstanceEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "This table is an extension to the 
+                 ciscoScsiInstanceTable defined in
+                 the CISCO-SCSI-MIB.
+
+                 The ciscoScsiInstIndex values are 
+                 assigned as follows:
+
+                 1. there is one ciscoScsiInstIndex value
+                    defined per disk group associated with the 
+                    system.
+
+                 2. there is one ciscoScsiInstIndex value
+                    defined per line-card.
+
+                 3. there is one ciscoScsiInstIndex value
+                    defined for the supervisor as a whole.
+
+                 All ciscoScsiInstIndex values defined
+                 for type 1 above have a disk group
+                 ID associated with them, which is that
+                 of the corresponding disk group. This
+                 value is present in the corresponding
+                 instance of ciscoExtScsiDiskGrpId object.
+                 The corresponding instance of
+                 ciscoExtScsiLineCardOrSup object will
+                 contain the entity physical index of
+                 the line card to which it is associated.
+
+                 For ciscoScsiInstIndex values defined
+                 for type 2, the ciscoExtScsiDiskGrpId
+                 object is not meaningful and will be
+                 empty. The corresponding instance of
+                 ciscoExtScsiLineCardOrSup object will
+                 contain the entity physical index value
+                 of that line card.
+
+                 For the ciscoScsiInstIndex value defined 
+                 for type 3, the ciscoExtScsiDiskGrpId
+                 object is not meaningful and will be empty.
+                 The corresponding instance of 
+                 ciscoExtScsiLineCardOrSup object will
+                 contain the entity physical index value
+                 of the supervisor."
+        ::= { ciscoExtScsiConfiguration 1 }
+
+ciscoExtScsiGenInstanceEntry OBJECT-TYPE
+        SYNTAX         CiscoExtScsiGenInstanceEntry
+        MAX-ACCESS     not-accessible
+        STATUS         current
+        DESCRIPTION
+                "An entry contains disk group ID and/or entity
+                 physical index of a disk group/line card/supervisor 
+                 depending on the ciscoScsiInstIndex value
+                 assignment as defined above. There is a one-to-one
+                 mapping between an entry here and 
+                 ciscoScsiInstanceEntry."
+        AUGMENTS { ciscoScsiInstanceEntry }
+        ::= { ciscoExtScsiGenInstanceTable 1 }
+
+CiscoExtScsiGenInstanceEntry ::= SEQUENCE {
+        ciscoExtScsiDiskGrpId              OCTET STRING,
+        ciscoExtScsiLineCardOrSup          Unsigned32 
+
+}
+
+ciscoExtScsiDiskGrpId OBJECT-TYPE
+        SYNTAX          OCTET STRING ( SIZE(0 | 64))
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+                "This object contains the disk group
+                 ID of a disk group if the
+                 value of the ciscoScsiInstIndex
+                 corresponds to that of a disk
+                 group. Otherwise, this object will
+                 contain a null string."
+        ::= {ciscoExtScsiGenInstanceEntry 1}
+
+ciscoExtScsiLineCardOrSup OBJECT-TYPE
+        SYNTAX          Unsigned32 (1..2147483647)
+        MAX-ACCESS      read-only
+        STATUS          current
+        DESCRIPTION
+                "This object contains the entity
+                 physical index of a line card
+                 if the ciscoScsiInstIndex value
+                 corresponds to that of a disk
+                 group or a line card. 
+
+                 Otherwise, this object contains the
+                 entity physical index value of the
+                 supervisor of the system."
+        ::= { ciscoExtScsiGenInstanceEntry 2 }
+
+
+ciscoExtScsiLunDiscSpinLock OBJECT-TYPE
+        SYNTAX           TestAndIncr
+        MAX-ACCESS       read-write
+        STATUS           current
+        DESCRIPTION
+                "This object is used to facilitate triggerring 
+                 the LUN/target discovery by multiple managers. 
+
+                 The procedure for triggering LUN/target discovery 
+                 is as follows:
+
+                 1. Retrieve the value of 
+                    ciscoExtScsiLunDiscSpinLock and determine the
+                    value for ciscoExtScsiStartLunDisc,
+                    ciscoExtScsiLunDiscOs, ciscoExtScsiLunDiscVsanID,
+                    ciscoExtScsiLunDiscPortId and
+                    ciscoExtScsiDiscType objects.
+
+                 2. Set the value of ciscoExtScsiLunDiscSpinLock
+                    to the retrieved value, and in the same PDU, 
+                    the value of ciscoExtScsiLunDiscOs
+                    to the determined value. If the set fails for 
+                    the ciscoExtScsiLunDiscSpinLock object, go back 
+                    to step 1.
+
+                 3. Set the value of ciscoExtScsiLunDiscSpinLock
+                    to the retrieved value plus 1, and in the same
+                    PDU, the value of ciscoExtScsiLunDiscVsanID to
+                    the determined value. If the set fails for
+                    the ciscoExtScsiLunDiscSpinLock object, go back
+                    to step 1.
+
+                 4. Set the value of ciscoExtScsiLunDiscSpinLock
+                    to the retrieved value plus 2, and in the same
+                    PDU, the value of ciscoExtScsiLunDiscPortId to
+                    the determined value. If the set fails for the
+                    ciscoExtScsiLunDiscSpinLock object, go back to
+                    step 1.
+
+                 5. Set the value of ciscoExtScsiLunDiscSpinLock
+                    to the retrieved value plus 3, and in the same
+                    PDU, the value of ciscoExtScsiDiscType to
+                    the determined value. If the set fails for
+                    the ciscoExtScsiLunDiscSpinLock object, go
+                    back to step 1.
+
+                 6. Set the value of ciscoExtScsiLunDiscSpinLock
+                    to the retrieved value plus 4, and in the same
+                    PDU, the value of ciscoExtScsiStartLunDisc to
+                    the determined value. If the set fails for
+                    the ciscoExtScsiLunDiscSpinLock object, go
+                    back to step 1.
+
+                    Note that if it is possible to include 
+                    ciscoExtScsiLunDiscVsanID, 
+                    ciscoExtScsiLunDiscPortId, ciscoExtScsiDiscType 
+                    and/or ciscoExtScsiStartLunDisc in the 
+                    (Set Request) PDU of an earlier step, then steps 
+                    3, 4 and/or 5 can be eliminated."
+        ::= { ciscoExtScsiConfiguration 2 }
+
+
+ciscoExtScsiStartLunDisc OBJECT-TYPE
+        SYNTAX           INTEGER {
+                            startDiscovery(1),
+                            startLocalDiscovery(2),
+                            startRemoteDiscovery(3),
+                            noop(4),
+                            startPartialDiscovery(5),
+                            startPortBasedDiscovery(6)
+                         }
+        MAX-ACCESS       read-write
+        STATUS           current
+        DESCRIPTION
+                "If this object is set to 'startLocalDiscovery',
+                 then only the directly attached SCSI target
+                 devices/ports and/or LUNs associated with them 
+                 on all VSANs will be discovered.
+
+                 If this object is set to 'startRemoteDiscovery',
+                 then all SCSI target devices/ports and/or LUNs
+                 associated with them on all VSANs in the whole
+                 fabric, except the directly attached ones, will
+                 be discovered.
+
+                 If this object is set to 'startDiscovery', then
+                 both the above discoveries will be carried out.
+
+                 If this object is set to 'startPartialDiscovery',
+                 then all SCSI target devices/ports and/or LUNs
+                 associated with them on the domain IDs and VSANs 
+                 specified in the ciscoExtScsiPartialLunDiscTable, 
+                 will be discovered. If the 
+                 ciscoExtScsiPartialLunDiscTable is empty, then
+                 no SCSI target devices/ports will be discovered.
+
+                 If this object is set to 'startPortBasedDiscovery',
+                 then all LUNs/targets associated with the port 
+                 specified by ciscoExtScsiLunDiscPortId object will 
+                 be discovered. If the ciscoExtScsiLunDiscPortId 
+                 object is not set to a valid value, then no 
+                 LUNs/targets will be discovered. The value of 
+                 ciscoExtScsiLunDiscVsanId object should be set to 
+                 the value of the VSAN on which the port based 
+                 discovery is to be carried out.
+
+                 No action is taken if this object is set
+                 to 'noop'.
+
+                 The value of this object when read is 
+                 always 'noop'.
+
+                 After a discovery has been triggered, this
+                 object cannot be set again to trigger
+                 another discovery, when the value of 
+                 ciscoExtScsiLunDiscStatus is 'inProgress'.
+
+                 In all the above cases, if the 
+                 ciscoExtScsiLunDiscOs object is set to a 
+                 particular Operating System, then the discovery
+                 of the LUNs will take place only for that
+                 Operating System."
+        ::= { ciscoExtScsiConfiguration 3 }
+
+ciscoExtScsiLunDiscStatus OBJECT-TYPE
+        SYNTAX           INTEGER {
+                            inProgress(1),
+                            completed(2),
+                            failure(3)
+                         }
+        MAX-ACCESS       read-only
+        STATUS           current
+        DESCRIPTION
+                "This object indicates the outcome of the
+                 LUN/target discovery on the local switch.
+
+                 This object contains the status of the most
+                 recent discovery.
+
+                 inProgress(1) - indicates that the discovery is 
+                                 still in progress.
+                 completed(2)  - indicates that the discovery is
+                                 complete.
+                 failure(3)    - indicates that the discovery
+                                 encountered a failure."
+        ::= { ciscoExtScsiConfiguration 4 }
+
+ciscoExtScsiLunDiscCompleteTime OBJECT-TYPE
+        SYNTAX           TimeStamp
+        MAX-ACCESS       read-only
+        STATUS           current
+        DESCRIPTION
+                "This object contains the value of sysUpTime
+                 when the last discovery was completed.
+                 The value of this object will be zero, if
+                 discovery has not been performed since the
+                 last system restart."
+        ::= { ciscoExtScsiConfiguration 5 }
+
+
+
+ciscoExtScsiIntrDiscTgtTable OBJECT-TYPE
+        SYNTAX           SEQUENCE OF CiscoExtScsiIntrDiscTgtEntry
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+                "This table is an extension to the
+                 ciscoScsiDscTgtTable."
+        ::= { ciscoExtScsiConfiguration 6 }
+
+ciscoExtScsiIntrDiscTgtEntry OBJECT-TYPE
+        SYNTAX           CiscoExtScsiIntrDiscTgtEntry
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+                "An entry (conceptual row) in this table."
+        AUGMENTS { ciscoScsiDscTgtEntry }
+        ::= { ciscoExtScsiIntrDiscTgtTable 1 }
+
+CiscoExtScsiIntrDiscTgtEntry ::= SEQUENCE {
+        ciscoExtScsiIntrDiscTgtVsanId      VsanIndex,
+        ciscoExtScsiIntrDiscTgtDevType     Unsigned32,
+        ciscoExtScsiIntrDiscTgtVendorId    OCTET STRING,
+        ciscoExtScsiIntrDiscTgtProductId   OCTET STRING,
+        ciscoExtScsiIntrDiscTgtRevLevel    OCTET STRING,
+        ciscoExtScsiIntrDiscTgtOtherInfo   OCTET STRING
+        
+}
+
+ciscoExtScsiIntrDiscTgtVsanId OBJECT-TYPE
+        SYNTAX           VsanIndex
+        MAX-ACCESS       read-only
+        STATUS           current
+        DESCRIPTION
+                "The VSAN to which this target belongs to."
+        ::= { ciscoExtScsiIntrDiscTgtEntry 1 }
+
+ciscoExtScsiIntrDiscTgtDevType OBJECT-TYPE
+        SYNTAX           Unsigned32
+        MAX-ACCESS       read-only
+        STATUS           current
+        DESCRIPTION
+                "The device type of the SCSI target."
+        REFERENCE  "Section 7.3.2 Standard INQUIRY Data.   
+                    SCSI Primary Commands- 2 (SPC-2)"        
+        ::= { ciscoExtScsiIntrDiscTgtEntry 2 }
+
+ciscoExtScsiIntrDiscTgtVendorId OBJECT-TYPE
+        SYNTAX      OCTET STRING (SIZE (8))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The vendor Id of the SCSI target."
+        REFERENCE   "Section 7.3.2 Standard INQUIRY Data.   
+                     SCSI Primary Commands- 2 (SPC-2)"        
+        ::= { ciscoExtScsiIntrDiscTgtEntry 3 }
+
+ciscoExtScsiIntrDiscTgtProductId OBJECT-TYPE
+        SYNTAX      OCTET STRING (SIZE (16))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The product Id of the SCSI target."
+        REFERENCE   "Section 7.3.2 Standard INQUIRY Data.   
+                     SCSI Primary Commands- 2 (SPC-2)" 
+        ::= { ciscoExtScsiIntrDiscTgtEntry 4 }
+
+ciscoExtScsiIntrDiscTgtRevLevel OBJECT-TYPE
+        SYNTAX      OCTET STRING (SIZE (4))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The product revision level of the SCSI target."
+        REFERENCE   "Section 7.3.2 Standard INQUIRY Data.   
+                     SCSI Primary Commands- 2 (SPC-2)" 
+        ::= { ciscoExtScsiIntrDiscTgtEntry 5 }
+
+ciscoExtScsiIntrDiscTgtOtherInfo OBJECT-TYPE
+        SYNTAX      OCTET STRING (SIZE (8))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The bytes from 0 to 7 in the INQUIRY command 
+                 response data."
+        REFERENCE   "Section 7.3.2 Standard INQUIRY Data.   
+                     SCSI Primary Commands- 2 (SPC-2)" 
+        ::= { ciscoExtScsiIntrDiscTgtEntry 6 }
+
+
+
+ciscoExtScsiIntrDiscLunsTable OBJECT-TYPE
+        SYNTAX           SEQUENCE OF CiscoExtScsiIntrDiscLunsEntry
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+                "This table is an extension to the
+                 ciscoScsiDscLunTable."
+        ::= { ciscoExtScsiConfiguration 7 }
+
+ciscoExtScsiIntrDiscLunsEntry OBJECT-TYPE
+        SYNTAX           CiscoExtScsiIntrDiscLunsEntry
+        MAX-ACCESS       not-accessible
+        STATUS           current
+        DESCRIPTION
+                "An entry (conceptual row) in this table."
+        AUGMENTS { ciscoScsiDscLunEntry }
+        ::= { ciscoExtScsiIntrDiscLunsTable 1 }
+
+CiscoExtScsiIntrDiscLunsEntry ::= SEQUENCE {
+        ciscoExtScsiIntrDiscLunCapacity    Unsigned32,
+        ciscoExtScsiIntrDiscLunNumber      OCTET STRING,
+        ciscoExtScsiIntrDiscLunSerialNum   OCTET STRING,
+        ciscoExtScsiIntrDiscLunOs          LunDiscOS,
+        ciscoExtScsiIntrDiscLunPortId      FcAddressId
+}
+
+ciscoExtScsiIntrDiscLunCapacity OBJECT-TYPE
+        SYNTAX            Unsigned32
+        UNITS             "MBytes"
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+                "The capacity of this Lun."
+        ::={ ciscoExtScsiIntrDiscLunsEntry 1 }
+
+ciscoExtScsiIntrDiscLunNumber OBJECT-TYPE
+        SYNTAX            OCTET STRING (SIZE (8))
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+                "The number of this LUN."
+        REFERENCE   "Section 4.8 (Logical Units) and Section 3.1.63 
+                     in SCSI Architecture Model-2 (SAM-2)."
+        ::= { ciscoExtScsiIntrDiscLunsEntry 2 }
+
+ciscoExtScsiIntrDiscLunSerialNum OBJECT-TYPE
+        SYNTAX            OCTET STRING (SIZE (0..32))
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+                "The serial number of this LUN."
+        REFERENCE   "Section 8.4.6 (Unit Serial Number Page)
+                     in SCSI Primary Commands-2 (SPC-2)."
+        ::= { ciscoExtScsiIntrDiscLunsEntry 3 }
+
+ciscoExtScsiIntrDiscLunOs OBJECT-TYPE
+        SYNTAX            LunDiscOS
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+                "The Operating System for which this LUN was
+                 discovered."
+        ::= { ciscoExtScsiIntrDiscLunsEntry 4 }
+
+ciscoExtScsiIntrDiscLunPortId OBJECT-TYPE
+        SYNTAX            FcAddressId
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+                "The port on which this LUN was discovered.
+                 LUNs are present on SCSI target ports. This object
+                 represents the FC-ID (Fibre Channel Identifier) of
+                 the target port on which this LUN was discovered."
+        ::= { ciscoExtScsiIntrDiscLunsEntry 5 }
+
+-- Notification control object
+
+ciscoExtScsiNotificationCntl OBJECT-TYPE
+        SYNTAX            TruthValue
+        MAX-ACCESS        read-write
+        STATUS            current
+        DESCRIPTION
+                "This object specifies if the 
+                 'ciscoExtScsiLunDiscDoneNotify' notification
+                 should be generated or not.
+
+                 If the value of this object is 'true', then
+                 the notification is generated when a 
+                 discovery is completed.
+
+                 If the value of this object is 'false', then
+                 the notification is not generated."
+        DEFVAL { false }
+        ::= { ciscoExtScsiConfiguration 8 }
+
+-- Partial LUN discovery table
+
+ciscoExtScsiPartialLunDiscTable OBJECT-TYPE
+        SYNTAX            SEQUENCE OF CiscoExtScsiPartialLunDiscEntry
+        MAX-ACCESS        not-accessible
+        STATUS            current
+        DESCRIPTION
+                "This table contains a set of domain IDs on VSAN, on
+                 which the fabric-wide LUN/target discovery needs to 
+                 be carried out. It is a mechanism to limit the fabric
+                 wide discovery of SCSI targets and LUNs to the 
+                 domains and VSANs specified in this table. 
+                 If this table is populated with some domain IDs on 
+                 some VSANs and a discovery is started by setting 
+                 ciscoExtScsiStartLunDisc object to 
+                 'startPartialDiscovery', then
+                 discovery of SCSI targets and LUNs is limited only 
+                 to those domains on those VSANs."
+        ::= { ciscoExtScsiConfiguration 9 }
+
+ciscoExtScsiPartialLunDiscEntry OBJECT-TYPE
+        SYNTAX            CiscoExtScsiPartialLunDiscEntry
+        MAX-ACCESS        not-accessible
+        STATUS            current
+        DESCRIPTION
+                "An entry (conceptual row) in this table."
+        INDEX { vsanIndex, ciscoExtScsiPartialLunDomId }
+        ::= { ciscoExtScsiPartialLunDiscTable 1 }
+
+CiscoExtScsiPartialLunDiscEntry ::= SEQUENCE {
+        ciscoExtScsiPartialLunDomId           DomainId,
+        ciscoExtScsiPartialLunRowStatus       RowStatus
+
+}
+
+ciscoExtScsiPartialLunDomId OBJECT-TYPE
+        SYNTAX            DomainId
+        MAX-ACCESS        not-accessible
+        STATUS            current
+        DESCRIPTION
+                "The Domain Id on which the lun discovery needs
+                 to be carried out."
+        ::= { ciscoExtScsiPartialLunDiscEntry 1 }
+
+ciscoExtScsiPartialLunRowStatus OBJECT-TYPE
+        SYNTAX            RowStatus
+        MAX-ACCESS        read-create
+        STATUS            current
+        DESCRIPTION
+                "The status of this conceptual row."
+        ::= { ciscoExtScsiPartialLunDiscEntry 2 }
+
+ciscoExtScsiLunDiscOs OBJECT-TYPE
+        SYNTAX            LunDiscOS
+        MAX-ACCESS        read-write
+        STATUS            current
+        DESCRIPTION
+                "This object specifies the Operating System on
+                 which the LUNs/targets need to be discovered."
+        DEFVAL { windows }
+        ::= { ciscoExtScsiConfiguration 10 }
+
+ciscoExtScsiLunDiscVsanId OBJECT-TYPE
+        SYNTAX            VsanIndex
+        MAX-ACCESS        read-write
+        STATUS            current
+        DESCRIPTION
+                "This object specifies the VSAN on which the LUNs/
+                 targets need to be discovered, in the case of 
+                 port-based discovery. If a port-based discovery is 
+                 not being initiated, then the value of this object 
+                 will be ignored."
+        DEFVAL { 1 }
+        ::= { ciscoExtScsiConfiguration 11 }
+
+ciscoExtScsiLunDiscPortId OBJECT-TYPE
+        SYNTAX            FcAddressId
+        MAX-ACCESS        read-write
+        STATUS            current
+        DESCRIPTION
+                "This object specifies the FCID of the port for
+                 which the LUNs/targets need to be discovered, in 
+                 the case of port-based discovery. If a port-based
+                 discovery is not being initiated, then the value
+                 of this object will be ignored and should be set
+                 to all zeros."
+        DEFVAL { '000000'h }
+        ::= { ciscoExtScsiConfiguration 12 }
+
+ciscoExtScsiLunCacheScsiIndex OBJECT-TYPE
+        SYNTAX            ScsiIndexValue
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+                "This object specifies the first index into the
+                 ciscoExtScsiIntrDiscLunsTable. It is populated
+                 by the agent on the completion of a successful
+                 port based discovery of LUNs. It helps the
+                 management station to directly access the 
+                 discovered LUN entry."
+        ::= { ciscoExtScsiConfiguration 13 }
+
+ciscoExtScsiLunCacheDevIndex OBJECT-TYPE
+        SYNTAX            ScsiIndexValue
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+                "This object specifies the second index into the
+                 ciscoExtScsiIntrDiscLunsTable. It is populated
+                 by the agent on the completion of a successful
+                 port based discovery of LUNs. It helps the
+                 management station to directly access the 
+                 discovered LUN entry."
+        ::= { ciscoExtScsiConfiguration 14 }
+
+ciscoExtScsiLunCachePortIndex OBJECT-TYPE
+        SYNTAX            ScsiIndexValue
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+                "This object specifies the third index into the
+                 ciscoExtScsiIntrDiscLunsTable. It is populated
+                 by the agent on the completion of a successful
+                 port based discovery of LUNs. It helps the
+                 management station to directly access the 
+                 discovered LUN entry."
+        ::= { ciscoExtScsiConfiguration 15 }
+
+ciscoExtScsiLunCacheTgtIndex OBJECT-TYPE
+        SYNTAX            ScsiIndexValue
+        MAX-ACCESS        read-only
+        STATUS            current
+        DESCRIPTION
+                "This object specifies the fourth index into the
+                 ciscoExtScsiIntrDiscLunsTable. It is populated
+                 by the agent on the completion of a successful
+                 port based discovery of LUNs. It helps the
+                 management station to directly access the 
+                 discovered LUN entry."
+        ::= { ciscoExtScsiConfiguration 16 }
+
+ciscoExtScsiDiscType OBJECT-TYPE
+        SYNTAX            INTEGER {
+                            targets(1),
+                            luns(2)
+                          }
+        MAX-ACCESS        read-write
+        STATUS            current
+        DESCRIPTION
+                "This object specifies the type of discovery
+                 desired.
+
+                 Setting this object to 'targets(1), results in
+                 only targets being discovered and the 
+                 ciscoExtScsiIntrDiscTgtTable being populated
+                 with them. The corresponding LUNs are not
+                 discovered.
+
+                 Setting this object to 'luns(2)', results in
+                 targets and LUNs being discovered and the
+                 ciscoExtScsiIntrDiscTgtTable and
+                 ciscoExtScsiIntrDiscLunsTable are populated."
+        DEFVAL { luns }
+        ::= { ciscoExtScsiConfiguration 17 }
+
+
+-- Notification
+
+ciscoExtScsiLunDiscDoneNotify NOTIFICATION-TYPE
+        OBJECTS {ciscoExtScsiLunDiscStatus}
+        STATUS  current
+        DESCRIPTION
+                "This notification is generated whenever a 
+                 Lun discovery cycle is completed."
+        ::= { ciscoExtScsiNotifications 1 }
+
+
+ciscoExtScsiMIBCompliances OBJECT IDENTIFIER 
+                         ::= { ciscoExtScsiMIBConformance 1 }
+ciscoExtScsiMIBGroups      OBJECT IDENTIFIER 
+                         ::= { ciscoExtScsiMIBConformance 2 }
+
+ciscoExtScsiMIBCompliance MODULE-COMPLIANCE
+        STATUS   deprecated
+        DESCRIPTION
+                "The compliance statement for entities that
+                 implement the Cisco extension to the
+                 CISCO-SCSI-MIB."
+        MODULE  MANDATORY-GROUPS {ciscoExtScsiConfigGroup,
+                                  ciscoExtScsiNotifyControlGroup,
+                                  ciscoExtScsiNotifyGroup}
+
+        ::= { ciscoExtScsiMIBCompliances 1 }
+
+ciscoExtScsiMIBCompliance2 MODULE-COMPLIANCE
+        STATUS   deprecated
+             -- superceded by ciscoExtScsiMIBComplianceRev3
+        DESCRIPTION
+                "The compliance statement for entities that
+                 implement the Cisco extension to the
+                 CISCO-SCSI-MIB."
+        MODULE  MANDATORY-GROUPS {ciscoExtScsiConfigGroup,
+                                  ciscoExtScsiPartialDiscGroup,
+                                  ciscoExtScsiNotifyControlGroup,
+                                  ciscoExtScsiNotifyGroup}
+        OBJECT     ciscoExtScsiPartialLunRowStatus
+        SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+        ::= { ciscoExtScsiMIBCompliances 2 }
+
+ciscoExtScsiMIBComplianceRev3 MODULE-COMPLIANCE
+        STATUS   deprecated
+             -- superceded by ciscoExtScsiMIBComplianceRev4 
+        DESCRIPTION
+                "The compliance statement for entities that
+                 implement the Cisco extension to the
+                 CISCO-SCSI-MIB."
+        MODULE  MANDATORY-GROUPS {ciscoExtScsiConfigGroup1,
+                                  ciscoExtScsiPartialDiscGroup,
+                                  ciscoExtScsiNotifyControlGroup,
+                                  ciscoExtScsiNotifyGroup}
+        OBJECT     ciscoExtScsiPartialLunRowStatus
+        SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+        ::= { ciscoExtScsiMIBCompliances 3 }
+
+ciscoExtScsiMIBComplianceRev4 MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+                "The compliance statement for entities that
+                 implement the Cisco extension to the
+                 CISCO-SCSI-MIB."
+        MODULE  MANDATORY-GROUPS {ciscoExtScsiConfigGroup2,
+                                  ciscoExtScsiPartialDiscGroup,
+                                  ciscoExtScsiNotifyControlGroup,
+                                  ciscoExtScsiNotifyGroup}
+        OBJECT     ciscoExtScsiPartialLunRowStatus
+        SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+        DESCRIPTION 
+                "Only three values 'createAndGo', 'destroy' and 
+                'active' out of the six enumerated values need to be
+                supported."
+        ::= { ciscoExtScsiMIBCompliances 4 }
+
+
+-- Units of conformance
+ciscoExtScsiConfigGroup OBJECT-GROUP
+        OBJECTS  {ciscoExtScsiDiskGrpId,
+                  ciscoExtScsiLineCardOrSup,
+                  ciscoExtScsiLunDiscSpinLock,
+                  ciscoExtScsiStartLunDisc,
+                  ciscoExtScsiLunDiscStatus,
+                  ciscoExtScsiLunDiscCompleteTime,
+                  ciscoExtScsiIntrDiscTgtVsanId,
+                  ciscoExtScsiIntrDiscTgtDevType,
+                  ciscoExtScsiIntrDiscTgtVendorId,
+                  ciscoExtScsiIntrDiscTgtProductId,
+                  ciscoExtScsiIntrDiscTgtRevLevel,
+                  ciscoExtScsiIntrDiscTgtOtherInfo,
+                  ciscoExtScsiIntrDiscLunCapacity,
+                  ciscoExtScsiIntrDiscLunNumber,
+                  ciscoExtScsiIntrDiscLunSerialNum}
+        STATUS   deprecated
+        DESCRIPTION
+                "A collection of objects for displaying and
+                 configuring Cisco extension MIB objects to 
+                 the CISCO-SCSI-MIB."
+        ::= { ciscoExtScsiMIBGroups 1 }
+
+ciscoExtScsiNotifyControlGroup OBJECT-GROUP
+        OBJECTS  {ciscoExtScsiNotificationCntl}
+        STATUS   current
+        DESCRIPTION
+                "A collection of notification control object(s)
+                 for controlling notification generation."
+        ::= { ciscoExtScsiMIBGroups 2 }
+
+ciscoExtScsiNotifyGroup NOTIFICATION-GROUP
+        NOTIFICATIONS  {ciscoExtScsiLunDiscDoneNotify}
+        STATUS   current
+        DESCRIPTION
+                "A collection of notification(s) for monitoring
+                 Lun discovery status."
+        ::= { ciscoExtScsiMIBGroups 3 }
+
+ciscoExtScsiPartialDiscGroup OBJECT-GROUP
+        OBJECTS {ciscoExtScsiPartialLunRowStatus}
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects for displaying and
+                 configuring partial LUN discovery."
+        ::= { ciscoExtScsiMIBGroups 4 }
+
+ciscoExtScsiConfigGroup1 OBJECT-GROUP
+        OBJECTS  {ciscoExtScsiDiskGrpId,
+                  ciscoExtScsiLineCardOrSup,
+                  ciscoExtScsiLunDiscSpinLock,
+                  ciscoExtScsiLunDiscOs,
+                  ciscoExtScsiStartLunDisc,
+                  ciscoExtScsiLunDiscStatus,
+                  ciscoExtScsiLunDiscCompleteTime,
+                  ciscoExtScsiIntrDiscTgtVsanId,
+                  ciscoExtScsiIntrDiscTgtDevType,
+                  ciscoExtScsiIntrDiscTgtVendorId,
+                  ciscoExtScsiIntrDiscTgtProductId,
+                  ciscoExtScsiIntrDiscTgtRevLevel,
+                  ciscoExtScsiIntrDiscTgtOtherInfo,
+                  ciscoExtScsiIntrDiscLunCapacity,
+                  ciscoExtScsiIntrDiscLunNumber,
+                  ciscoExtScsiIntrDiscLunSerialNum,
+                  ciscoExtScsiIntrDiscLunOs,
+                  ciscoExtScsiLunDiscVsanId,
+                  ciscoExtScsiLunDiscPortId,
+                  ciscoExtScsiLunCacheScsiIndex,
+                  ciscoExtScsiLunCacheDevIndex,
+                  ciscoExtScsiLunCachePortIndex,
+                  ciscoExtScsiLunCacheTgtIndex}
+        STATUS   deprecated
+        DESCRIPTION
+                "A collection of objects for displaying and
+                 configuring Cisco extension MIB objects to 
+                 the CISCO-SCSI-MIB."
+        ::= { ciscoExtScsiMIBGroups 5 }
+
+ciscoExtScsiConfigGroup2 OBJECT-GROUP
+        OBJECTS  {ciscoExtScsiDiskGrpId,
+                  ciscoExtScsiLineCardOrSup,
+                  ciscoExtScsiLunDiscSpinLock,
+                  ciscoExtScsiLunDiscOs,
+                  ciscoExtScsiStartLunDisc,
+                  ciscoExtScsiLunDiscStatus,
+                  ciscoExtScsiLunDiscCompleteTime,
+                  ciscoExtScsiIntrDiscTgtVsanId,
+                  ciscoExtScsiIntrDiscTgtDevType,
+                  ciscoExtScsiIntrDiscTgtVendorId,
+                  ciscoExtScsiIntrDiscTgtProductId,
+                  ciscoExtScsiIntrDiscTgtRevLevel,
+                  ciscoExtScsiIntrDiscTgtOtherInfo,
+                  ciscoExtScsiIntrDiscLunCapacity,
+                  ciscoExtScsiIntrDiscLunNumber,
+                  ciscoExtScsiIntrDiscLunSerialNum,
+                  ciscoExtScsiIntrDiscLunOs,
+                  ciscoExtScsiIntrDiscLunPortId,
+                  ciscoExtScsiLunDiscVsanId,
+                  ciscoExtScsiLunDiscPortId,
+                  ciscoExtScsiLunCacheScsiIndex,
+                  ciscoExtScsiLunCacheDevIndex,
+                  ciscoExtScsiLunCachePortIndex,
+                  ciscoExtScsiLunCacheTgtIndex,
+                  ciscoExtScsiDiscType}
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for displaying and
+                 configuring Cisco extension MIB objects to 
+                 the CISCO-SCSI-MIB."
+        ::= { ciscoExtScsiMIBGroups 6 }
+
+
+END	
+
+

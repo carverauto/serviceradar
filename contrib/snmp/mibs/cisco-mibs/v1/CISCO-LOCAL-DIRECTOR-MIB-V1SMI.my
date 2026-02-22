@@ -1,0 +1,1125 @@
+-- MIB file created 02-Aug-2001 10:38:32, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LOCAL-DIRECTOR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LOCAL-DIRECTOR-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoLocalDirectorMIB OBJECT IDENTIFIER ::= { ciscoMgmt 99 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200105140000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-ld@cisco.com
+--  Descr
+--    The MIB module to view information about
+--    LocalDirector.
+--    
+--    The Cisco LocalDirector is a device designed for the
+--    purpose of load balancing TCP traffic at an Internet
+--    site.  To implement load balancing, an IP address (and
+--    optionally a port and a 'bind ID') is chosen to be the
+--    publically accessible 'virtual machine'. Then a number
+--    of actual Internet servers are 'bound' to this virtual
+--    machine. The servers are called 'real machines'. The
+--    relationships between virtual and real machines can be
+--    one to many, many to one, or many to many.  More
+--    detailed information about the LocalDirector is
+--    available in the 'Cisco LocalDirector Installation and
+--    Configuration Guide', available online at
+--    www.cisco.com.
+--  RevDate
+--    200105140000Z
+--  RevDescr
+--    Added table cldexVirtualTable reflecting the   
+--    additional index cldexVirtualRule that is the name 
+--    of the Content Rule for the Virtual. 
+--    
+--    Deprecated cldeVirtualTable and associated
+--    objects.
+--    
+--    Added 3 missing Notification Groups to the Compliance
+--    section of the MIB.  These groups represent the 
+--    set of notifications added via 9910210000Z, but
+--    that were not added as groups.  Obsoleted/Deprecated 
+--    the first 2 sets of these groups that are based on 
+--    Notifications being replaced by new objects in 
+--    this MIB.
+--  RevDate
+--    9910210000Z
+--  RevDescr
+--    Added tables cldeVirtualTable and cldeRealTable
+--    reflecting additional indices allowing the retrieval
+--    of additional entries for the different protocols
+--    supported.
+--    
+--    Obsoleted cldVirtualTable, cldRealTable and associated
+--    objects.
+--    
+--    Updated notifications and traps to not use Deprecated 
+--    objects.
+--  RevDate
+--    9902050000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoLocalDirectorMIBObjects OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIB 1 }
+cldVirtualMachine OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBObjects 1 }
+cldRealMachine  OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBObjects 2 }
+cldFailover     OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBObjects 3 }
+ciscoLocalDirectorMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIB 2 }
+ciscoLocalDirectorMIBNotifications OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBNotificationPrefix 0 }
+ciscoLocalDirectorMIBConformance OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIB 3 }
+ciscoLocalDirectorMIBCompliances OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBConformance 1 }
+ciscoLocalDirectorMIBGroups OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBConformance 2 }
+
+CldMachineState ::= INTEGER {
+        inService(1),
+        outOfService(2),
+        testing(3),
+        failed(4),
+        maxCapacity(5),
+        maintenance(6),
+        stickyOnly(7),
+        externalFailed(8)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The state of a real or virtual machine.
+--    
+--    inService:      normal.
+--    outOfService:   manually taken offline.
+--    testing:        machine has failed, but is being 
+--                      tested for availability.
+--    failed:         machine has failed.
+--    maxCapacity:    machine has reached connection limit.
+--    maintenance:    manually taken offine, and when brought
+--                      back online, sticky associations will
+--                      not be cleared.
+--    stickyOnly:     machine will only accept new 
+--                      connections for which a
+--                      'Sticky Association' already exists
+--                      in cache.
+--    externalFailed: An external management application 
+--                      determined that the real or virtual
+--                      server is no longer available to
+--                      service connections. The management
+--                      application has indicated such to
+--                      this LD and this LD has failed the
+--                      server.
+
+CldFailoverEnabledState ::= INTEGER {
+        failoverOn(1),
+        failoverOff(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Indicates if failover mechanism is turned on or off
+--    for this LocalDirector.
+--    
+--    failoverOn:     normal
+--    failoverOff:    manually taken offline
+
+CldFailoverCableState ::= INTEGER {
+        normalConnected(1),
+        otherSidePoweredOff(2),
+        mySideNotConnected(3),
+        otherSideNotConnected(4),
+        badCable(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Indicates state of serial failover cable between 
+--    LocalDirector units.
+--    
+--    normalConnected:        cable connected on both sides 
+--                            and both units powered on.
+--    otherSidePoweredOff:    cable connected on both sides, 
+--                            but other unit is powered off.
+--    mySideNotConnected:     my side of serial cable is not 
+--                            connected.
+--    otherSideNotConnected:  my side of serial cable is 
+--                            connected, but other unit is 
+--                            not connected.
+--    badCable:               problem is detected with serial 
+--                            cable.
+
+CldFailoverUnitTypeDescriptor ::= INTEGER {
+        primary(1),
+        secondary(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Indicates LocalDirector's role in failover setup;
+--    primary or secondary.
+--     
+--    primary:        Primary end of serial cable plugged 
+--                     into unit.
+--    secondary:      Secondary end of serial cable plugged 
+--                     into unit.
+
+CldFailoverUnitStatusDescriptor ::= INTEGER {
+        active(1),
+        standby(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Indicates LocalDirector's current activity; active or
+--    standby.
+--    
+--    active: LocalDirector is currently active and handling
+--                    load-balancing for site.
+--    standby:LocalDirector is currently not active and is 
+--                    only monitoring 'active' unit.
+
+MachineProtocol ::= INTEGER {
+        --?? enum value of zero may cause problems
+        protocolTypeAll(0),
+        protocolTypeTCP(6),
+        protocolTypeUDP(17),
+        protocolTypeGRE(47)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    IP protocol number defining the protocol used for
+--    sending packets between the client and the Virtual
+--    Server.
+--    
+--    protocolTypeAll  : signifies that all IP protocol 
+--                       numbers are handled by the 
+--                       GLoBal Service Manager for 
+--                       this Virtual Server.
+--    
+--    protocolTypeTCP  : signifies that TCP/IP is the 
+--                       protocol used for sending packets
+--                       between the client and the Virtual
+--                       Server.
+--    
+--    protocolTypeUDP  : signifies that UDP/IP is the
+--                       protocol used for sending packets
+--                       between the client and the Virtual
+--                       Server.
+--    
+--    protocolTypeGRE  : signifies that Generic Routing
+--                       Encapulation (GRE) is used for
+--                       sending packets between the client
+--                       and the Virtual Server.
+--  Refer
+--    Assigned numbers. J.K. Reynolds, J. Postel. RFC1700.
+
+MachineBindID ::= INTEGER(0..65535)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Used to associate clients with a Virtual Server.
+--    A 0 value indicates all clients are associated
+--    with the Virtual Server.
+
+cldVirtualTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CldVirtualTableEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "Information about all Virtual machines that exist on
+        LocalDirector."
+    ::= { cldVirtualMachine 1 }
+
+cldVirtualTableEntry OBJECT-TYPE
+    SYNTAX CldVirtualTableEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "A LocalDirector Virtual Table entry.  Entries are
+        added to this table via the 'virtual' command on the
+        command line interface."
+    INDEX { cldVirtualIpAddress, cldVirtualPort, cldVirtualBindID }
+    ::= { cldVirtualTable 1 }
+
+CldVirtualTableEntry ::= SEQUENCE {
+    cldVirtualIpAddress IpAddress,
+    cldVirtualPort INTEGER,
+    cldVirtualBindID INTEGER,
+    cldVirtualState CldMachineState,
+    cldVirtualTotalConnections Counter,
+    cldVirtualTotalPackets Counter,
+    cldVirtualTotalBytes Counter,
+    cldVirtualWeight INTEGER
+    }
+
+cldVirtualIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "The IP address of the virtual machine."
+    ::= { cldVirtualTableEntry 1 }
+
+cldVirtualPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "The TCP port of the virtual machine (default is 0,
+        which is all ports)."
+    ::= { cldVirtualTableEntry 2 }
+
+cldVirtualBindID OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "The Bind ID of the virtual machine (default is 0,
+        which is for all clients."
+    ::= { cldVirtualTableEntry 3 }
+
+cldVirtualState OBJECT-TYPE
+    SYNTAX CldMachineState
+--    Rsyntax INTEGER {
+--        inService(1),
+--        outOfService(2),
+--        testing(3),
+--        failed(4),
+--        maxCapacity(5),
+--        maintenance(6),
+--        stickyOnly(7),
+--        externalFailed(8)
+--        }
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The service state of the virtual machine."
+    ::= { cldVirtualTableEntry 4 }
+
+cldVirtualTotalConnections OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The total number of connections to/from the virtual
+        machine since reboot."
+    ::= { cldVirtualTableEntry 5 }
+
+cldVirtualTotalPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The total number of packets to/from the virtual
+        machine since reboot."
+    ::= { cldVirtualTableEntry 6 }
+
+cldVirtualTotalBytes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The total number of bytes to/from the virtual machine
+        since reboot."
+    ::= { cldVirtualTableEntry 7 }
+
+cldVirtualWeight OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The weight reflects the availability of a virtual
+        machine, which is the total weights/availability of
+        all real machines bound the virtual machine."
+    ::= { cldVirtualTableEntry 8 }
+
+cldRealTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CldRealTableEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "Information about all Real machines that exist on
+        LocalDirector."
+    ::= { cldRealMachine 1 }
+
+cldRealTableEntry OBJECT-TYPE
+    SYNTAX CldRealTableEntry
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "A LocalDirector Real Table entry.  Entries are added
+        via the 'real' command on the command line interface."
+    INDEX { cldRealIpAddress, cldRealPort }
+    ::= { cldRealTable 1 }
+
+CldRealTableEntry ::= SEQUENCE {
+    cldRealIpAddress IpAddress,
+    cldRealPort INTEGER,
+    cldRealState CldMachineState,
+    cldRealTotalConnections Counter,
+    cldRealTotalPackets Counter,
+    cldRealTotalBytes Counter,
+    cldRealWeight INTEGER
+    }
+
+cldRealIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "The IP address of the real machine."
+    ::= { cldRealTableEntry 1 }
+
+cldRealPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS obsolete
+    DESCRIPTION
+        "The TCP port of the real machine (default is 0, which 
+         is all ports)."
+    ::= { cldRealTableEntry 2 }
+
+cldRealState OBJECT-TYPE
+    SYNTAX CldMachineState
+--    Rsyntax INTEGER {
+--        inService(1),
+--        outOfService(2),
+--        testing(3),
+--        failed(4),
+--        maxCapacity(5),
+--        maintenance(6),
+--        stickyOnly(7),
+--        externalFailed(8)
+--        }
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The service state of the real machine (defaul is 0,
+        which is all clients."
+    ::= { cldRealTableEntry 3 }
+
+cldRealTotalConnections OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The total number of connections to this machine 
+        since reboot."
+    ::= { cldRealTableEntry 4 }
+
+cldRealTotalPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The total number of packets to/from the real machine
+        since reboot."
+    ::= { cldRealTableEntry 5 }
+
+cldRealTotalBytes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS obsolete
+    DESCRIPTION
+        "The total number of bytes to/from the real machine
+        since reboot."
+    ::= { cldRealTableEntry 6 }
+
+cldRealWeight OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS obsolete
+    DESCRIPTION
+        "The weight for the real machine."
+    ::= { cldRealTableEntry 7 }
+
+cldeVirtualTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CldeVirtualTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Information about all Virtual machines that exist on
+        LocalDirector."
+    ::= { cldVirtualMachine 2 }
+
+cldeVirtualTableEntry OBJECT-TYPE
+    SYNTAX CldeVirtualTableEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "A LocalDirector Virtual Table entry.  Entries are
+        added to this table via the 'virtual' command on the
+        command line interface."
+    INDEX { cldeVirtualIpAddress, cldeVirtualPort, cldeVirtualBindID, cldeVirtualProtocol }
+    ::= { cldeVirtualTable 1 }
+
+CldeVirtualTableEntry ::= SEQUENCE {
+    cldeVirtualIpAddress IpAddress,
+    cldeVirtualPort INTEGER,
+    cldeVirtualBindID INTEGER,
+    cldeVirtualProtocol MachineProtocol,
+    cldeVirtualState CldMachineState,
+    cldeVirtualTotalConnections Counter,
+    cldeVirtualTotalPackets Counter,
+    cldeVirtualTotalBytes Counter,
+    cldeVirtualWeight INTEGER
+    }
+
+cldeVirtualIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The IP address of the virtual machine."
+    ::= { cldeVirtualTableEntry 1 }
+
+cldeVirtualPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The TCP port of the virtual machine (default is 0,
+        which is all ports)."
+    ::= { cldeVirtualTableEntry 2 }
+
+cldeVirtualBindID OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The Bind ID of the virtual machine (default is 0,
+        which is for all clients."
+    ::= { cldeVirtualTableEntry 3 }
+
+cldeVirtualProtocol OBJECT-TYPE
+    SYNTAX MachineProtocol
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        protocolTypeAll(0),
+--        protocolTypeTCP(6),
+--        protocolTypeUDP(17),
+--        protocolTypeGRE(47)
+--        }
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "The TCP/UDP protocol field value used in sending
+        packets to this Virtual Server."
+    ::= { cldeVirtualTableEntry 4 }
+
+cldeVirtualState OBJECT-TYPE
+    SYNTAX CldMachineState
+--    Rsyntax INTEGER {
+--        inService(1),
+--        outOfService(2),
+--        testing(3),
+--        failed(4),
+--        maxCapacity(5),
+--        maintenance(6),
+--        stickyOnly(7),
+--        externalFailed(8)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The service state of the virtual machine."
+    ::= { cldeVirtualTableEntry 5 }
+
+cldeVirtualTotalConnections OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The total number of connections to/from the virtual
+        machine since reboot."
+    ::= { cldeVirtualTableEntry 6 }
+
+cldeVirtualTotalPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The total number of packets to/from the virtual
+        machine since reboot."
+    ::= { cldeVirtualTableEntry 7 }
+
+cldeVirtualTotalBytes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The total number of bytes to/from the virtual machine
+        since reboot."
+    ::= { cldeVirtualTableEntry 8 }
+
+cldeVirtualWeight OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The weight reflects the availability of a virtual
+        machine, which is the total weights/availability of
+        all real machines bound the virtual machine."
+    ::= { cldeVirtualTableEntry 9 }
+
+cldeRealTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CldeRealTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about all Real machines that exist on
+        LocalDirector."
+    ::= { cldRealMachine 2 }
+
+cldeRealTableEntry OBJECT-TYPE
+    SYNTAX CldeRealTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A LocalDirector Real Table entry.  Entries are added
+        via the 'real' command on the command line interface."
+    INDEX { cldeRealIpAddress, cldeRealPort, cldeRealBindID, cldeRealProtocol }
+    ::= { cldeRealTable 1 }
+
+CldeRealTableEntry ::= SEQUENCE {
+    cldeRealIpAddress IpAddress,
+    cldeRealPort INTEGER,
+    cldeRealBindID MachineBindID,
+    cldeRealProtocol MachineProtocol,
+    cldeRealState CldMachineState,
+    cldeRealTotalConnections Counter,
+    cldeRealTotalPackets Counter,
+    cldeRealTotalBytes Counter,
+    cldeRealWeight INTEGER
+    }
+
+cldeRealIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the real machine."
+    ::= { cldeRealTableEntry 1 }
+
+cldeRealPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP port of the real machine (default is 0, which 
+         is all ports)."
+    ::= { cldeRealTableEntry 2 }
+
+cldeRealBindID OBJECT-TYPE
+    SYNTAX MachineBindID
+--    Rsyntax INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Bind ID of the Real Server."
+    ::= { cldeRealTableEntry 3 }
+
+cldeRealProtocol OBJECT-TYPE
+    SYNTAX MachineProtocol
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        protocolTypeAll(0),
+--        protocolTypeTCP(6),
+--        protocolTypeUDP(17),
+--        protocolTypeGRE(47)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP/UDP protocol field value used in sending
+        packets to this Real Server."
+    ::= { cldeRealTableEntry 4 }
+
+cldeRealState OBJECT-TYPE
+    SYNTAX CldMachineState
+--    Rsyntax INTEGER {
+--        inService(1),
+--        outOfService(2),
+--        testing(3),
+--        failed(4),
+--        maxCapacity(5),
+--        maintenance(6),
+--        stickyOnly(7),
+--        externalFailed(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The service state of the real machine (defaul is 0,
+        which is all clients."
+    ::= { cldeRealTableEntry 5 }
+
+cldeRealTotalConnections OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of connections to this machine 
+        since reboot."
+    ::= { cldeRealTableEntry 6 }
+
+cldeRealTotalPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets to/from the real machine
+        since reboot."
+    ::= { cldeRealTableEntry 7 }
+
+cldeRealTotalBytes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of bytes to/from the real machine
+        since reboot."
+    ::= { cldeRealTableEntry 8 }
+
+cldeRealWeight OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The weight for the real machine."
+    ::= { cldeRealTableEntry 9 }
+
+cldexVirtualTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CldexVirtualTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Information about all Virtual machines that exist on
+        LocalDirector."
+    ::= { cldVirtualMachine 3 }
+
+cldexVirtualTableEntry OBJECT-TYPE
+    SYNTAX CldexVirtualTableEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A LocalDirector Virtual Table entry.  Entries are
+        added to this table via the 'virtual' command on the
+        command line interface."
+    INDEX { cldexVirtualIpAddress, cldexVirtualPort, cldexVirtualBindID, cldexVirtualProtocol, cldexVirtualRule }
+    ::= { cldexVirtualTable 1 }
+
+CldexVirtualTableEntry ::= SEQUENCE {
+    cldexVirtualIpAddress IpAddress,
+    cldexVirtualPort INTEGER,
+    cldexVirtualBindID INTEGER,
+    cldexVirtualProtocol MachineProtocol,
+    cldexVirtualRule SnmpAdminString,
+    cldexVirtualState CldMachineState,
+    cldexVirtualTotalConnections Counter,
+    cldexVirtualTotalPackets Counter,
+    cldexVirtualTotalBytes Counter,
+    cldexVirtualWeight INTEGER
+    }
+
+cldexVirtualIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the virtual machine."
+    ::= { cldexVirtualTableEntry 1 }
+
+cldexVirtualPort OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP port of the virtual machine (default is 0,
+        which is all ports)."
+    ::= { cldexVirtualTableEntry 2 }
+
+cldexVirtualBindID OBJECT-TYPE
+    SYNTAX INTEGER(0..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Bind ID of the virtual machine (default is 0,
+        which is for all clients."
+    ::= { cldexVirtualTableEntry 3 }
+
+cldexVirtualProtocol OBJECT-TYPE
+    SYNTAX MachineProtocol
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        protocolTypeAll(0),
+--        protocolTypeTCP(6),
+--        protocolTypeUDP(17),
+--        protocolTypeGRE(47)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP/UDP protocol field value used in sending
+        packets to this Virtual Server."
+    ::= { cldexVirtualTableEntry 4 }
+
+cldexVirtualRule OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..8))
+--    Rsyntax OCTET STRING(SIZE(0..8))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The administratively assigned content rule
+        name associated with this Virtual Server."
+    ::= { cldexVirtualTableEntry 5 }
+
+cldexVirtualState OBJECT-TYPE
+    SYNTAX CldMachineState
+--    Rsyntax INTEGER {
+--        inService(1),
+--        outOfService(2),
+--        testing(3),
+--        failed(4),
+--        maxCapacity(5),
+--        maintenance(6),
+--        stickyOnly(7),
+--        externalFailed(8)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The service state of the virtual machine."
+    ::= { cldexVirtualTableEntry 6 }
+
+cldexVirtualTotalConnections OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of connections to/from the virtual
+        machine since reboot."
+    ::= { cldexVirtualTableEntry 7 }
+
+cldexVirtualTotalPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of packets to/from the virtual
+        machine since reboot."
+    ::= { cldexVirtualTableEntry 8 }
+
+cldexVirtualTotalBytes OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of bytes to/from the virtual machine
+        since reboot."
+    ::= { cldexVirtualTableEntry 9 }
+
+cldexVirtualWeight OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The weight reflects the availability of a virtual
+        machine, which is the total weights/availability of
+        all real machines bound the virtual machine."
+    ::= { cldexVirtualTableEntry 10 }
+
+cldFailoverEnabled OBJECT-TYPE
+    SYNTAX CldFailoverEnabledState
+--    Rsyntax INTEGER {
+--        failoverOn(1),
+--        failoverOff(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Is failover mechanism enabled."
+    ::= { cldFailover 1 }
+
+cldFailoverCableStatus OBJECT-TYPE
+    SYNTAX CldFailoverCableState
+--    Rsyntax INTEGER {
+--        normalConnected(1),
+--        otherSidePoweredOff(2),
+--        mySideNotConnected(3),
+--        otherSideNotConnected(4),
+--        badCable(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Status of failover serial cable."
+    ::= { cldFailover 2 }
+
+cldFailoverUnitType OBJECT-TYPE
+    SYNTAX CldFailoverUnitTypeDescriptor
+--    Rsyntax INTEGER {
+--        primary(1),
+--        secondary(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The failover unit type, which is determined by
+        Failover serial cable; primary or secondary."
+    ::= { cldFailover 3 }
+
+cldFailoverUnitStatus OBJECT-TYPE
+    SYNTAX CldFailoverUnitStatusDescriptor
+--    Rsyntax INTEGER {
+--        active(1),
+--        standby(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unit's failover activity; active or standby."
+    ::= { cldFailover 4 }
+
+cldFailoverActiveTimeStamp OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when unit went active."
+    ::= { cldFailover 5 }
+
+ciscoLocalDirectorVirtualStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLocalDirectorMIBNotificationPrefix
+    VARIABLES {
+        cldVirtualState }
+--  Status
+--    obsolete
+    DESCRIPTION
+        "When a Virtual machine changes state, a notification
+        is sent."
+    ::= 1
+
+ciscoLocalDirectorRealStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLocalDirectorMIBNotificationPrefix
+    VARIABLES {
+        cldRealState }
+--  Status
+--    obsolete
+    DESCRIPTION
+        "When a Real machine changes state, a notification is
+        sent."
+    ::= 2
+
+ciscoLocalDirectorFailoverEnableChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLocalDirectorMIBNotificationPrefix
+    VARIABLES {
+        cldFailoverEnabled }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Failover is turned on/off."
+    ::= 3
+
+ciscoLocalDirectorFailoverCableChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLocalDirectorMIBNotificationPrefix
+    VARIABLES {
+        cldFailoverCableStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Failover's serial cable has a status change."
+    ::= 4
+
+ciscoLocalDirectorFailoverUnitStatus TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLocalDirectorMIBNotificationPrefix
+    VARIABLES {
+        cldFailoverUnitStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Failover event occurs."
+    ::= 5
+
+ciscoLocalDirectorEVirtualStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLocalDirectorMIBNotificationPrefix
+    VARIABLES {
+        cldeVirtualState }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "When a Virtual machine changes state, a notification
+        is sent."
+    ::= 6
+
+ciscoLocalDirectorERealStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLocalDirectorMIBNotificationPrefix
+    VARIABLES {
+        cldeRealState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "When a Real machine changes state, a notification is
+        sent."
+    ::= 7
+
+ciscoLocalDirectorExVirtualStateChange TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLocalDirectorMIBNotificationPrefix
+    VARIABLES {
+        cldexVirtualState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "When a Virtual machine changes state, a notification
+        is sent."
+    ::= 8
+
+ciscoLocalDirectorMIBGroup OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    obsolete
+--  Descr
+--    A collection of objects providing the LocalDirector 
+--     MIB capability.
+--  objects
+--    cldVirtualState, cldVirtualTotalConnections, 
+--    cldVirtualTotalPackets, cldVirtualTotalBytes, 
+--    cldVirtualWeight, cldRealState, cldRealTotalConnections, 
+--    cldRealTotalPackets, cldRealTotalBytes, cldRealWeight
+
+ciscoLocalDirectorFailoverGroup OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the LocalDirector 
+--     MIB capability.
+--  objects
+--    cldFailoverEnabled, cldFailoverCableStatus, 
+--    cldFailoverUnitType, cldFailoverUnitStatus, 
+--    cldFailoverActiveTimeStamp
+
+ciscoLocalDirectorEMIBGroup OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the LocalDirector 
+--     MIB capability.
+--  objects
+--    cldeVirtualState, cldeVirtualTotalConnections, 
+--    cldeVirtualTotalPackets, cldeVirtualTotalBytes, 
+--    cldeVirtualWeight, cldeRealState, cldeRealTotalConnections, 
+--    cldeRealTotalPackets, cldeRealTotalBytes, cldeRealWeight
+
+ciscoLocalDirectorEMIBGroupRev1 OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the LocalDirector
+--     MIB capability.
+--  objects
+--    cldexVirtualState, cldexVirtualTotalConnections, 
+--    cldexVirtualTotalPackets, cldexVirtualTotalBytes, 
+--    cldexVirtualWeight, cldeRealState, cldeRealTotalConnections, 
+--    cldeRealTotalPackets, cldeRealTotalBytes, cldeRealWeight
+
+ciscoLocalDirectorNotificationGroup OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    obsolete
+--  Descr
+--    A collection of objects providing the LocalDirector
+--     MIB capability.
+--  notifications
+--    ciscoLocalDirectorVirtualStateChange, 
+--    ciscoLocalDirectorRealStateChange, 
+--    ciscoLocalDirectorFailoverEnableChange, 
+--    ciscoLocalDirectorFailoverCableChange, 
+--    ciscoLocalDirectorFailoverUnitStatus
+
+ciscoLocalDirectorNotificationGroupRev1 OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBGroups 5 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of objects providing the LocalDirector
+--     MIB capability.
+--  notifications
+--    ciscoLocalDirectorEVirtualStateChange, 
+--    ciscoLocalDirectorERealStateChange, 
+--    ciscoLocalDirectorFailoverEnableChange, 
+--    ciscoLocalDirectorFailoverCableChange, 
+--    ciscoLocalDirectorFailoverUnitStatus
+
+ciscoLocalDirectorNotificationGroupRev2 OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBGroups 7 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the LocalDirector
+--     MIB capability.
+--  notifications
+--    ciscoLocalDirectorExVirtualStateChange, 
+--    ciscoLocalDirectorERealStateChange, 
+--    ciscoLocalDirectorFailoverEnableChange, 
+--    ciscoLocalDirectorFailoverCableChange
+
+ciscoLocalDirectorMIBCompliance OBJECT IDENTIFIER ::= { ciscoLocalDirectorMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco LocalDirector MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoLocalDirectorFailoverGroup
+
+
+END
+

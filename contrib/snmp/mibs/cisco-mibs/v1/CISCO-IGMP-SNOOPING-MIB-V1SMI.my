@@ -1,0 +1,3593 @@
+-- MIB file created 30-Aug-2010 16:29:56, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IGMP-SNOOPING-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IGMP-SNOOPING-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, TimeStamp, StorageType, RowStatus
+            FROM SNMPv2-TC-v1
+    ifIndex, InterfaceIndex
+            FROM IF-MIB
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    VlanIndex
+            FROM CISCO-VTP-MIB
+    CiscoPortList, CiscoPortListRange
+            FROM CISCO-TC
+    Percent
+            FROM CISCO-QOS-PIB-MIB
+    VlanIndexOrZero
+            FROM CISCO-PRIVATE-VLAN-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoIgmpSnoopingMIB OBJECT IDENTIFIER ::= { ciscoMgmt 263 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201006080000Z
+--  OrgName
+--    Cisco System, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-lan-switch-snmp@cisco.com,
+--            cs-ipmulticast@cisco.com
+--  Descr
+--    The MIB module for IGMP Snooping feature.
+--    
+--    Internet Group Management Protocol (IGMP) is the protocol used 
+--    by IPv4 end hosts to indicate their interest in receiving 
+--    multicast traffic for certain multicast groups to neighboring 
+--    multicast routers. Version 3 of IGMP adds support for source 
+--    based filtering; which means the end hosts can specifically 
+--    indicate to receive or not-receive multicast packets from 
+--    specific source addresses. This information is used by the 
+--    multicast routers to restrict forwarding of multicast traffic 
+--    for the host.
+--    
+--    IGMP Snooping is a switch protocol. A switch that implements 
+--    IGMP Snooping listens to the IGMP messages exchanged between 
+--    the hosts and router, then provides selective transmission of 
+--    multicast traffic based on multicast mac destination address
+--    or multicast group address.  With IGMPv3 support, 
+--    IGMP Snooping can potentially provide selective transmission
+--    of multicast data based on (source address, group address) 
+--    onto the ports that are interested. In addition to this, 
+--    IGMP Snooping can also provide proxy reporting, report 
+--    suppression and fast leave capabilities.
+--  RevDate
+--    201006080000Z
+--  RevDescr
+--    Added support for the following:
+--    
+--    - cisLeaveQueryConfigGroup
+--    - cisQuerierGlobalConfigGroup
+--    - cisIgmpQuerierConfigExtGroup
+--    - cisRobustnessConfigGroup
+--    - cisTimeToLiveConfigGroup
+--    - cisRouterAlertConfigGroup
+--    - cisVlanExplicitTrackingCfgGroup
+--    - cisIfLimitGroup
+--    - cisIfLimitTotalGroup
+--    - cisIfAccessGroupGroup
+--    - cisVlanFilterConfigGroup
+--    - cisFilterStatisticsGroup
+--    - cisMulticastGroupPortInfoGroup 
+--    - cisMulticastGroupConfigGroup
+--    - cisQuerierGlobalTcnQueryCountGroup
+--    - cisQuerierTcnQueryPendingGroup
+--    
+--    Deprecated cisMcastRouterConfigGroup and replaced it with 
+--    cisMulticastRouterConfigGroup. Deprecated
+--    cisMcastGroupInfoGroup and replaced it with
+--    cisMulticastGroupInfoGroup.
+--    
+--    Updated DESCRIPTION of cisL2EntryLimit, cisEntryTrackingLimit,
+--    cisSourceOnlyPercentageScanLimit and cisSourceOnlyLearningLimit
+--    to include the meaning of value zero.
+--    
+--    Revised the DESCRIPTION of cisVlanConfigEntry and
+--    cisIgmpQuerierEntry.
+--  RevDate
+--    200711080000Z
+--  RevDescr
+--    Added value 'unknown(4)' to CisIgmpVersion.
+--    
+--    Added support for the following:
+--    - cisL2EntryLimitGroup
+--    - cisTrackingLimitGroup
+--    - cisSourceOnlyLimitGroup
+--    - cisRateLimitGroup2
+--    - cisVlanConfigGroup2
+--    - cisSourceOnlyAgeTimerInSecGroup.
+--    
+--    Deprecated cisRateLimitGroup,
+--    cisGlobalSourceOnlyLearnGroup.
+--  RevDate
+--    200404020000Z
+--  RevDescr
+--    Replaced the import of PortList from Q-BRIDGE-MIB with
+--    CiscoPortList from CISCO-TC.
+--  RevDate
+--    200303240000Z
+--  RevDescr
+--    Add support for the following:
+--    - per VLAN IGMP Snooping configuration and group
+--      membership information
+--    - per port IGMP Snooping configuration
+--    - per VLAN IGMP Querier configuration
+--    - global rate-limit control objects
+--    - extend the cisSystemInfo to include more IGMP Snooping
+--      configuration related objects.
+--  RevDate
+--    200205050000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoIgmpSnoopingNotification OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIB 0 }
+ciscoIgmpSnoopingMIBObject OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIB 1 }
+cisSystemInfo   OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 1 }
+cisStatisticsInfo OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 2 }
+cisRateLimitInfo OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 3 }
+cisVlanConfigInfo OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 4 }
+cisIfConfigInfo OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 5 }
+cisMulticastRouterInfo OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 6 }
+cisMulticastGroupInfo OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 7 }
+cisResourceLimitInfo OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 8 }
+cisQuerierConfigInfo OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 9 }
+cisFilteringInfo OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 10 }
+cisExplicitTrackingInfo OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIBObject 11 }
+cisMIBConformance OBJECT IDENTIFIER ::= { ciscoIgmpSnoopingMIB 2 }
+cisMIBCompliances OBJECT IDENTIFIER ::= { cisMIBConformance 1 }
+cisMIBGroups    OBJECT IDENTIFIER ::= { cisMIBConformance 2 }
+
+CisIgmpMode ::= INTEGER {
+        auto(1),
+        igmpOnly(2),
+        igmpCgmp(3)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A value that represents a working mode of IGMP protocol in a
+--    device.
+--    
+--    auto(1)    : The system decides the working mode by itself.
+--    
+--    igmpOnly(2): Working on IGMP mode only.
+--    
+--    igmpCgmp(3): Working on both IGMP and CGMP modes.
+
+CisIgmpVersion ::= INTEGER {
+        version1(1),
+        version2(2),
+        version3(3),
+        unknown(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A value that represents the version of IGMP:
+--    
+--    version1(1)     : Version 1 of IGMP
+--    version2(2)     : Version 2 of IGMP
+--    version3(3)     : Version 3 of IGMP
+--    unknown(4)      : Version of IGMP is not determined.
+
+cisIgmpSnoopingEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether IGMP Snooping has been
+        enabled for the system."
+    ::= { cisSystemInfo 1 }
+
+cisV3ProcessEnabledAdminStatus OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the administrative status of IGMP v3
+        processing in the system. With the condition that IGMP
+        protocol has been enabled, a system will process IGMPv3 
+        messages if this object is set to 'true', or it will process
+        only IGMPv1/v2 messages if this object is set to 'false'."
+    ::= { cisSystemInfo 2 }
+
+cisV3ProcessEnabledOperStatus OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current operational status of IGMP
+        v3 processing in the system. This object is enabled if the 
+        system is operating with IGMPv3 protocol. Value of this object
+        will be set to 'true' if the system is operating in IGMP v3,
+        and 'false' if it is operating in IGMPv1/v2."
+    ::= { cisSystemInfo 3 }
+
+cisFastLeaveEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether Fast-Leave mechanism has been
+        configured to be enabled in the system. If Fast-Leave is 
+        enabled in the switch, IGMP Snooping will prune the port on 
+        which an IGMP leave message has been received without waiting 
+        for the Group Specific Query to timeout to determine whether 
+        there are any more hosts on that port for that group. If 
+        the value of cisV3ProcessEnabledOperStatus is 'false',
+        this object will not have any effect."
+    ::= { cisSystemInfo 4 }
+
+cisFastBlockEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates whether Fast-Block mechanism has been
+        enabled for the system. This object only has effect if the
+        value of cisV3ProcessEnabledOperStatus is 'true'."
+    ::= { cisSystemInfo 5 }
+
+cisAdminMode OBJECT-TYPE
+    SYNTAX CisIgmpMode
+--    Rsyntax INTEGER {
+--        auto(1),
+--        igmpOnly(2),
+--        igmpCgmp(3)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the administrative snooping mode of IGMP
+        Snooping feature, depends on whether only IGMP devices, or
+        also CGMP devices are existing in the network."
+    ::= { cisSystemInfo 6 }
+
+cisOperMode OBJECT-TYPE
+    SYNTAX CisIgmpMode
+--    Rsyntax INTEGER {
+--        auto(1),
+--        igmpOnly(2),
+--        igmpCgmp(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the operational snooping mode of the
+        device. The object should return igmpOnly(2) or igmpCgmp(3)
+        only. Value of this object is meaningful only if the value
+        of cisIgmpSnoopingEnabled is 'true'."
+    ::= { cisSystemInfo 7 }
+
+cisLeaveQueryType OBJECT-TYPE
+    SYNTAX INTEGER {
+        generalQuery(1),
+        macGenQuery(2),
+        auto(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the type of IGMP-leave query that the
+        device will send on the interface the IGMP-leave message was
+        received.
+        
+        generalQuery(1)  : A General Query will be sent to all hosts
+                         connecting to that interface.
+        
+        macGenQuery(2)   : A MAC-Based General Query will be sent to all
+                         hosts in multicast groups that are associated
+                         with the MAC-level address. MAC-Based General
+                         Query is not a standard, it is a part of CGMP
+                         (Cisco Group Management Protocol).
+        
+        auto(3)          : A Group-Specific query will be sent if there
+                         are no IGMPv1 hosts detected in the network.
+                         Otherwise a MAC-Based General Query will be 
+                         sent."
+    ::= { cisSystemInfo 8 }
+
+cisAddressAliasingMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        normal(1),
+        fallback(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the current IGMP Address Aliasing Mode of
+        the device.
+        
+        normal(1)  : IGMP is working in normal mode without detecting
+                   address aliasing.
+        fallback(2): address aliasing is detected. The device stops
+                   listening to the multicast control traffic and stays
+                   in the fallback mode for an expiry time before 
+                   getting back to the normal mode."
+    ::= { cisSystemInfo 9 }
+
+cisFallbackTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the time the IGMP address aliasing mode
+        is fallback(2)."
+    ::= { cisSystemInfo 10 }
+
+cisReportSuppressionEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When this object is set to 'true', IGMP Snooping will
+        suppress duplicate IGMP Reports.  When this object is set 
+        to 'false', all IGMP Reports are forwarded to all multicast
+        routers in the VLAN."
+    ::= { cisSystemInfo 11 }
+
+cisTopoChangeFloodQueryCount OBJECT-TYPE
+    SYNTAX Gauge(1..10)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the flooding period for multicast
+        traffic upon receiving Topology Change Notifications (TCN).  
+        IGMP Snooping will flood multicast traffic until
+        cisTopoChangeFloodQueryCount number of IGMP General Queries
+        are received by IGMP Snooping."
+    ::= { cisSystemInfo 12 }
+
+cisTopoChangeQuerySolicitEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether the device running IGMP
+        Snooping will solicit IGMP General Queries from the 
+        Querier upon receiving a Topology Change Notification (TCN).
+        The root device will always solicit IGMP General Queries 
+        on TCN irrespective of the value of 
+        cisTopoChangeQuerySolicitEnabled."
+    ::= { cisSystemInfo 13 }
+
+cisSourceOnlyLearningEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether Source Only multicast entries
+        are learned by IGMP Snooping or not."
+    ::= { cisSystemInfo 14 }
+
+cisSourceOnlyEntryAgeTime OBJECT-TYPE
+    SYNTAX INTEGER(0..2880)
+--  Units
+--    minutes
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "This object specifies the aging time for Source Only
+        multicast entries when cisSourceOnlyLearningEnabled is
+        set to 'true'. When cisSourceOnlyEntryAgeTime is set to
+        0, aging is disabled. This object is deprecated and
+        replaced by 'cisSourceOnlyEntryAgingTime'."
+    ::= { cisSystemInfo 15 }
+
+cisV3SnoopingSupport OBJECT-TYPE
+    SYNTAX INTEGER {
+        basic(1),
+        full(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates IGMP Snooping support for
+        IGMPv3 as described below:
+        basic(1): Basic support for IGMPv3. IGMPv3 packets are 
+                  processed similar to IGMPv2 packets.  In other words
+                  Source list information is not used.  Although this
+                  does not break multicast traffic to IGMPv3 hosts,
+                  it does not provide any other benefits such as Fast
+                  Leave for IGMPv3 hosts, Explicit Host Tracking and
+                  Source based filtering.
+        full(2):  Full support for IGMPv3.  Provides full IGMPv3 
+                  Snooping support.  This includes processing of
+                  IGMPv3 source list information along with group
+                  information.  Provides support for features such
+                  as Fast Leave, Explicit Host Tracking and Proxy
+                  Reporting and a potential to do Source based 
+                  filtering.
+        The value of this object is valid only when 
+        cisV3ProcessEnabledAdminStatus is set to 'true'."
+    ::= { cisSystemInfo 16 }
+
+cisSourceOnlyEntryAgingTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the aging time in seconds for Source
+        Only multicast entries when cisSourceOnlyLearningEnabled is
+        set to 'true'. When cisSourceOnlyEntryAgingTime is set to
+        0, aging is disabled."
+    ::= { cisSystemInfo 17 }
+
+cisRobustnessVariable OBJECT-TYPE
+    SYNTAX Gauge(1..7)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the Robustness Variable of this device.  This
+        value will be used at each VLAN if the corresponding
+        instance of cisVlanRobustnessVariable is not configured."
+    REFERENCE
+        "RFC 3376, 8.1"
+    ::= { cisSystemInfo 18 }
+
+cisLastMemberQueryInterval OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the IGMP Last Member Query Interval of this device.
+        This value will be used at each VLAN if the corresponding
+        instance of cisVlanLeaveQueryInterval is not configured."
+    REFERENCE
+        "RFC 3376, 8.8"
+    ::= { cisSystemInfo 19 }
+
+cisLastMemberQueryCount OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the Last Member Query Count value of this
+        device. This value will be used at each VLAN if the
+        corresponding instance of cisVlanLastMemberQueryCount is
+        not configured."
+    ::= { cisSystemInfo 20 }
+
+cisTimeToLiveCheckEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether Time-To-Live (TTL) check is enabled when
+        processing IGMP packets in the system. 
+        
+        Setting this object to 'false' disables TTL check when
+        processing IGMP packets in the system.
+        
+        Setting this object to 'true' enables TTL check, whether TTL
+        check for IGMP packets on each VLAN is done or not is
+        controlled by the corresponding instance of
+        cisVlanTimeToLiveCheckEnabled."
+    ::= { cisSystemInfo 21 }
+
+cisRouterAlertCheckEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies whether checking of Router-Alert option is enabled
+        for IGMP traffic in the system.
+        
+        Setting this object to 'false' disables Router-Alert check in
+        the system.
+        
+        Setting this object to 'true' enables Router-Alert check,
+        whether Router-Alert check is performed at each VLAN is
+        controlled by the corresponding instance of
+        cisVlanRouterAlertCheckEnabled."
+    ::= { cisSystemInfo 22 }
+
+cisInterfaceStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisInterfaceStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table contains statistics information for IGMP Snooping. An
+        entry appears in this table for each IGMP Snooping capable 
+        interface in the device."
+    ::= { cisStatisticsInfo 1 }
+
+cisInterfaceStatsEntry OBJECT-TYPE
+    SYNTAX CisInterfaceStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry contains statistics information for a specific IGMP
+        Snooping capable interface. It provides information about
+        IGMP messages and reports that have been transmitted and
+        received at the interface."
+    INDEX { ifIndex }
+    ::= { cisInterfaceStatsTable 1 }
+
+CisInterfaceStatsEntry ::= SEQUENCE {
+    cisTxGeneralQueries Counter,
+    cisTxGroupSpecificQueries Counter,
+    cisTxReports Counter,
+    cisTxLeaves Counter,
+    cisRxGeneralQueries Counter,
+    cisRxGroupSpecificQueries Counter,
+    cisRxReports Counter,
+    cisRxLeaves Counter,
+    cisRxValidPackets Counter,
+    cisRxInvalidPackets Counter,
+    cisRxOtherPackets Counter,
+    cisRxMACGeneralQueries Counter,
+    cisRxTopoNotifications Counter,
+    cisV3Allows Counter,
+    cisV3Blocks Counter,
+    cisV3IsIncluded Counter,
+    cisV3IsExcluded Counter,
+    cisV3ToIncluded Counter,
+    cisV3ToExcluded Counter
+    }
+
+cisTxGeneralQueries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total IGMP General Queries that have been transmitted through
+        an interface."
+    ::= { cisInterfaceStatsEntry 1 }
+
+cisTxGroupSpecificQueries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total IGMP Group-Specific Queries that have been transmitted
+        through an interface."
+    ::= { cisInterfaceStatsEntry 2 }
+
+cisTxReports OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total IGMP Membership Reports that have been transmitted
+        through an interface."
+    ::= { cisInterfaceStatsEntry 3 }
+
+cisTxLeaves OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total IGMP Leave messages that have been transmitted through
+        an interface."
+    ::= { cisInterfaceStatsEntry 4 }
+
+cisRxGeneralQueries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total IGMP General Queries that have been received at an
+        interface."
+    ::= { cisInterfaceStatsEntry 5 }
+
+cisRxGroupSpecificQueries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total IGMP Group-Specific Queries that have been received at
+        an interface."
+    ::= { cisInterfaceStatsEntry 6 }
+
+cisRxReports OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total IGMP Membership Reports that have been received at an
+        interface."
+    ::= { cisInterfaceStatsEntry 7 }
+
+cisRxLeaves OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total IGMP Leave messages that have been received at an
+        interface."
+    ::= { cisInterfaceStatsEntry 8 }
+
+cisRxValidPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total valid IGMP packets have been received at an interface."
+    ::= { cisInterfaceStatsEntry 9 }
+
+cisRxInvalidPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total packets those are not valid IGMP messages received
+        at an interface."
+    ::= { cisInterfaceStatsEntry 10 }
+
+cisRxOtherPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total non IGMP messages messages that have been received
+        at an interface, comprising cgmp join, pim hello, dvmrp 
+        and mospf messages."
+    ::= { cisInterfaceStatsEntry 11 }
+
+cisRxMACGeneralQueries OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total MAC-based General Queries that have been received at
+        an interface."
+    ::= { cisInterfaceStatsEntry 12 }
+
+cisRxTopoNotifications OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Total Topology Change Notifications that have been received
+        at an interface."
+    ::= { cisInterfaceStatsEntry 13 }
+
+cisV3Allows OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Source-List-Change records with the record type
+        ALLOW_NEW_SOURCES that have been sent from hosts connected 
+        to an interface. This record type indicates that the Source
+        Address fields in this Group Record contain a list of 
+        additional sources that the system wishes to hear from, for
+        packets sent to the specified multicast address."
+    ::= { cisInterfaceStatsEntry 14 }
+
+cisV3Blocks OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Source-List-Change records with the record type
+        BLOCK_OLD_SOURCE that have been sent from hosts connected to
+        an interface. This record type indicates that the Source
+        Address fields in this Group Record contain a list of the 
+        sources that the system no longer wishes to hear from, for 
+        packets sent to the specified multicast address."
+    ::= { cisInterfaceStatsEntry 15 }
+
+cisV3IsIncluded OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Current-State records with the state MODE_IS_INCLUDE
+        that have been sent from hosts in response to a Query received
+        at an interface. This state indicates that the interface has a 
+        filter mode of INCLUDE for the specified multicast address."
+    ::= { cisInterfaceStatsEntry 16 }
+
+cisV3IsExcluded OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Current-State records with the state MODE_IS_EXCLUDE
+        that have been sent from hosts in response to a Query received
+        at an interfaces. This state indicates that the interface has a
+        filter mode of EXCLUDE for the specified multicast address."
+    ::= { cisInterfaceStatsEntry 17 }
+
+cisV3ToIncluded OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Filter-Mode-Change records with the record type
+        CHANGE_TO_INCLUDE_MODE that have been sent through an 
+        interface. This type of record indicates that the filter mode
+        has been changed to INCLUDE mode for the specified multicast 
+        address, and the Source Address fields in this Group Record 
+        will contain the new source list for the specified multicast
+        address, if it is not empty."
+    ::= { cisInterfaceStatsEntry 18 }
+
+cisV3ToExcluded OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of Filter-Mode-Change records with the record type
+        CHANGE_TO_EXCLUDE_MODE that have been sent through an 
+        interface. This type of record indicates that the filter mode
+        has been changed to EXCLUDE mode for the specified multicast
+        address, and the Source Address fields in this Group Record
+        will contain the new source list for the specified multicast
+        address, if it is not empty."
+    ::= { cisInterfaceStatsEntry 19 }
+
+cisGeneralQueryRateLimit OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets per 30 seconds
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Rate limit for General-Query packets per 30 seconds from
+        a control plane address. If the packets exceed the rate,
+        snooping will be stalled for a period of 30 seconds."
+    ::= { cisRateLimitInfo 1 }
+
+cisDvmrpRateLimit OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets per 30 seconds
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Rate limit for DVMRP packets per 30 seconds from
+        a control plane address. If the packets exceed the rate,
+        snooping will be stalled for a period of 30 second."
+    ::= { cisRateLimitInfo 2 }
+
+cisMospf1RateLimit OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets per 30 seconds
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Rate limit for MOSPF1 packets per 30 seconds from
+        a control plane address. If the packets exceed the rate,
+        snooping will be stalled for a period of 30 second."
+    ::= { cisRateLimitInfo 3 }
+
+cisMospf2RateLimit OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets per 30 seconds
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Rate limit for MOSPF2 packets per 30 seconds from
+        a control plane address. If the packets exceed the rate,
+        snooping will be stalled for a period of 30 second."
+    ::= { cisRateLimitInfo 4 }
+
+cisPimV2RateLimit OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets per 30 seconds
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "Rate limit for PIMv2 packets per 30 seconds from
+        a control plane address. If the packets exceed the rate,
+        snooping will be stalled for a period of 30 second."
+    ::= { cisRateLimitInfo 5 }
+
+cisRateLimit OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets per second
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Rate limit for incoming IGMP messages in packets per seconds,
+        applied to each VLAN in the system. IGMP Snooping will be
+        disabled on the corresponding VLAN if IGMP message incoming
+        rate exceeds the limit, then enabled back automatically once
+        IGMP join message rate is below the limit indicated by the
+        corresponding instance value of this object. Setting value
+        zero to this object means no limitation on IGMP incoming
+        message rate."
+    ::= { cisRateLimitInfo 6 }
+
+cisVlanConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisVlanConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table contains VLAN based configuration information
+        for IGMP Snooping."
+    ::= { cisVlanConfigInfo 1 }
+
+cisVlanConfigEntry OBJECT-TYPE
+    SYNTAX CisVlanConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry is created for each IGMP Snooping capable VLAN
+        found in the device.  An entry is removed if such VLAN
+        becomes IGMP Snooping incapable or has been removed."
+    INDEX { cisVlanIndex }
+    ::= { cisVlanConfigTable 1 }
+
+CisVlanConfigEntry ::= SEQUENCE {
+    cisVlanIndex VlanIndex,
+    cisVlanIgmpSnoopingEnabled TruthValue,
+    cisVlanFastLeaveEnabled TruthValue,
+    cisVlanIgmpSnoopingOperMode CisIgmpMode,
+    cisVlanIgmpSnoopingLearningMode INTEGER,
+    cisVlanReportSuppressionEnabled TruthValue,
+    cisVlanLeaveQueryInterval Gauge,
+    cisVlanLastMemberQueryCount Gauge,
+    cisVlanRobustnessVariable Gauge,
+    cisVlanTimeToLiveCheckEnabled TruthValue,
+    cisVlanRouterAlertCheckEnabled TruthValue
+    }
+
+cisVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the VLAN in which IGMP Snooping
+        is configured."
+    ::= { cisVlanConfigEntry 1 }
+
+cisVlanIgmpSnoopingEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When this object is set to 'true' IGMP Snooping
+        is enabled on this VLAN else disabled."
+    ::= { cisVlanConfigEntry 2 }
+
+cisVlanFastLeaveEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether Fast-Leave mechanism
+        (also known as Immediate-Leave) is to be performed by IGMP
+        Snooping or not.  When enabled, IGMP Snooping will remove
+        the interface from the group mentioned in the IGMP Leave
+        message received on that interface without waiting for the
+        IGMP Group-Specific Query to timeout to determine whether 
+        there are any more hosts on that interface for that group."
+    ::= { cisVlanConfigEntry 3 }
+
+cisVlanIgmpSnoopingOperMode OBJECT-TYPE
+    SYNTAX CisIgmpMode
+--    Rsyntax INTEGER {
+--        auto(1),
+--        igmpOnly(2),
+--        igmpCgmp(3)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the operational mode of IGMP Snooping.
+        The object should return igmpOnly(2) or igmpCgmp(3) only."
+    ::= { cisVlanConfigEntry 4 }
+
+cisVlanIgmpSnoopingLearningMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        pimDvmrp(1),
+        cgmp(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the multicast router port learning
+        method for IGMP Snooping as described below:
+        pimDvmrp(1) : Protocol Independent Multicast / Distance Vector
+                       Multicast Routing Protocol.
+        cgmp(2)      : Cisco Group Management Protocol."
+    ::= { cisVlanConfigEntry 5 }
+
+cisVlanReportSuppressionEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether Report Suppression is enabled
+        for this VLAN."
+    ::= { cisVlanConfigEntry 6 }
+
+cisVlanLeaveQueryInterval OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+--  Units
+--    milliseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the IGMP Last Member Query Interval of this VLAN.
+        
+        Value of zero for this object indicates that IGMP leave timer
+        is not configured for this VLAN.  In that case, IGMP leave
+        timer used in this VLAN is indicated by the value of
+        cisLastMemberQueryInterval."
+    ::= { cisVlanConfigEntry 7 }
+
+cisVlanLastMemberQueryCount OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the Last Member Query Count for this
+        VLAN.
+        
+        Value of zero for this object indicates that Last Member
+        Query Count is not configured for the VLAN.  In that case,
+        Last Member Query Count used in this VLAN is indicated by the
+        value of cisLastMemberQueryCount."
+    ::= { cisVlanConfigEntry 8 }
+
+cisVlanRobustnessVariable OBJECT-TYPE
+    SYNTAX Gauge(0..7)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects specifies the Robustness Variable for this VLAN.
+        
+        Value of zero for this object indicates that Robustness
+        Variable is not configured for the VLAN. In that case,
+        Robustness Variable used in this VLAN is indicated by the
+        value of cisRobustnessVariable."
+    REFERENCE
+        "RFC 3376, 8.1"
+    ::= { cisVlanConfigEntry 9 }
+
+cisVlanTimeToLiveCheckEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects specifies whether TTL check is enabled on this
+        VLAN.
+        
+        Setting this object will only take effect when
+        cisTimeToLiveCheckEnabled is 'true'."
+    ::= { cisVlanConfigEntry 10 }
+
+cisVlanRouterAlertCheckEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This objects specifies whether checking of Router-Alert option
+        is enabled for IGMP traffic in this VLAN.
+        
+        Setting this object will only take effect when
+        cisRouterAlertCheckEnabled is 'true'."
+    ::= { cisVlanConfigEntry 11 }
+
+cisIgmpQuerierTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisIgmpQuerierEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing information regarding the IGMP Querier in
+        the VLAN.  The device can be configured to be the IGMP Querier
+        for the VLAN. An IGMP Querier for the VLAN is selected by 
+        using a Querier Election process."
+    ::= { cisVlanConfigInfo 2 }
+
+cisIgmpQuerierEntry OBJECT-TYPE
+    SYNTAX CisIgmpQuerierEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry is created for each IGMP Snooping capable VLAN
+        found in the device.  An entry is removed if such VLAN
+        becomes IGMP Snooping incapable or has been removed."
+    INDEX { cisIgmpQuerierVlanIndex }
+    ::= { cisIgmpQuerierTable 1 }
+
+CisIgmpQuerierEntry ::= SEQUENCE {
+    cisIgmpQuerierVlanIndex VlanIndex,
+    cisIgmpQuerierEnabled TruthValue,
+    cisIgmpQuerierState INTEGER,
+    cisIgmpQuerierVersion CisIgmpVersion,
+    cisIgmpQuerierAddressType InetAddressType,
+    cisIgmpQuerierAddress InetAddress,
+    cisIgmpQuerierInterface InterfaceIndex,
+    cisIgmpQuerierTcnQueryCount Gauge,
+    cisIgmpQuerierTcnQueryInterval Gauge,
+    cisIgmpQuerierTimerExpiry Gauge,
+    cisIgmpQuerierMaxResponseTime Gauge,
+    cisIgmpQuerierQueryInterval Gauge,
+    cisIgmpQuerierAdminAddressType InetAddressType,
+    cisIgmpQuerierAdminAddress InetAddress,
+    cisIgmpQuerierAdminVersion CisIgmpVersion,
+    cisIgmpQuerierTcnQueryPending Counter
+    }
+
+cisIgmpQuerierVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the VLAN that the Querier will send
+        IGMP queries on."
+    ::= { cisIgmpQuerierEntry 1 }
+
+cisIgmpQuerierEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether IGMP Snooping Querier function
+        is enabled on the VLAN.  Setting this object to 'enable' will
+        enable IGMP Snooping Querier function on this VLAN; Setting
+        this object to 'false' will disable IGMP Snooping Querier
+        function on this VLAN. Setting this object will only take effect
+        when cisQuerierEnabled is 'true'.
+        
+        If IGMP Snooping Querier election is enabled in the system, this
+        object also controls whether the device will participate in
+        the IGMP Querier election in a VLAN. If the object is set
+        to 'true', the device will participate to an election
+        process to be a Querier. If the object is set to 'false'
+        while the device is acting as the Querier in a VLAN, a new
+        election will be activated to choose a different Querier."
+    ::= { cisIgmpQuerierEntry 2 }
+
+cisIgmpQuerierState OBJECT-TYPE
+    SYNTAX INTEGER {
+        disabled(1),
+        electing(2),
+        querier(3),
+        nonQuerier(4),
+        inactive(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the current state of the device as an
+        IGMP Querier in a VLAN.
+        
+        disabled(1)  : Querier function is disabled for this device
+                       in this VLAN.
+        electing(2)  : The device is in the election process of the
+                       Querier.
+        querier(3)   : The device is the current Querier in this 
+                       VLAN.
+        nonQuerier(4): The device has lost the election process of
+                       the Querier.
+        inactive(5)  : VLAN is inactive or not an Ethernet VLAN."
+    ::= { cisIgmpQuerierEntry 3 }
+
+cisIgmpQuerierVersion OBJECT-TYPE
+    SYNTAX CisIgmpVersion
+--    Rsyntax INTEGER {
+--        version1(1),
+--        version2(2),
+--        version3(3),
+--        unknown(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the operational IGMP version of the
+        Querier for the VLAN.  IGMP version of the Querier is
+        determined by the type of IGMP General Query received by
+        the device."
+    REFERENCE
+        "RFC 3376"
+    ::= { cisIgmpQuerierEntry 4 }
+
+cisIgmpQuerierAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates IP address type of the IGMP Querier
+        for the VLAN."
+    ::= { cisIgmpQuerierEntry 5 }
+
+cisIgmpQuerierAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the operational IP address of the IGMP
+        Querier for the VLAN."
+    ::= { cisIgmpQuerierEntry 6 }
+
+cisIgmpQuerierInterface OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the interface on which IGMP Querier is
+        detected for the VLAN.  The value of this object is zero
+        if the device itself is acting as IGMP Querier for the VLAN."
+    ::= { cisIgmpQuerierEntry 7 }
+
+cisIgmpQuerierTcnQueryCount OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the number of TCN queries to be executed upon
+        receiving TCN on this VLAN.
+        
+        Value of zero for this object indicates that querier TCN query
+        count is not configured for the VLAN."
+    ::= { cisIgmpQuerierEntry 8 }
+
+cisIgmpQuerierTcnQueryInterval OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the TCN query interval time for this VLAN.
+        
+        Value of zero for this object indicates that querier
+        TCN query interval is not configured for the VLAN.  In that
+        case, querier TCN query interval used in this VLAN is
+        indicated by the value of cisQuerierTcnQueryInterval."
+    ::= { cisIgmpQuerierEntry 9 }
+
+cisIgmpQuerierTimerExpiry OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the querier expiration timer on this VLAN.
+        
+        Value of zero for this object indicates that querier
+        expiration timer is not configured for the VLAN.  In that
+        case, querier expiration timer used in this VLAN is
+        indicated by the value of cisQuerierTimerExpiry."
+    ::= { cisIgmpQuerierEntry 10 }
+
+cisIgmpQuerierMaxResponseTime OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the Max Response Time value of queries generated
+        by IGMP Snooping Querier on this VLAN.
+        
+        Value of zero for this object indicates that querier Max
+        Response Time is not configured for the VLAN. In that case,
+        querier Max Response Time used in this VLAN is indicated
+        by the value of cisQuerierMaxResponseTime."
+    ::= { cisIgmpQuerierEntry 11 }
+
+cisIgmpQuerierQueryInterval OBJECT-TYPE
+    SYNTAX Gauge(0..4294967295)
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the interval between IGMP Queries to this VLAN.
+        
+        Value of zero for this object indicates that querier
+        query interval is not configured for the VLAN.  In that case,
+        querier query interval used in this VLAN is indicated by
+        the value of cisQuerierQueryInterval."
+    ::= { cisIgmpQuerierEntry 12 }
+
+cisIgmpQuerierAdminAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the administrative IP address type of the IGMP
+        Querier of this VLAN."
+    ::= { cisIgmpQuerierEntry 13 }
+
+cisIgmpQuerierAdminAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the administrative Internet address of the
+        IGMP Querier of this VLAN, when IGMP Snooping Querier
+        function is enabled on this VLAN.  The type of this
+        address is determined by the value of
+        cisIgmpQuerierAdminAddressType."
+    ::= { cisIgmpQuerierEntry 14 }
+
+cisIgmpQuerierAdminVersion OBJECT-TYPE
+    SYNTAX CisIgmpVersion
+--    Rsyntax INTEGER {
+--        version1(1),
+--        version2(2),
+--        version3(3),
+--        unknown(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the administrative version of the IGMP version
+        that the Querier feature uses on this VLAN.
+        
+        Value 'unknown' indicates that the administrative version is
+        not configured for IGMP Querier on this VLAN."
+    ::= { cisIgmpQuerierEntry 15 }
+
+cisIgmpQuerierTcnQueryPending OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the remaining TCN queries in respond to TCN on this
+        VLAN."
+    ::= { cisIgmpQuerierEntry 16 }
+
+cisIfConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing configuration information for IGMP
+        Snooping on capable Layer two interfaces."
+    ::= { cisIfConfigInfo 1 }
+
+cisIfConfigEntry OBJECT-TYPE
+    SYNTAX CisIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry is created for each Layer two interface
+        capable of being flood with multicast traffic by IGMP
+        Snooping."
+    INDEX { ifIndex }
+    ::= { cisIfConfigTable 1 }
+
+CisIfConfigEntry ::= SEQUENCE {
+    cisIfTopoChangeFloodEnabled TruthValue
+    }
+
+cisIfTopoChangeFloodEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "When this object is set to 'true' multicast traffic will be
+        flooded on the port for cisTopoChangeFloodQueryCount of Igmp
+        General Queries upon receiving a Topology Change 
+        Notification (TCN) for the VLAN to which the port belongs."
+    ::= { cisIfConfigEntry 1 }
+
+cisMcastRouterCfgTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisMcastRouterCfgEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Table containing multicast router configuration information
+        for IGMP Snooping. This table is deprecated and replaced by
+        cisMcastRouterConfigTable."
+    ::= { cisMulticastRouterInfo 1 }
+
+cisMcastRouterCfgEntry OBJECT-TYPE
+    SYNTAX CisMcastRouterCfgEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "An entry is created for each interface in the VLAN that is
+        either learned or configured as multicast router port.
+        A multicast router port is learned using the method 
+        specified by cisVlanIgmpSnoopingLearningMode."
+    INDEX { ifIndex, cisMcastRouterVlanIndex }
+    ::= { cisMcastRouterCfgTable 1 }
+
+CisMcastRouterCfgEntry ::= SEQUENCE {
+    cisMcastRouterVlanIndex VlanIndex,
+    cisMcastRouterType INTEGER,
+    cisMcastRouterRowStatus RowStatus
+    }
+
+cisMcastRouterVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates the VLAN to which the multicast router
+        port belongs."
+    ::= { cisMcastRouterCfgEntry 1 }
+
+cisMcastRouterType OBJECT-TYPE
+    SYNTAX INTEGER {
+        static(1),
+        dynamic(2)
+        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates if the multicast router port is
+        a configured (static) or learned (dynamic) port."
+    ::= { cisMcastRouterCfgEntry 2 }
+
+cisMcastRouterRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS deprecated
+    DESCRIPTION
+        "This object is a conceptual row entry that allows to add
+        or delete entries to or from the cisMcastRouterCfgTable.
+        When creating an entry in this table 'createAndGo' method
+        is used and the value of this object is set to 'active'.
+        Deactivation of an 'active' entry is not allowed. When
+        deleting an entry in this table 'destroy' method is
+        used."
+    ::= { cisMcastRouterCfgEntry 3 }
+
+cisMcastRouterConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisMcastRouterConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing a list of multicast router used by IGMP
+        snooping.  An entry is created for every multicast router
+        learnt by the system.  An entry can also be created
+        manually by user. Only entries which are manually created
+        can be deleted from the table."
+    ::= { cisMulticastRouterInfo 2 }
+
+cisMcastRouterConfigEntry OBJECT-TYPE
+    SYNTAX CisMcastRouterConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A set of configuration and information regarding a single
+        multicast router."
+    INDEX { cisMcastRouterConfigVlanIndex, ifIndex }
+    ::= { cisMcastRouterConfigTable 1 }
+
+CisMcastRouterConfigEntry ::= SEQUENCE {
+    cisMcastRouterConfigVlanIndex VlanIndex,
+    cisMcastRouterConfigRouterType INTEGER,
+    cisMcastRouterConfigStorageType StorageType,
+    cisMcastRouterConfigRowStatus RowStatus
+    }
+
+cisMcastRouterConfigVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the VLAN to which the multicast router
+        port belongs."
+    ::= { cisMcastRouterConfigEntry 1 }
+
+cisMcastRouterConfigRouterType OBJECT-TYPE
+    SYNTAX INTEGER {
+        static(1),
+        dynamic(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates type of the multicast router.
+        
+        static: the multicast router is configured manually.
+        
+        dynamic: the multicast router is learned by the system."
+    ::= { cisMcastRouterConfigEntry 2 }
+
+cisMcastRouterConfigStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type of this conceptual
+        row."
+    DEFVAL { volatile }
+    ::= { cisMcastRouterConfigEntry 3 }
+
+cisMcastRouterConfigRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage creation, deletion and
+        modification of rows in this table.
+        
+        Once a row becomes active, value in any column within
+        such row can not be modified."
+    ::= { cisMcastRouterConfigEntry 4 }
+
+cisMcastGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisMcastGroupEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "Table containing multicast group address information for
+        IGMP Snooping."
+    ::= { cisMulticastGroupInfo 1 }
+
+cisMcastGroupEntry OBJECT-TYPE
+    SYNTAX CisMcastGroupEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "An entry is created by IGMP Snooping for each group learned
+        in the VLAN."
+    INDEX { cisMcastGroupVlanIndex, cisMcastGroupAddressType, cisMcastGroupAddress }
+    ::= { cisMcastGroupTable 1 }
+
+CisMcastGroupEntry ::= SEQUENCE {
+    cisMcastGroupVlanIndex VlanIndex,
+    cisMcastGroupAddressType InetAddressType,
+    cisMcastGroupAddress InetAddress,
+    cisMcastGroupFilterMode INTEGER,
+    cisMcastGroupIgmpVersion CisIgmpVersion,
+    cisMcastGroupIncludeHostCount Counter,
+    cisMcastGroupExcludeHostCount Counter,
+    cisMcastGroupPortList CiscoPortList
+    }
+
+cisMcastGroupVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates the VLAN in which the group is learned."
+    ::= { cisMcastGroupEntry 1 }
+
+cisMcastGroupAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates IP multicast address type learned
+        by IGMP Snooping."
+    ::= { cisMcastGroupEntry 2 }
+
+cisMcastGroupAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(1..32))
+--    Rsyntax OCTET STRING(SIZE(1..32))
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates IP multicast address learned by
+        IGMP Snooping."
+    ::= { cisMcastGroupEntry 3 }
+
+cisMcastGroupFilterMode OBJECT-TYPE
+    SYNTAX INTEGER {
+        include(1),
+        exclude(2)
+        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates the IGMP filter mode for this group.
+        
+        include(1) : reception of multicast packets sent to the group
+                     specified by cisMcastGroupAddress is requested
+                     only from the specified IPv4 source addresses
+                     listed in the IGMPv3 Membership Reports.
+        exclude(2) : reception of multicast packets sent to the group
+                     specified by cisMcastGroupAddress is requested
+                     from all except from the list of IPv4 source
+                     addresses specified in the IGMPv3 Membership
+                      Reports.
+        
+        The filter mode is determined by the type of Group Record
+        received in the IGMP Membership Report received by the 
+        device.  Groups for which IGMPv1/v2 Membership Reports 
+        are received are considered to have a cisMcastGroupFilterMode
+        of 'exclude'."
+    REFERENCE
+        "RFC 3376"
+    ::= { cisMcastGroupEntry 4 }
+
+cisMcastGroupIgmpVersion OBJECT-TYPE
+    SYNTAX CisIgmpVersion
+--    Rsyntax INTEGER {
+--        version1(1),
+--        version2(2),
+--        version3(3),
+--        unknown(4)
+--        }
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates the IGMP version for the group.
+        This is determined by the type of IGMP Membership Report
+        received by the device."
+    ::= { cisMcastGroupEntry 5 }
+
+cisMcastGroupIncludeHostCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates the number of hosts that
+        are in INCLUDE mode for the group."
+    ::= { cisMcastGroupEntry 6 }
+
+cisMcastGroupExcludeHostCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates the number of hosts that
+        are in EXCLUDE mode for the group."
+    ::= { cisMcastGroupEntry 7 }
+
+cisMcastGroupPortList OBJECT-TYPE
+    SYNTAX CiscoPortList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "This object indicates the set of ports on which IGMP
+        Membership Reports are received for the group indicating
+        interest to receive traffic sent to the group."
+    ::= { cisMcastGroupEntry 8 }
+
+cisMulticastGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisMulticastGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing a list of multicast group information for
+        IGMP Snooping."
+    ::= { cisMulticastGroupInfo 2 }
+
+cisMulticastGroupEntry OBJECT-TYPE
+    SYNTAX CisMulticastGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry of multicast group in the system. An entry is created
+        for each group learned or configured in the system."
+    INDEX { cisMulticastGroupVlanIndex, cisMulticastGroupCeVlanIndex, cisMulticastGroupAddressType, cisMulticastGroupAddress, cisMulticastGroupSourceAddress }
+    ::= { cisMulticastGroupTable 1 }
+
+CisMulticastGroupEntry ::= SEQUENCE {
+    cisMulticastGroupVlanIndex VlanIndex,
+    cisMulticastGroupCeVlanIndex VlanIndex,
+    cisMulticastGroupAddressType InetAddressType,
+    cisMulticastGroupAddress InetAddress,
+    cisMulticastGroupSourceAddress InetAddress,
+    cisMulticastGroupGroupType INTEGER,
+    cisMulticastGroupIgmpVersion OCTET STRING,
+    cisMulticastGroupSourceUpTime Gauge,
+    cisMulticastGroupSourceExpires Gauge,
+    cisMulticastGroupInclHostCount Counter,
+    cisMulticastGroupExclHostCount Counter
+    }
+
+cisMulticastGroupVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the VLAN in which the group is
+        learned or configured."
+    ::= { cisMulticastGroupEntry 1 }
+
+cisMulticastGroupCeVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the Customer Equipment (CE) VLAN in
+        which the group is learned or configured."
+    ::= { cisMulticastGroupEntry 2 }
+
+cisMulticastGroupAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of Internet address of
+        the multicast group and source in this entry."
+    ::= { cisMulticastGroupEntry 3 }
+
+cisMulticastGroupAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(1..48))
+--    Rsyntax OCTET STRING(SIZE(1..48))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates IP multicast address of the group.  Type
+        of this address is indicated by cisMulticastGroupAddressType."
+    ::= { cisMulticastGroupEntry 4 }
+
+cisMulticastGroupSourceAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(1..48))
+--    Rsyntax OCTET STRING(SIZE(1..48))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates IP address of the source of the multicast
+        traffic. Value of zero for this object indicates that the
+        multicast traffic of the group indicated by the corresponding
+        instance of cisMulticastGroupAddress can come from any source.
+        Type of this address is indicated by
+        cisMulticastGroupAddressType."
+    ::= { cisMulticastGroupEntry 5 }
+
+cisMulticastGroupGroupType OBJECT-TYPE
+    SYNTAX INTEGER {
+        dynamic(1),
+        static(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether this multicast group is learned
+        or manually configured on the device.
+        
+        dynamic(1): this multicast group is learned from multicast
+                  traffic on this VLAN. 
+        static(2) : this multicast group is manually configured on the
+                  device.
+        
+        The group type is set to 'static' unconditionally if a port is
+        joining that group via configuration."
+    ::= { cisMulticastGroupEntry 6 }
+
+cisMulticastGroupIgmpVersion OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   igmpV1(0)
+        --   igmpV2(1)
+        --   igmpV3(2)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the versions of IGMP packets received
+        from this group."
+    ::= { cisMulticastGroupEntry 7 }
+
+cisMulticastGroupSourceUpTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time (in seconds) since this source
+        started sending multicast data for the multicast group."
+    ::= { cisMulticastGroupEntry 8 }
+
+cisMulticastGroupSourceExpires OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the time (in seconds) the association of
+        this source and the multicast group will be expired, if there is
+        no host interests in receiving multicast data from it.
+        
+        This object has the value zero when value of the corresponding
+        object cisMulticastGroupGroupType is 'static'."
+    ::= { cisMulticastGroupEntry 9 }
+
+cisMulticastGroupInclHostCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of hosts that are in
+        INCLUDE mode for the group."
+    ::= { cisMulticastGroupEntry 10 }
+
+cisMulticastGroupExclHostCount OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of hosts that are in
+        EXCLUDE mode for the group."
+    ::= { cisMulticastGroupEntry 11 }
+
+cisMulticastGroupPortListTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisMulticastGroupPortListEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing a list of ports joining multicast groups."
+    ::= { cisMulticastGroupInfo 3 }
+
+cisMulticastGroupPortListEntry OBJECT-TYPE
+    SYNTAX CisMulticastGroupPortListEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing a list of ports joining a multicast group."
+    INDEX { cisMulticastGroupVlanIndex, cisMulticastGroupCeVlanIndex, cisMulticastGroupAddressType, cisMulticastGroupAddress, cisMulticastGroupSourceAddress, cisMulticastGroupPortRangeIndex }
+    ::= { cisMulticastGroupPortListTable 1 }
+
+CisMulticastGroupPortListEntry ::= SEQUENCE {
+    cisMulticastGroupPortRangeIndex CiscoPortListRange,
+    cisMulticastGroupPortList CiscoPortList
+    }
+
+cisMulticastGroupPortRangeIndex OBJECT-TYPE
+    SYNTAX CiscoPortListRange
+--    Rsyntax INTEGER {
+--        oneto2k(1),
+--        twoKto4K(2),
+--        fourKto6K(3),
+--        sixKto8K(4),
+--        eightKto10K(5),
+--        tenKto12K(6),
+--        twelveKto14K(7),
+--        fourteenKto16K(8)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the bridge-port range of this row."
+    ::= { cisMulticastGroupPortListEntry 1 }
+
+cisMulticastGroupPortList OBJECT-TYPE
+    SYNTAX CiscoPortList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The set of ports that joining a multicast group.  It has
+        the information of up to 2k ports with the port number
+        starting from the information indicated in
+        cisMcastPortRangeIndex object of the same row.  For example,
+        if the value of cisMcastPortRangeIndex is 'twoKto4K', the
+        port number indicated in this object starting from 2049
+        and ending to 4096.
+        
+        A port number is the value of dot1dBasePort for the port in
+        the BRIDGE-MIB (RFC 4188)."
+    ::= { cisMulticastGroupPortListEntry 2 }
+
+cisMulticastGroupConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisMulticastGroupConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of configured multicast group and associated ports
+        in the system."
+    ::= { cisMulticastGroupInfo 4 }
+
+cisMulticastGroupConfigEntry OBJECT-TYPE
+    SYNTAX CisMulticastGroupConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry of multicast group and its associated ports, which
+        is configured manually."
+    INDEX { cisMulticastGroupConfVlanIndex, cisMulticastGroupConfCeVlanIndex, cisMulticastGroupConfAddressType, cisMulticastGroupConfAddress, cisMulticastGroupConfSourceAddress, cisMulticastGroupConfPortRange }
+    ::= { cisMulticastGroupConfigTable 1 }
+
+CisMulticastGroupConfigEntry ::= SEQUENCE {
+    cisMulticastGroupConfVlanIndex VlanIndex,
+    cisMulticastGroupConfCeVlanIndex VlanIndex,
+    cisMulticastGroupConfAddressType InetAddressType,
+    cisMulticastGroupConfAddress InetAddress,
+    cisMulticastGroupConfSourceAddress InetAddress,
+    cisMulticastGroupConfPortRange CiscoPortListRange,
+    cisMulticastGroupConfPortList CiscoPortList,
+    cisMulticastGroupConfStorageType StorageType,
+    cisMulticastGroupConfRowStatus RowStatus
+    }
+
+cisMulticastGroupConfVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the VLAN in which the group is
+        configured."
+    ::= { cisMulticastGroupConfigEntry 1 }
+
+cisMulticastGroupConfCeVlanIndex OBJECT-TYPE
+    SYNTAX VlanIndex
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the Customer Equipment (CE) VLAN in
+        which the group is configured."
+    ::= { cisMulticastGroupConfigEntry 2 }
+
+cisMulticastGroupConfAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the type of Internet address of
+        multicast group and source in this entry."
+    ::= { cisMulticastGroupConfigEntry 3 }
+
+cisMulticastGroupConfAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(1..48))
+--    Rsyntax OCTET STRING(SIZE(1..48))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies IP address of the multicast group.
+        Type of this address is indicated by
+        cisMulticastGroupConfAddressType."
+    ::= { cisMulticastGroupConfigEntry 4 }
+
+cisMulticastGroupConfSourceAddress OBJECT-TYPE
+    SYNTAX InetAddress(SIZE(1..48))
+--    Rsyntax OCTET STRING(SIZE(1..48))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the IP address of the source of the
+        multicast traffic for this group. Value of zero for this
+        object indicates that the multicast traffic of this group can
+        come from any source. Type of this address is indicated by
+        cisMulticastGroupConfAddressType."
+    ::= { cisMulticastGroupConfigEntry 5 }
+
+cisMulticastGroupConfPortRange OBJECT-TYPE
+    SYNTAX CiscoPortListRange
+--    Rsyntax INTEGER {
+--        oneto2k(1),
+--        twoKto4K(2),
+--        fourKto6K(3),
+--        sixKto8K(4),
+--        eightKto10K(5),
+--        tenKto12K(6),
+--        twelveKto14K(7),
+--        fourteenKto16K(8)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the bridge-port range of this row.."
+    ::= { cisMulticastGroupConfigEntry 6 }
+
+cisMulticastGroupConfPortList OBJECT-TYPE
+    SYNTAX CiscoPortList
+--    Rsyntax OCTET STRING(SIZE(0..256))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The set of ports that are configured to join a multicast
+        group. It has the information of up to 2k ports with the
+        port number starting from the information indicated in
+        cisMcastPortRangeIndex object of the same row.  For
+        example, if the value of cisMulticastGroupConfPortRange is
+        'twoKto4K', the port number indicated in this object starting
+        from 2049 and ending to 4096.
+        
+        A port number is the value of dot1dBasePort for the port
+        in the BRIDGE-MIB (RFC 4188)."
+    ::= { cisMulticastGroupConfigEntry 7 }
+
+cisMulticastGroupConfStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the storage type of this conceptual
+        row."
+    DEFVAL { volatile }
+    ::= { cisMulticastGroupConfigEntry 8 }
+
+cisMulticastGroupConfRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage creation, deletion and
+        modification of rows in this table.
+        
+        Once a row becomes active, value in any column within
+        such row can not be modified."
+    ::= { cisMulticastGroupConfigEntry 9 }
+
+cisL2EntryLimit OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of Layer 2 multicast entries
+        that IGMP Snooping can install in the Layer 2 forwarding
+        table. For multicast groups not being installed in the 
+        Layer 2 forwarding table due to exceeding the limitation,
+        their traffic will be flooded within the VLAN.
+        
+        Value of zero for this object indicates that there is no 
+        limitation on the number of Layer 2 multicast entries
+        which can be installed in the Layer 2 forwarding table."
+    ::= { cisResourceLimitInfo 1 }
+
+cisEntryTrackingLimit OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of entries that can be installed
+        in the tracking database.
+        
+        Value of zero for this object indicates that no entry can
+        be installed to the tracking database."
+    ::= { cisResourceLimitInfo 2 }
+
+cisSourceOnlyPercentageScanLimit OBJECT-TYPE
+    SYNTAX Percent
+--    Rsyntax INTEGER(0..100)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the percentage of IGMP Snooping Source Only
+        entries to be processed in each Source Only timeout
+        period, in which they will be timed out in batches.
+        Entries not processed due to this limitation will
+        remain in the Layer 2 forwarding table.
+        
+        Value of zero for this object indicates that Source Only
+        entries scan will not be performed."
+    ::= { cisResourceLimitInfo 3 }
+
+cisSourceOnlyLearningLimit OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of Layer 2 multicast Source
+        Only entries that IGMP Snooping can install in the Layer 2
+        forwarding table. If the number of multicast Source Only
+        groups in the system exceeds this limit, snooping entries
+        will not be installed for the over-limit groups and Source
+        Only traffic for these groups will be flooded within the
+        VLAN.
+        
+        Value of zero for this object indicates that there is no
+        limitation on the number of Source Only entries which can be
+        installed in the Layer 2 forwarding table."
+    ::= { cisResourceLimitInfo 4 }
+
+cisQuerierEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies if IGMP Snooping Querier function is globally
+        enabled at the device level.
+        
+        Setting this object to 'false' disabled IGMP Snooping
+        Querier function globally, thus disabling the feature at
+        each VLAN.
+        
+        Setting this object to 'true' enables IGMP Snooping Querier
+        in the system, whether the feature is running at each VLAN
+        or not is controlled by the corresponding entry in
+        cisIgmpQuerierTable."
+    ::= { cisQuerierConfigInfo 1 }
+
+cisQuerierTcnQueryInterval OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the TCN query interval time when the device is
+        acting as the active querier.  This value will be used at each
+        VLAN if value of the corresponding instance of 
+        cisIgmpQuerierTcnQueryInterval is not configured."
+    ::= { cisQuerierConfigInfo 2 }
+
+cisQuerierTimerExpiry OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the querier expiration timer.  This value will
+        be used at each VLAN if value of the corresponding
+        instance of cisIgmpQuerierTimerExpiry is not configured."
+    ::= { cisQuerierConfigInfo 3 }
+
+cisQuerierMaxResponseTime OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    one-tenth of second
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the Max Response Time value of queries generated
+        by IGMP Snooping Querier.  This value will be used at each
+        VLAN if value of the corresponding instance of
+        cisIgmpQuerierMaxResponseTime is not configured."
+    REFERENCE
+        "RFC 3376"
+    ::= { cisQuerierConfigInfo 4 }
+
+cisQuerierQueryInterval OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    seconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the interval between IGMP queries.  This value
+        will be used at each VLAN if value of the corresponding
+        instance of cisIgmpQuerierQueryInterval is not configured."
+    ::= { cisQuerierConfigInfo 5 }
+
+cisQuerierAddressType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the type of Internet address of
+        the IGMP Querier associating with this device when it is
+        acting as an IGMP Snooping Querier."
+    ::= { cisQuerierConfigInfo 6 }
+
+cisQuerierAddress OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the Internet address of the IGMP Querier associating
+        with this device when it is acting as an IGMP Snooping Querier.
+        This address will be used by IGMP Snooping Querier feature at
+        each VLAN if no corresponding IGMP Snooping Querier is
+        configured for that VLAN. The type of this address is determined
+        by value of cisQuerierAddressType object."
+    ::= { cisQuerierConfigInfo 7 }
+
+cisQuerierVersion OBJECT-TYPE
+    SYNTAX CisIgmpVersion
+--    Rsyntax INTEGER {
+--        version1(1),
+--        version2(2),
+--        version3(3),
+--        unknown(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the IGMP version that the Querier feature uses.
+        This value will be used at each VLAN if value of the
+        corresponding instance of cisIgmpQuerierAdminVersion is
+        'unknown'."
+    ::= { cisQuerierConfigInfo 8 }
+
+cisQuerierTcnQueryCount OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the number of TCN queries to be executed upon
+        receiving TCN, when the device is acting as the active
+        querier.  This value will be used at each VLAN if value of
+        the corresponding instance of cisVlanQuerierTcnQueryCount
+        is not configured."
+    ::= { cisQuerierConfigInfo 9 }
+
+cisIfLimitTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisIfLimitEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing a list of IGMP Snooping limit filters."
+    ::= { cisFilteringInfo 1 }
+
+cisIfLimitEntry OBJECT-TYPE
+    SYNTAX CisIfLimitEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry containing IGMP Snooping limit filters.  A limit
+        filter can be applied on a Layer2 interface, and VLAN(s) carried
+        by the interface when it is in trunk mode."
+    INDEX { ifIndex, cisIfLimitVlanNumber }
+    ::= { cisIfLimitTable 1 }
+
+CisIfLimitEntry ::= SEQUENCE {
+    cisIfLimitVlanNumber VlanIndexOrZero,
+    cisIfLimitMax Gauge,
+    cisIfLimitExcludeAccessGrp SnmpAdminString,
+    cisIfLimitStorageType StorageType,
+    cisIfLimitRowStatus RowStatus
+    }
+
+cisIfLimitVlanNumber OBJECT-TYPE
+    SYNTAX VlanIndexOrZero
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the VLAN which IGMP Snooping filters configured in
+        this entry will be applied on when the interface is in trunk
+        mode. Value of zero indicates that the corresponding filters
+        are applicable to every VLAN carried by the trunk when the
+        interface is in trunk mode, or the interface itself if it is
+        in not in trunk mode."
+    ::= { cisIfLimitEntry 1 }
+
+cisIfLimitMax OBJECT-TYPE
+    SYNTAX Gauge(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of IGMP group and channels that
+        allowed on the interaface, or VLAN(s) carried by the interface
+        if it is in trunk mode."
+    ::= { cisIfLimitEntry 2 }
+
+cisIfLimitExcludeAccessGrp OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the access group that is excluded from the filter
+        configured via cisIfLimitMax."
+    DEFVAL { "" }
+    ::= { cisIfLimitEntry 3 }
+
+cisIfLimitStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the storage type of this conceptual row."
+    DEFVAL { volatile }
+    ::= { cisIfLimitEntry 4 }
+
+cisIfLimitRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage creation, deletion and
+        modification of rows in this table.
+        
+        All writable objects in this row may be modified at any time."
+    ::= { cisIfLimitEntry 5 }
+
+cisIfLimitTotalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisIfLimitTotalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing a list of IGMP Snooping total limit
+        filters."
+    ::= { cisFilteringInfo 2 }
+
+cisIfLimitTotalEntry OBJECT-TYPE
+    SYNTAX CisIfLimitTotalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry containing IGMP Snooping total limit filters for a
+        Layer 2 interface."
+    INDEX { ifIndex }
+    ::= { cisIfLimitTotalTable 1 }
+
+CisIfLimitTotalEntry ::= SEQUENCE {
+    cisIfLimitTotalLimitMax Gauge,
+    cisIfLimitTotalExcludeAccessGrp SnmpAdminString,
+    cisIfLimitTotalStorageType StorageType,
+    cisIfLimitTotalRowStatus RowStatus
+    }
+
+cisIfLimitTotalLimitMax OBJECT-TYPE
+    SYNTAX Gauge(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum total number of IGMP group or channels
+        that allows on all VLANs carried by the interaface when it is
+        in trunk mode."
+    ::= { cisIfLimitTotalEntry 1 }
+
+cisIfLimitTotalExcludeAccessGrp OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the access group that is excluded from the
+        limitation specified by cisIfToltalLimitChannelsAllowed."
+    ::= { cisIfLimitTotalEntry 2 }
+
+cisIfLimitTotalStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the storage type of this conceptual row."
+    DEFVAL { volatile }
+    ::= { cisIfLimitTotalEntry 3 }
+
+cisIfLimitTotalRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage creation, deletion and
+        modification of rows in this table.
+        
+        All writable objects in this row may be modified at any time."
+    ::= { cisIfLimitTotalEntry 4 }
+
+cisIfAccessGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisIfAccessGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing a list of IGMP Snooping filters based on
+        access-group."
+    ::= { cisFilteringInfo 3 }
+
+cisIfAccessGroupEntry OBJECT-TYPE
+    SYNTAX CisIfAccessGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An IGMP Snooping access-group filter, containing an access
+        control list describing which IGMP groups or channels can be
+        joined on the interface, and/or on which specific VLAN(s) the
+        filter should be applied when the interface is in trunk mode."
+    INDEX { ifIndex, cisIfAccessGroupVlan }
+    ::= { cisIfAccessGroupTable 1 }
+
+CisIfAccessGroupEntry ::= SEQUENCE {
+    cisIfAccessGroupVlan VlanIndexOrZero,
+    cisIfAccessGroupsChannelsAllowed SnmpAdminString,
+    cisIfAccessGroupStorageType StorageType,
+    cisIfAccessGroupRowStatus RowStatus
+    }
+
+cisIfAccessGroupVlan OBJECT-TYPE
+    SYNTAX VlanIndexOrZero
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the VLAN which IGMP Snooping filters configured in
+        this entry will be applied on when the interface is in trunk
+        mode.  Value of zero indicates that the corresponding filters
+        are applicable to every VLAN carried by the trunk when the
+        interface is in trunk mode, or the interface itself if it is
+        in not in trunk mode."
+    ::= { cisIfAccessGroupEntry 1 }
+
+cisIfAccessGroupsChannelsAllowed OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the access group to indicate which IGMP groups or
+        channels can be joined."
+    ::= { cisIfAccessGroupEntry 2 }
+
+cisIfAccessGroupStorageType OBJECT-TYPE
+    SYNTAX StorageType
+--    Rsyntax INTEGER {
+--        other(1),
+--        volatile(2),
+--        nonVolatile(3),
+--        permanent(4),
+--        readOnly(5)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the storage type of this conceptual row."
+    DEFVAL { volatile }
+    ::= { cisIfAccessGroupEntry 3 }
+
+cisIfAccessGroupRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage creation, deletion and
+        modification of rows in this table.
+        
+        Once a row becomes active, value in any column within
+        such row can not be modified."
+    ::= { cisIfAccessGroupEntry 4 }
+
+cisVlanFilterConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisVlanFilterConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing a list of VLAN. An entry will exist for
+        each VLAN which supports IGMP Snooping feature."
+    ::= { cisFilteringInfo 4 }
+
+cisVlanFilterConfigEntry OBJECT-TYPE
+    SYNTAX CisVlanFilterConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry containing IGMP Snooping filters configuration for
+        a particular VLAN."
+    INDEX { cisVlanIndex }
+    ::= { cisVlanFilterConfigTable 1 }
+
+CisVlanFilterConfigEntry ::= SEQUENCE {
+    cisVlanFilterAccessGroup SnmpAdminString,
+    cisVlanFilterLimitMax Gauge,
+    cisVlanFilterLimitExclAccessGrp SnmpAdminString,
+    cisVlanFilterMinVersionAllowed CisIgmpVersion
+    }
+
+cisVlanFilterAccessGroup OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the access group to control which IGMP group or
+        channels can be joined on this VLAN.
+        
+        A zero length string of this instance indicates that there is
+        no access-group based filter applied to this VLAN."
+    ::= { cisVlanFilterConfigEntry 1 }
+
+cisVlanFilterLimitMax OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the maximum number of IGMP groups or channels that
+        allows on each switch port in this VLAN, or trunk ports
+        carrying this VLAN.
+        
+        Value of zero indicates that there is no limit of number of IGMP
+        groups or channels that can be joined on switch ports in this
+        VLAN,
+        or trunk ports carrying this VLAN."
+    ::= { cisVlanFilterConfigEntry 2 }
+
+cisVlanFilterLimitExclAccessGrp OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the access group that is excluded from the filter
+        configured via cisVlanFilterLimitMax."
+    ::= { cisVlanFilterConfigEntry 3 }
+
+cisVlanFilterMinVersionAllowed OBJECT-TYPE
+    SYNTAX CisIgmpVersion
+--    Rsyntax INTEGER {
+--        version1(1),
+--        version2(2),
+--        version3(3),
+--        unknown(4)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the minimum version of IGMP hosts allowed on this
+        VLAN.
+        
+        Value 'unknown' is not configurable for this object."
+    ::= { cisVlanFilterConfigEntry 4 }
+
+cisFilterStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisFilterStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table containing statistics information about IGMP Snooping
+        filters in the system. An entry is created for each IGMP
+        Snooping capable interface in the system, or each VLAN carried
+        by an interface when it is in trunk mode."
+    ::= { cisFilteringInfo 5 }
+
+cisFilterStatsEntry OBJECT-TYPE
+    SYNTAX CisFilterStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry providing statistic information about IGMP Snooping
+        filter on an IGMP Snooping capable interface, or on a VLAN that
+        the interface carries when it is in trunk mode."
+    INDEX { ifIndex, cisFilterStatsVlanNumber }
+    ::= { cisFilterStatsTable 1 }
+
+CisFilterStatsEntry ::= SEQUENCE {
+    cisFilterStatsVlanNumber VlanIndexOrZero,
+    cisFilterAccessGroupDenied Counter,
+    cisFilterLimitDenied Counter,
+    cisFilterTotalLimitDenied Counter,
+    cisFilterMinVersionDenied Counter
+    }
+
+cisFilterStatsVlanNumber OBJECT-TYPE
+    SYNTAX VlanIndexOrZero
+--    Rsyntax INTEGER(0..4095)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the VLAN which the entry provides statistics
+        information for, when the interface is in trunk mode.
+        Value of zero indicates that statistics information provided
+        in this entry is for the interface that is in access-mode."
+    ::= { cisFilterStatsEntry 1 }
+
+cisFilterAccessGroupDenied OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of join-request denied due to
+        Access-Group filter on the interface, or on the VLAN
+        indicated by the value of cisFilterStatsVlanNumber when
+        the interface is in trunk mode."
+    ::= { cisFilterStatsEntry 2 }
+
+cisFilterLimitDenied OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of join-request denied due to exceeding
+        the maximum number of IGMP groups or channels allowed on the
+        interface, or on the VLAN indicated by the value of
+        cisFilterStatsVlanNumber when the interface is in trunk mode."
+    ::= { cisFilterStatsEntry 3 }
+
+cisFilterTotalLimitDenied OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of join-request denied due to exceeding
+        the maximum number of IGMP groups or channels across
+        all VLANs on the interface, when it is in trunk mode."
+    ::= { cisFilterStatsEntry 4 }
+
+cisFilterMinVersionDenied OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the number of join-request denied due to originating
+        from hosts with lower than minimum required IGMP version on the
+        interface."
+    ::= { cisFilterStatsEntry 5 }
+
+cisVlanExplicitTrackingTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CisVlanExplicitTrackingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table containing configuration information of Explicit Tracking
+        for IGMP in the system.  Explicit Tracking allows the device to
+        track the IGMP membership status of all hosts in the system that
+        respond to IGMP Membership Queries.  Tracking information is
+        used to build the explicit-tracking database to serve for
+        fast-leave processing for IGMPv3 hosts, proxy reporting and
+        statistic collection.
+        
+        An entry is created for each IGMP Snooping capable VLAN found in
+        the device."
+    ::= { cisExplicitTrackingInfo 1 }
+
+cisVlanExplicitTrackingEntry OBJECT-TYPE
+    SYNTAX CisVlanExplicitTrackingEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry of Explicit Tracking configuration for a corresponding
+        VLAN."
+    INDEX { cisVlanIndex }
+    ::= { cisVlanExplicitTrackingTable 1 }
+
+CisVlanExplicitTrackingEntry ::= SEQUENCE {
+    cisVlanExplicitTrackingEnabled TruthValue,
+    cisVlanExplicitTrackingLimit INTEGER
+    }
+
+cisVlanExplicitTrackingEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether Explicit Tracking is enabled
+        on this VLAN."
+    ::= { cisVlanExplicitTrackingEntry 1 }
+
+cisVlanExplicitTrackingLimit OBJECT-TYPE
+    SYNTAX INTEGER(-1|0|2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the maximum number of entries that can
+        be installed in the explicit-tracking database for this VLAN.
+        
+        Value of zero for this object indicates that tracking
+        information for this VLAN will not be installed to the 
+        explicit-tracking database for this VLAN.
+        
+        Value of -1 for this object indicates that there is no limitation
+        on the number of entries that can be installed to the
+        explicit-tracking database for this VLAN."
+    ::= { cisVlanExplicitTrackingEntry 2 }
+
+cisSystemGroup OBJECT IDENTIFIER ::= { cisMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of object(s) providing global system information
+--    about, and control over, IGMP Snooping protocol operation on
+--    device.
+--  objects
+--    cisIgmpSnoopingEnabled
+
+cisSystemV2Group OBJECT IDENTIFIER ::= { cisMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of additional objects providing global system
+--    information about, and control over, IGMPv2 Snooping protocol 
+--    operation on the device.
+--  objects
+--    cisFastLeaveEnabled
+
+cisSystemV3Group OBJECT IDENTIFIER ::= { cisMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of additional objects providing global system
+--    information about, and control over, IGMPv3 Snooping protocol 
+--    operation on the device.
+--  objects
+--    cisV3ProcessEnabledAdminStatus, cisV3ProcessEnabledOperStatus, 
+--    cisFastBlockEnabled
+
+cisStatsGroup OBJECT IDENTIFIER ::= { cisMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing statistics
+--    information of IGMP Snooping version 1 and 2.
+--  objects
+--    cisTxGeneralQueries, cisTxGroupSpecificQueries, cisTxReports, 
+--    cisTxLeaves, cisRxGeneralQueries, cisRxGroupSpecificQueries, 
+--    cisRxReports, cisRxLeaves, cisRxValidPackets, 
+--    cisRxInvalidPackets, cisRxOtherPackets, 
+--    cisRxMACGeneralQueries, cisRxTopoNotifications
+
+cisV3StatsGroup OBJECT IDENTIFIER ::= { cisMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing additional
+--    statistics information of IGMPv3 Snooping.
+--  objects
+--    cisV3Allows, cisV3Blocks, cisV3IsIncluded, cisV3IsExcluded, 
+--    cisV3ToIncluded, cisV3ToExcluded
+
+cisBaseConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A basic collection of object(s) providing IGMP Snooping
+--    global configuration.
+--  objects
+--    cisIgmpSnoopingEnabled
+
+cisGlobalIgmpV3ConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of global IGMPv3 Snooping related objects.
+--  objects
+--    cisV3ProcessEnabledAdminStatus, cisV3ProcessEnabledOperStatus, 
+--    cisFastBlockEnabled
+
+cisGlobalIgmpV3InfoGroup OBJECT IDENTIFIER ::= { cisMIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of global IGMPv3 Snooping related objects.
+--  objects
+--    cisV3SnoopingSupport
+
+cisExtConfig1Group OBJECT IDENTIFIER ::= { cisMIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A miscellaneous collection of object(s) for the device
+--    that supports global IGMP Snooping configuration.
+--  objects
+--    cisFastLeaveEnabled, cisAdminMode, cisOperMode, 
+--    cisLeaveQueryType, cisAddressAliasingMode, cisFallbackTime
+
+cisExtConfig2Group OBJECT IDENTIFIER ::= { cisMIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    An extended collection of miscellaneous global
+--    configuration IGMP Snooping objects.
+--  objects
+--    cisReportSuppressionEnabled
+
+cisGlobalTcnGroup OBJECT IDENTIFIER ::= { cisMIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of global Topology Change
+--    Notification (TCN) related configuration objects.
+--  objects
+--    cisTopoChangeFloodQueryCount, 
+--    cisTopoChangeQuerySolicitEnabled
+
+cisGlobalSourceOnlyLearnGroup OBJECT IDENTIFIER ::= { cisMIBGroups 12 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of global Source Only entry learning
+--    objects.
+--  objects
+--    cisSourceOnlyLearningEnabled, cisSourceOnlyEntryAgeTime
+
+cisRateLimitGroup OBJECT IDENTIFIER ::= { cisMIBGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of object(s) providing rate-limit information
+--    of protocol packets handling in IGMP Snooping.
+--  objects
+--    cisGeneralQueryRateLimit, cisDvmrpRateLimit, 
+--    cisMospf1RateLimit, cisMospf2RateLimit, cisPimV2RateLimit
+
+cisVlanConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collectoin of objects for VLAN configuration of
+--    IGMP Snooping.
+--  objects
+--    cisVlanIgmpSnoopingEnabled, cisVlanFastLeaveEnabled, 
+--    cisVlanIgmpSnoopingOperMode, cisVlanIgmpSnoopingLearningMode
+
+cisIgmpQuerierConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) for IGMP Querier configuration
+--    of IGMP Snooping.
+--  objects
+--    cisIgmpQuerierEnabled, cisIgmpQuerierState
+
+cisIgmpQuerierInfoGroup OBJECT IDENTIFIER ::= { cisMIBGroups 16 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) for IGMP Querier information.
+--  objects
+--    cisIgmpQuerierVersion, cisIgmpQuerierAddressType, 
+--    cisIgmpQuerierAddress, cisIgmpQuerierInterface
+
+cisMcastRouterConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 17 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of object(s) providing multicast
+--    router port information.
+--  objects
+--    cisMcastRouterType, cisMcastRouterRowStatus
+
+cisMcastGroupInfoGroup OBJECT IDENTIFIER ::= { cisMIBGroups 18 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of object(s) providing multicast
+--    group information.
+--  objects
+--    cisMcastGroupFilterMode, cisMcastGroupIgmpVersion, 
+--    cisMcastGroupIncludeHostCount, cisMcastGroupExcludeHostCount, 
+--    cisMcastGroupPortList
+
+cisIfConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 19 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing IGMP Snoop
+--    configuration on an interface.
+--  objects
+--    cisIfTopoChangeFloodEnabled
+
+cisL2EntryLimitGroup OBJECT IDENTIFIER ::= { cisMIBGroups 20 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing Layer 2 multicast
+--    entries limit configuration and information in
+--    IGMP Snooping.
+--  objects
+--    cisL2EntryLimit
+
+cisTrackingLimitGroup OBJECT IDENTIFIER ::= { cisMIBGroups 21 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing configuration and
+--    information of tracking database limitation in IGMP
+--    Snooping.
+--  objects
+--    cisEntryTrackingLimit
+
+cisSourceOnlyLimitGroup OBJECT IDENTIFIER ::= { cisMIBGroups 22 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing Source Only learning
+--    limit configuration and information in IGMP Snooping.
+--  objects
+--    cisSourceOnlyPercentageScanLimit, cisSourceOnlyLearningLimit
+
+cisRateLimitGroup2 OBJECT IDENTIFIER ::= { cisMIBGroups 23 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing additional rate-limit
+--    information of protocol packets handling in IGMP Snooping.
+--  objects
+--    cisRateLimit
+
+cisVlanConfigGroup2 OBJECT IDENTIFIER ::= { cisMIBGroups 24 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing per VLAN configuration
+--    of Report Suppression and Leave Query Interval for IGMP
+--    Snooping.
+--  objects
+--    cisVlanReportSuppressionEnabled, cisVlanLeaveQueryInterval
+
+cisSourceOnlyAgeTimerInSecGroup OBJECT IDENTIFIER ::= { cisMIBGroups 25 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing configuration and
+--    information of Source Only learning control and 
+--    age timer in seconds.
+--  objects
+--    cisSourceOnlyLearningEnabled, cisSourceOnlyEntryAgingTime
+
+cisMulticastGroupInfoGroup OBJECT IDENTIFIER ::= { cisMIBGroups 26 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing information of multicast
+--    group.
+--  objects
+--    cisMulticastGroupGroupType, cisMulticastGroupIgmpVersion, 
+--    cisMulticastGroupSourceUpTime, cisMulticastGroupSourceExpires, 
+--    cisMulticastGroupInclHostCount, 
+--    cisMulticastGroupExclHostCount
+
+cisMulticastGroupPortInfoGroup OBJECT IDENTIFIER ::= { cisMIBGroups 27 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing information of
+--    ports joining multicast groups.
+--  objects
+--    cisMulticastGroupPortList
+
+cisMulticastGroupConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 28 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing configuration of multicast
+--    groups in the system.
+--  objects
+--    cisMulticastGroupConfPortList, 
+--    cisMulticastGroupConfStorageType, 
+--    cisMulticastGroupConfRowStatus
+
+cisMulticastRouterConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 29 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing configuration and
+--    information of multicast router ports in the system.
+--  objects
+--    cisMcastRouterConfigRouterType, 
+--    cisMcastRouterConfigStorageType, 
+--    cisMcastRouterConfigRowStatus
+
+cisLeaveQueryConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 30 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing configuration and
+--    information of Leave Query for IGMP Snooping.
+--  objects
+--    cisLastMemberQueryCount, cisLastMemberQueryInterval, 
+--    cisVlanLastMemberQueryCount
+
+cisQuerierGlobalConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 31 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing global configuration of
+--    Querier function in the system.
+--  objects
+--    cisQuerierEnabled, cisQuerierTcnQueryInterval, 
+--    cisQuerierTimerExpiry, cisQuerierMaxResponseTime, 
+--    cisQuerierQueryInterval, cisQuerierAddressType, 
+--    cisQuerierAddress, cisQuerierVersion
+
+cisIgmpQuerierConfigExtGroup OBJECT IDENTIFIER ::= { cisMIBGroups 32 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing configuration of Querier
+--    parameters for VLANs in the system.
+--  objects
+--    cisIgmpQuerierTcnQueryCount, cisIgmpQuerierTcnQueryInterval, 
+--    cisIgmpQuerierTimerExpiry, cisIgmpQuerierMaxResponseTime, 
+--    cisIgmpQuerierQueryInterval, cisIgmpQuerierAdminAddressType, 
+--    cisIgmpQuerierAdminAddress, cisIgmpQuerierAdminVersion
+
+cisRobustnessConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 33 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing configuration of Robustness
+--    parameter for IGMP Snooping.
+--  objects
+--    cisRobustnessVariable, cisVlanRobustnessVariable
+
+cisTimeToLiveConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 34 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing configuration of
+--    Time-To-Leave for IGMP Snooping.
+--  objects
+--    cisTimeToLiveCheckEnabled, cisVlanTimeToLiveCheckEnabled
+
+cisRouterAlertConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 35 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing configuration of
+--    Router-Alert for IGMP Snooping.
+--  objects
+--    cisRouterAlertCheckEnabled, cisVlanRouterAlertCheckEnabled
+
+cisVlanExplicitTrackingCfgGroup OBJECT IDENTIFIER ::= { cisMIBGroups 36 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing configuration of Explicit
+--    Tracking feature on VLANs for IGMP Snooping.
+--  objects
+--    cisVlanExplicitTrackingEnabled, cisVlanExplicitTrackingLimit
+
+cisIfLimitGroup OBJECT IDENTIFIER ::= { cisMIBGroups 37 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing IGMP Snooping Limit filter
+--    configuration and information.
+--  objects
+--    cisIfLimitMax, cisIfLimitExcludeAccessGrp, 
+--    cisIfLimitStorageType, cisIfLimitRowStatus
+
+cisIfLimitTotalGroup OBJECT IDENTIFIER ::= { cisMIBGroups 38 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing IGMP Snooping Total
+--    Limit filter configuration and information.
+--  objects
+--    cisIfLimitTotalLimitMax, cisIfLimitTotalExcludeAccessGrp, 
+--    cisIfLimitTotalStorageType, cisIfLimitTotalRowStatus
+
+cisIfAccessGroupGroup OBJECT IDENTIFIER ::= { cisMIBGroups 39 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing IGMP Snooping access-group
+--    filter configuration and information.
+--  objects
+--    cisIfAccessGroupsChannelsAllowed, cisIfAccessGroupStorageType, 
+--    cisIfAccessGroupRowStatus
+
+cisVlanFilterConfigGroup OBJECT IDENTIFIER ::= { cisMIBGroups 40 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing VLAN-based filter
+--    configuration for IGMP Snooping.
+--  objects
+--    cisVlanFilterAccessGroup, cisVlanFilterLimitMax, 
+--    cisVlanFilterLimitExclAccessGrp, 
+--    cisVlanFilterMinVersionAllowed
+
+cisFilterStatisticsGroup OBJECT IDENTIFIER ::= { cisMIBGroups 41 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing statistics
+--    information about filters applied to IGMP packets.
+--  objects
+--    cisFilterAccessGroupDenied, cisFilterLimitDenied, 
+--    cisFilterTotalLimitDenied, cisFilterMinVersionDenied
+
+cisQuerierGlobalTcnQueryCountGroup OBJECT IDENTIFIER ::= { cisMIBGroups 42 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing global querier
+--    TCN query count configuration and information for
+--    IGMP Snooping.
+--  objects
+--    cisQuerierTcnQueryCount
+
+cisQuerierTcnQueryPendingGroup OBJECT IDENTIFIER ::= { cisMIBGroups 43 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of object(s) providing information about
+--    pending TCN queries for IGMP Snooping.
+--  objects
+--    cisIgmpQuerierTcnQueryPending
+
+cisV2Compliance OBJECT IDENTIFIER ::= { cisMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for device support IGMPv1/v2
+--    Snooping protocol.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cisSystemGroup
+--   OptGroup
+--    cisSystemV2Group
+--   OptGroup
+--    cisStatsGroup
+
+cisV3Compliance OBJECT IDENTIFIER ::= { cisMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for device support IGMPv3 Snooping
+--    protocol.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cisSystemGroup
+--   OptGroup
+--    cisSystemV2Group
+--   OptGroup
+--    cisSystemV3Group
+--   OptGroup
+--    cisStatsGroup
+--   OptGroup
+--    cisV3StatsGroup
+
+cisIgmpSnoopingMIBCompliance OBJECT IDENTIFIER ::= { cisMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for device supporting
+--    IGMP Snooping.This compliance is deprecated and 
+--    superceded by cisIgmpSnoopingMIBCompliance2.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cisBaseConfigGroup
+--   OptGroup
+--    cisGlobalTcnGroup
+--   OptGroup
+--    cisGlobalSourceOnlyLearnGroup
+--   OptGroup
+--    cisGlobalIgmpV3ConfigGroup
+--   OptGroup
+--    cisGlobalIgmpV3InfoGroup
+--   OptGroup
+--    cisExtConfig1Group
+--   OptGroup
+--    cisExtConfig2Group
+--   OptGroup
+--    cisStatsGroup
+--   OptGroup
+--    cisV3StatsGroup
+--   OptGroup
+--    cisRateLimitGroup
+--   OptGroup
+--    cisVlanConfigGroup
+--   OptGroup
+--    cisIgmpQuerierConfigGroup
+--   OptGroup
+--    cisIgmpQuerierInfoGroup
+--   OptGroup
+--    cisMcastRouterConfigGroup
+--   OptGroup
+--    cisMcastGroupInfoGroup
+--   OptGroup
+--    cisIfConfigGroup
+--   ObjVar
+--    cisIgmpQuerierAddressType
+
+cisIgmpSnoopingMIBCompliance2 OBJECT IDENTIFIER ::= { cisMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for device supporting
+--    IGMP Snooping.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cisBaseConfigGroup
+--   OptGroup
+--    cisGlobalTcnGroup
+--   OptGroup
+--    cisGlobalIgmpV3ConfigGroup
+--   OptGroup
+--    cisGlobalIgmpV3InfoGroup
+--   OptGroup
+--    cisExtConfig1Group
+--   OptGroup
+--    cisExtConfig2Group
+--   OptGroup
+--    cisStatsGroup
+--   OptGroup
+--    cisV3StatsGroup
+--   OptGroup
+--    cisVlanConfigGroup
+--   OptGroup
+--    cisIgmpQuerierConfigGroup
+--   OptGroup
+--    cisIgmpQuerierInfoGroup
+--   OptGroup
+--    cisMcastRouterConfigGroup
+--   OptGroup
+--    cisMcastGroupInfoGroup
+--   OptGroup
+--    cisIfConfigGroup
+--   OptGroup
+--    cisL2EntryLimitGroup
+--   OptGroup
+--    cisTrackingLimitGroup
+--   OptGroup
+--    cisSourceOnlyLimitGroup
+--   OptGroup
+--    cisRateLimitGroup2
+--   OptGroup
+--    cisVlanConfigGroup2
+--   OptGroup
+--    cisSourceOnlyAgeTimerInSecGroup
+--   ObjVar
+--    cisIgmpQuerierAddressType
+
+cisIgmpSnoopingMIBCompliance3 OBJECT IDENTIFIER ::= { cisMIBCompliances 5 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for device supporting
+--    IGMP Snooping.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cisBaseConfigGroup
+--   OptGroup
+--    cisGlobalTcnGroup
+--   OptGroup
+--    cisGlobalIgmpV3ConfigGroup
+--   OptGroup
+--    cisGlobalIgmpV3InfoGroup
+--   OptGroup
+--    cisExtConfig1Group
+--   OptGroup
+--    cisExtConfig2Group
+--   OptGroup
+--    cisStatsGroup
+--   OptGroup
+--    cisV3StatsGroup
+--   OptGroup
+--    cisVlanConfigGroup
+--   OptGroup
+--    cisIgmpQuerierConfigGroup
+--   OptGroup
+--    cisIgmpQuerierInfoGroup
+--   OptGroup
+--    cisIfConfigGroup
+--   OptGroup
+--    cisL2EntryLimitGroup
+--   OptGroup
+--    cisTrackingLimitGroup
+--   OptGroup
+--    cisSourceOnlyLimitGroup
+--   OptGroup
+--    cisRateLimitGroup2
+--   OptGroup
+--    cisVlanConfigGroup2
+--   OptGroup
+--    cisSourceOnlyAgeTimerInSecGroup
+--   OptGroup
+--    cisMulticastGroupInfoGroup
+--   OptGroup
+--    cisMulticastGroupPortInfoGroup
+--   OptGroup
+--    cisMulticastGroupConfigGroup
+--   OptGroup
+--    cisMulticastRouterConfigGroup
+--   OptGroup
+--    cisLeaveQueryConfigGroup
+--   OptGroup
+--    cisQuerierGlobalConfigGroup
+--   OptGroup
+--    cisIgmpQuerierConfigExtGroup
+--   OptGroup
+--    cisVlanExplicitTrackingCfgGroup
+--   OptGroup
+--    cisRobustnessConfigGroup
+--   OptGroup
+--    cisTimeToLiveConfigGroup
+--   OptGroup
+--    cisRouterAlertConfigGroup
+--   OptGroup
+--    cisIfLimitGroup
+--   OptGroup
+--    cisIfLimitTotalGroup
+--   OptGroup
+--    cisIfAccessGroupGroup
+--   OptGroup
+--    cisVlanFilterConfigGroup
+--   OptGroup
+--    cisFilterStatisticsGroup
+--   OptGroup
+--    cisQuerierGlobalTcnQueryCountGroup
+--   OptGroup
+--    cisQuerierTcnQueryPendingGroup
+--   ObjVar
+--    cisIgmpSnoopingEnabled
+--   ObjVar
+--    cisV3ProcessEnabledAdminStatus
+--   ObjVar
+--    cisFastLeaveEnabled
+--   ObjVar
+--    cisAdminMode
+--   ObjVar
+--    cisReportSuppressionEnabled
+--   ObjVar
+--    cisTopoChangeFloodQueryCount
+--   ObjVar
+--    cisIfTopoChangeFloodEnabled
+--   ObjVar
+--    cisTopoChangeQuerySolicitEnabled
+--   ObjVar
+--    cisSourceOnlyLearningEnabled
+--   ObjVar
+--    cisSourceOnlyEntryAgingTime
+--   ObjVar
+--    cisRobustnessVariable
+--   ObjVar
+--    cisLastMemberQueryInterval
+--   ObjVar
+--    cisLastMemberQueryCount
+--   ObjVar
+--    cisTimeToLiveCheckEnabled
+--   ObjVar
+--    cisRouterAlertCheckEnabled
+--   ObjVar
+--    cisRateLimit
+--   ObjVar
+--    cisVlanIgmpSnoopingEnabled
+--   ObjVar
+--    cisVlanFastLeaveEnabled
+--   ObjVar
+--    cisVlanReportSuppressionEnabled
+--   ObjVar
+--    cisVlanLeaveQueryInterval
+--   ObjVar
+--    cisVlanLastMemberQueryCount
+--   ObjVar
+--    cisVlanRobustnessVariable
+--   ObjVar
+--    cisVlanTimeToLiveCheckEnabled
+--   ObjVar
+--    cisVlanRouterAlertCheckEnabled
+--   ObjVar
+--    cisIgmpQuerierEnabled
+--   ObjVar
+--    cisIgmpQuerierTcnQueryCount
+--   ObjVar
+--    cisIgmpQuerierTcnQueryInterval
+--   ObjVar
+--    cisIgmpQuerierTimerExpiry
+--   ObjVar
+--    cisIgmpQuerierMaxResponseTime
+--   ObjVar
+--    cisIgmpQuerierQueryInterval
+--   ObjVar
+--    cisIgmpQuerierAdminAddressType
+--   ObjVar
+--    cisIgmpQuerierAdminAddress
+--   ObjVar
+--    cisIgmpQuerierAdminVersion
+--   ObjVar
+--    cisMcastRouterConfigStorageType
+--   ObjVar
+--    cisMcastRouterConfigRowStatus
+--   ObjVar
+--    cisMulticastGroupConfPortList
+--   ObjVar
+--    cisMulticastGroupConfStorageType
+--   ObjVar
+--    cisMulticastGroupConfRowStatus
+--   ObjVar
+--    cisL2EntryLimit
+--   ObjVar
+--    cisEntryTrackingLimit
+--   ObjVar
+--    cisSourceOnlyPercentageScanLimit
+--   ObjVar
+--    cisSourceOnlyLearningLimit
+--   ObjVar
+--    cisQuerierEnabled
+--   ObjVar
+--    cisQuerierTcnQueryInterval
+--   ObjVar
+--    cisQuerierTimerExpiry
+--   ObjVar
+--    cisQuerierMaxResponseTime
+--   ObjVar
+--    cisQuerierQueryInterval
+--   ObjVar
+--    cisQuerierAddressType
+--   ObjVar
+--    cisQuerierAddress
+--   ObjVar
+--    cisQuerierVersion
+--   ObjVar
+--    cisIfLimitMax
+--   ObjVar
+--    cisIfLimitExcludeAccessGrp
+--   ObjVar
+--    cisIfLimitStorageType
+--   ObjVar
+--    cisIfLimitRowStatus
+--   ObjVar
+--    cisIfAccessGroupsChannelsAllowed
+--   ObjVar
+--    cisIfAccessGroupStorageType
+--   ObjVar
+--    cisIfAccessGroupRowStatus
+--   ObjVar
+--    cisVlanFilterAccessGroup
+--   ObjVar
+--    cisVlanFilterLimitMax
+--   ObjVar
+--    cisVlanFilterLimitExclAccessGrp
+--   ObjVar
+--    cisVlanFilterMinVersionAllowed
+--   ObjVar
+--    cisVlanExplicitTrackingEnabled
+--   ObjVar
+--    cisVlanExplicitTrackingLimit
+--   ObjVar
+--    cisQuerierTcnQueryCount
+
+
+END
+

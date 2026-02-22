@@ -1,0 +1,931 @@
+-- ******************************************************************
+-- CISCO-SIP-CALLS-MIB.my: Session Initiation Protocol Calls MIB file
+--
+-- March 2004   Jaikumar Chidambaram
+--
+-- Copyright (c) 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ******************************************************************
+
+CISCO-SIP-CALLS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Integer32,
+        Unsigned32,
+        Gauge32
+                FROM SNMPv2-SMI
+        
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+                
+        TEXTUAL-CONVENTION
+                FROM SNMPv2-TC
+
+        ciscoMgmt
+                FROM CISCO-SMI
+
+        callActiveSetupTime,
+        callActiveIndex
+                FROM DIAL-CONTROL-MIB
+
+        CvcCoderTypeRate
+                FROM CISCO-VOICE-COMMON-DIAL-CONTROL-MIB
+                
+        InetAddressType,
+        InetAddress,
+        InetPortNumber
+                FROM INET-ADDRESS-MIB;
+                
+
+ciscoSipCallsMIB MODULE-IDENTITY
+        LAST-UPDATED    "200404160000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-sip@cisco.com"
+        DESCRIPTION
+            "The Cisco Session Initiation Protocol (SIP) Calls MIB
+            module is designed to provide protocol-specific
+            information on SIP calls which are currently active.
+            SIP is an application-layer signalling protocol for
+            creating, modifying and terminating multimedia
+            sessions with one or more participants. SIP is defined
+            in RFC 3261 (June 2002).
+            The endpoints in a SIP communication are called user 
+            agents. A user agent is an application which contains
+            both a User Agent Client (UAC) and a User Agent Server
+            (UAS). A UAC is an application that initiates a SIP
+            request. A UAS is an application that contacts the
+            user when a SIP request is received and that returns
+            a response on behalf of the user. This MIB module
+            provides information on SIP calls and the user agents
+            initiating these calls. Also, it provides a way to
+            manage media forking of SIP calls."
+        REVISION  "200404160000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+        ::= { ciscoMgmt 995 }
+        
+--
+--*******************************************************************
+-- Cisco SIP Calls MIB objects definitions
+--*******************************************************************
+--
+
+ciscoSipCallsMIBNotifs     OBJECT IDENTIFIER ::= 
+                                        { ciscoSipCallsMIB 0 }
+
+ciscoSipCallsMIBObjects    OBJECT IDENTIFIER ::= 
+                                        { ciscoSipCallsMIB 1 }
+
+cSipCallActive             OBJECT IDENTIFIER ::=
+                                        { ciscoSipCallsMIBObjects 1 }
+
+cSipCallsMIBConformance    OBJECT IDENTIFIER ::=
+                                        { ciscoSipCallsMIBObjects 2 }
+
+--
+--*******************************************************************
+-- Textual Conventions
+--*******************************************************************
+--
+
+CSipCallState ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION
+            "A textual convention containing the list of
+            call states a SIP call undergoes. The list of call 
+            states and their descriptions are given below :
+            
+            'none'                     - None of the following.
+            
+            'idle'                     - SIP communication has not 
+                                         been initiated.
+                                       
+            'setupBuffered'            - A setup indication has been 
+                                         received from the 
+                                         application, but it has been
+                                         buffered. The INVITE will be
+                                         sent at a later time.
+                                       
+            'sentInvite'               - A SIP INVITE request has been
+                                         sent and no response has been
+                                         received.
+                                       
+            'rcvdProceeding'           - A non-final response (1xx) 
+                                         has been received in response
+                                         to an INVITE request.
+                                       
+            'outgoingResrResv'         - A PRACK has been sent after
+                                         receiving a 183 and QoS 
+                                         resource reservation has been
+                                         initiated.
+                                       
+            'outgoingResrAllocated'    - QoS reservations have 
+                                         completed and an UPDATE has
+                                         been sent.
+                                       
+            'active'                   - A 2xx (Success) response has
+                                         been received for an INVITE
+                                         message and the call is now
+                                         active.
+                                       
+            'rcvdTransfer'             - A SIP REFER request was
+                                         received for an active call.
+                                       
+            'disconnecting'            - A SIP BYE or CANCEL request
+                                         has been sent and no response
+                                         has been received.
+                                       
+            'dead'                     - The call has been cleared in
+                                         normal or abnormal fashion.
+                                       
+            'rcvdInvite'               - A SIP INVITE request has been
+                                         received for an incoming SIP
+                                         call.
+                                       
+            'sentQosProgress'          - An INVITE with QoS 
+                                         precondition has been 
+                                         received. A 183 Session 
+                                         Progress response has been
+                                         sent in response.
+                                       
+            'incomingResrResv'         - A 200 (OK) for a PRACK has 
+                                         been sent out and QoS
+                                         resource reservation has been
+                                         initiated.
+                                       
+            'sentAlerting'             - A SIP 180 (Ringing) response
+                                         has been sent.
+                                       
+            'sentSuccess'              - A SIP 2xx response has been
+                                         sent.
+                                       
+            'midCallLocalRespPending'  - A SIP mid-call INVITE was
+                                         received and the response has
+                                         not been sent yet.
+                                       
+            'sendMidCallInvitePending' - A SIP call is active and a
+                                         mid-call INVITE needs to be 
+                                         sent.
+                                       
+            'sentMidCallInvite'        - A SIP mid-call INVITE has 
+                                         been sent.
+                                       
+            'rcvdSubscribe'            - A SIP SUBSCRIBE request was
+                                         received.
+                                       
+            'subscribeSuccess'         - A response for the SUBSCRIBE
+                                         request was received.
+                                       
+            'subscribeExpired'         - The SUBSCRIBE request for a
+                                         particular event has expired.
+          
+            'sentPreAuthRequest'       - A SIP INVITE was received and
+                                         a preauthorization request 
+                                         has been sent.
+  
+            'sendNotify'               - A NOTIFY message for an event
+                                         earlier subscribed was sent.
+              
+            'subscribeIdle'            - This state is the 
+                                         initialization state for 
+                                         SUBSCRIBE/NOTIFY messages.
+
+            'sentSubscribe'            - A SIP SUBSCRIBE request has 
+                                         been sent.
+
+            'subscribed'               - The user agent has been 
+                                         subscribed with the messaging
+                                         system.
+            
+            'initTransfer'             - A SIP REFER request was 
+                                         received and the call was
+                                         placed on hold in preparation
+                                         for the transfer.
+                                       
+            'outgoingRegister'         - A SIP REGISTER message has 
+                                         been sent.
+                                       
+            'incomingRegister'         - A SIP REGISTER message has
+                                         been received.
+                                       
+            'rcvdUnsolicitedNotify'    - A Cisco-proprietary 
+                                         unsolicited NOTIFY message
+                                         was received."
+        SYNTAX      INTEGER {
+            none(1),
+            idle(2),
+            setupBuffered(3),
+            sentInvite(4),
+            rcvdProceeding(5),
+            outgoingResrResv(6),
+            outgoingResrAllocated(7),
+            active(8),
+            rcvdTransfer(9),
+            disconnecting(10),
+            dead(11),
+            rcvdInvite(12),
+            sentQosProgress(13),
+            incomingResrResv(14),
+            sentAlerting(15),
+            sentSuccess(16),
+            midCallLocalRespPending(17),
+            sendMidCallInvitePending(18),
+            sentMidCallInvite(19),
+            rcvdSubscribe(20),
+            subscribeSuccess(21),
+            subscribeExpired(22),
+            sentPreAuthRequest(23),
+            sendNotify(24),
+            subscribeIdle(25),
+            sentSubscribe(26),
+            subscribed(27),
+            initTransfer(28),
+            outgoingRegister(29),
+            incomingRegister(30),
+            rcvdUnsolicitedNotify(31)
+        }
+        
+ 
+CSipCallSubstate ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION
+            "A textual convention containing the list of
+            call substates a SIP call undergoes. The list of 
+            substates and their descriptions are given below:
+            
+            'none'                    - None of the following.
+            
+            'sentDns'                 - A DNS request has been sent
+                                        to the DNS server.
+            
+            'proceedingProceeding'    - A non-final 1xx response was
+                                        received, while in 
+                                        rcvdProceeding state.
+            
+            'rcvdInviteCallSetup'     - A SIP INVITE has been received
+                                        and the call is being set up.
+          
+            'rcvdInviteProceeding'    - A 100 (Trying) response was
+                                        received for a INVITE request.
+                                       
+            'sentEnum'                - An ENUM query is in progress.
+
+            'ackPending'              - An acknowledgement pending for
+                                        any message sent.
+                                       
+            'sentNotify'              - A NOTIFY message for any
+                                        subscribed event was sent.
+            
+            'callTransferSendByeAlso' - A BYE request was sent with 
+                                        an 'Also' header."
+        SYNTAX      INTEGER {
+            none(1),
+            sentDns(2),
+            proceedingProceeding(3),
+            rcvdInviteCallSetup(4),
+            rcvdInviteProceeding(5),
+            sentEnum(6),
+            ackPending(7),
+            sentNotify(8),
+            callTransferSendByeAlso(9)
+        }
+
+--
+--*******************************************************************
+-- SIP Active Call group
+--*******************************************************************
+--
+
+cSipUACActiveCalls OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the number of UAC calls
+            currently active. UAC calls are those calls which
+            are initiated by this system's SIP user agent on
+            behalf of users acting as the calling party."            
+        ::= { cSipCallActive 1 }
+    
+cSipUASActiveCalls OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the number of UAS calls currently
+            active. UAS calls are those calls which are received by
+            this system's SIP user agent on behalf of users acting 
+            as the called party."            
+        ::= { cSipCallActive 2 }
+    
+--
+--********************************************************************
+-- SIP Call Active Table
+--********************************************************************
+--
+
+cSipCallActiveTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CSipCallActiveEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This table is the SIP extension to cvVoIPCallActiveTable
+            of CISCO-VOICE-DIAL-CONTROL-MIB. It represents UAC and UAS
+            information on active SIP calls."              
+        ::= { cSipCallActive 3 }
+        
+cSipCallActiveEntry OBJECT-TYPE
+        SYNTAX      CSipCallActiveEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "An entry contains information regarding a single active
+            SIP Call. The active call entry is identified by using
+            the same index objects that are used by callActiveTable of
+            IETF DIAL-CONTROL-MIB to identify the call."            
+        INDEX       { callActiveSetupTime, callActiveIndex }        
+        ::= { cSipCallActiveTable 1 }
+        
+
+CSipCallActiveEntry ::=
+        SEQUENCE {
+            cSipCallActiveId                        SnmpAdminString,
+            cSipCallActiveType                      INTEGER,
+            cSipCallActiveState                     CSipCallState,
+            cSipCallActiveSubstate                  CSipCallSubstate,
+            cSipCallActiveCallingNumber             SnmpAdminString,
+            cSipCallActiveCalledNumber              SnmpAdminString,
+            cSipCallActiveSigSrcIpAddrType          InetAddressType,
+            cSipCallActiveSigSrcIpAddr              InetAddress,
+            cSipCallActiveDestReqIpAddrType         InetAddressType,
+            cSipCallActiveDestReqIpAddr             InetAddress,
+            cSipCallActiveDestReqPort               InetPortNumber,
+            cSipCallActiveDestResIpAddrType         InetAddressType,
+            cSipCallActiveDestResIpAddr             InetAddress,
+            cSipCallActiveDestResPort               InetPortNumber,
+            cSipCallActiveDestIpAddrType            InetAddressType,
+            cSipCallActiveDestIpAddr                InetAddress,
+            cSipCallActiveMediaStreams              Unsigned32,
+            cSipCallActiveMediaStreamsActive        Unsigned32
+        }
+
+cSipCallActiveId OBJECT-TYPE
+        SYNTAX      SnmpAdminString
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object represents the protocol specific unique 
+            identifier for this call."            
+        ::= { cSipCallActiveEntry 1 }
+
+cSipCallActiveType OBJECT-TYPE
+        SYNTAX      INTEGER {
+            uac(1),
+            uas(2)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object denotes whether the call is a UAC 
+            or a UAS one.
+                'uac' -   User Agent Client
+                
+                'uas' -   User Agent Server."        
+        ::= { cSipCallActiveEntry 2 }
+        
+cSipCallActiveState OBJECT-TYPE
+        SYNTAX      CSipCallState
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the current state of the call."
+        ::= { cSipCallActiveEntry 3 }
+        
+cSipCallActiveSubstate OBJECT-TYPE
+        SYNTAX      CSipCallSubstate
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the current substate of the call."
+        ::= { cSipCallActiveEntry 4 }
+        
+cSipCallActiveCallingNumber OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE (0..64))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Indicates the calling number."        
+        ::= { cSipCallActiveEntry 5 }
+        
+cSipCallActiveCalledNumber OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE (0..64))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Indicates the called Number."        
+        ::= { cSipCallActiveEntry 6 }
+        
+cSipCallActiveSigSrcIpAddrType OBJECT-TYPE
+        SYNTAX      InetAddressType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Internet type of the signaling source IP address."
+        ::= { cSipCallActiveEntry 7 }
+
+cSipCallActiveSigSrcIpAddr OBJECT-TYPE
+        SYNTAX      InetAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the signaling source IP address. 
+            Its value should be interpreted within the context of
+            the associated cSipCallActiveSigSrcIpAddrType object."
+        ::= { cSipCallActiveEntry 8 }
+        
+cSipCallActiveDestReqIpAddrType OBJECT-TYPE
+        SYNTAX      InetAddressType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Internet type of the signaling destination request
+             IP address."              
+        ::= { cSipCallActiveEntry 9 }
+
+cSipCallActiveDestReqIpAddr OBJECT-TYPE
+        SYNTAX      InetAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the signaling destination request
+            IP address. Its value should be interpreted within the
+            context of the associated cSipCallActiveDestReqIpAddrType
+            object."
+        ::= { cSipCallActiveEntry 10 }
+        
+cSipCallActiveDestReqPort OBJECT-TYPE
+        SYNTAX      InetPortNumber
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the signaling destination request
+            port number."            
+        ::= { cSipCallActiveEntry 11 }
+        
+cSipCallActiveDestResIpAddrType OBJECT-TYPE
+        SYNTAX      InetAddressType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Internet type of the signaling destination response
+             IP address."
+        ::= { cSipCallActiveEntry 12 }
+
+cSipCallActiveDestResIpAddr OBJECT-TYPE
+        SYNTAX      InetAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the signaling destination response
+            IP address. Its value should be interpreted within the
+            context of the associated cSipCallActiveDestResIpAddrType
+            object."            
+        ::= { cSipCallActiveEntry 13 }
+        
+cSipCallActiveDestResPort OBJECT-TYPE
+        SYNTAX      InetPortNumber
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the signaling destination response 
+            port number."        
+        ::= { cSipCallActiveEntry 14 }
+        
+cSipCallActiveDestIpAddrType OBJECT-TYPE
+        SYNTAX      InetAddressType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Internet type of the signaling destination IP address."
+        ::= { cSipCallActiveEntry 15 }
+
+cSipCallActiveDestIpAddr OBJECT-TYPE
+        SYNTAX      InetAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the signaling destination 
+            IP address. It may be either a DNS hostname or an
+            IP address. Its value should be interpreted within the
+            context of the associated cSipCallActiveDestIpAddrType
+            object."
+        ::= { cSipCallActiveEntry 16 }
+        
+cSipCallActiveMediaStreams OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "If the call is a media-forked one, this object 
+            reflects the number of media streams."
+        ::= { cSipCallActiveEntry 17 }
+
+cSipCallActiveMediaStreamsActive OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "If the call is a media-forked one, this object 
+            reflects the number of media streams currently 
+            active."            
+        ::= { cSipCallActiveEntry 18 }
+        
+--
+--*******************************************************************
+-- Media Streams Table
+--*******************************************************************
+--
+
+cSipMediaStreamsTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF CSipMediaStreamsEntry 
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This table contains objects relating to the media 
+            streams that get forked in a SIP call. It includes
+            information about each media stream, if it is a
+            media-forked call."            
+        ::= { cSipCallActive 4 }
+        
+cSipMediaStreamsEntry OBJECT-TYPE
+        SYNTAX      CSipMediaStreamsEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "Each entry in this table, represents information 
+            regarding a media stream associated with a SIP call.
+            Conceptually it is a nested table within a call entry
+            in the cSipCallActiveTable."            
+        INDEX 
+        { callActiveSetupTime, callActiveIndex, cSipMediaStreamIndex }
+        ::= { cSipMediaStreamsTable 1 }
+        
+CSipMediaStreamsEntry ::=
+        SEQUENCE {
+            cSipMediaStreamIndex                    Unsigned32,
+            cSipMediaStreamState                    INTEGER,
+            cSipMediaStreamCallId                   Integer32,
+            cSipMediaStreamType                     INTEGER,
+            cSipMediaStreamNegotdCodec              CvcCoderTypeRate,
+            cSipMediaStreamCodecPayloadType         Integer32,
+            cSipMediaStreamNegotdDtmfRelay          INTEGER,
+            cSipMediaStreamDtmfPayloadType          Integer32,
+            cSipMediaStreamSrcIpAddrType            InetAddressType,
+            cSipMediaStreamSrcIpAddr                InetAddress,
+            cSipMediaStreamSrcPort                  InetPortNumber,
+            cSipMediaStreamDestIpAddrType           InetAddressType,
+            cSipMediaStreamDestIpAddr               InetAddress,
+            cSipMediaStreamDestPort                 InetPortNumber
+        }
+        
+cSipMediaStreamIndex OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "The unique media stream identifier for a single call."
+        ::= { cSipMediaStreamsEntry 1 }
+        
+cSipMediaStreamState OBJECT-TYPE
+        SYNTAX      INTEGER {
+            invalidStreamState(1),
+            idle(2),
+            adding(3),
+            deleting(4),
+            changing(5),
+            active(6),
+            dead(7)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The current state of the media stream.
+            
+             'invalidStreamState' - None of the following.
+             
+             'idle'               - Initialization state. The stream
+                                    is yet to be forked.
+                                   
+             'adding'             - The stream is getting forked.
+             
+             'deleting'           - The stream is being deleted from
+                                    the call.
+                                   
+             'changing'           - The stream is in the process of
+                                    changing its state.
+             
+             'active'             - The stream is now active and 
+                                    communication is on.
+             
+             'dead'               - The stream has been cleared."
+        ::= { cSipMediaStreamsEntry 2 }
+        
+cSipMediaStreamCallId OBJECT-TYPE
+        SYNTAX      Integer32 (-1..2147483647)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object represents the stream call identifier
+            indicated by the media stream header. A value of -1
+            indicates that the stream is in DEAD state."            
+        ::= { cSipMediaStreamsEntry 3 }
+        
+cSipMediaStreamType OBJECT-TYPE
+        SYNTAX      INTEGER {
+            voiceOnly(1),
+            dtmfRelay(2),
+            voiceAndDtmfRelay(3)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object identifies the type of the Media Stream.
+               'voiceOnly'         - Voice-only media streams send all
+                                     audio from the DS0 channel.
+                                     
+               'dtmfRelay'         - Dual Tone Multi Frequency Tones.
+               
+               'voiceAndDtmfRelay' - Send both encoded voice and 
+                                     DTMF-relay packets."                                    
+        ::= { cSipMediaStreamsEntry 4 }
+        
+cSipMediaStreamNegotdCodec OBJECT-TYPE
+        SYNTAX      CvcCoderTypeRate
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the codec selected for the media 
+            stream."
+        ::= { cSipMediaStreamsEntry 5 }
+
+cSipMediaStreamCodecPayloadType OBJECT-TYPE
+        SYNTAX      Integer32 (-1..127)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The RTP payload type of the media stream. RTP payload 
+            specifies the data transported by RTP in a packet, for
+            example audio samples or compressed video data. A value
+            of -1 means that no codec has been negotiated.
+            RFC 3551 specifies the payload type number to be used
+            with different codecs. The following are some of the
+            standard payload types applicable to SIP calls :
+
+            PT          Encoding Name
+            0           PCMU(G711ulaw)
+            3           GSM
+            4           G723
+            8           PCMA(G711alaw)
+            9           G722
+            15          G728
+            18          G729
+            96--127     dynamic
+
+            For other codecs, dynamic payload types in the range 
+            96--127 are negotiated during call setup.
+            Also note that Cisco has preassigned certain payload
+            types in this dynamic range for certain encodings:
+            
+            PT          Function
+            96          fax
+            97          fax-ack
+            100         NSE
+            101         NTE
+            121         DTMF-relay
+            122         Fax-relay
+            123         CAS
+            125         ClearChan"
+        REFERENCE
+            "RFC 3551, Section 6."
+        ::= { cSipMediaStreamsEntry 6 }
+        
+cSipMediaStreamNegotdDtmfRelay OBJECT-TYPE
+        SYNTAX      INTEGER {
+            inBandVoice(1),
+            rtpNte(2)
+        }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the DTMF-relay selected for the
+            media stream indicated by the media stream header.
+
+                'inBandVoice' - DTMF digits are sent as in-band 
+                                audio.
+                
+                'rtpNte'      - RTP Named Telephony Event. RTP-NTE is
+                                described in RFC 2833."
+        ::= { cSipMediaStreamsEntry 7 }
+        
+cSipMediaStreamDtmfPayloadType OBJECT-TYPE
+        SYNTAX      Integer32 (-1..127)
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The RTP payload type of the negotiated DTMF-relay. 
+            RTP payload specifies the data transported by RTP in a
+            packet, for example audio samples or compressed video
+            data. A value of -1 means that no codec has been 
+            negotiated.
+            RFC 3551 specifies the payload type number to be used
+            with different codecs. The following are some of the
+            standard payload types applicable to SIP calls :
+
+            PT          Encoding Name
+            0           PCMU(G711ulaw)
+            3           GSM
+            4           G723
+            8           PCMA(G711alaw)
+            9           G722
+            15          G728
+            18          G729
+            96--127     dynamic
+
+            For other codecs, dynamic payload types in the range
+            96--127 are negotiated during call setup.
+            Also note that Cisco has preassigned certain payload
+            types in this dynamic range for certain encodings:
+            
+            PT          Function
+            96          fax
+            97          fax-ack
+            100         NSE
+            101         NTE
+            121         DTMF-relay
+            122         Fax-relay
+            123         CAS
+            125         ClearChan"
+        REFERENCE
+            "RFC 3551, Section 6."            
+        ::= { cSipMediaStreamsEntry 8 }
+        
+cSipMediaStreamSrcIpAddrType OBJECT-TYPE
+        SYNTAX      InetAddressType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Internet type of the media stream source IP address."
+        ::= { cSipMediaStreamsEntry 9 }
+
+cSipMediaStreamSrcIpAddr OBJECT-TYPE
+        SYNTAX      InetAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the source IP address of the media
+            stream. Its value should be interpreted within the
+            context of the associated cSipMediaStreamSrcIpAddrType
+            object."            
+        ::= { cSipMediaStreamsEntry 10 }
+        
+cSipMediaStreamSrcPort OBJECT-TYPE
+        SYNTAX      InetPortNumber
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the UDP port of the media stream
+            source."            
+        ::= { cSipMediaStreamsEntry 11 }
+        
+cSipMediaStreamDestIpAddrType OBJECT-TYPE
+        SYNTAX      InetAddressType
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Internet type of the media stream destination IP 
+            address."
+        ::= { cSipMediaStreamsEntry 12 }
+
+cSipMediaStreamDestIpAddr OBJECT-TYPE
+        SYNTAX      InetAddress
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the destination IP address of the
+            media stream. Its value should be interpreted within the
+            context of the associated cSipMediaStreamDestIpAddrType
+            object."            
+        ::= { cSipMediaStreamsEntry 13}
+        
+cSipMediaStreamDestPort OBJECT-TYPE
+        SYNTAX      InetPortNumber
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the UDP port of the media stream 
+            destination."            
+        ::= { cSipMediaStreamsEntry 14 }
+        
+--
+--*******************************************************************
+-- CISCO-SIP-CALLS MIB Conformance and Compliance
+--*******************************************************************
+--
+
+cSipCallsMIBCompliances OBJECT IDENTIFIER ::=
+                                    { cSipCallsMIBConformance 1 }
+
+cSipCallsMIBGroups      OBJECT IDENTIFIER ::=
+                                    { cSipCallsMIBConformance 2 }
+
+
+--
+--*******************************************************************
+-- CISCO-SIP-CALLS MIB Compliance
+--*******************************************************************
+--
+cSipCallsMIBCompliance MODULE-COMPLIANCE
+        STATUS      current
+        DESCRIPTION
+            "The compliance statement for entities which
+             implement the CISCO-SIP-CALLS-MIB"
+        MODULE      -- this module
+        MANDATORY-GROUPS
+            { cSipCallActiveGroup , cSipMediaStreamGroup }            
+        ::= { cSipCallsMIBCompliances 1 }
+
+
+--
+--*******************************************************************
+-- CISCO-SIP-CALLS MIB Groups
+--*******************************************************************
+--
+
+cSipCallActiveGroup OBJECT-GROUP
+        OBJECTS {
+            cSipUACActiveCalls,
+            cSipUASActiveCalls,
+            cSipCallActiveId,
+            cSipCallActiveType,
+            cSipCallActiveState,
+            cSipCallActiveSubstate,
+            cSipCallActiveCallingNumber,
+            cSipCallActiveCalledNumber,
+            cSipCallActiveSigSrcIpAddrType,
+            cSipCallActiveSigSrcIpAddr,
+            cSipCallActiveDestReqIpAddrType,
+            cSipCallActiveDestReqIpAddr,
+            cSipCallActiveDestReqPort,
+            cSipCallActiveDestResIpAddrType,
+            cSipCallActiveDestResIpAddr,
+            cSipCallActiveDestResPort,
+            cSipCallActiveDestIpAddrType,
+            cSipCallActiveDestIpAddr,
+            cSipCallActiveMediaStreams,
+            cSipCallActiveMediaStreamsActive
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the active SIP calls 
+            capability."
+        ::= { cSipCallsMIBGroups 1 }
+        
+cSipMediaStreamGroup OBJECT-GROUP
+        OBJECTS {
+            cSipMediaStreamState,
+            cSipMediaStreamCallId,
+            cSipMediaStreamType,
+            cSipMediaStreamNegotdCodec,
+            cSipMediaStreamCodecPayloadType,
+            cSipMediaStreamNegotdDtmfRelay,
+            cSipMediaStreamDtmfPayloadType,
+            cSipMediaStreamSrcIpAddrType,
+            cSipMediaStreamSrcIpAddr,
+            cSipMediaStreamSrcPort,
+            cSipMediaStreamDestIpAddrType,
+            cSipMediaStreamDestIpAddr,
+            cSipMediaStreamDestPort
+        }
+        STATUS      current
+        DESCRIPTION
+            "A collection of objects providing the media stream 
+            information capability."
+        ::= { cSipCallsMIBGroups 2 }
+        
+END

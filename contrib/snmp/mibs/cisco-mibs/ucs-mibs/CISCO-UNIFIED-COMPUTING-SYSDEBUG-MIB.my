@@ -1,0 +1,4782 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-SYSDEBUG-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- SYSDEBUG management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-SYSDEBUG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsCommClientAdminState,
+    CucsConditionRemoteInvRslt,
+    CucsFsmCompletion,
+    CucsFsmFlags,
+    CucsFsmFsmStageStatus,
+    CucsNetworkSwitchId,
+    CucsPolicyPolicyOwner,
+    CucsSysdebugAutoCoreFileExportTargetFsmCurrentFsm,
+    CucsSysdebugAutoCoreFileExportTargetFsmStageName,
+    CucsSysdebugAutoCoreFileExportTargetFsmTaskItem,
+    CucsSysdebugAutoCoreFileExportTargetProto,
+    CucsSysdebugBackupBehaviorInterval,
+    CucsSysdebugBackupBehaviorProto,
+    CucsSysdebugBackupFormat,
+    CucsSysdebugCoreExportStatus,
+    CucsSysdebugCoreFileAdminState,
+    CucsSysdebugCoreFileOperState,
+    CucsSysdebugCoreFsmCurrentFsm,
+    CucsSysdebugCoreFsmStageName,
+    CucsSysdebugCoreFsmTaskItem,
+    CucsSysdebugDiagLogOperState,
+    CucsSysdebugEpLogAdminState,
+    CucsSysdebugEpLogBackupAction,
+    CucsSysdebugEpLogCapacity,
+    CucsSysdebugEpLogType,
+    CucsSysdebugExportStatus,
+    CucsSysdebugLogControlDomainEnum,
+    CucsSysdebugLogControlEpFsmCurrentFsm,
+    CucsSysdebugLogControlEpFsmStageName,
+    CucsSysdebugLogControlEpFsmTaskItem,
+    CucsSysdebugLogControlLevel,
+    CucsSysdebugLogExportPolicyFsmCurrentFsm,
+    CucsSysdebugLogExportPolicyFsmStageName,
+    CucsSysdebugLogExportPolicyFsmTaskItem,
+    CucsSysdebugLogExportPolicyProto,
+    CucsSysdebugMEpLogOperState,
+    CucsSysdebugManualCoreFileExportTargetAdminState,
+    CucsSysdebugManualCoreFileExportTargetFsmCurrentFsm,
+    CucsSysdebugManualCoreFileExportTargetFsmStageName,
+    CucsSysdebugManualCoreFileExportTargetFsmTaskItem,
+    CucsSysdebugManualCoreFileExportTargetProto,
+    CucsSysdebugTSCmdOptCmdOptions,
+    CucsSysdebugTSCmdOptMajorType,
+    CucsSysdebugTechSupportAdminState,
+    CucsSysdebugTechSupportFsmCurrentFsm,
+    CucsSysdebugTechSupportFsmStageName,
+    CucsSysdebugTechSupportFsmTaskItem,
+    CucsSysdebugTechSupportOperState,
+    CucsSysfileExporterPostAction
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsSysdebugObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        SYSDEBUG management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 47 }
+
+cucsSysdebugAutoCoreFileExportTargetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugAutoCoreFileExportTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget managed object table"
+    ::= { cucsSysdebugObjects 1 }
+
+cucsSysdebugAutoCoreFileExportTargetEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugAutoCoreFileExportTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugAutoCoreFileExportTargetTable table."
+    INDEX { cucsSysdebugAutoCoreFileExportTargetInstanceId }
+    ::= { cucsSysdebugAutoCoreFileExportTargetTable 1 }
+
+CucsSysdebugAutoCoreFileExportTargetEntry ::= SEQUENCE {
+    cucsSysdebugAutoCoreFileExportTargetInstanceId                   CucsManagedObjectId,
+    cucsSysdebugAutoCoreFileExportTargetDn                           CucsManagedObjectDn,
+    cucsSysdebugAutoCoreFileExportTargetRn                           SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetAdminState                   CucsCommClientAdminState,
+    cucsSysdebugAutoCoreFileExportTargetDescr                        SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmDescr                     SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmPrev                      SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmProgr                     Gauge32,
+    cucsSysdebugAutoCoreFileExportTargetFsmRmtInvErrCode             Gauge32,
+    cucsSysdebugAutoCoreFileExportTargetFsmRmtInvErrDescr            SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmRmtInvRslt                CucsConditionRemoteInvRslt,
+    cucsSysdebugAutoCoreFileExportTargetFsmStageDescr                SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmStamp                     DateAndTime,
+    cucsSysdebugAutoCoreFileExportTargetFsmStatus                    SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmTry                       Gauge32,
+    cucsSysdebugAutoCoreFileExportTargetHostname                     SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetIntId                        SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetName                         SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetPath                         SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetPort                         Gauge32,
+    cucsSysdebugAutoCoreFileExportTargetPostAction                   CucsSysfileExporterPostAction,
+    cucsSysdebugAutoCoreFileExportTargetProto                        CucsSysdebugAutoCoreFileExportTargetProto,
+    cucsSysdebugAutoCoreFileExportTargetExportFailureReason          SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetExportStatus                 CucsSysdebugCoreExportStatus,
+    cucsSysdebugAutoCoreFileExportTargetPolicyLevel                  Gauge32,
+    cucsSysdebugAutoCoreFileExportTargetPolicyOwner                  CucsPolicyPolicyOwner
+}
+
+cucsSysdebugAutoCoreFileExportTargetInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 1 }
+
+cucsSysdebugAutoCoreFileExportTargetDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:dn
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 2 }
+
+cucsSysdebugAutoCoreFileExportTargetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:rn
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 3 }
+
+cucsSysdebugAutoCoreFileExportTargetAdminState OBJECT-TYPE
+    SYNTAX       CucsCommClientAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:adminState
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 4 }
+
+cucsSysdebugAutoCoreFileExportTargetDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:descr
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 5 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:fsmDescr
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 6 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:fsmPrev
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 7 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:fsmProgr
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 8 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 9 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 10 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:fsmRmtInvRslt
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 11 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:fsmStageDescr
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 12 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:fsmStamp
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 13 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:fsmStatus
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 14 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:fsmTry
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 15 }
+
+cucsSysdebugAutoCoreFileExportTargetHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:hostname
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 16 }
+
+cucsSysdebugAutoCoreFileExportTargetIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:intId
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 17 }
+
+cucsSysdebugAutoCoreFileExportTargetName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:name
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 18 }
+
+cucsSysdebugAutoCoreFileExportTargetPath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:path
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 19 }
+
+cucsSysdebugAutoCoreFileExportTargetPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:port
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 20 }
+
+cucsSysdebugAutoCoreFileExportTargetPostAction OBJECT-TYPE
+    SYNTAX       CucsSysfileExporterPostAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:postAction
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 21 }
+
+cucsSysdebugAutoCoreFileExportTargetProto OBJECT-TYPE
+    SYNTAX       CucsSysdebugAutoCoreFileExportTargetProto
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:proto
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 22 }
+
+cucsSysdebugAutoCoreFileExportTargetExportFailureReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:exportFailureReason
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 23 }
+
+cucsSysdebugAutoCoreFileExportTargetExportStatus OBJECT-TYPE
+    SYNTAX       CucsSysdebugCoreExportStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:exportStatus
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 24 }
+
+cucsSysdebugAutoCoreFileExportTargetPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:policyLevel
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 25 }
+
+cucsSysdebugAutoCoreFileExportTargetPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTarget:policyOwner
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetEntry 26 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugAutoCoreFileExportTargetFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm
+        managed object table"
+    ::= { cucsSysdebugObjects 22 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugAutoCoreFileExportTargetFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugAutoCoreFileExportTargetFsmTable table."
+    INDEX { cucsSysdebugAutoCoreFileExportTargetFsmInstanceId }
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmTable 1 }
+
+CucsSysdebugAutoCoreFileExportTargetFsmEntry ::= SEQUENCE {
+    cucsSysdebugAutoCoreFileExportTargetFsmInstanceId                CucsManagedObjectId,
+    cucsSysdebugAutoCoreFileExportTargetFsmDn                        CucsManagedObjectDn,
+    cucsSysdebugAutoCoreFileExportTargetFsmRn                        SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmCompletionTime            DateAndTime,
+    cucsSysdebugAutoCoreFileExportTargetFsmCurrentFsm                CucsSysdebugAutoCoreFileExportTargetFsmCurrentFsm,
+    cucsSysdebugAutoCoreFileExportTargetFsmDescrData                 SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmFsmStatus                 CucsFsmFsmStageStatus,
+    cucsSysdebugAutoCoreFileExportTargetFsmProgress                  Gauge32,
+    cucsSysdebugAutoCoreFileExportTargetFsmRmtErrCode                Gauge32,
+    cucsSysdebugAutoCoreFileExportTargetFsmRmtErrDescr               SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmRmtRslt                   CucsConditionRemoteInvRslt
+}
+
+cucsSysdebugAutoCoreFileExportTargetFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 1 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm:dn
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 2 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm:rn
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 3 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm:completionTime
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 4 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsSysdebugAutoCoreFileExportTargetFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm:currentFsm
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 5 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm:descr
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 6 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm:fsmStatus
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 7 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm:progress
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 8 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm:rmtErrCode
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 9 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm:rmtErrDescr
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 10 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsm:rmtRslt
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmEntry 11 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugAutoCoreFileExportTargetFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmStage
+        managed object table"
+    ::= { cucsSysdebugObjects 23 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugAutoCoreFileExportTargetFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugAutoCoreFileExportTargetFsmStageTable table."
+    INDEX { cucsSysdebugAutoCoreFileExportTargetFsmStageInstanceId }
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmStageTable 1 }
+
+CucsSysdebugAutoCoreFileExportTargetFsmStageEntry ::= SEQUENCE {
+    cucsSysdebugAutoCoreFileExportTargetFsmStageInstanceId           CucsManagedObjectId,
+    cucsSysdebugAutoCoreFileExportTargetFsmStageDn                   CucsManagedObjectDn,
+    cucsSysdebugAutoCoreFileExportTargetFsmStageRn                   SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmStageDescrData            SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmStageLastUpdateTime       DateAndTime,
+    cucsSysdebugAutoCoreFileExportTargetFsmStageName                 CucsSysdebugAutoCoreFileExportTargetFsmStageName,
+    cucsSysdebugAutoCoreFileExportTargetFsmStageOrder                Gauge32,
+    cucsSysdebugAutoCoreFileExportTargetFsmStageRetry                Gauge32,
+    cucsSysdebugAutoCoreFileExportTargetFsmStageStageStatus          CucsFsmFsmStageStatus
+}
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmStageEntry 1 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmStage:dn
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmStageEntry 2 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmStage:rn
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmStageEntry 3 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmStage:descr
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmStageEntry 4 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmStage:lastUpdateTim
+        e managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmStageEntry 5 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageName OBJECT-TYPE
+    SYNTAX       CucsSysdebugAutoCoreFileExportTargetFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmStage:name
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmStageEntry 6 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmStage:order
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmStageEntry 7 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmStage:retry
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmStageEntry 8 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmStage:stageStatus
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmStageEntry 9 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugAutoCoreFileExportTargetFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmTask
+        managed object table"
+    ::= { cucsSysdebugObjects 2 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugAutoCoreFileExportTargetFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugAutoCoreFileExportTargetFsmTaskTable table."
+    INDEX { cucsSysdebugAutoCoreFileExportTargetFsmTaskInstanceId }
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmTaskTable 1 }
+
+CucsSysdebugAutoCoreFileExportTargetFsmTaskEntry ::= SEQUENCE {
+    cucsSysdebugAutoCoreFileExportTargetFsmTaskInstanceId            CucsManagedObjectId,
+    cucsSysdebugAutoCoreFileExportTargetFsmTaskDn                    CucsManagedObjectDn,
+    cucsSysdebugAutoCoreFileExportTargetFsmTaskRn                    SnmpAdminString,
+    cucsSysdebugAutoCoreFileExportTargetFsmTaskCompletion            CucsFsmCompletion,
+    cucsSysdebugAutoCoreFileExportTargetFsmTaskFlags                 CucsFsmFlags,
+    cucsSysdebugAutoCoreFileExportTargetFsmTaskItem                  CucsSysdebugAutoCoreFileExportTargetFsmTaskItem,
+    cucsSysdebugAutoCoreFileExportTargetFsmTaskSeqId                 Gauge32
+}
+
+cucsSysdebugAutoCoreFileExportTargetFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmTaskEntry 1 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmTask:dn
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmTaskEntry 2 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmTask:rn
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmTaskEntry 3 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmTask:completion
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmTaskEntry 4 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmTask:flags
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmTaskEntry 5 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsSysdebugAutoCoreFileExportTargetFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmTask:item
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmTaskEntry 6 }
+
+cucsSysdebugAutoCoreFileExportTargetFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:AutoCoreFileExportTargetFsmTask:seqId
+        managed object property"
+    ::= { cucsSysdebugAutoCoreFileExportTargetFsmTaskEntry 7 }
+
+cucsSysdebugBackupBehaviorTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugBackupBehaviorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior managed object table"
+    ::= { cucsSysdebugObjects 3 }
+
+cucsSysdebugBackupBehaviorEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugBackupBehaviorEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugBackupBehaviorTable table."
+    INDEX { cucsSysdebugBackupBehaviorInstanceId }
+    ::= { cucsSysdebugBackupBehaviorTable 1 }
+
+CucsSysdebugBackupBehaviorEntry ::= SEQUENCE {
+    cucsSysdebugBackupBehaviorInstanceId                             CucsManagedObjectId,
+    cucsSysdebugBackupBehaviorDn                                     CucsManagedObjectDn,
+    cucsSysdebugBackupBehaviorRn                                     SnmpAdminString,
+    cucsSysdebugBackupBehaviorAction                                 CucsSysdebugEpLogBackupAction,
+    cucsSysdebugBackupBehaviorClearOnBackup                          TruthValue,
+    cucsSysdebugBackupBehaviorFormat                                 CucsSysdebugBackupFormat,
+    cucsSysdebugBackupBehaviorHostname                               SnmpAdminString,
+    cucsSysdebugBackupBehaviorInterval                               CucsSysdebugBackupBehaviorInterval,
+    cucsSysdebugBackupBehaviorProto                                  CucsSysdebugBackupBehaviorProto,
+    cucsSysdebugBackupBehaviorPwd                                    SnmpAdminString,
+    cucsSysdebugBackupBehaviorRemotePath                             SnmpAdminString,
+    cucsSysdebugBackupBehaviorUser                                   SnmpAdminString
+}
+
+cucsSysdebugBackupBehaviorInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugBackupBehaviorEntry 1 }
+
+cucsSysdebugBackupBehaviorDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:dn managed object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 2 }
+
+cucsSysdebugBackupBehaviorRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:rn managed object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 3 }
+
+cucsSysdebugBackupBehaviorAction OBJECT-TYPE
+    SYNTAX       CucsSysdebugEpLogBackupAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:action managed object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 4 }
+
+cucsSysdebugBackupBehaviorClearOnBackup OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:clearOnBackup
+        managed object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 5 }
+
+cucsSysdebugBackupBehaviorFormat OBJECT-TYPE
+    SYNTAX       CucsSysdebugBackupFormat
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:format managed object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 6 }
+
+cucsSysdebugBackupBehaviorHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:hostname managed
+        object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 7 }
+
+cucsSysdebugBackupBehaviorInterval OBJECT-TYPE
+    SYNTAX       CucsSysdebugBackupBehaviorInterval
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:interval managed
+        object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 8 }
+
+cucsSysdebugBackupBehaviorProto OBJECT-TYPE
+    SYNTAX       CucsSysdebugBackupBehaviorProto
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:proto managed object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 9 }
+
+cucsSysdebugBackupBehaviorPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:pwd managed object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 10 }
+
+cucsSysdebugBackupBehaviorRemotePath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:remotePath managed
+        object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 11 }
+
+cucsSysdebugBackupBehaviorUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:BackupBehavior:user managed object property"
+    ::= { cucsSysdebugBackupBehaviorEntry 12 }
+
+cucsSysdebugCoreTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugCoreEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core managed object table"
+    ::= { cucsSysdebugObjects 4 }
+
+cucsSysdebugCoreEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugCoreEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugCoreTable table."
+    INDEX { cucsSysdebugCoreInstanceId }
+    ::= { cucsSysdebugCoreTable 1 }
+
+CucsSysdebugCoreEntry ::= SEQUENCE {
+    cucsSysdebugCoreInstanceId                                       CucsManagedObjectId,
+    cucsSysdebugCoreDn                                               CucsManagedObjectDn,
+    cucsSysdebugCoreRn                                               SnmpAdminString,
+    cucsSysdebugCoreDescr                                            SnmpAdminString,
+    cucsSysdebugCoreName                                             SnmpAdminString,
+    cucsSysdebugCoreSize                                             Gauge32,
+    cucsSysdebugCoreSwitchId                                         CucsNetworkSwitchId,
+    cucsSysdebugCoreTs                                               DateAndTime,
+    cucsSysdebugCoreUri                                              SnmpAdminString,
+    cucsSysdebugCoreAdminState                                       CucsSysdebugCoreFileAdminState,
+    cucsSysdebugCoreFsmDescr                                         SnmpAdminString,
+    cucsSysdebugCoreFsmPrev                                          SnmpAdminString,
+    cucsSysdebugCoreFsmProgr                                         Gauge32,
+    cucsSysdebugCoreFsmRmtInvErrCode                                 Gauge32,
+    cucsSysdebugCoreFsmRmtInvErrDescr                                SnmpAdminString,
+    cucsSysdebugCoreFsmRmtInvRslt                                    CucsConditionRemoteInvRslt,
+    cucsSysdebugCoreFsmStageDescr                                    SnmpAdminString,
+    cucsSysdebugCoreFsmStamp                                         DateAndTime,
+    cucsSysdebugCoreFsmStatus                                        SnmpAdminString,
+    cucsSysdebugCoreFsmTry                                           Gauge32,
+    cucsSysdebugCoreOperState                                        CucsSysdebugCoreFileOperState,
+    cucsSysdebugCoreChecksum                                         SnmpAdminString
+}
+
+cucsSysdebugCoreInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugCoreEntry 1 }
+
+cucsSysdebugCoreDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:dn managed object property"
+    ::= { cucsSysdebugCoreEntry 2 }
+
+cucsSysdebugCoreRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:rn managed object property"
+    ::= { cucsSysdebugCoreEntry 3 }
+
+cucsSysdebugCoreDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:descr managed object property"
+    ::= { cucsSysdebugCoreEntry 4 }
+
+cucsSysdebugCoreName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:name managed object property"
+    ::= { cucsSysdebugCoreEntry 5 }
+
+cucsSysdebugCoreSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:size managed object property"
+    ::= { cucsSysdebugCoreEntry 6 }
+
+cucsSysdebugCoreSwitchId OBJECT-TYPE
+    SYNTAX       CucsNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:switchId managed object property"
+    ::= { cucsSysdebugCoreEntry 7 }
+
+cucsSysdebugCoreTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:ts managed object property"
+    ::= { cucsSysdebugCoreEntry 8 }
+
+cucsSysdebugCoreUri OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:uri managed object property"
+    ::= { cucsSysdebugCoreEntry 9 }
+
+cucsSysdebugCoreAdminState OBJECT-TYPE
+    SYNTAX       CucsSysdebugCoreFileAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:adminState managed object property"
+    ::= { cucsSysdebugCoreEntry 10 }
+
+cucsSysdebugCoreFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:fsmDescr managed object property"
+    ::= { cucsSysdebugCoreEntry 11 }
+
+cucsSysdebugCoreFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:fsmPrev managed object property"
+    ::= { cucsSysdebugCoreEntry 12 }
+
+cucsSysdebugCoreFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:fsmProgr managed object property"
+    ::= { cucsSysdebugCoreEntry 13 }
+
+cucsSysdebugCoreFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:fsmRmtInvErrCode managed object property"
+    ::= { cucsSysdebugCoreEntry 14 }
+
+cucsSysdebugCoreFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:fsmRmtInvErrDescr managed
+        object property"
+    ::= { cucsSysdebugCoreEntry 15 }
+
+cucsSysdebugCoreFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:fsmRmtInvRslt managed object property"
+    ::= { cucsSysdebugCoreEntry 16 }
+
+cucsSysdebugCoreFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:fsmStageDescr managed object property"
+    ::= { cucsSysdebugCoreEntry 17 }
+
+cucsSysdebugCoreFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:fsmStamp managed object property"
+    ::= { cucsSysdebugCoreEntry 18 }
+
+cucsSysdebugCoreFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:fsmStatus managed object property"
+    ::= { cucsSysdebugCoreEntry 19 }
+
+cucsSysdebugCoreFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:fsmTry managed object property"
+    ::= { cucsSysdebugCoreEntry 20 }
+
+cucsSysdebugCoreOperState OBJECT-TYPE
+    SYNTAX       CucsSysdebugCoreFileOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:operState managed object property"
+    ::= { cucsSysdebugCoreEntry 21 }
+
+cucsSysdebugCoreChecksum OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Core:checksum managed object property"
+    ::= { cucsSysdebugCoreEntry 22 }
+
+cucsSysdebugCoreFileRepositoryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugCoreFileRepositoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFileRepository managed object table"
+    ::= { cucsSysdebugObjects 5 }
+
+cucsSysdebugCoreFileRepositoryEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugCoreFileRepositoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugCoreFileRepositoryTable table."
+    INDEX { cucsSysdebugCoreFileRepositoryInstanceId }
+    ::= { cucsSysdebugCoreFileRepositoryTable 1 }
+
+CucsSysdebugCoreFileRepositoryEntry ::= SEQUENCE {
+    cucsSysdebugCoreFileRepositoryInstanceId                         CucsManagedObjectId,
+    cucsSysdebugCoreFileRepositoryDn                                 CucsManagedObjectDn,
+    cucsSysdebugCoreFileRepositoryRn                                 SnmpAdminString
+}
+
+cucsSysdebugCoreFileRepositoryInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugCoreFileRepositoryEntry 1 }
+
+cucsSysdebugCoreFileRepositoryDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFileRepository:dn managed object property"
+    ::= { cucsSysdebugCoreFileRepositoryEntry 2 }
+
+cucsSysdebugCoreFileRepositoryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFileRepository:rn managed object property"
+    ::= { cucsSysdebugCoreFileRepositoryEntry 3 }
+
+cucsSysdebugCoreFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugCoreFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm managed object table"
+    ::= { cucsSysdebugObjects 24 }
+
+cucsSysdebugCoreFsmEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugCoreFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugCoreFsmTable table."
+    INDEX { cucsSysdebugCoreFsmInstanceId }
+    ::= { cucsSysdebugCoreFsmTable 1 }
+
+CucsSysdebugCoreFsmEntry ::= SEQUENCE {
+    cucsSysdebugCoreFsmInstanceId                                    CucsManagedObjectId,
+    cucsSysdebugCoreFsmDn                                            CucsManagedObjectDn,
+    cucsSysdebugCoreFsmRn                                            SnmpAdminString,
+    cucsSysdebugCoreFsmCompletionTime                                DateAndTime,
+    cucsSysdebugCoreFsmCurrentFsm                                    CucsSysdebugCoreFsmCurrentFsm,
+    cucsSysdebugCoreFsmDescrData                                     SnmpAdminString,
+    cucsSysdebugCoreFsmFsmStatus                                     CucsFsmFsmStageStatus,
+    cucsSysdebugCoreFsmProgress                                      Gauge32,
+    cucsSysdebugCoreFsmRmtErrCode                                    Gauge32,
+    cucsSysdebugCoreFsmRmtErrDescr                                   SnmpAdminString,
+    cucsSysdebugCoreFsmRmtRslt                                       CucsConditionRemoteInvRslt
+}
+
+cucsSysdebugCoreFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugCoreFsmEntry 1 }
+
+cucsSysdebugCoreFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm:dn managed object property"
+    ::= { cucsSysdebugCoreFsmEntry 2 }
+
+cucsSysdebugCoreFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm:rn managed object property"
+    ::= { cucsSysdebugCoreFsmEntry 3 }
+
+cucsSysdebugCoreFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm:completionTime managed
+        object property"
+    ::= { cucsSysdebugCoreFsmEntry 4 }
+
+cucsSysdebugCoreFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsSysdebugCoreFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm:currentFsm managed object property"
+    ::= { cucsSysdebugCoreFsmEntry 5 }
+
+cucsSysdebugCoreFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm:descr managed object property"
+    ::= { cucsSysdebugCoreFsmEntry 6 }
+
+cucsSysdebugCoreFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm:fsmStatus managed object property"
+    ::= { cucsSysdebugCoreFsmEntry 7 }
+
+cucsSysdebugCoreFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm:progress managed object property"
+    ::= { cucsSysdebugCoreFsmEntry 8 }
+
+cucsSysdebugCoreFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm:rmtErrCode managed object property"
+    ::= { cucsSysdebugCoreFsmEntry 9 }
+
+cucsSysdebugCoreFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm:rmtErrDescr managed object property"
+    ::= { cucsSysdebugCoreFsmEntry 10 }
+
+cucsSysdebugCoreFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsm:rmtRslt managed object property"
+    ::= { cucsSysdebugCoreFsmEntry 11 }
+
+cucsSysdebugCoreFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugCoreFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmStage managed object table"
+    ::= { cucsSysdebugObjects 25 }
+
+cucsSysdebugCoreFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugCoreFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugCoreFsmStageTable table."
+    INDEX { cucsSysdebugCoreFsmStageInstanceId }
+    ::= { cucsSysdebugCoreFsmStageTable 1 }
+
+CucsSysdebugCoreFsmStageEntry ::= SEQUENCE {
+    cucsSysdebugCoreFsmStageInstanceId                               CucsManagedObjectId,
+    cucsSysdebugCoreFsmStageDn                                       CucsManagedObjectDn,
+    cucsSysdebugCoreFsmStageRn                                       SnmpAdminString,
+    cucsSysdebugCoreFsmStageDescrData                                SnmpAdminString,
+    cucsSysdebugCoreFsmStageLastUpdateTime                           DateAndTime,
+    cucsSysdebugCoreFsmStageName                                     CucsSysdebugCoreFsmStageName,
+    cucsSysdebugCoreFsmStageOrder                                    Gauge32,
+    cucsSysdebugCoreFsmStageRetry                                    Gauge32,
+    cucsSysdebugCoreFsmStageStageStatus                              CucsFsmFsmStageStatus
+}
+
+cucsSysdebugCoreFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugCoreFsmStageEntry 1 }
+
+cucsSysdebugCoreFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmStage:dn managed object property"
+    ::= { cucsSysdebugCoreFsmStageEntry 2 }
+
+cucsSysdebugCoreFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmStage:rn managed object property"
+    ::= { cucsSysdebugCoreFsmStageEntry 3 }
+
+cucsSysdebugCoreFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmStage:descr managed object property"
+    ::= { cucsSysdebugCoreFsmStageEntry 4 }
+
+cucsSysdebugCoreFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsSysdebugCoreFsmStageEntry 5 }
+
+cucsSysdebugCoreFsmStageName OBJECT-TYPE
+    SYNTAX       CucsSysdebugCoreFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmStage:name managed object property"
+    ::= { cucsSysdebugCoreFsmStageEntry 6 }
+
+cucsSysdebugCoreFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmStage:order managed object property"
+    ::= { cucsSysdebugCoreFsmStageEntry 7 }
+
+cucsSysdebugCoreFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmStage:retry managed object property"
+    ::= { cucsSysdebugCoreFsmStageEntry 8 }
+
+cucsSysdebugCoreFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmStage:stageStatus managed
+        object property"
+    ::= { cucsSysdebugCoreFsmStageEntry 9 }
+
+cucsSysdebugCoreFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugCoreFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmTask managed object table"
+    ::= { cucsSysdebugObjects 21 }
+
+cucsSysdebugCoreFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugCoreFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugCoreFsmTaskTable table."
+    INDEX { cucsSysdebugCoreFsmTaskInstanceId }
+    ::= { cucsSysdebugCoreFsmTaskTable 1 }
+
+CucsSysdebugCoreFsmTaskEntry ::= SEQUENCE {
+    cucsSysdebugCoreFsmTaskInstanceId                                CucsManagedObjectId,
+    cucsSysdebugCoreFsmTaskDn                                        CucsManagedObjectDn,
+    cucsSysdebugCoreFsmTaskRn                                        SnmpAdminString,
+    cucsSysdebugCoreFsmTaskCompletion                                CucsFsmCompletion,
+    cucsSysdebugCoreFsmTaskFlags                                     CucsFsmFlags,
+    cucsSysdebugCoreFsmTaskItem                                      CucsSysdebugCoreFsmTaskItem,
+    cucsSysdebugCoreFsmTaskSeqId                                     Gauge32
+}
+
+cucsSysdebugCoreFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugCoreFsmTaskEntry 1 }
+
+cucsSysdebugCoreFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmTask:dn managed object property"
+    ::= { cucsSysdebugCoreFsmTaskEntry 2 }
+
+cucsSysdebugCoreFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmTask:rn managed object property"
+    ::= { cucsSysdebugCoreFsmTaskEntry 3 }
+
+cucsSysdebugCoreFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmTask:completion managed
+        object property"
+    ::= { cucsSysdebugCoreFsmTaskEntry 4 }
+
+cucsSysdebugCoreFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmTask:flags managed object property"
+    ::= { cucsSysdebugCoreFsmTaskEntry 5 }
+
+cucsSysdebugCoreFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsSysdebugCoreFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmTask:item managed object property"
+    ::= { cucsSysdebugCoreFsmTaskEntry 6 }
+
+cucsSysdebugCoreFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:CoreFsmTask:seqId managed object property"
+    ::= { cucsSysdebugCoreFsmTaskEntry 7 }
+
+cucsSysdebugDiagnosticLogTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugDiagnosticLogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog managed object table"
+    ::= { cucsSysdebugObjects 39 }
+
+cucsSysdebugDiagnosticLogEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugDiagnosticLogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugDiagnosticLogTable table."
+    INDEX { cucsSysdebugDiagnosticLogInstanceId }
+    ::= { cucsSysdebugDiagnosticLogTable 1 }
+
+CucsSysdebugDiagnosticLogEntry ::= SEQUENCE {
+    cucsSysdebugDiagnosticLogInstanceId                              CucsManagedObjectId,
+    cucsSysdebugDiagnosticLogDn                                      CucsManagedObjectDn,
+    cucsSysdebugDiagnosticLogRn                                      SnmpAdminString,
+    cucsSysdebugDiagnosticLogChecksum                                SnmpAdminString,
+    cucsSysdebugDiagnosticLogDescr                                   SnmpAdminString,
+    cucsSysdebugDiagnosticLogIp                                      InetAddressIPv4,
+    cucsSysdebugDiagnosticLogName                                    SnmpAdminString,
+    cucsSysdebugDiagnosticLogOperState                               CucsSysdebugDiagLogOperState,
+    cucsSysdebugDiagnosticLogSize                                    Gauge32,
+    cucsSysdebugDiagnosticLogSwitchId                                CucsNetworkSwitchId,
+    cucsSysdebugDiagnosticLogTftpUri                                 SnmpAdminString,
+    cucsSysdebugDiagnosticLogTs                                      DateAndTime,
+    cucsSysdebugDiagnosticLogUri                                     SnmpAdminString
+}
+
+cucsSysdebugDiagnosticLogInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugDiagnosticLogEntry 1 }
+
+cucsSysdebugDiagnosticLogDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:dn managed object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 2 }
+
+cucsSysdebugDiagnosticLogRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:rn managed object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 3 }
+
+cucsSysdebugDiagnosticLogChecksum OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:checksum managed
+        object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 4 }
+
+cucsSysdebugDiagnosticLogDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:descr managed object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 5 }
+
+cucsSysdebugDiagnosticLogIp OBJECT-TYPE
+    SYNTAX       InetAddressIPv4
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:ip managed object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 6 }
+
+cucsSysdebugDiagnosticLogName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:name managed object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 7 }
+
+cucsSysdebugDiagnosticLogOperState OBJECT-TYPE
+    SYNTAX       CucsSysdebugDiagLogOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:operState managed
+        object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 8 }
+
+cucsSysdebugDiagnosticLogSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:size managed object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 9 }
+
+cucsSysdebugDiagnosticLogSwitchId OBJECT-TYPE
+    SYNTAX       CucsNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:switchId managed
+        object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 10 }
+
+cucsSysdebugDiagnosticLogTftpUri OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:tftpUri managed object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 11 }
+
+cucsSysdebugDiagnosticLogTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:ts managed object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 12 }
+
+cucsSysdebugDiagnosticLogUri OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLog:uri managed object property"
+    ::= { cucsSysdebugDiagnosticLogEntry 13 }
+
+cucsSysdebugDiagnosticLogRepositoryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugDiagnosticLogRepositoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLogRepository managed object table"
+    ::= { cucsSysdebugObjects 40 }
+
+cucsSysdebugDiagnosticLogRepositoryEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugDiagnosticLogRepositoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugDiagnosticLogRepositoryTable table."
+    INDEX { cucsSysdebugDiagnosticLogRepositoryInstanceId }
+    ::= { cucsSysdebugDiagnosticLogRepositoryTable 1 }
+
+CucsSysdebugDiagnosticLogRepositoryEntry ::= SEQUENCE {
+    cucsSysdebugDiagnosticLogRepositoryInstanceId                    CucsManagedObjectId,
+    cucsSysdebugDiagnosticLogRepositoryDn                            CucsManagedObjectDn,
+    cucsSysdebugDiagnosticLogRepositoryRn                            SnmpAdminString
+}
+
+cucsSysdebugDiagnosticLogRepositoryInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugDiagnosticLogRepositoryEntry 1 }
+
+cucsSysdebugDiagnosticLogRepositoryDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLogRepository:dn
+        managed object property"
+    ::= { cucsSysdebugDiagnosticLogRepositoryEntry 2 }
+
+cucsSysdebugDiagnosticLogRepositoryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:DiagnosticLogRepository:rn
+        managed object property"
+    ::= { cucsSysdebugDiagnosticLogRepositoryEntry 3 }
+
+cucsSysdebugEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Ep managed object table"
+    ::= { cucsSysdebugObjects 6 }
+
+cucsSysdebugEpEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugEpTable table."
+    INDEX { cucsSysdebugEpInstanceId }
+    ::= { cucsSysdebugEpTable 1 }
+
+CucsSysdebugEpEntry ::= SEQUENCE {
+    cucsSysdebugEpInstanceId                                         CucsManagedObjectId,
+    cucsSysdebugEpDn                                                 CucsManagedObjectDn,
+    cucsSysdebugEpRn                                                 SnmpAdminString
+}
+
+cucsSysdebugEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugEpEntry 1 }
+
+cucsSysdebugEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Ep:dn managed object property"
+    ::= { cucsSysdebugEpEntry 2 }
+
+cucsSysdebugEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:Ep:rn managed object property"
+    ::= { cucsSysdebugEpEntry 3 }
+
+cucsSysdebugLogControlDestinationFileTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogControlDestinationFileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationFile managed
+        object table"
+    ::= { cucsSysdebugObjects 7 }
+
+cucsSysdebugLogControlDestinationFileEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogControlDestinationFileEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogControlDestinationFileTable table."
+    INDEX { cucsSysdebugLogControlDestinationFileInstanceId }
+    ::= { cucsSysdebugLogControlDestinationFileTable 1 }
+
+CucsSysdebugLogControlDestinationFileEntry ::= SEQUENCE {
+    cucsSysdebugLogControlDestinationFileInstanceId                  CucsManagedObjectId,
+    cucsSysdebugLogControlDestinationFileDn                          CucsManagedObjectDn,
+    cucsSysdebugLogControlDestinationFileRn                          SnmpAdminString,
+    cucsSysdebugLogControlDestinationFileBackupCount                 Gauge32,
+    cucsSysdebugLogControlDestinationFileDefaultLevel                CucsSysdebugLogControlLevel,
+    cucsSysdebugLogControlDestinationFileDefaultSize                 Gauge32,
+    cucsSysdebugLogControlDestinationFileLevel                       CucsSysdebugLogControlLevel,
+    cucsSysdebugLogControlDestinationFileSize                        Gauge32
+}
+
+cucsSysdebugLogControlDestinationFileInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogControlDestinationFileEntry 1 }
+
+cucsSysdebugLogControlDestinationFileDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationFile:dn
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationFileEntry 2 }
+
+cucsSysdebugLogControlDestinationFileRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationFile:rn
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationFileEntry 3 }
+
+cucsSysdebugLogControlDestinationFileBackupCount OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationFile:backupCount
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationFileEntry 4 }
+
+cucsSysdebugLogControlDestinationFileDefaultLevel OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationFile:defaultLevel
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationFileEntry 5 }
+
+cucsSysdebugLogControlDestinationFileDefaultSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationFile:defaultSize
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationFileEntry 6 }
+
+cucsSysdebugLogControlDestinationFileLevel OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationFile:level
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationFileEntry 7 }
+
+cucsSysdebugLogControlDestinationFileSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationFile:size
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationFileEntry 8 }
+
+cucsSysdebugLogControlDestinationSyslogTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogControlDestinationSyslogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationSyslog
+        managed object table"
+    ::= { cucsSysdebugObjects 8 }
+
+cucsSysdebugLogControlDestinationSyslogEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogControlDestinationSyslogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogControlDestinationSyslogTable table."
+    INDEX { cucsSysdebugLogControlDestinationSyslogInstanceId }
+    ::= { cucsSysdebugLogControlDestinationSyslogTable 1 }
+
+CucsSysdebugLogControlDestinationSyslogEntry ::= SEQUENCE {
+    cucsSysdebugLogControlDestinationSyslogInstanceId                CucsManagedObjectId,
+    cucsSysdebugLogControlDestinationSyslogDn                        CucsManagedObjectDn,
+    cucsSysdebugLogControlDestinationSyslogRn                        SnmpAdminString,
+    cucsSysdebugLogControlDestinationSyslogDefaultLevel              CucsSysdebugLogControlLevel,
+    cucsSysdebugLogControlDestinationSyslogLevel                     CucsSysdebugLogControlLevel
+}
+
+cucsSysdebugLogControlDestinationSyslogInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogControlDestinationSyslogEntry 1 }
+
+cucsSysdebugLogControlDestinationSyslogDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationSyslog:dn
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationSyslogEntry 2 }
+
+cucsSysdebugLogControlDestinationSyslogRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationSyslog:rn
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationSyslogEntry 3 }
+
+cucsSysdebugLogControlDestinationSyslogDefaultLevel OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationSyslog:defaultLevel
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationSyslogEntry 4 }
+
+cucsSysdebugLogControlDestinationSyslogLevel OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDestinationSyslog:level
+        managed object property"
+    ::= { cucsSysdebugLogControlDestinationSyslogEntry 5 }
+
+cucsSysdebugLogControlDomainTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogControlDomainEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDomain managed object table"
+    ::= { cucsSysdebugObjects 9 }
+
+cucsSysdebugLogControlDomainEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogControlDomainEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogControlDomainTable table."
+    INDEX { cucsSysdebugLogControlDomainInstanceId }
+    ::= { cucsSysdebugLogControlDomainTable 1 }
+
+CucsSysdebugLogControlDomainEntry ::= SEQUENCE {
+    cucsSysdebugLogControlDomainInstanceId                           CucsManagedObjectId,
+    cucsSysdebugLogControlDomainDn                                   CucsManagedObjectDn,
+    cucsSysdebugLogControlDomainRn                                   SnmpAdminString,
+    cucsSysdebugLogControlDomainLevel                                CucsSysdebugLogControlLevel,
+    cucsSysdebugLogControlDomainLevelFlag                            TruthValue,
+    cucsSysdebugLogControlDomainName                                 CucsSysdebugLogControlDomainEnum,
+    cucsSysdebugLogControlDomainPersist                              TruthValue,
+    cucsSysdebugLogControlDomainReset                                TruthValue
+}
+
+cucsSysdebugLogControlDomainInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogControlDomainEntry 1 }
+
+cucsSysdebugLogControlDomainDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDomain:dn managed object property"
+    ::= { cucsSysdebugLogControlDomainEntry 2 }
+
+cucsSysdebugLogControlDomainRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDomain:rn managed object property"
+    ::= { cucsSysdebugLogControlDomainEntry 3 }
+
+cucsSysdebugLogControlDomainLevel OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDomain:level managed
+        object property"
+    ::= { cucsSysdebugLogControlDomainEntry 4 }
+
+cucsSysdebugLogControlDomainLevelFlag OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDomain:levelFlag
+        managed object property"
+    ::= { cucsSysdebugLogControlDomainEntry 5 }
+
+cucsSysdebugLogControlDomainName OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlDomainEnum
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDomain:name managed object property"
+    ::= { cucsSysdebugLogControlDomainEntry 6 }
+
+cucsSysdebugLogControlDomainPersist OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDomain:persist managed
+        object property"
+    ::= { cucsSysdebugLogControlDomainEntry 7 }
+
+cucsSysdebugLogControlDomainReset OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlDomain:reset managed
+        object property"
+    ::= { cucsSysdebugLogControlDomainEntry 8 }
+
+cucsSysdebugLogControlEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogControlEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp managed object table"
+    ::= { cucsSysdebugObjects 10 }
+
+cucsSysdebugLogControlEpEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogControlEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogControlEpTable table."
+    INDEX { cucsSysdebugLogControlEpInstanceId }
+    ::= { cucsSysdebugLogControlEpTable 1 }
+
+CucsSysdebugLogControlEpEntry ::= SEQUENCE {
+    cucsSysdebugLogControlEpInstanceId                               CucsManagedObjectId,
+    cucsSysdebugLogControlEpDn                                       CucsManagedObjectDn,
+    cucsSysdebugLogControlEpRn                                       SnmpAdminString,
+    cucsSysdebugLogControlEpFsmDescr                                 SnmpAdminString,
+    cucsSysdebugLogControlEpFsmPrev                                  SnmpAdminString,
+    cucsSysdebugLogControlEpFsmProgr                                 Gauge32,
+    cucsSysdebugLogControlEpFsmRmtInvErrCode                         Gauge32,
+    cucsSysdebugLogControlEpFsmRmtInvErrDescr                        SnmpAdminString,
+    cucsSysdebugLogControlEpFsmRmtInvRslt                            CucsConditionRemoteInvRslt,
+    cucsSysdebugLogControlEpFsmStageDescr                            SnmpAdminString,
+    cucsSysdebugLogControlEpFsmStamp                                 DateAndTime,
+    cucsSysdebugLogControlEpFsmStatus                                SnmpAdminString,
+    cucsSysdebugLogControlEpFsmTry                                   Gauge32,
+    cucsSysdebugLogControlEpLevel                                    CucsSysdebugLogControlLevel,
+    cucsSysdebugLogControlEpLevelFlag                                TruthValue,
+    cucsSysdebugLogControlEpPersist                                  TruthValue,
+    cucsSysdebugLogControlEpReset                                    TruthValue
+}
+
+cucsSysdebugLogControlEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogControlEpEntry 1 }
+
+cucsSysdebugLogControlEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:dn managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 2 }
+
+cucsSysdebugLogControlEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:rn managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 3 }
+
+cucsSysdebugLogControlEpFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:fsmDescr managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 4 }
+
+cucsSysdebugLogControlEpFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:fsmPrev managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 5 }
+
+cucsSysdebugLogControlEpFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:fsmProgr managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 6 }
+
+cucsSysdebugLogControlEpFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 7 }
+
+cucsSysdebugLogControlEpFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 8 }
+
+cucsSysdebugLogControlEpFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:fsmRmtInvRslt
+        managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 9 }
+
+cucsSysdebugLogControlEpFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:fsmStageDescr
+        managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 10 }
+
+cucsSysdebugLogControlEpFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:fsmStamp managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 11 }
+
+cucsSysdebugLogControlEpFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:fsmStatus managed
+        object property"
+    ::= { cucsSysdebugLogControlEpEntry 12 }
+
+cucsSysdebugLogControlEpFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:fsmTry managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 13 }
+
+cucsSysdebugLogControlEpLevel OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:level managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 14 }
+
+cucsSysdebugLogControlEpLevelFlag OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:levelFlag managed
+        object property"
+    ::= { cucsSysdebugLogControlEpEntry 15 }
+
+cucsSysdebugLogControlEpPersist OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:persist managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 16 }
+
+cucsSysdebugLogControlEpReset OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEp:reset managed object property"
+    ::= { cucsSysdebugLogControlEpEntry 17 }
+
+cucsSysdebugLogControlEpFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogControlEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm managed object table"
+    ::= { cucsSysdebugObjects 26 }
+
+cucsSysdebugLogControlEpFsmEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogControlEpFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogControlEpFsmTable table."
+    INDEX { cucsSysdebugLogControlEpFsmInstanceId }
+    ::= { cucsSysdebugLogControlEpFsmTable 1 }
+
+CucsSysdebugLogControlEpFsmEntry ::= SEQUENCE {
+    cucsSysdebugLogControlEpFsmInstanceId                            CucsManagedObjectId,
+    cucsSysdebugLogControlEpFsmDn                                    CucsManagedObjectDn,
+    cucsSysdebugLogControlEpFsmRn                                    SnmpAdminString,
+    cucsSysdebugLogControlEpFsmCompletionTime                        DateAndTime,
+    cucsSysdebugLogControlEpFsmCurrentFsm                            CucsSysdebugLogControlEpFsmCurrentFsm,
+    cucsSysdebugLogControlEpFsmDescrData                             SnmpAdminString,
+    cucsSysdebugLogControlEpFsmFsmStatus                             CucsFsmFsmStageStatus,
+    cucsSysdebugLogControlEpFsmProgress                              Gauge32,
+    cucsSysdebugLogControlEpFsmRmtErrCode                            Gauge32,
+    cucsSysdebugLogControlEpFsmRmtErrDescr                           SnmpAdminString,
+    cucsSysdebugLogControlEpFsmRmtRslt                               CucsConditionRemoteInvRslt
+}
+
+cucsSysdebugLogControlEpFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogControlEpFsmEntry 1 }
+
+cucsSysdebugLogControlEpFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm:dn managed object property"
+    ::= { cucsSysdebugLogControlEpFsmEntry 2 }
+
+cucsSysdebugLogControlEpFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm:rn managed object property"
+    ::= { cucsSysdebugLogControlEpFsmEntry 3 }
+
+cucsSysdebugLogControlEpFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm:completionTime
+        managed object property"
+    ::= { cucsSysdebugLogControlEpFsmEntry 4 }
+
+cucsSysdebugLogControlEpFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlEpFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm:currentFsm
+        managed object property"
+    ::= { cucsSysdebugLogControlEpFsmEntry 5 }
+
+cucsSysdebugLogControlEpFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm:descr managed object property"
+    ::= { cucsSysdebugLogControlEpFsmEntry 6 }
+
+cucsSysdebugLogControlEpFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm:fsmStatus managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmEntry 7 }
+
+cucsSysdebugLogControlEpFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm:progress managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmEntry 8 }
+
+cucsSysdebugLogControlEpFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm:rmtErrCode
+        managed object property"
+    ::= { cucsSysdebugLogControlEpFsmEntry 9 }
+
+cucsSysdebugLogControlEpFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm:rmtErrDescr
+        managed object property"
+    ::= { cucsSysdebugLogControlEpFsmEntry 10 }
+
+cucsSysdebugLogControlEpFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsm:rmtRslt managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmEntry 11 }
+
+cucsSysdebugLogControlEpFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogControlEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmStage managed object table"
+    ::= { cucsSysdebugObjects 27 }
+
+cucsSysdebugLogControlEpFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogControlEpFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogControlEpFsmStageTable table."
+    INDEX { cucsSysdebugLogControlEpFsmStageInstanceId }
+    ::= { cucsSysdebugLogControlEpFsmStageTable 1 }
+
+CucsSysdebugLogControlEpFsmStageEntry ::= SEQUENCE {
+    cucsSysdebugLogControlEpFsmStageInstanceId                       CucsManagedObjectId,
+    cucsSysdebugLogControlEpFsmStageDn                               CucsManagedObjectDn,
+    cucsSysdebugLogControlEpFsmStageRn                               SnmpAdminString,
+    cucsSysdebugLogControlEpFsmStageDescrData                        SnmpAdminString,
+    cucsSysdebugLogControlEpFsmStageLastUpdateTime                   DateAndTime,
+    cucsSysdebugLogControlEpFsmStageName                             CucsSysdebugLogControlEpFsmStageName,
+    cucsSysdebugLogControlEpFsmStageOrder                            Gauge32,
+    cucsSysdebugLogControlEpFsmStageRetry                            Gauge32,
+    cucsSysdebugLogControlEpFsmStageStageStatus                      CucsFsmFsmStageStatus
+}
+
+cucsSysdebugLogControlEpFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogControlEpFsmStageEntry 1 }
+
+cucsSysdebugLogControlEpFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmStage:dn managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmStageEntry 2 }
+
+cucsSysdebugLogControlEpFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmStage:rn managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmStageEntry 3 }
+
+cucsSysdebugLogControlEpFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmStage:descr
+        managed object property"
+    ::= { cucsSysdebugLogControlEpFsmStageEntry 4 }
+
+cucsSysdebugLogControlEpFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsSysdebugLogControlEpFsmStageEntry 5 }
+
+cucsSysdebugLogControlEpFsmStageName OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlEpFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmStage:name managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmStageEntry 6 }
+
+cucsSysdebugLogControlEpFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmStage:order
+        managed object property"
+    ::= { cucsSysdebugLogControlEpFsmStageEntry 7 }
+
+cucsSysdebugLogControlEpFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmStage:retry
+        managed object property"
+    ::= { cucsSysdebugLogControlEpFsmStageEntry 8 }
+
+cucsSysdebugLogControlEpFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmStage:stageStatus
+        managed object property"
+    ::= { cucsSysdebugLogControlEpFsmStageEntry 9 }
+
+cucsSysdebugLogControlEpFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogControlEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmTask managed object table"
+    ::= { cucsSysdebugObjects 11 }
+
+cucsSysdebugLogControlEpFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogControlEpFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogControlEpFsmTaskTable table."
+    INDEX { cucsSysdebugLogControlEpFsmTaskInstanceId }
+    ::= { cucsSysdebugLogControlEpFsmTaskTable 1 }
+
+CucsSysdebugLogControlEpFsmTaskEntry ::= SEQUENCE {
+    cucsSysdebugLogControlEpFsmTaskInstanceId                        CucsManagedObjectId,
+    cucsSysdebugLogControlEpFsmTaskDn                                CucsManagedObjectDn,
+    cucsSysdebugLogControlEpFsmTaskRn                                SnmpAdminString,
+    cucsSysdebugLogControlEpFsmTaskCompletion                        CucsFsmCompletion,
+    cucsSysdebugLogControlEpFsmTaskFlags                             CucsFsmFlags,
+    cucsSysdebugLogControlEpFsmTaskItem                              CucsSysdebugLogControlEpFsmTaskItem,
+    cucsSysdebugLogControlEpFsmTaskSeqId                             Gauge32
+}
+
+cucsSysdebugLogControlEpFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogControlEpFsmTaskEntry 1 }
+
+cucsSysdebugLogControlEpFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmTask:dn managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmTaskEntry 2 }
+
+cucsSysdebugLogControlEpFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmTask:rn managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmTaskEntry 3 }
+
+cucsSysdebugLogControlEpFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmTask:completion
+        managed object property"
+    ::= { cucsSysdebugLogControlEpFsmTaskEntry 4 }
+
+cucsSysdebugLogControlEpFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmTask:flags managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmTaskEntry 5 }
+
+cucsSysdebugLogControlEpFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlEpFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmTask:item managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmTaskEntry 6 }
+
+cucsSysdebugLogControlEpFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlEpFsmTask:seqId managed
+        object property"
+    ::= { cucsSysdebugLogControlEpFsmTaskEntry 7 }
+
+cucsSysdebugLogControlModuleTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogControlModuleEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlModule managed object table"
+    ::= { cucsSysdebugObjects 12 }
+
+cucsSysdebugLogControlModuleEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogControlModuleEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogControlModuleTable table."
+    INDEX { cucsSysdebugLogControlModuleInstanceId }
+    ::= { cucsSysdebugLogControlModuleTable 1 }
+
+CucsSysdebugLogControlModuleEntry ::= SEQUENCE {
+    cucsSysdebugLogControlModuleInstanceId                           CucsManagedObjectId,
+    cucsSysdebugLogControlModuleDn                                   CucsManagedObjectDn,
+    cucsSysdebugLogControlModuleRn                                   SnmpAdminString,
+    cucsSysdebugLogControlModuleDefaultLevel                         CucsSysdebugLogControlLevel,
+    cucsSysdebugLogControlModuleLevel                                CucsSysdebugLogControlLevel,
+    cucsSysdebugLogControlModuleName                                 SnmpAdminString,
+    cucsSysdebugLogControlModuleReset                                TruthValue
+}
+
+cucsSysdebugLogControlModuleInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogControlModuleEntry 1 }
+
+cucsSysdebugLogControlModuleDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlModule:dn managed object property"
+    ::= { cucsSysdebugLogControlModuleEntry 2 }
+
+cucsSysdebugLogControlModuleRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlModule:rn managed object property"
+    ::= { cucsSysdebugLogControlModuleEntry 3 }
+
+cucsSysdebugLogControlModuleDefaultLevel OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlModule:defaultLevel
+        managed object property"
+    ::= { cucsSysdebugLogControlModuleEntry 4 }
+
+cucsSysdebugLogControlModuleLevel OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogControlLevel
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlModule:level managed
+        object property"
+    ::= { cucsSysdebugLogControlModuleEntry 5 }
+
+cucsSysdebugLogControlModuleName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlModule:name managed object property"
+    ::= { cucsSysdebugLogControlModuleEntry 6 }
+
+cucsSysdebugLogControlModuleReset OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogControlModule:reset managed
+        object property"
+    ::= { cucsSysdebugLogControlModuleEntry 7 }
+
+cucsSysdebugLogExportPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogExportPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy managed object table"
+    ::= { cucsSysdebugObjects 32 }
+
+cucsSysdebugLogExportPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogExportPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogExportPolicyTable table."
+    INDEX { cucsSysdebugLogExportPolicyInstanceId }
+    ::= { cucsSysdebugLogExportPolicyTable 1 }
+
+CucsSysdebugLogExportPolicyEntry ::= SEQUENCE {
+    cucsSysdebugLogExportPolicyInstanceId                            CucsManagedObjectId,
+    cucsSysdebugLogExportPolicyDn                                    CucsManagedObjectDn,
+    cucsSysdebugLogExportPolicyRn                                    SnmpAdminString,
+    cucsSysdebugLogExportPolicyAdminState                            CucsCommClientAdminState,
+    cucsSysdebugLogExportPolicyDescr                                 SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmDescr                              SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmPrev                               SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmProgr                              Gauge32,
+    cucsSysdebugLogExportPolicyFsmRmtInvErrCode                      Gauge32,
+    cucsSysdebugLogExportPolicyFsmRmtInvErrDescr                     SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmRmtInvRslt                         CucsConditionRemoteInvRslt,
+    cucsSysdebugLogExportPolicyFsmStageDescr                         SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmStamp                              DateAndTime,
+    cucsSysdebugLogExportPolicyFsmStatus                             SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmTry                                Gauge32,
+    cucsSysdebugLogExportPolicyHostname                              SnmpAdminString,
+    cucsSysdebugLogExportPolicyIntId                                 SnmpAdminString,
+    cucsSysdebugLogExportPolicyName                                  SnmpAdminString,
+    cucsSysdebugLogExportPolicyPasswordlessSsh                       TruthValue,
+    cucsSysdebugLogExportPolicyPath                                  SnmpAdminString,
+    cucsSysdebugLogExportPolicyPolicyLevel                           Gauge32,
+    cucsSysdebugLogExportPolicyPolicyOwner                           CucsPolicyPolicyOwner,
+    cucsSysdebugLogExportPolicyPostAction                            CucsSysfileExporterPostAction,
+    cucsSysdebugLogExportPolicyProto                                 CucsSysdebugLogExportPolicyProto,
+    cucsSysdebugLogExportPolicyPwd                                   SnmpAdminString,
+    cucsSysdebugLogExportPolicyUser                                  SnmpAdminString
+}
+
+cucsSysdebugLogExportPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogExportPolicyEntry 1 }
+
+cucsSysdebugLogExportPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:dn managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 2 }
+
+cucsSysdebugLogExportPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:rn managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 3 }
+
+cucsSysdebugLogExportPolicyAdminState OBJECT-TYPE
+    SYNTAX       CucsCommClientAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:adminState
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 4 }
+
+cucsSysdebugLogExportPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:descr managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 5 }
+
+cucsSysdebugLogExportPolicyFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:fsmDescr managed
+        object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 6 }
+
+cucsSysdebugLogExportPolicyFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:fsmPrev managed
+        object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 7 }
+
+cucsSysdebugLogExportPolicyFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:fsmProgr managed
+        object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 8 }
+
+cucsSysdebugLogExportPolicyFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 9 }
+
+cucsSysdebugLogExportPolicyFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 10 }
+
+cucsSysdebugLogExportPolicyFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:fsmRmtInvRslt
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 11 }
+
+cucsSysdebugLogExportPolicyFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:fsmStageDescr
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 12 }
+
+cucsSysdebugLogExportPolicyFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:fsmStamp managed
+        object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 13 }
+
+cucsSysdebugLogExportPolicyFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:fsmStatus managed
+        object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 14 }
+
+cucsSysdebugLogExportPolicyFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:fsmTry managed
+        object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 15 }
+
+cucsSysdebugLogExportPolicyHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:hostname managed
+        object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 16 }
+
+cucsSysdebugLogExportPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:intId managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 17 }
+
+cucsSysdebugLogExportPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:name managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 18 }
+
+cucsSysdebugLogExportPolicyPasswordlessSsh OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:passwordlessSsh
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 19 }
+
+cucsSysdebugLogExportPolicyPath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:path managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 20 }
+
+cucsSysdebugLogExportPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:policyLevel
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 21 }
+
+cucsSysdebugLogExportPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:policyOwner
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 22 }
+
+cucsSysdebugLogExportPolicyPostAction OBJECT-TYPE
+    SYNTAX       CucsSysfileExporterPostAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:postAction
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 23 }
+
+cucsSysdebugLogExportPolicyProto OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogExportPolicyProto
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:proto managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 24 }
+
+cucsSysdebugLogExportPolicyPwd OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:pwd managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 25 }
+
+cucsSysdebugLogExportPolicyUser OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicy:user managed object property"
+    ::= { cucsSysdebugLogExportPolicyEntry 26 }
+
+cucsSysdebugLogExportPolicyFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogExportPolicyFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm managed object table"
+    ::= { cucsSysdebugObjects 33 }
+
+cucsSysdebugLogExportPolicyFsmEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogExportPolicyFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogExportPolicyFsmTable table."
+    INDEX { cucsSysdebugLogExportPolicyFsmInstanceId }
+    ::= { cucsSysdebugLogExportPolicyFsmTable 1 }
+
+CucsSysdebugLogExportPolicyFsmEntry ::= SEQUENCE {
+    cucsSysdebugLogExportPolicyFsmInstanceId                         CucsManagedObjectId,
+    cucsSysdebugLogExportPolicyFsmDn                                 CucsManagedObjectDn,
+    cucsSysdebugLogExportPolicyFsmRn                                 SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmCompletionTime                     DateAndTime,
+    cucsSysdebugLogExportPolicyFsmCurrentFsm                         CucsSysdebugLogExportPolicyFsmCurrentFsm,
+    cucsSysdebugLogExportPolicyFsmDescrData                          SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmFsmStatus                          CucsFsmFsmStageStatus,
+    cucsSysdebugLogExportPolicyFsmProgress                           Gauge32,
+    cucsSysdebugLogExportPolicyFsmRmtErrCode                         Gauge32,
+    cucsSysdebugLogExportPolicyFsmRmtErrDescr                        SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmRmtRslt                            CucsConditionRemoteInvRslt
+}
+
+cucsSysdebugLogExportPolicyFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 1 }
+
+cucsSysdebugLogExportPolicyFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm:dn managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 2 }
+
+cucsSysdebugLogExportPolicyFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm:rn managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 3 }
+
+cucsSysdebugLogExportPolicyFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm:completionTime
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 4 }
+
+cucsSysdebugLogExportPolicyFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogExportPolicyFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm:currentFsm
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 5 }
+
+cucsSysdebugLogExportPolicyFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm:descr managed
+        object property"
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 6 }
+
+cucsSysdebugLogExportPolicyFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm:fsmStatus
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 7 }
+
+cucsSysdebugLogExportPolicyFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm:progress
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 8 }
+
+cucsSysdebugLogExportPolicyFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm:rmtErrCode
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 9 }
+
+cucsSysdebugLogExportPolicyFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm:rmtErrDescr
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 10 }
+
+cucsSysdebugLogExportPolicyFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsm:rmtRslt
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmEntry 11 }
+
+cucsSysdebugLogExportPolicyFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogExportPolicyFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmStage managed object table"
+    ::= { cucsSysdebugObjects 34 }
+
+cucsSysdebugLogExportPolicyFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogExportPolicyFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogExportPolicyFsmStageTable table."
+    INDEX { cucsSysdebugLogExportPolicyFsmStageInstanceId }
+    ::= { cucsSysdebugLogExportPolicyFsmStageTable 1 }
+
+CucsSysdebugLogExportPolicyFsmStageEntry ::= SEQUENCE {
+    cucsSysdebugLogExportPolicyFsmStageInstanceId                    CucsManagedObjectId,
+    cucsSysdebugLogExportPolicyFsmStageDn                            CucsManagedObjectDn,
+    cucsSysdebugLogExportPolicyFsmStageRn                            SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmStageDescrData                     SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmStageLastUpdateTime                DateAndTime,
+    cucsSysdebugLogExportPolicyFsmStageName                          CucsSysdebugLogExportPolicyFsmStageName,
+    cucsSysdebugLogExportPolicyFsmStageOrder                         Gauge32,
+    cucsSysdebugLogExportPolicyFsmStageRetry                         Gauge32,
+    cucsSysdebugLogExportPolicyFsmStageStageStatus                   CucsFsmFsmStageStatus
+}
+
+cucsSysdebugLogExportPolicyFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogExportPolicyFsmStageEntry 1 }
+
+cucsSysdebugLogExportPolicyFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmStage:dn
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmStageEntry 2 }
+
+cucsSysdebugLogExportPolicyFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmStage:rn
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmStageEntry 3 }
+
+cucsSysdebugLogExportPolicyFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmStage:descr
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmStageEntry 4 }
+
+cucsSysdebugLogExportPolicyFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmStageEntry 5 }
+
+cucsSysdebugLogExportPolicyFsmStageName OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogExportPolicyFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmStage:name
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmStageEntry 6 }
+
+cucsSysdebugLogExportPolicyFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmStage:order
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmStageEntry 7 }
+
+cucsSysdebugLogExportPolicyFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmStage:retry
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmStageEntry 8 }
+
+cucsSysdebugLogExportPolicyFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmStage:stageStatus
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmStageEntry 9 }
+
+cucsSysdebugLogExportPolicyFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogExportPolicyFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmTask managed object table"
+    ::= { cucsSysdebugObjects 35 }
+
+cucsSysdebugLogExportPolicyFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogExportPolicyFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogExportPolicyFsmTaskTable table."
+    INDEX { cucsSysdebugLogExportPolicyFsmTaskInstanceId }
+    ::= { cucsSysdebugLogExportPolicyFsmTaskTable 1 }
+
+CucsSysdebugLogExportPolicyFsmTaskEntry ::= SEQUENCE {
+    cucsSysdebugLogExportPolicyFsmTaskInstanceId                     CucsManagedObjectId,
+    cucsSysdebugLogExportPolicyFsmTaskDn                             CucsManagedObjectDn,
+    cucsSysdebugLogExportPolicyFsmTaskRn                             SnmpAdminString,
+    cucsSysdebugLogExportPolicyFsmTaskCompletion                     CucsFsmCompletion,
+    cucsSysdebugLogExportPolicyFsmTaskFlags                          CucsFsmFlags,
+    cucsSysdebugLogExportPolicyFsmTaskItem                           CucsSysdebugLogExportPolicyFsmTaskItem,
+    cucsSysdebugLogExportPolicyFsmTaskSeqId                          Gauge32
+}
+
+cucsSysdebugLogExportPolicyFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogExportPolicyFsmTaskEntry 1 }
+
+cucsSysdebugLogExportPolicyFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmTask:dn managed
+        object property"
+    ::= { cucsSysdebugLogExportPolicyFsmTaskEntry 2 }
+
+cucsSysdebugLogExportPolicyFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmTask:rn managed
+        object property"
+    ::= { cucsSysdebugLogExportPolicyFsmTaskEntry 3 }
+
+cucsSysdebugLogExportPolicyFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmTask:completion
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmTaskEntry 4 }
+
+cucsSysdebugLogExportPolicyFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmTask:flags
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmTaskEntry 5 }
+
+cucsSysdebugLogExportPolicyFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsSysdebugLogExportPolicyFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmTask:item
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmTaskEntry 6 }
+
+cucsSysdebugLogExportPolicyFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportPolicyFsmTask:seqId
+        managed object property"
+    ::= { cucsSysdebugLogExportPolicyFsmTaskEntry 7 }
+
+cucsSysdebugLogExportStatusTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugLogExportStatusEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportStatus managed object table"
+    ::= { cucsSysdebugObjects 36 }
+
+cucsSysdebugLogExportStatusEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugLogExportStatusEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugLogExportStatusTable table."
+    INDEX { cucsSysdebugLogExportStatusInstanceId }
+    ::= { cucsSysdebugLogExportStatusTable 1 }
+
+CucsSysdebugLogExportStatusEntry ::= SEQUENCE {
+    cucsSysdebugLogExportStatusInstanceId                            CucsManagedObjectId,
+    cucsSysdebugLogExportStatusDn                                    CucsManagedObjectDn,
+    cucsSysdebugLogExportStatusRn                                    SnmpAdminString,
+    cucsSysdebugLogExportStatusExportFailureReason                   SnmpAdminString,
+    cucsSysdebugLogExportStatusExportStatus                          CucsSysdebugExportStatus,
+    cucsSysdebugLogExportStatusSwitchId                              CucsNetworkSwitchId
+}
+
+cucsSysdebugLogExportStatusInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugLogExportStatusEntry 1 }
+
+cucsSysdebugLogExportStatusDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportStatus:dn managed object property"
+    ::= { cucsSysdebugLogExportStatusEntry 2 }
+
+cucsSysdebugLogExportStatusRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportStatus:rn managed object property"
+    ::= { cucsSysdebugLogExportStatusEntry 3 }
+
+cucsSysdebugLogExportStatusExportFailureReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportStatus:exportFailureReason
+        managed object property"
+    ::= { cucsSysdebugLogExportStatusEntry 4 }
+
+cucsSysdebugLogExportStatusExportStatus OBJECT-TYPE
+    SYNTAX       CucsSysdebugExportStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportStatus:exportStatus
+        managed object property"
+    ::= { cucsSysdebugLogExportStatusEntry 5 }
+
+cucsSysdebugLogExportStatusSwitchId OBJECT-TYPE
+    SYNTAX       CucsNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:LogExportStatus:switchId managed
+        object property"
+    ::= { cucsSysdebugLogExportStatusEntry 6 }
+
+cucsSysdebugMEpLogTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugMEpLogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLog managed object table"
+    ::= { cucsSysdebugObjects 13 }
+
+cucsSysdebugMEpLogEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugMEpLogEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugMEpLogTable table."
+    INDEX { cucsSysdebugMEpLogInstanceId }
+    ::= { cucsSysdebugMEpLogTable 1 }
+
+CucsSysdebugMEpLogEntry ::= SEQUENCE {
+    cucsSysdebugMEpLogInstanceId                                     CucsManagedObjectId,
+    cucsSysdebugMEpLogDn                                             CucsManagedObjectDn,
+    cucsSysdebugMEpLogRn                                             SnmpAdminString,
+    cucsSysdebugMEpLogAdminState                                     CucsSysdebugEpLogAdminState,
+    cucsSysdebugMEpLogCapacity                                       CucsSysdebugEpLogCapacity,
+    cucsSysdebugMEpLogId                                             Gauge32,
+    cucsSysdebugMEpLogLastUpdate                                     DateAndTime,
+    cucsSysdebugMEpLogOperState                                      CucsSysdebugMEpLogOperState,
+    cucsSysdebugMEpLogType                                           CucsSysdebugEpLogType
+}
+
+cucsSysdebugMEpLogInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugMEpLogEntry 1 }
+
+cucsSysdebugMEpLogDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLog:dn managed object property"
+    ::= { cucsSysdebugMEpLogEntry 2 }
+
+cucsSysdebugMEpLogRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLog:rn managed object property"
+    ::= { cucsSysdebugMEpLogEntry 3 }
+
+cucsSysdebugMEpLogAdminState OBJECT-TYPE
+    SYNTAX       CucsSysdebugEpLogAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLog:adminState managed object property"
+    ::= { cucsSysdebugMEpLogEntry 4 }
+
+cucsSysdebugMEpLogCapacity OBJECT-TYPE
+    SYNTAX       CucsSysdebugEpLogCapacity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLog:capacity managed object property"
+    ::= { cucsSysdebugMEpLogEntry 5 }
+
+cucsSysdebugMEpLogId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLog:id managed object property"
+    ::= { cucsSysdebugMEpLogEntry 6 }
+
+cucsSysdebugMEpLogLastUpdate OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLog:lastUpdate managed object property"
+    ::= { cucsSysdebugMEpLogEntry 7 }
+
+cucsSysdebugMEpLogOperState OBJECT-TYPE
+    SYNTAX       CucsSysdebugMEpLogOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLog:operState managed object property"
+    ::= { cucsSysdebugMEpLogEntry 8 }
+
+cucsSysdebugMEpLogType OBJECT-TYPE
+    SYNTAX       CucsSysdebugEpLogType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLog:type managed object property"
+    ::= { cucsSysdebugMEpLogEntry 9 }
+
+cucsSysdebugMEpLogPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugMEpLogPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLogPolicy managed object table"
+    ::= { cucsSysdebugObjects 14 }
+
+cucsSysdebugMEpLogPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugMEpLogPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugMEpLogPolicyTable table."
+    INDEX { cucsSysdebugMEpLogPolicyInstanceId }
+    ::= { cucsSysdebugMEpLogPolicyTable 1 }
+
+CucsSysdebugMEpLogPolicyEntry ::= SEQUENCE {
+    cucsSysdebugMEpLogPolicyInstanceId                               CucsManagedObjectId,
+    cucsSysdebugMEpLogPolicyDn                                       CucsManagedObjectDn,
+    cucsSysdebugMEpLogPolicyRn                                       SnmpAdminString,
+    cucsSysdebugMEpLogPolicyDescr                                    SnmpAdminString,
+    cucsSysdebugMEpLogPolicyIntId                                    SnmpAdminString,
+    cucsSysdebugMEpLogPolicyName                                     SnmpAdminString,
+    cucsSysdebugMEpLogPolicyType                                     CucsSysdebugEpLogType,
+    cucsSysdebugMEpLogPolicyPolicyLevel                              Gauge32,
+    cucsSysdebugMEpLogPolicyPolicyOwner                              CucsPolicyPolicyOwner
+}
+
+cucsSysdebugMEpLogPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugMEpLogPolicyEntry 1 }
+
+cucsSysdebugMEpLogPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLogPolicy:dn managed object property"
+    ::= { cucsSysdebugMEpLogPolicyEntry 2 }
+
+cucsSysdebugMEpLogPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLogPolicy:rn managed object property"
+    ::= { cucsSysdebugMEpLogPolicyEntry 3 }
+
+cucsSysdebugMEpLogPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLogPolicy:descr managed object property"
+    ::= { cucsSysdebugMEpLogPolicyEntry 4 }
+
+cucsSysdebugMEpLogPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLogPolicy:intId managed object property"
+    ::= { cucsSysdebugMEpLogPolicyEntry 5 }
+
+cucsSysdebugMEpLogPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLogPolicy:name managed object property"
+    ::= { cucsSysdebugMEpLogPolicyEntry 6 }
+
+cucsSysdebugMEpLogPolicyType OBJECT-TYPE
+    SYNTAX       CucsSysdebugEpLogType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLogPolicy:type managed object property"
+    ::= { cucsSysdebugMEpLogPolicyEntry 7 }
+
+cucsSysdebugMEpLogPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLogPolicy:policyLevel managed
+        object property"
+    ::= { cucsSysdebugMEpLogPolicyEntry 8 }
+
+cucsSysdebugMEpLogPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:MEpLogPolicy:policyOwner managed
+        object property"
+    ::= { cucsSysdebugMEpLogPolicyEntry 9 }
+
+cucsSysdebugManualCoreFileExportTargetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugManualCoreFileExportTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget
+        managed object table"
+    ::= { cucsSysdebugObjects 15 }
+
+cucsSysdebugManualCoreFileExportTargetEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugManualCoreFileExportTargetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugManualCoreFileExportTargetTable table."
+    INDEX { cucsSysdebugManualCoreFileExportTargetInstanceId }
+    ::= { cucsSysdebugManualCoreFileExportTargetTable 1 }
+
+CucsSysdebugManualCoreFileExportTargetEntry ::= SEQUENCE {
+    cucsSysdebugManualCoreFileExportTargetInstanceId                 CucsManagedObjectId,
+    cucsSysdebugManualCoreFileExportTargetDn                         CucsManagedObjectDn,
+    cucsSysdebugManualCoreFileExportTargetRn                         SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetAdminState                 CucsSysdebugManualCoreFileExportTargetAdminState,
+    cucsSysdebugManualCoreFileExportTargetDescr                      SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmDescr                   SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmPrev                    SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmProgr                   Gauge32,
+    cucsSysdebugManualCoreFileExportTargetFsmRmtInvErrCode           Gauge32,
+    cucsSysdebugManualCoreFileExportTargetFsmRmtInvErrDescr          SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmRmtInvRslt              CucsConditionRemoteInvRslt,
+    cucsSysdebugManualCoreFileExportTargetFsmStageDescr              SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmStamp                   DateAndTime,
+    cucsSysdebugManualCoreFileExportTargetFsmStatus                  SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmTry                     Gauge32,
+    cucsSysdebugManualCoreFileExportTargetHostname                   SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetIntId                      SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetName                       SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetPath                       SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetPort                       Gauge32,
+    cucsSysdebugManualCoreFileExportTargetPostAction                 CucsSysfileExporterPostAction,
+    cucsSysdebugManualCoreFileExportTargetProto                      CucsSysdebugManualCoreFileExportTargetProto,
+    cucsSysdebugManualCoreFileExportTargetExportFailureReason        SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetExportStatus               CucsSysdebugCoreExportStatus,
+    cucsSysdebugManualCoreFileExportTargetPolicyLevel                Gauge32,
+    cucsSysdebugManualCoreFileExportTargetPolicyOwner                CucsPolicyPolicyOwner
+}
+
+cucsSysdebugManualCoreFileExportTargetInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 1 }
+
+cucsSysdebugManualCoreFileExportTargetDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:dn
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 2 }
+
+cucsSysdebugManualCoreFileExportTargetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:rn
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 3 }
+
+cucsSysdebugManualCoreFileExportTargetAdminState OBJECT-TYPE
+    SYNTAX       CucsSysdebugManualCoreFileExportTargetAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:adminState
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 4 }
+
+cucsSysdebugManualCoreFileExportTargetDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:descr
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 5 }
+
+cucsSysdebugManualCoreFileExportTargetFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:fsmDescr
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 6 }
+
+cucsSysdebugManualCoreFileExportTargetFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:fsmPrev
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 7 }
+
+cucsSysdebugManualCoreFileExportTargetFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:fsmProgr
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 8 }
+
+cucsSysdebugManualCoreFileExportTargetFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 9 }
+
+cucsSysdebugManualCoreFileExportTargetFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 10 }
+
+cucsSysdebugManualCoreFileExportTargetFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:fsmRmtInvRslt
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 11 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:fsmStageDescr
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 12 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:fsmStamp
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 13 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:fsmStatus
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 14 }
+
+cucsSysdebugManualCoreFileExportTargetFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:fsmTry
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 15 }
+
+cucsSysdebugManualCoreFileExportTargetHostname OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:hostname
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 16 }
+
+cucsSysdebugManualCoreFileExportTargetIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:intId
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 17 }
+
+cucsSysdebugManualCoreFileExportTargetName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:name
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 18 }
+
+cucsSysdebugManualCoreFileExportTargetPath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:path
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 19 }
+
+cucsSysdebugManualCoreFileExportTargetPort OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:port
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 20 }
+
+cucsSysdebugManualCoreFileExportTargetPostAction OBJECT-TYPE
+    SYNTAX       CucsSysfileExporterPostAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:postAction
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 21 }
+
+cucsSysdebugManualCoreFileExportTargetProto OBJECT-TYPE
+    SYNTAX       CucsSysdebugManualCoreFileExportTargetProto
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:proto
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 22 }
+
+cucsSysdebugManualCoreFileExportTargetExportFailureReason OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:exportFailureReason
+         managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 23 }
+
+cucsSysdebugManualCoreFileExportTargetExportStatus OBJECT-TYPE
+    SYNTAX       CucsSysdebugCoreExportStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:exportStatus
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 24 }
+
+cucsSysdebugManualCoreFileExportTargetPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:policyLevel
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 25 }
+
+cucsSysdebugManualCoreFileExportTargetPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTarget:policyOwner
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetEntry 26 }
+
+cucsSysdebugManualCoreFileExportTargetFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugManualCoreFileExportTargetFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm
+        managed object table"
+    ::= { cucsSysdebugObjects 28 }
+
+cucsSysdebugManualCoreFileExportTargetFsmEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugManualCoreFileExportTargetFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugManualCoreFileExportTargetFsmTable table."
+    INDEX { cucsSysdebugManualCoreFileExportTargetFsmInstanceId }
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmTable 1 }
+
+CucsSysdebugManualCoreFileExportTargetFsmEntry ::= SEQUENCE {
+    cucsSysdebugManualCoreFileExportTargetFsmInstanceId              CucsManagedObjectId,
+    cucsSysdebugManualCoreFileExportTargetFsmDn                      CucsManagedObjectDn,
+    cucsSysdebugManualCoreFileExportTargetFsmRn                      SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmCompletionTime          DateAndTime,
+    cucsSysdebugManualCoreFileExportTargetFsmCurrentFsm              CucsSysdebugManualCoreFileExportTargetFsmCurrentFsm,
+    cucsSysdebugManualCoreFileExportTargetFsmDescrData               SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmFsmStatus               CucsFsmFsmStageStatus,
+    cucsSysdebugManualCoreFileExportTargetFsmProgress                Gauge32,
+    cucsSysdebugManualCoreFileExportTargetFsmRmtErrCode              Gauge32,
+    cucsSysdebugManualCoreFileExportTargetFsmRmtErrDescr             SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmRmtRslt                 CucsConditionRemoteInvRslt
+}
+
+cucsSysdebugManualCoreFileExportTargetFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 1 }
+
+cucsSysdebugManualCoreFileExportTargetFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm:dn
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 2 }
+
+cucsSysdebugManualCoreFileExportTargetFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm:rn
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 3 }
+
+cucsSysdebugManualCoreFileExportTargetFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm:completionTime
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 4 }
+
+cucsSysdebugManualCoreFileExportTargetFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsSysdebugManualCoreFileExportTargetFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm:currentFsm
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 5 }
+
+cucsSysdebugManualCoreFileExportTargetFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm:descr
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 6 }
+
+cucsSysdebugManualCoreFileExportTargetFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm:fsmStatus
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 7 }
+
+cucsSysdebugManualCoreFileExportTargetFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm:progress
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 8 }
+
+cucsSysdebugManualCoreFileExportTargetFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm:rmtErrCode
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 9 }
+
+cucsSysdebugManualCoreFileExportTargetFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm:rmtErrDescr
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 10 }
+
+cucsSysdebugManualCoreFileExportTargetFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsm:rmtRslt
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmEntry 11 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugManualCoreFileExportTargetFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmStage
+        managed object table"
+    ::= { cucsSysdebugObjects 29 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugManualCoreFileExportTargetFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugManualCoreFileExportTargetFsmStageTable table."
+    INDEX { cucsSysdebugManualCoreFileExportTargetFsmStageInstanceId }
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmStageTable 1 }
+
+CucsSysdebugManualCoreFileExportTargetFsmStageEntry ::= SEQUENCE {
+    cucsSysdebugManualCoreFileExportTargetFsmStageInstanceId         CucsManagedObjectId,
+    cucsSysdebugManualCoreFileExportTargetFsmStageDn                 CucsManagedObjectDn,
+    cucsSysdebugManualCoreFileExportTargetFsmStageRn                 SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmStageDescrData          SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmStageLastUpdateTime     DateAndTime,
+    cucsSysdebugManualCoreFileExportTargetFsmStageName               CucsSysdebugManualCoreFileExportTargetFsmStageName,
+    cucsSysdebugManualCoreFileExportTargetFsmStageOrder              Gauge32,
+    cucsSysdebugManualCoreFileExportTargetFsmStageRetry              Gauge32,
+    cucsSysdebugManualCoreFileExportTargetFsmStageStageStatus        CucsFsmFsmStageStatus
+}
+
+cucsSysdebugManualCoreFileExportTargetFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmStageEntry 1 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmStage:dn
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmStageEntry 2 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmStage:rn
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmStageEntry 3 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmStage:descr
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmStageEntry 4 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmStage:lastUpdateT
+        ime managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmStageEntry 5 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageName OBJECT-TYPE
+    SYNTAX       CucsSysdebugManualCoreFileExportTargetFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmStage:name
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmStageEntry 6 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmStage:order
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmStageEntry 7 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmStage:retry
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmStageEntry 8 }
+
+cucsSysdebugManualCoreFileExportTargetFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmStage:stageStatus
+         managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmStageEntry 9 }
+
+cucsSysdebugManualCoreFileExportTargetFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugManualCoreFileExportTargetFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmTask
+        managed object table"
+    ::= { cucsSysdebugObjects 16 }
+
+cucsSysdebugManualCoreFileExportTargetFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugManualCoreFileExportTargetFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugManualCoreFileExportTargetFsmTaskTable table."
+    INDEX { cucsSysdebugManualCoreFileExportTargetFsmTaskInstanceId }
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmTaskTable 1 }
+
+CucsSysdebugManualCoreFileExportTargetFsmTaskEntry ::= SEQUENCE {
+    cucsSysdebugManualCoreFileExportTargetFsmTaskInstanceId          CucsManagedObjectId,
+    cucsSysdebugManualCoreFileExportTargetFsmTaskDn                  CucsManagedObjectDn,
+    cucsSysdebugManualCoreFileExportTargetFsmTaskRn                  SnmpAdminString,
+    cucsSysdebugManualCoreFileExportTargetFsmTaskCompletion          CucsFsmCompletion,
+    cucsSysdebugManualCoreFileExportTargetFsmTaskFlags               CucsFsmFlags,
+    cucsSysdebugManualCoreFileExportTargetFsmTaskItem                CucsSysdebugManualCoreFileExportTargetFsmTaskItem,
+    cucsSysdebugManualCoreFileExportTargetFsmTaskSeqId               Gauge32
+}
+
+cucsSysdebugManualCoreFileExportTargetFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmTaskEntry 1 }
+
+cucsSysdebugManualCoreFileExportTargetFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmTask:dn
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmTaskEntry 2 }
+
+cucsSysdebugManualCoreFileExportTargetFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmTask:rn
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmTaskEntry 3 }
+
+cucsSysdebugManualCoreFileExportTargetFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmTask:completion
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmTaskEntry 4 }
+
+cucsSysdebugManualCoreFileExportTargetFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmTask:flags
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmTaskEntry 5 }
+
+cucsSysdebugManualCoreFileExportTargetFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsSysdebugManualCoreFileExportTargetFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmTask:item
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmTaskEntry 6 }
+
+cucsSysdebugManualCoreFileExportTargetFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:ManualCoreFileExportTargetFsmTask:seqId
+        managed object property"
+    ::= { cucsSysdebugManualCoreFileExportTargetFsmTaskEntry 7 }
+
+cucsSysdebugTechSupFileRepositoryTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugTechSupFileRepositoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupFileRepository managed object table"
+    ::= { cucsSysdebugObjects 17 }
+
+cucsSysdebugTechSupFileRepositoryEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugTechSupFileRepositoryEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugTechSupFileRepositoryTable table."
+    INDEX { cucsSysdebugTechSupFileRepositoryInstanceId }
+    ::= { cucsSysdebugTechSupFileRepositoryTable 1 }
+
+CucsSysdebugTechSupFileRepositoryEntry ::= SEQUENCE {
+    cucsSysdebugTechSupFileRepositoryInstanceId                      CucsManagedObjectId,
+    cucsSysdebugTechSupFileRepositoryDn                              CucsManagedObjectDn,
+    cucsSysdebugTechSupFileRepositoryRn                              SnmpAdminString
+}
+
+cucsSysdebugTechSupFileRepositoryInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugTechSupFileRepositoryEntry 1 }
+
+cucsSysdebugTechSupFileRepositoryDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupFileRepository:dn managed
+        object property"
+    ::= { cucsSysdebugTechSupFileRepositoryEntry 2 }
+
+cucsSysdebugTechSupFileRepositoryRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupFileRepository:rn managed
+        object property"
+    ::= { cucsSysdebugTechSupFileRepositoryEntry 3 }
+
+cucsSysdebugTechSupportTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugTechSupportEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport managed object table"
+    ::= { cucsSysdebugObjects 18 }
+
+cucsSysdebugTechSupportEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugTechSupportEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugTechSupportTable table."
+    INDEX { cucsSysdebugTechSupportInstanceId }
+    ::= { cucsSysdebugTechSupportTable 1 }
+
+CucsSysdebugTechSupportEntry ::= SEQUENCE {
+    cucsSysdebugTechSupportInstanceId                                CucsManagedObjectId,
+    cucsSysdebugTechSupportDn                                        CucsManagedObjectDn,
+    cucsSysdebugTechSupportRn                                        SnmpAdminString,
+    cucsSysdebugTechSupportAdminState                                CucsSysdebugTechSupportAdminState,
+    cucsSysdebugTechSupportDescr                                     SnmpAdminString,
+    cucsSysdebugTechSupportFsmDescr                                  SnmpAdminString,
+    cucsSysdebugTechSupportFsmPrev                                   SnmpAdminString,
+    cucsSysdebugTechSupportFsmProgr                                  Gauge32,
+    cucsSysdebugTechSupportFsmRmtInvErrCode                          Gauge32,
+    cucsSysdebugTechSupportFsmRmtInvErrDescr                         SnmpAdminString,
+    cucsSysdebugTechSupportFsmRmtInvRslt                             CucsConditionRemoteInvRslt,
+    cucsSysdebugTechSupportFsmStageDescr                             SnmpAdminString,
+    cucsSysdebugTechSupportFsmStamp                                  DateAndTime,
+    cucsSysdebugTechSupportFsmStatus                                 SnmpAdminString,
+    cucsSysdebugTechSupportFsmTry                                    Gauge32,
+    cucsSysdebugTechSupportName                                      SnmpAdminString,
+    cucsSysdebugTechSupportOperState                                 CucsSysdebugTechSupportOperState,
+    cucsSysdebugTechSupportSize                                      Gauge32,
+    cucsSysdebugTechSupportSwitchId                                  CucsNetworkSwitchId,
+    cucsSysdebugTechSupportTs                                        DateAndTime,
+    cucsSysdebugTechSupportUri                                       SnmpAdminString,
+    cucsSysdebugTechSupportCreationTS                                Unsigned64,
+    cucsSysdebugTechSupportChecksum                                  SnmpAdminString
+}
+
+cucsSysdebugTechSupportInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugTechSupportEntry 1 }
+
+cucsSysdebugTechSupportDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:dn managed object property"
+    ::= { cucsSysdebugTechSupportEntry 2 }
+
+cucsSysdebugTechSupportRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:rn managed object property"
+    ::= { cucsSysdebugTechSupportEntry 3 }
+
+cucsSysdebugTechSupportAdminState OBJECT-TYPE
+    SYNTAX       CucsSysdebugTechSupportAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:adminState managed
+        object property"
+    ::= { cucsSysdebugTechSupportEntry 4 }
+
+cucsSysdebugTechSupportDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:descr managed object property"
+    ::= { cucsSysdebugTechSupportEntry 5 }
+
+cucsSysdebugTechSupportFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:fsmDescr managed object property"
+    ::= { cucsSysdebugTechSupportEntry 6 }
+
+cucsSysdebugTechSupportFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:fsmPrev managed object property"
+    ::= { cucsSysdebugTechSupportEntry 7 }
+
+cucsSysdebugTechSupportFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:fsmProgr managed object property"
+    ::= { cucsSysdebugTechSupportEntry 8 }
+
+cucsSysdebugTechSupportFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsSysdebugTechSupportEntry 9 }
+
+cucsSysdebugTechSupportFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsSysdebugTechSupportEntry 10 }
+
+cucsSysdebugTechSupportFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:fsmRmtInvRslt managed
+        object property"
+    ::= { cucsSysdebugTechSupportEntry 11 }
+
+cucsSysdebugTechSupportFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:fsmStageDescr managed
+        object property"
+    ::= { cucsSysdebugTechSupportEntry 12 }
+
+cucsSysdebugTechSupportFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:fsmStamp managed object property"
+    ::= { cucsSysdebugTechSupportEntry 13 }
+
+cucsSysdebugTechSupportFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:fsmStatus managed object property"
+    ::= { cucsSysdebugTechSupportEntry 14 }
+
+cucsSysdebugTechSupportFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:fsmTry managed object property"
+    ::= { cucsSysdebugTechSupportEntry 15 }
+
+cucsSysdebugTechSupportName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:name managed object property"
+    ::= { cucsSysdebugTechSupportEntry 16 }
+
+cucsSysdebugTechSupportOperState OBJECT-TYPE
+    SYNTAX       CucsSysdebugTechSupportOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:operState managed object property"
+    ::= { cucsSysdebugTechSupportEntry 17 }
+
+cucsSysdebugTechSupportSize OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:size managed object property"
+    ::= { cucsSysdebugTechSupportEntry 18 }
+
+cucsSysdebugTechSupportSwitchId OBJECT-TYPE
+    SYNTAX       CucsNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:switchId managed object property"
+    ::= { cucsSysdebugTechSupportEntry 19 }
+
+cucsSysdebugTechSupportTs OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:ts managed object property"
+    ::= { cucsSysdebugTechSupportEntry 20 }
+
+cucsSysdebugTechSupportUri OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:uri managed object property"
+    ::= { cucsSysdebugTechSupportEntry 21 }
+
+cucsSysdebugTechSupportCreationTS OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:creationTS managed
+        object property"
+    ::= { cucsSysdebugTechSupportEntry 22 }
+
+cucsSysdebugTechSupportChecksum OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupport:checksum managed object property"
+    ::= { cucsSysdebugTechSupportEntry 23 }
+
+cucsSysdebugTechSupportCmdOptTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugTechSupportCmdOptEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt managed object table"
+    ::= { cucsSysdebugObjects 19 }
+
+cucsSysdebugTechSupportCmdOptEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugTechSupportCmdOptEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugTechSupportCmdOptTable table."
+    INDEX { cucsSysdebugTechSupportCmdOptInstanceId }
+    ::= { cucsSysdebugTechSupportCmdOptTable 1 }
+
+CucsSysdebugTechSupportCmdOptEntry ::= SEQUENCE {
+    cucsSysdebugTechSupportCmdOptInstanceId                          CucsManagedObjectId,
+    cucsSysdebugTechSupportCmdOptDn                                  CucsManagedObjectDn,
+    cucsSysdebugTechSupportCmdOptRn                                  SnmpAdminString,
+    cucsSysdebugTechSupportCmdOptChassisCimcId                       Gauge32,
+    cucsSysdebugTechSupportCmdOptChassisId                           Gauge32,
+    cucsSysdebugTechSupportCmdOptChassisIomId                        Gauge32,
+    cucsSysdebugTechSupportCmdOptCimcAdapterId                       Gauge32,
+    cucsSysdebugTechSupportCmdOptFabExtId                            Gauge32,
+    cucsSysdebugTechSupportCmdOptMajorOptType                        CucsSysdebugTSCmdOptMajorType,
+    cucsSysdebugTechSupportCmdOptRackServerAdapterId                 Gauge32,
+    cucsSysdebugTechSupportCmdOptRackServerId                        Gauge32,
+    cucsSysdebugTechSupportCmdOptCartridgeCIMCId                     Gauge32,
+    cucsSysdebugTechSupportCmdOptChassisCartridgeId                  Gauge32,
+    cucsSysdebugTechSupportCmdOptServerIdList                        SnmpAdminString,
+    cucsSysdebugTechSupportCmdOptCommandOptions                      CucsSysdebugTSCmdOptCmdOptions
+}
+
+cucsSysdebugTechSupportCmdOptInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugTechSupportCmdOptEntry 1 }
+
+cucsSysdebugTechSupportCmdOptDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:dn managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 2 }
+
+cucsSysdebugTechSupportCmdOptRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:rn managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 3 }
+
+cucsSysdebugTechSupportCmdOptChassisCimcId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:chassisCimcId
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 4 }
+
+cucsSysdebugTechSupportCmdOptChassisId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:chassisId
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 5 }
+
+cucsSysdebugTechSupportCmdOptChassisIomId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:chassisIomId
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 6 }
+
+cucsSysdebugTechSupportCmdOptCimcAdapterId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:cimcAdapterId
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 7 }
+
+cucsSysdebugTechSupportCmdOptFabExtId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:fabExtId
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 8 }
+
+cucsSysdebugTechSupportCmdOptMajorOptType OBJECT-TYPE
+    SYNTAX       CucsSysdebugTSCmdOptMajorType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:majorOptType
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 9 }
+
+cucsSysdebugTechSupportCmdOptRackServerAdapterId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:rackServerAdapterId
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 10 }
+
+cucsSysdebugTechSupportCmdOptRackServerId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:rackServerId
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 11 }
+
+cucsSysdebugTechSupportCmdOptCartridgeCIMCId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:cartridgeCIMCId
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 13 }
+
+cucsSysdebugTechSupportCmdOptChassisCartridgeId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:chassisCartridgeId
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 14 }
+
+cucsSysdebugTechSupportCmdOptServerIdList OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:serverIdList
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 15 }
+
+cucsSysdebugTechSupportCmdOptCommandOptions OBJECT-TYPE
+    SYNTAX       CucsSysdebugTSCmdOptCmdOptions
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportCmdOpt:commandOptions
+        managed object property"
+    ::= { cucsSysdebugTechSupportCmdOptEntry 18 }
+
+cucsSysdebugTechSupportFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugTechSupportFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm managed object table"
+    ::= { cucsSysdebugObjects 30 }
+
+cucsSysdebugTechSupportFsmEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugTechSupportFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugTechSupportFsmTable table."
+    INDEX { cucsSysdebugTechSupportFsmInstanceId }
+    ::= { cucsSysdebugTechSupportFsmTable 1 }
+
+CucsSysdebugTechSupportFsmEntry ::= SEQUENCE {
+    cucsSysdebugTechSupportFsmInstanceId                             CucsManagedObjectId,
+    cucsSysdebugTechSupportFsmDn                                     CucsManagedObjectDn,
+    cucsSysdebugTechSupportFsmRn                                     SnmpAdminString,
+    cucsSysdebugTechSupportFsmCompletionTime                         DateAndTime,
+    cucsSysdebugTechSupportFsmCurrentFsm                             CucsSysdebugTechSupportFsmCurrentFsm,
+    cucsSysdebugTechSupportFsmDescrData                              SnmpAdminString,
+    cucsSysdebugTechSupportFsmFsmStatus                              CucsFsmFsmStageStatus,
+    cucsSysdebugTechSupportFsmProgress                               Gauge32,
+    cucsSysdebugTechSupportFsmRmtErrCode                             Gauge32,
+    cucsSysdebugTechSupportFsmRmtErrDescr                            SnmpAdminString,
+    cucsSysdebugTechSupportFsmRmtRslt                                CucsConditionRemoteInvRslt
+}
+
+cucsSysdebugTechSupportFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugTechSupportFsmEntry 1 }
+
+cucsSysdebugTechSupportFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm:dn managed object property"
+    ::= { cucsSysdebugTechSupportFsmEntry 2 }
+
+cucsSysdebugTechSupportFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm:rn managed object property"
+    ::= { cucsSysdebugTechSupportFsmEntry 3 }
+
+cucsSysdebugTechSupportFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm:completionTime
+        managed object property"
+    ::= { cucsSysdebugTechSupportFsmEntry 4 }
+
+cucsSysdebugTechSupportFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsSysdebugTechSupportFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm:currentFsm managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmEntry 5 }
+
+cucsSysdebugTechSupportFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm:descr managed object property"
+    ::= { cucsSysdebugTechSupportFsmEntry 6 }
+
+cucsSysdebugTechSupportFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm:fsmStatus managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmEntry 7 }
+
+cucsSysdebugTechSupportFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm:progress managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmEntry 8 }
+
+cucsSysdebugTechSupportFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm:rmtErrCode managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmEntry 9 }
+
+cucsSysdebugTechSupportFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm:rmtErrDescr
+        managed object property"
+    ::= { cucsSysdebugTechSupportFsmEntry 10 }
+
+cucsSysdebugTechSupportFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsm:rmtRslt managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmEntry 11 }
+
+cucsSysdebugTechSupportFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugTechSupportFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmStage managed object table"
+    ::= { cucsSysdebugObjects 31 }
+
+cucsSysdebugTechSupportFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugTechSupportFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugTechSupportFsmStageTable table."
+    INDEX { cucsSysdebugTechSupportFsmStageInstanceId }
+    ::= { cucsSysdebugTechSupportFsmStageTable 1 }
+
+CucsSysdebugTechSupportFsmStageEntry ::= SEQUENCE {
+    cucsSysdebugTechSupportFsmStageInstanceId                        CucsManagedObjectId,
+    cucsSysdebugTechSupportFsmStageDn                                CucsManagedObjectDn,
+    cucsSysdebugTechSupportFsmStageRn                                SnmpAdminString,
+    cucsSysdebugTechSupportFsmStageDescrData                         SnmpAdminString,
+    cucsSysdebugTechSupportFsmStageLastUpdateTime                    DateAndTime,
+    cucsSysdebugTechSupportFsmStageName                              CucsSysdebugTechSupportFsmStageName,
+    cucsSysdebugTechSupportFsmStageOrder                             Gauge32,
+    cucsSysdebugTechSupportFsmStageRetry                             Gauge32,
+    cucsSysdebugTechSupportFsmStageStageStatus                       CucsFsmFsmStageStatus
+}
+
+cucsSysdebugTechSupportFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugTechSupportFsmStageEntry 1 }
+
+cucsSysdebugTechSupportFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmStage:dn managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmStageEntry 2 }
+
+cucsSysdebugTechSupportFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmStage:rn managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmStageEntry 3 }
+
+cucsSysdebugTechSupportFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmStage:descr managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmStageEntry 4 }
+
+cucsSysdebugTechSupportFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsSysdebugTechSupportFsmStageEntry 5 }
+
+cucsSysdebugTechSupportFsmStageName OBJECT-TYPE
+    SYNTAX       CucsSysdebugTechSupportFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmStage:name managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmStageEntry 6 }
+
+cucsSysdebugTechSupportFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmStage:order managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmStageEntry 7 }
+
+cucsSysdebugTechSupportFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmStage:retry managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmStageEntry 8 }
+
+cucsSysdebugTechSupportFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmStage:stageStatus
+        managed object property"
+    ::= { cucsSysdebugTechSupportFsmStageEntry 9 }
+
+cucsSysdebugTechSupportFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSysdebugTechSupportFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmTask managed object table"
+    ::= { cucsSysdebugObjects 20 }
+
+cucsSysdebugTechSupportFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsSysdebugTechSupportFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSysdebugTechSupportFsmTaskTable table."
+    INDEX { cucsSysdebugTechSupportFsmTaskInstanceId }
+    ::= { cucsSysdebugTechSupportFsmTaskTable 1 }
+
+CucsSysdebugTechSupportFsmTaskEntry ::= SEQUENCE {
+    cucsSysdebugTechSupportFsmTaskInstanceId                         CucsManagedObjectId,
+    cucsSysdebugTechSupportFsmTaskDn                                 CucsManagedObjectDn,
+    cucsSysdebugTechSupportFsmTaskRn                                 SnmpAdminString,
+    cucsSysdebugTechSupportFsmTaskCompletion                         CucsFsmCompletion,
+    cucsSysdebugTechSupportFsmTaskFlags                              CucsFsmFlags,
+    cucsSysdebugTechSupportFsmTaskItem                               CucsSysdebugTechSupportFsmTaskItem,
+    cucsSysdebugTechSupportFsmTaskSeqId                              Gauge32
+}
+
+cucsSysdebugTechSupportFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSysdebugTechSupportFsmTaskEntry 1 }
+
+cucsSysdebugTechSupportFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmTask:dn managed object property"
+    ::= { cucsSysdebugTechSupportFsmTaskEntry 2 }
+
+cucsSysdebugTechSupportFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmTask:rn managed object property"
+    ::= { cucsSysdebugTechSupportFsmTaskEntry 3 }
+
+cucsSysdebugTechSupportFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmTask:completion
+        managed object property"
+    ::= { cucsSysdebugTechSupportFsmTaskEntry 4 }
+
+cucsSysdebugTechSupportFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmTask:flags managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmTaskEntry 5 }
+
+cucsSysdebugTechSupportFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsSysdebugTechSupportFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmTask:item managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmTaskEntry 6 }
+
+cucsSysdebugTechSupportFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS sysdebug:TechSupportFsmTask:seqId managed
+        object property"
+    ::= { cucsSysdebugTechSupportFsmTaskEntry 7 }
+
+END

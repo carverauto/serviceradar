@@ -1,0 +1,379 @@
+-- MIB created 6/25/99 12:57:35, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-SDLLC-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-SDLLC-MIB.my"
+
+IMPORTS
+    Integer32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215
+    TruthValue, MacAddress
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    ifIndex
+            FROM IF-MIB;
+
+ciscoSnaSdllcMIB OBJECT IDENTIFIER ::= { ciscoMgmt 28 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9812170000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--     Cisco Systems
+--     Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This is the MIB module for objects used to manage SDLLC.
+--    
+--     Overview of SDLLC conversion MIB
+--     
+--    
+--     MIB description                        
+--     The SDLLC MIB includes read-only configuration and operational
+--     information on Cisco's implementation of SDLC to LLC2 media
+--     translation.  The following example shows the entities managed
+--     by the SDLLC MIB.
+--    
+--    
+--      FEP/ ==  Token == CISCO A == WAN/RSRB == CISCO B == Serial == SDLC  
+--      Host     Ring                                       line      station
+--    
+--       |=============== LLC2 session ============|=== SDLC session ====|
+--       
+--       In this example configuration, CISCO B is performing the SDLLC 
+--       conversion, and so we query CISCO B for this MIB.
+--       The SDLC device believes it is talking to the host via a direct
+--       SDLC session.  The host believes it is talking to the SDLC station on 
+--       the same token ring.  CISCO A is also unaware of the SDLLC conversion
+--       going on at CISCO B; it just believes it has an RSRB session with 
+--       its peer CISCO B to bridge two token ring separated by a WAN.
+--       So CISCO B is the only agent that can provide the SDLLC conversion
+--       details.  We can combine this MIB with the CISCO-RSRB-MIB from
+--       either CISCO A or CISCO B to get a better picture of the network.
+--       
+--       This MIB has two tables:  
+--       
+--       convSdllcPortTable has an entry for each serial interface for 
+--       general SDLLC information on an interface, such as administered 
+--       virtual MAC addresses and virtual ring and bridge numbers.
+--       This table is indexed by ifIndex.
+--       
+--       convSdllcAddrTable has an entry for each serial interface and
+--       SDLC address pair.  It contains information specific to an SDLC
+--       address on an interface, such as the partner MAC address, 
+--       XID value, and address state.  This table is indexed by ifIndex
+--       and convSdllcAddrSdlcAddr (the address of the SDLC station).
+--    
+--       The above configuration would have a single entry in each table.
+--       If CISCO B had two serial lines configured for sdllc conversion, 
+--       there would be two entries per table.  If there
+--       were only one serial line, but it was multipoint and
+--       supported two sdlc addresses on the other end of the 
+--       line, there would be a single entry in convSdllcPortTable, and
+--       two entries in convSdllcAddrTable.
+--       
+--       The MIB provides the following information for convSdllcPortTable:
+--       
+--       convSdllcPortVirtMacAddr - The locally administered MAC addressed
+--         assigned to the serial interface.  Note that this address must
+--         always end in '00'.  CISCO B replaces the 00 with the sdlc
+--         address of the serial device.  For a multipoint configuration
+--         with two SDLC stations the llc2 side will 'see' two token ring 
+--         stations with unique MAC addresses on the sdlc side.
+--       convSdllcPortVirtRing - The locally administered token ring number
+--         assigned to the serial interface.  This gives the serial interface
+--         a token ring appearance to the llc2 side of the conversion, so
+--         that it appears that it is a token ring on the other side of
+--         a bridge.
+--       convSdllcPortBridge - The bridge number assigned to CISCO B 
+--       convSdllcPortLlc2Ring - The token ring number on the LLC2 session
+--         side.  In this case it is the RSRB virtual ring group number
+--         between CISCO A and CISCO B.  
+--       convSdllcPortLocalAck - indicates whether local acknowledgement
+--         of SDLLC sessions is active.        
+--       convSdllcPortLocalAckState - indicates the state of
+--        the local acknowledgement session.   
+--       convSdllcPortMaxLlc2FrameSize - the largest I-frame size that
+--         can be sent or received on the LLC2 session.
+--    
+--       The MIB provides the following information for convSdllcAddrTable:
+--       convSdllcAddrSdlcAddr - The address of the SDLC station.
+--       convSdllcAddrPartnerMacAddr - The MAC address of the FEP, as
+--         specified with the sdllc partner command.
+--       convSdllcAddrXID - The IDBLK and IDNUM of the SDLC station;
+--         these must match the VTAM configured values
+--       convSdllcAddrState - indicates the state of the SDLLC conversion
+--       convSdllcAddrMaxSdlcFrameSize - the largest I-frame size that
+--         can be sent or received on the SDLC session.
+--                              
+--  RevDate
+--    9508210000Z
+--  RevDescr
+--    Minor cleanups to pacify mib compiler.
+--  RevDate
+--    9812170000Z
+--  RevDescr
+--    Removed the old description, rewrite to match the MIB 
+--    structure.
+
+convSdllcObjects OBJECT IDENTIFIER ::= { ciscoSnaSdllcMIB 1 }
+convSdllcPorts  OBJECT IDENTIFIER ::= { convSdllcObjects 1 }
+convSdllcAddrs  OBJECT IDENTIFIER ::= { convSdllcObjects 2 }
+convSdllcNotificationPrefix OBJECT IDENTIFIER ::= { ciscoSnaSdllcMIB 2 }
+convSdllcNotifications OBJECT IDENTIFIER ::= { convSdllcNotificationPrefix 0 }
+sdllcMibConformance OBJECT IDENTIFIER ::= { ciscoSnaSdllcMIB 3 }
+sdllcMibCompliances OBJECT IDENTIFIER ::= { sdllcMibConformance 1 }
+sdllcMibGroups  OBJECT IDENTIFIER ::= { sdllcMibConformance 2 }
+
+convSdllcPortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ConvSdllcPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of interfaces and SDLC addresses configured for SDLLC 
+         conversion"
+    ::= { convSdllcPorts 1 }
+
+convSdllcPortEntry OBJECT-TYPE
+    SYNTAX ConvSdllcPortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Status and configuration values for a specific SDLLC conversion
+         interface and SDLC address. "
+    INDEX { ifIndex }
+    ::= { convSdllcPortTable 1 }
+
+ConvSdllcPortEntry ::= SEQUENCE {
+    convSdllcPortVirtMacAddr MacAddress,
+    convSdllcPortVirtRing Integer32,
+    convSdllcPortBridge Integer32,
+    convSdllcPortLlc2Ring Integer32,
+    convSdllcPortLocalAck TruthValue,
+    convSdllcPortLocalAckState INTEGER,
+    convSdllcPortMaxLlc2FrameSize Integer32
+    }
+
+convSdllcPortVirtMacAddr OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The local administered virtual MAC address for the device on
+         the serial interface."
+    ::= { convSdllcPortEntry 1 }
+
+convSdllcPortVirtRing OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The virtual ring number assigned to the serial interface."
+    ::= { convSdllcPortEntry 2 }
+
+convSdllcPortBridge OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The bridge number assigned to SDLLC conversion."
+    ::= { convSdllcPortEntry 3 }
+
+convSdllcPortLlc2Ring OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The ring number assigned to the LLC2 side of the SDLLC conversion."
+    ::= { convSdllcPortEntry 4 }
+
+convSdllcPortLocalAck OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if all SDLLC sessions are locally acknowledged.
+         
+         TRUE-> SDLLC sessions are locally acknowledged
+         FALSE-> SDLLC sessions are not locally acknowledged"
+    ::= { convSdllcPortEntry 5 }
+
+convSdllcPortLocalAckState OBJECT-TYPE
+    SYNTAX INTEGER {
+        disconnected(1),
+        localDiscWait(2),
+        remDiscWait(3),
+        remWait(4),
+        localWait(5),
+        connectPending(6),
+        connected(7),
+        remQOnWait(8),
+        remQOffWait(9),
+        quenched(10),
+        unknown(255)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "State of the local acknowledgment session between two stations."
+    ::= { convSdllcPortEntry 6 }
+
+convSdllcPortMaxLlc2FrameSize OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The largest information frame (I-frame) size that can be sent or 
+         received on the LLC2 session."
+    ::= { convSdllcPortEntry 7 }
+
+convSdllcAddrTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF ConvSdllcAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Table of SDLC addresses configured for SDLLC 
+         conversion on a particular interface."
+    ::= { convSdllcAddrs 1 }
+
+convSdllcAddrEntry OBJECT-TYPE
+    SYNTAX ConvSdllcAddrEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Status and configuration values for a specific SDLLC conversion
+         SDLC address. "
+    INDEX { ifIndex, convSdllcAddrSdlcAddr }
+    ::= { convSdllcAddrTable 1 }
+
+ConvSdllcAddrEntry ::= SEQUENCE {
+    convSdllcAddrSdlcAddr INTEGER,
+    convSdllcAddrPartnerMacAddr MacAddress,
+    convSdllcAddrXID OCTET STRING,
+    convSdllcAddrState INTEGER,
+    convSdllcAddrMaxSdlcFrameSize Integer32
+    }
+
+convSdllcAddrSdlcAddr OBJECT-TYPE
+    SYNTAX INTEGER(0..255)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The address of the SDLC station."
+    ::= { convSdllcAddrEntry 1 }
+
+convSdllcAddrPartnerMacAddr OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The  MAC address of the LLC2 station, for device-initiated SDLLC 
+         connections."
+    ::= { convSdllcAddrEntry 2 }
+
+convSdllcAddrXID OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(4))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The XID value that is associated with the SDLC station.
+         This value must match the host configured value."
+    ::= { convSdllcAddrEntry 3 }
+
+convSdllcAddrState OBJECT-TYPE
+    SYNTAX INTEGER {
+        disconnected(1),
+        sdlcDisconnecting(2),
+        sdlcPriConnecting(3),
+        netDisconnecting(4),
+        netConnecting(5),
+        sdlcSecConnecting(6),
+        connected(7)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Current state of the SDLLC connection."
+    ::= { convSdllcAddrEntry 4 }
+
+convSdllcAddrMaxSdlcFrameSize OBJECT-TYPE
+    SYNTAX Integer32
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The largest information frame (I-frame) size that can be sent or 
+         received on the SDLC session."
+    ::= { convSdllcAddrEntry 5 }
+
+convSdllcPeerStateChangeNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE convSdllcNotificationPrefix
+    VARIABLES {
+        convSdllcAddrState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This Notification indicates that the state of an SDLLC connection
+         has transitioned to connected or disconnected."
+    ::= 1
+
+convSdllcPortGroup OBJECT IDENTIFIER ::= { sdllcMibGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration and
+--     operational information about an SDLLC port.
+--  objects
+--    convSdllcPortVirtMacAddr, convSdllcPortVirtRing, 
+--    convSdllcPortBridge, convSdllcPortLlc2Ring, 
+--    convSdllcPortLocalAck, convSdllcPortLocalAckState, 
+--    convSdllcPortMaxLlc2FrameSize
+
+convSdllcAddrGroup OBJECT IDENTIFIER ::= { sdllcMibGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing configuration and
+--     operational information about an SDLC address.
+--  objects
+--    convSdllcAddrPartnerMacAddr, convSdllcAddrXID, 
+--    convSdllcAddrState, convSdllcAddrMaxSdlcFrameSize
+
+sdllcMibCompliance OBJECT IDENTIFIER ::= { sdllcMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for sdllc.
+--  Module
+--    >>current<<
+--   MandGroup
+--    convSdllcPortGroup
+--   MandGroup
+--    convSdllcAddrGroup
+
+
+END
+

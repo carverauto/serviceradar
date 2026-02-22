@@ -1,0 +1,557 @@
+-- *****************************************************************
+-- CISCO-ATM-SWITCH-FR-IWF-MIB
+--
+-- Sept 1998, Gautam Banerjee
+--
+-- Copyright (c) 1998 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-ATM-SWITCH-FR-RM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE,
+    Gauge32                          FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,TruthValue    FROM SNMPv2-TC
+    ifIndex                          FROM RFC1213-MIB
+    ciscoMgmt                  	     FROM CISCO-SMI
+    MODULE-COMPLIANCE, OBJECT-GROUP  FROM SNMPv2-CONF;
+
+ciscoAtmSwitchFrRmMIB MODULE-IDENTITY
+    LAST-UPDATED "9807200000Z"
+    ORGANIZATION "Cisco Systems"
+    CONTACT-INFO "
+                  Cisco Systems
+                  Customer Service
+
+        Postal:   170 West Tasman Drive
+                  San Jose CA 95134
+                  USA
+
+        Phone:    +1 800 553-NETS
+
+        Email:    cs-atm@cisco.com"
+    DESCRIPTION
+        "This MIB module describes a set of objects used
+         for switch Resource Management (RM) for Frame Relay/Frame
+         based User-to-Network (FUNI) to ATM interworking
+         function (IWF) connections. Please refer to the Frame
+         Relay Forum documents FRF.5 and FRF.8 for details on the
+         Frame Relay to ATM Interworking Functions. For details 
+         on FUNI, please refer to the ATM Forum FUNI Specification
+         document.
+
+         These objects are applicable to Frame Relay and FUNI
+         interfaces present on the Frame Relay Port Adapter
+         Module (PAM).
+ 
+         Initial version of this MIB module."
+    ::= { ciscoMgmt 110 }
+
+ciscoAtmSwitchFrRmMIBObjects OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrRmMIB 1 }
+
+cfaAdapter                   OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrRmMIBObjects 1 }
+
+cfaInterwork                 OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrRmMIBObjects 2 }
+
+
+-- Textual Conventions
+
+CfaInterworkServiceCategory ::= TEXTUAL-CONVENTION
+    STATUS       current
+    DESCRIPTION
+        "This data type is used to specify the service category of
+         a Frame Relay/FUNI to ATM interworking connection.
+         For definitions of service categories, please refer to
+         the ATM Forum Traffic Management Specification. 
+         The current implementation supports the following service 
+         categories for connections performing the Frame Relay to 
+         ATM Interworking Function:
+             Variable bit rate, non real time (VBR-NRT)
+             Available bit rate (ABR)
+             Unspecified bit rate (UBR)"
+    SYNTAX     INTEGER {
+                    vbrNrt(1),
+                    abr(2),
+                    ubr(3)
+                   }
+
+--
+-- Frame Relay/FUNI To ATM Interworking Resource Management
+--
+-- The following table defines a set of objects to perform
+-- Congestion Control for Frame Relay and FUNI to ATM
+-- Interworking connections, on the Frame Relay Port
+-- Adapter Module (PAM).
+--
+
+cfaAdapterIfVcQThresholdTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfaAdapterIfVcQThresholdEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A table of per-VC queue threshold parameters that are used
+         for congestion control for Frame Relay/FUNI to ATM
+         Interworking Function connections, on the Frame Relay Port
+         Adapter Module.
+ 
+         These objects become available as each Frame Relay
+         and FUNI interface is defined on the device. The
+         corresponding ifTypes are frameRelayService(44)
+         and atmFuni(106) respectively.
+ 
+         An unique set of threshold parameters are available for
+         every supported Interworking Function service
+         category, and would be applied to all connections
+         belonging to that particular service category, on that
+         Frame Relay or FUNI interface."
+    ::= { cfaAdapter 1 }
+
+cfaAdapterIfVcQThresholdEntry OBJECT-TYPE
+    SYNTAX     CfaAdapterIfVcQThresholdEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+         "A set of per-VC queue threshold parameters that are used
+         for congestion control for Frame Relay/FUNI to ATM
+         Interworking Function connections, on the Frame Relay Port
+         Adapter Module.
+
+         The ifIndex in the index clause refers to MIB-II's
+         ifIndex corresponding to frame-based ATM PAM ports,
+         i.e., Frame Relay and FUNI."
+    INDEX      { ifIndex, cfaAdapterIfVcQService }
+    ::= { cfaAdapterIfVcQThresholdTable 1 }
+
+CfaAdapterIfVcQThresholdEntry ::= SEQUENCE {
+    cfaAdapterIfVcQService               CfaInterworkServiceCategory,
+    cfaAdapterIfVcQInqDiscThresh         INTEGER,
+    cfaAdapterIfVcQOutqDiscThresh        INTEGER,
+    cfaAdapterIfVcQInqMarkThresh         INTEGER,
+    cfaAdapterIfVcQOutqMarkThresh        INTEGER
+}
+
+cfaAdapterIfVcQService OBJECT-TYPE
+    SYNTAX     CfaInterworkServiceCategory
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The service category of the connection to which this 
+         entry applies."
+    ::= { cfaAdapterIfVcQThresholdEntry 1 }
+
+cfaAdapterIfVcQInqDiscThresh OBJECT-TYPE
+    SYNTAX     INTEGER (1..100)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+	"This object defines the Discard Eligible threshold 
+	 applied to the Frame Relay - ATM interworking 
+	 virtual circuit input queue, on the Frame Relay 
+         PAM.
+
+         The input queue is in the direction of 
+         Frame Relay/FUNI interface to the ATM switch fabric.
+
+         If the fill level of the input queue for the 
+         Frame Relay - ATM interworking virtual circuit
+         exceeds this threshold, all frames arriving on
+         this virtual circuit from the Frame Relay side will
+         be discarded at the interface if the arriving 
+         frame has its Discard Eligible bit set.
+
+         The threshold value is expressed as a 
+         percent-of-full. Setting this object to 100
+         effectively turns off the threshold."
+    DEFVAL { 87 }
+    ::= { cfaAdapterIfVcQThresholdEntry 2 }
+
+cfaAdapterIfVcQOutqDiscThresh OBJECT-TYPE
+    SYNTAX     INTEGER (1..100)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object defines the Discard Eligible threshold 
+         applied to the Frame Relay - ATM interworking 
+         virtual circuit output queue, on the Frame Relay 
+         PAM.
+
+         The output queue is in the direction of the ATM
+         switch fabric to the Frame Relay/FUNI interface.
+
+         If the fill level of the output queue for the
+         Frame Relay - ATM interworking virtual circuit
+         exceeds this threshold, all frames arriving on
+         this virtual circuit from the ATM switch fabric 
+         side will be discarded if the arriving frame has its
+         Discard Eligible bit set.
+
+         The threshold value is expressed as a
+         percent-of-full. Setting this object to 100
+         effectively turns off the threshold."
+    DEFVAL { 87 }
+    ::= { cfaAdapterIfVcQThresholdEntry 3 }
+
+cfaAdapterIfVcQInqMarkThresh OBJECT-TYPE
+    SYNTAX     INTEGER (1..100)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object defines the Marking threshold 
+         applied to the Frame Relay - ATM interworking 
+         virtual circuit input queue, on the Frame Relay 
+         PAM.
+
+         The input queue is in the direction of
+         Frame Relay/FUNI interface to the ATM switch fabric.
+
+         If the fill level of the input queue for the
+         Frame Relay - ATM interworking virtual circuit
+         exceeds this threshold, the following will 
+         happen:
+             
+         1. For frames coming into the Frame Relay -
+         ATM interworking virtual circuit from the Frame
+         Relay side, the corresponding cells will have 
+         the Explicit Forward Congestion Indication (EFCI) 
+         bit set in the ATM cell header, on entry into the
+         ATM switch fabric.
+             
+         2. For cells arriving from the ATM switch fabric
+         side for this Frame Relay - ATM interworking
+         virtual circuit, the corresponding frames will have the 
+         Backward Explicit Congestion Notification (BECN)
+         bit set upon exiting the Frame Relay interface.
+
+         The threshold value is expressed as a
+         percent-of-full. Setting this object to 100
+         effectively turns off the threshold."
+    DEFVAL { 75 }
+    ::= { cfaAdapterIfVcQThresholdEntry 4 }
+
+cfaAdapterIfVcQOutqMarkThresh OBJECT-TYPE
+    SYNTAX     INTEGER (1..100)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object defines the Marking threshold
+         applied to the Frame Relay - ATM interworking
+         virtual circuit output queue, on the Frame Relay
+         PAM.
+
+         The output queue is in the direction of the ATM
+         switch fabric to the Frame Relay/FUNI interface.
+
+         If the fill level of the output queue for the
+         Frame Relay - ATM interworking virtual circuit
+         exceeds this threshold, the following will
+         happen:
+
+         1. For frames coming into the Frame Relay -
+         ATM interworking virtual circuit from the Frame
+         Relay side, the frame will have the BECN bit set
+         in the Frame Relay header before getting converted 
+         to cells and entering the ATM switch fabric.
+
+         2. For cells arriving from the ATM switch fabric
+         side for this Frame Relay - ATM interworking
+         virtual circuit, the corresponding frames will
+         have the Forward Explicit Congestion Notification
+         (FECN) bit set in the Frame Relay header upon
+         exiting the Frame Relay interface. For FUNI -
+         ATM interworking connections, the Congestion
+         Notification (CN) bit gets set in the FUNI
+         header.
+
+         The threshold value is expressed as a
+         percent-of-full. Setting this object to 100
+         effectively turns off the threshold."
+    DEFVAL { 75 }
+    ::= { cfaAdapterIfVcQThresholdEntry 5 }
+
+
+--
+-- The following table defines a set of objects to enable
+-- or disable VBR Overflow Servicing for connections 
+-- performing Frame Relay/FUNI to ATM Interworking
+-- Function, on the Frame Relay Port Adapter Module (PAM).
+--
+
+cfaAdapterIfVbrServOflowTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfaAdapterIfVbrServOflowEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A table of Resource Management parameters that are used
+         for VBR Overflow Servicing for Frame Relay/FUNI to ATM
+         Interworking Function connections, on the Frame Relay
+         Port Adapter Module.
+ 
+         This object becomes available as each Frame Relay
+         and FUNI interface is defined on the device. The
+         corresponding ifTypes are frameRelayService(44)
+         and atmFuni(106) respectively."
+    ::= { cfaAdapter 2 }
+
+cfaAdapterIfVbrServOflowEntry OBJECT-TYPE
+    SYNTAX     CfaAdapterIfVbrServOflowEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A set of Resource Management parameters that are used
+         for VBR Overflow Servicing for Frame Relay/FUNI to ATM
+         Interworking Function connections, on the Frame Relay
+         Port Adapter Module."
+    INDEX      { ifIndex }
+    ::= { cfaAdapterIfVbrServOflowTable 1 }
+
+CfaAdapterIfVbrServOflowEntry ::= SEQUENCE {
+    cfaAdapterIfVbrServOflow        TruthValue
+}
+
+cfaAdapterIfVbrServOflow  OBJECT-TYPE
+    SYNTAX  TruthValue
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+        "Configuration to enable the overflow feature for VBR-NRT
+         connections on the interface. When the PAM services VBR-NRT
+         VC input queues, sending ATM traffic to the switch
+         fabric, it can strictly limit the rate at which the data
+         is sent to contracted sustained cell rate (SCR) for the
+         connection (overflow disabled), or allow data transfer
+         over SCR (overflow enabled). Setting the value to true
+         enables overflow."
+    DEFVAL { true }
+ ::= { cfaAdapterIfVbrServOflowEntry 1 }
+
+-- The following table defines a set of objects for
+-- configuration of the resource management
+-- of an interface with Frame Relay encapsulation 
+-- on the FR/FUNI Port Adaptor Module (PAM).
+
+cfaAdapterIfFrConfigTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfaAdapterIfFrConfigEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A table of resource management parameters for 
+         the Frame Relay interface on the FR/FUNI Port 
+         Adapter Module."
+    ::= { cfaAdapter 3 }
+
+cfaAdapterIfFrConfigEntry OBJECT-TYPE
+    SYNTAX     CfaAdapterIfFrConfigEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "An entry in the table, containing information about
+         Resource Management of an Interface with Frame Relay 
+         encapsulation."
+    INDEX      { ifIndex }
+    ::= { cfaAdapterIfFrConfigTable 1 }
+
+CfaAdapterIfFrConfigEntry ::= SEQUENCE {
+    cfaAdapterIfOverbooking  INTEGER         
+}
+
+cfaAdapterIfOverbooking  OBJECT-TYPE
+    SYNTAX     INTEGER (100..1000)
+    UNITS      "percent"
+    MAX-ACCESS read-write
+    STATUS     current
+    DESCRIPTION
+        "This object defines overbooking of CIR on an acess link/port
+         in percent of access rate. The total of all CIR's for all
+         frame-relay pvc's and frame-relay soft-vc's cannot exceed CIR
+         overbooking factor times access rate.  For example,
+         overbooking of 200% means the total of all CIR's can be
+         configured up to twice of the access rate.  The default is
+         100% - no overbooking is set."
+    DEFVAL { 100 }
+    ::= { cfaAdapterIfFrConfigEntry 1 }
+
+--
+-- The following are a set of objects for viewing 
+-- available and allocated resources on a Frame Relay/FUNI
+-- interface.
+--
+
+cfaInterworkIfResourceTable OBJECT-TYPE
+    SYNTAX     SEQUENCE OF CfaInterworkIfResourceEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A table of objects that can be used to view
+         available and allocated resources on Frame Relay
+         and FUNI interfaces defined on a Frame Relay Port
+         Adapter Module (PAM).
+ 
+         An unique set of available and allocated resources
+         are available for the transmit direction (going out
+         of the interface to the external world), and 
+         receive direction (coming into the interface from
+         the external world).
+
+         These available and allocated resources are available
+         for every supported Interworking Function service
+         category.
+
+         These objects become available as each Frame Relay
+         and FUNI interface is defined on the device. The
+         corresponding ifTypes are frameRelayService(44)
+         and atmFuni(106) respectively."
+    ::= { cfaInterwork 1 }
+
+cfaInterworkIfResourceEntry OBJECT-TYPE
+    SYNTAX     CfaInterworkIfResourceEntry
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "A set of objects that can be used to view
+         available and allocated resources on Frame Relay
+         and FUNI interfaces defined on a Frame Relay Port
+         Adapter Module (PAM)."
+    INDEX      { ifIndex , cfaInterworkIfVcQService }
+    ::= { cfaInterworkIfResourceTable 1 }
+
+CfaInterworkIfResourceEntry ::= SEQUENCE {
+    cfaInterworkIfVcQService             CfaInterworkServiceCategory,
+    cfaInterworkIfRxAvailRate            Gauge32,
+    cfaInterworkIfTxAvailRate            Gauge32,
+    cfaInterworkIfRxAllocRate            Gauge32,
+    cfaInterworkIfTxAllocRate            Gauge32
+}
+
+cfaInterworkIfVcQService OBJECT-TYPE
+    SYNTAX     CfaInterworkServiceCategory
+    MAX-ACCESS not-accessible
+    STATUS     current
+    DESCRIPTION
+        "The service category of the connection to which this
+         entry applies."
+    ::= { cfaInterworkIfResourceEntry 1 }
+
+cfaInterworkIfRxAvailRate OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "bits-per-second"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The available bit rate for traffic received on the
+         Frame Relay interface. This is the bandwidth available
+         for connections. This value decreases as a
+         result of setup of a connection requesting non-zero
+         Committed Information Rate (CIR) in the receive direction, 
+         and increases as a result of the release of such a 
+         connection."
+    ::= { cfaInterworkIfResourceEntry 2 }
+
+cfaInterworkIfTxAvailRate OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "bits-per-second"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The available bit rate for traffic sent out the
+         Frame Relay interface. This is the bandwidth available
+         for connections. This value decreases as a
+         result of setup of a connection requesting non-zero CIR
+         in the transmit direction, and increases as a result of
+         the release of such a connection."
+    ::= { cfaInterworkIfResourceEntry 3 }
+
+cfaInterworkIfRxAllocRate OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "bits-per-second"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The allocated bit rate for traffic received on the
+         Frame Relay interface. This is the bandwidth allocated
+         to connections. This value increases as a
+         result of setup of a connection requesting non-zero CIR
+         in the receive direction, and decreases as a result of
+         the release of such a connection."
+    ::= { cfaInterworkIfResourceEntry 4 }
+
+cfaInterworkIfTxAllocRate OBJECT-TYPE
+    SYNTAX     Gauge32
+    UNITS      "bits-per-second"
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "The allocated bit rate for traffic sent out the
+         Frame Relay interface. This is the bandwidth allocated
+         to connections. This value increases as a
+         result of setup of a connection requesting non-zero CIR
+         in the transmit direction, and decreases as a result of
+         the release of such a connection."
+    ::= { cfaInterworkIfResourceEntry 5 }
+
+-- notifications
+
+ciscoAtmSwitchFrRmMIBNotifications 
+              OBJECT IDENTIFIER ::=  { ciscoAtmSwitchFrRmMIB 2 }
+
+-- (no notifications are currently defined)
+
+
+-- conformance information
+ 
+ciscoAtmSwitchFrRmMIBConformance
+              OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrRmMIB 3 }
+ciscoAtmSwitchFrRmMIBCompliances
+              OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrRmMIBConformance 1 }
+ciscoAtmSwitchFrRmMIBGroups
+              OBJECT IDENTIFIER ::= { ciscoAtmSwitchFrRmMIBConformance 2 }
+
+
+-- compliance statements
+ 
+ciscoAtmSwitchFrRmMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+        "The compliance statement for the Cisco Frame Relay/FUNI 
+	 to ATM Interworking Function Resource Management MIB."
+    MODULE  -- this module
+    MANDATORY-GROUPS { cfaAdapterGroup, cfaInterworkGroup }
+    ::= { ciscoAtmSwitchFrRmMIBCompliances 1 }
+ 
+
+
+-- units of conformance
+ 
+cfaAdapterGroup  OBJECT-GROUP
+    OBJECTS { cfaAdapterIfVcQInqDiscThresh,
+              cfaAdapterIfVcQOutqDiscThresh, 
+              cfaAdapterIfVcQInqMarkThresh,
+              cfaAdapterIfVcQOutqMarkThresh,
+	      cfaAdapterIfVbrServOflow,
+              cfaAdapterIfOverbooking
+            }
+    STATUS  current  
+    DESCRIPTION
+        "A collection of objects which manage resources for
+	 Cisco Frame Relay/FUNI to ATM Interworking Function
+         connections."
+    ::= { ciscoAtmSwitchFrRmMIBGroups 1 }
+ 
+cfaInterworkGroup  OBJECT-GROUP
+    OBJECTS { cfaInterworkIfRxAvailRate, cfaInterworkIfTxAvailRate,
+	      cfaInterworkIfRxAllocRate, cfaInterworkIfTxAllocRate 
+            }
+    STATUS  current
+    DESCRIPTION
+        "A collection of objects which manage resources for
+         Cisco Frame Relay/FUNI to ATM Interworking Function
+         connections."
+    ::= { ciscoAtmSwitchFrRmMIBGroups 2 }
+
+
+END

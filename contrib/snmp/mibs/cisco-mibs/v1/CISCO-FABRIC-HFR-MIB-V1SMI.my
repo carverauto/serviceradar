@@ -1,0 +1,1116 @@
+-- MIB file created 18-Aug-2011 12:02:25, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-FABRIC-HFR-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-FABRIC-HFR-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    PhysicalIndex, entPhysicalIndex
+            FROM ENTITY-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoFabricHfrMIB OBJECT IDENTIFIER ::= { ciscoMgmt 257 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200904140000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-fabric@cisco.com
+--  Descr
+--    Cisco Enhanced Benes fabric MIB module.
+--    This MIB module is used for managing/tracking the Ehanced
+--    Benes Fabric entities and/or fabric related configuration,
+--    state and statistics information.
+--    The fabric entities relationship is shown as follows:
+--    
+--    
+--    Acronyms and terms:
+--    RP            - Routing processor.
+--    DRP           - Distributed Route Processor.
+--    LC            - Line card.
+--    SFE           - switch fabric element.
+--    SFE port      - the port of SFE contains a transmitter and/or
+--                    receiver to transmit and/or receive data from
+--                    backplane.
+--    fabric link   - Fabric link.
+--    
+--    +-+                                       +-+ 
+--    |T1+=====================================>+R|
+--    +-+   single fabric link                  +-+
+--    
+--    A fabric link contains a transmitter T and receiver R.
+--    The transmitter T is in the source SFE port of the fabric
+--    link and the receiver R is in the destination SFE port
+--    of the fabric link. 
+--    
+--    OIM           -  Optical Interface Module.
+--    fabric bundle - Fabric bundle is a cable that contains one 
+--                    or more fabric links for transferring
+--                    data between fabric cards.
+--    +-+                                       +-+ 
+--    |A+==================/====================+B|
+--    +-+              1..N fabric links        +-+
+--    
+--    A fabric bundle cable contains 1 to N fabric links.
+--    One end of the fabric bundle cable is plugged into the fabric bundle
+--    port A of fabric card in Line card rack and the other
+--    end is plugged into the fabric bundle port B on a OIM            
+--    of fabric rack for the high speed data transfer between fabric
+--    bundle port A and B.
+--    
+--    ingressq     - a switch fabric element which queues/segments
+--                   packets into cells and sends them into fabric.
+--    fabricq      - a switch fabric element which resequences and
+--                   reassembles cells from fabric into packets and 
+--                   forwarding them to the egress interface related
+--                   hardware. 
+--    fabric plane - Fabric plane is a path from a set of
+--                   ingressqs in a RP/DRP or LC card to a set of fabricqs 
+--                   in other RP/DRP or LC cards for transferring data
+--                   between RP, DRP, and LC cards.
+--  RevDate
+--    200904140000Z
+--  RevDescr
+--    Added cfhPlaneCapacityThreshold object.
+--    Added enum value 'oos' in cfhPlaneOperStatus. 
+--    Deprecated cfhMIBCompliance statement. 
+--    Added cfhMIBCompliance1 statement.
+--  RevDate
+--    200601010000Z
+--  RevDescr
+--    Replace 'HFR' keyword with 'Enhanced Benes'
+--    Replace 'sponge' keyword with 'fabricq'
+--    Replace 'sprayer' keyword with 'ingressq'.
+--  RevDate
+--    200306090000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+cfhMIBNotifications OBJECT IDENTIFIER ::= { ciscoFabricHfrMIB 0 }
+ciscoFabricHfrMIBObjects OBJECT IDENTIFIER ::= { ciscoFabricHfrMIB 1 }
+cfhGeneral      OBJECT IDENTIFIER ::= { ciscoFabricHfrMIBObjects 1 }
+cfhPlane        OBJECT IDENTIFIER ::= { ciscoFabricHfrMIBObjects 2 }
+cfhBundle       OBJECT IDENTIFIER ::= { ciscoFabricHfrMIBObjects 3 }
+cfhBundlePort   OBJECT IDENTIFIER ::= { ciscoFabricHfrMIBObjects 4 }
+cfhCard         OBJECT IDENTIFIER ::= { ciscoFabricHfrMIBObjects 5 }
+cfhMIBConformance OBJECT IDENTIFIER ::= { ciscoFabricHfrMIB 3 }
+cfhMIBCompliances OBJECT IDENTIFIER ::= { cfhMIBConformance 1 }
+cfhMIBGroups    OBJECT IDENTIFIER ::= { cfhMIBConformance 2 }
+
+CfhPlane ::= Gauge(1..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A unique value, greater than zero, for each fabric plane
+--    in the managed system. It is recommended that values are 
+--    assigned contiguously starting from 1.
+
+CfhBundle ::= Gauge(1..4294967295)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A unique value, greater than zero, for each fabric bundle
+--    in the managed system. It is recommended that values are
+--    assigned contiguously starting from 1.
+
+CfhAdminState ::= INTEGER {
+        up(1),
+        down(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An enumerated value that provides an indication of
+--    the desired administrative state of a fabric entity.
+--    up   - bring up the fabric entities.
+--    down - shut down the fabric entities.
+
+CfhScaledPercentage ::= Gauge(0..100000)
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This textual convention represents scaled percentage values
+--    (i.e., percentage values multipled by a power of ten) for
+--    error ratio, resource availability/reliability/connectivity
+--    usage, etc. The UINTS clause associated with each object that
+--    use this textual convention as syntax will indicate the degree
+--    of precision up to industry standard five 9's (i.e., 99.999%)
+--    requirement.
+
+cfhGenPlaneStateTrapEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether cfhPlaneStateNotification
+        traps should be generated for fabric plane operational
+        status change. If the value of this object is 'true',
+        cfhPlaneStateNotification traps will be generated when a
+        fabric plane operational status transition occurs."
+    DEFVAL { false }
+    ::= { cfhGeneral 1 }
+
+cfhGenBundleStateTrapEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether cfhBundleStateNotification
+        traps should be generated for fabric bundle operational
+        status change. If the value of this object is 'true',
+        cfhBundleStateNotification traps will be generated when the
+        cfhBundleOperStatus state transition occurs."
+    DEFVAL { false }
+    ::= { cfhGeneral 2 }
+
+cfhGenBundleDownedLinkTrapEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls whether cfhBundleDownedLinkNotification
+        traps should be generated for the downed fabric link in a
+        specific fabric bundle. If the value of this object is 'true',
+        the cfhBundleDownedLinkNotification traps will be generated
+        when the number of downed links in fabric bundle has 
+        transitioned from 0 to 1 or from 1 to 0."
+    DEFVAL { false }
+    ::= { cfhGeneral 3 }
+
+cfhPlaneTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfhPlaneEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table containing information about fabric plane
+        state and statistics in the managed system."
+    ::= { cfhPlane 1 }
+
+cfhPlaneEntry OBJECT-TYPE
+    SYNTAX CfhPlaneEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single fabric plane.
+        An entry of this table is created when the fabric plane 
+        related hardware is detected by fabric software in the 
+        managed system."
+    INDEX { cfhPlaneId }
+    ::= { cfhPlaneTable 1 }
+
+CfhPlaneEntry ::= SEQUENCE {
+    cfhPlaneId CfhPlane,
+    cfhPlaneAdminStatus CfhAdminState,
+    cfhPlaneOperStatus INTEGER,
+    cfhPlaneTotalBundles Gauge,
+    cfhPlaneDownedBundles Gauge
+    }
+
+cfhPlaneId OBJECT-TYPE
+    SYNTAX CfhPlane
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The fabric plane identifier. A unique value, greater
+        than zero, for each fabric plane hardware that is detected
+        by the fabric software in the managed system. It is
+        recommended that values are assigned contiguously
+        starting from 1. The value for each fabric plane ID must
+        remain constant from one re-initialization of the entity's
+        network management system to the next re-initialization."
+    ::= { cfhPlaneEntry 1 }
+
+cfhPlaneAdminStatus OBJECT-TYPE
+    SYNTAX CfhAdminState
+--    Rsyntax INTEGER {
+--        up(1),
+--        down(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls whether the fabric plane should be
+        brought 'down' or 'up'."
+    ::= { cfhPlaneEntry 2 }
+
+cfhPlaneOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2),
+        mcastDown(3),
+        oos(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current fabric plane operational
+        status.
+        up        - The plane is fully 'up' (i.e., the plane can pass 
+                    both unicast and multicast traffic). 
+        down      - The plane is fully 'down' (i.e., th plane can't
+                    pass both unicast and multicast traffic).
+        mcastDown - The multicast state of the plane is 'down' (i.e.,
+                    unicast traffic can pass though the plane but
+                    multicast traffic can't).
+        oos       - The plane is out of service (i.e., online diag
+                    detects the fabric transport media has problem
+                    in the plane)."
+    ::= { cfhPlaneEntry 3 }
+
+cfhPlaneTotalBundles OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of fabric bundles in the fabric plane."
+    ::= { cfhPlaneEntry 4 }
+
+cfhPlaneDownedBundles OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of downed fabric bundles in the
+        fabric plane."
+    ::= { cfhPlaneEntry 5 }
+
+cfhPlaneStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfhPlaneStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table containing statistics information for the fabric
+        planes in the managed system. Discontinuities in the value of
+        all statistics counters in this table might occur if chassis
+        removal or re-initialization occurs in a managed system.
+        The value of cfhPlaneStatsCounterDiscTime is updated when the
+        counter of fabric plane discontinuity occurs."
+    ::= { cfhPlane 2 }
+
+cfhPlaneStatsEntry OBJECT-TYPE
+    SYNTAX CfhPlaneStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single fabric plane
+        related statistics."
+    INDEX { cfhPlaneId }
+-- Augments cfhPlaneEntry
+    ::= { cfhPlaneStatsTable 1 }
+
+CfhPlaneStatsEntry ::= SEQUENCE {
+    cfhPlaneStatsRxDataCells Counter,
+    cfhPlaneStatsTxDataCells Counter,
+    cfhPlaneStatsRxCECells Counter,
+    cfhPlaneStatsRxUCECells Counter,
+    cfhPlaneStatsRxPECells Counter,
+    cfhPlaneStatsUnicastLostCells Counter,
+    cfhPlaneStatsMulticastLostCells Counter,
+    cfhPlaneStatsCounterDiscTime TimeStamp
+    }
+
+cfhPlaneStatsRxDataCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of data cells have been received by
+        all link receivers for this plane."
+    ::= { cfhPlaneStatsEntry 1 }
+
+cfhPlaneStatsTxDataCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of data cells had been transmitted
+        by all link transmitters for this plane."
+    ::= { cfhPlaneStatsEntry 2 }
+
+cfhPlaneStatsRxCECells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of correctable errored cells had
+        been received by all link receivers for this plane."
+    ::= { cfhPlaneStatsEntry 3 }
+
+cfhPlaneStatsRxUCECells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of uncorrectable errored cells had
+        been received by all link receivers for this plane."
+    ::= { cfhPlaneStatsEntry 4 }
+
+cfhPlaneStatsRxPECells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of corrupted cells (e.g., parity
+        error was detected in the cells) have been received by all
+        fabric link receivers for this plane."
+    ::= { cfhPlaneStatsEntry 5 }
+
+cfhPlaneStatsUnicastLostCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of unicast cell loss for this
+        plane. The lost cells are ones that had to be dropped 
+        because of queue overflow, or some such reason."
+    ::= { cfhPlaneStatsEntry 6 }
+
+cfhPlaneStatsMulticastLostCells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of multicast cell loss for this
+        plane.  The lost cells are ones that had to be dropped 
+        because of queue overflow, or some such reason."
+    ::= { cfhPlaneStatsEntry 7 }
+
+cfhPlaneStatsCounterDiscTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime on the most recent occasion at
+        which all of fabric plane's counters suffered a
+        discontinuity. If no such discontinuities have
+        occurred since the last re-initialization of the local
+        management subsystem, then this object contains a zero
+        value."
+    ::= { cfhPlaneStatsEntry 8 }
+
+cfhPlaneCapacityThreshold OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the minimum required number of
+        fabric planes whose cfhPlaneOperStatus value is 'up'
+        in order for the system to be considered fully
+        operational."
+    ::= { cfhPlane 3 }
+
+cfhBundleTotal OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of fabric bundles in the managed
+        system."
+    ::= { cfhBundle 1 }
+
+cfhBundleDowned OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of downed fabric bundles in the
+        managed system."
+    ::= { cfhBundle 2 }
+
+cfhBundleTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfhBundleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table containing information about fabric bundle
+        state and statistics in the managed system."
+    ::= { cfhBundle 3 }
+
+cfhBundleEntry OBJECT-TYPE
+    SYNTAX CfhBundleEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single fabric bundle.
+        An entry of this table is created when the fabric bundle 
+        related hardware is detected by fabric software in the 
+        managed system."
+    INDEX { cfhBundleId }
+    ::= { cfhBundleTable 1 }
+
+CfhBundleEntry ::= SEQUENCE {
+    cfhBundleId CfhBundle,
+    cfhBundleName SnmpAdminString,
+    cfhBundlePlane CfhPlane,
+    cfhBundleOperStatus INTEGER,
+    cfhBundleTotalLinks Gauge,
+    cfhBundleDownedLinks Gauge,
+    cfhBundlePortLCRCardIndex PhysicalIndex,
+    cfhBundlePortLCRId Gauge,
+    cfhBundlePortSecondCardIndex PhysicalIndex,
+    cfhBundlePortSecondId Gauge
+    }
+
+cfhBundleId OBJECT-TYPE
+    SYNTAX CfhBundle
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The fabric bundle identifier. A unique value, greater
+        than zero, for each fabric bundle hardware that is detected
+        by the fabric software in the managed system."
+    ::= { cfhBundleEntry 1 }
+
+cfhBundleName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The textual name of the interface. The value of this
+        object should be the name of the fabric bundle as assigned
+        by the fabric software and should be suitable for use in
+        commands entered at the device's `console'
+        The bundle name is a location string with the following
+        syntax <rack>/<slot>/<module>/<bundle port>.
+        
+        Where <rack> is line card rack, <slot> is the fabric card
+        slot, <module> is fabric module and <bundle port> is the bundle 
+        connector on the fabric card ofnor OIM"
+    ::= { cfhBundleEntry 2 }
+
+cfhBundlePlane OBJECT-TYPE
+    SYNTAX CfhPlane
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The fabric bundle associated fabric plane."
+    ::= { cfhBundleEntry 3 }
+
+cfhBundleOperStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        up(1),
+        down(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the current fabric bundle operational
+        status."
+    ::= { cfhBundleEntry 4 }
+
+cfhBundleTotalLinks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total fabric links in the fabric bundle."
+    ::= { cfhBundleEntry 5 }
+
+cfhBundleDownedLinks OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current number of downed fabric links in the fabric
+        bundle."
+    ::= { cfhBundleEntry 6 }
+
+cfhBundlePortLCRCardIndex OBJECT-TYPE
+    SYNTAX PhysicalIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The physical entity index of fabric card in the line card
+        rack for the line card rack bundle port of the fabric
+        bundle."
+    ::= { cfhBundleEntry 7 }
+
+cfhBundlePortLCRId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The fabric bundle port identifier of the physical fabric
+        bundle port that is on the cfhBundlePortLCRCardIndex
+        associated fabric card."
+    ::= { cfhBundleEntry 8 }
+
+cfhBundlePortSecondCardIndex OBJECT-TYPE
+    SYNTAX PhysicalIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The physical entity index of OIM in the fabric rack
+        or fabric card in line card rack (only apply to a two line card racks
+        system) for the second bundle port of the fabric bundle."
+    ::= { cfhBundleEntry 9 }
+
+cfhBundlePortSecondId OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The second fabric bundle port id of the physical fabric
+        bundle port that is on the cfhBundlePort2CardIndex
+        associated fabric card."
+    ::= { cfhBundleEntry 10 }
+
+cfhBundlePortTotalNumber OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of fabric bundle ports in the managed
+        system."
+    ::= { cfhBundlePort 1 }
+
+cfhBundlePortTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfhBundlePortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains one row per fabric bundle port that
+        contains the port state and the aggregation information of
+        traffic and error statistics.  The total number of fabric
+        bundle ports is given by the value of cdfhBundlePortNumber."
+    ::= { cfhBundlePort 2 }
+
+cfhBundlePortEntry OBJECT-TYPE
+    SYNTAX CfhBundlePortEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a fabric bundle port.
+        An entry of this table is created when a fabric bundle port
+        is detected by the fabric software. The entry is removed
+        when the fabric bundle port associated card is removed."
+    INDEX { entPhysicalIndex, cfhBundlePortId }
+    ::= { cfhBundlePortTable 1 }
+
+CfhBundlePortEntry ::= SEQUENCE {
+    cfhBundlePortId Gauge,
+    cfhBundlePortAdminState CfhAdminState,
+    cfhBundlePortOperState INTEGER,
+    cfhBundlePortGrpId CfhBundle
+    }
+
+cfhBundlePortId OBJECT-TYPE
+    SYNTAX Gauge(1..4294967295)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value, greater than zero, for each fabric bundle
+        port on a fabric card or OIM."
+    ::= { cfhBundlePortEntry 1 }
+
+cfhBundlePortAdminState OBJECT-TYPE
+    SYNTAX CfhAdminState
+--    Rsyntax INTEGER {
+--        up(1),
+--        down(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The object controls whether the fabric bundle port should be
+        brought 'up' or shut 'down' administratively. 
+        up   - bring up all fabric link transmitters and/or receivers
+               of the fabric bundle port. 
+        down - shut down all fabric link transmitters and/or receivers
+               of the fabric bundle port."
+    ::= { cfhBundlePortEntry 3 }
+
+cfhBundlePortOperState OBJECT-TYPE
+    SYNTAX INTEGER {
+        unknown(1),
+        up(2),
+        down(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates the operational state of
+        the fabric bundle port.
+        unknown - the bundle port state is unknown or in the
+                  transition between 'up' and 'down' state. 
+        up    - bundle port operates normally
+        down  - bundle port was downed due to error condition or
+                administratively shutdown."
+    ::= { cfhBundlePortEntry 4 }
+
+cfhBundlePortGrpId OBJECT-TYPE
+    SYNTAX CfhBundle
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The identifier of a fabric bundle that is associated to this
+        fabric bundle port."
+    ::= { cfhBundlePortEntry 5 }
+
+cfhBundlePortStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfhBundlePortStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the traffic and error statistics for
+        fabric bundle ports."
+    ::= { cfhBundlePort 3 }
+
+cfhBundlePortStatsEntry OBJECT-TYPE
+    SYNTAX CfhBundlePortStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a fabric bundle port statistics."
+    INDEX { entPhysicalIndex, cfhBundlePortId }
+-- Augments cfhBundlePortEntry
+    ::= { cfhBundlePortStatsTable 1 }
+
+CfhBundlePortStatsEntry ::= SEQUENCE {
+    cfhBundlePortStatsRxDataCells Counter,
+    cfhBundlePortStatsTxDataCells Counter,
+    cfhBundlePortStatsRxCECells Counter,
+    cfhBundlePortStatsRxUCECells Counter,
+    cfhBundlePortStatsRxPECells Counter,
+    cfhBundlePortStatsHighRxCECells Gauge,
+    cfhBundlePortStatsHighRxUCECells Gauge,
+    cfhBundlePortStatsHighRxPECells Gauge
+    }
+
+cfhBundlePortStatsRxDataCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of data cells have been received by
+        all link receivers for this port."
+    ::= { cfhBundlePortStatsEntry 1 }
+
+cfhBundlePortStatsTxDataCells OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of data cells had been transmitted
+        by all link transmitters for this port."
+    ::= { cfhBundlePortStatsEntry 2 }
+
+cfhBundlePortStatsRxCECells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of correctable errored cells had been
+        received by all link receivers for this port."
+    ::= { cfhBundlePortStatsEntry 3 }
+
+cfhBundlePortStatsRxUCECells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of uncorrectable errored cells had
+        been received by all link receivers for this port."
+    ::= { cfhBundlePortStatsEntry 4 }
+
+cfhBundlePortStatsRxPECells OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The accumulated number of corrupted cells (e.g., parity
+        error was detected in the cells) have been received by all
+        link receivers for this port."
+    ::= { cfhBundlePortStatsEntry 5 }
+
+cfhBundlePortStatsHighRxCECells OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The highest accumulated number of correctable errored
+        cells that has been received on any single link in the
+        port."
+    ::= { cfhBundlePortStatsEntry 6 }
+
+cfhBundlePortStatsHighRxUCECells OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The highest accumulated number of uncorrectable errored
+        cells that has been received on any single link in the
+        port."
+    ::= { cfhBundlePortStatsEntry 7 }
+
+cfhBundlePortStatsHighRxPECells OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The highest accumulated number of corrupted cells
+        (e.g., parity error was detected in the cells) that has
+        been received on any single link in the port."
+    ::= { cfhBundlePortStatsEntry 8 }
+
+cfhCardTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfhCardEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains a list of fabric connection capable
+        cards for tracking fabric related status, usage and
+        statistics in the system."
+    ::= { cfhCard 1 }
+
+cfhCardEntry OBJECT-TYPE
+    SYNTAX CfhCardEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a fabric inuse state and
+        statistics. An entry of this table is created when a
+        fabric connection capable card is detected in the system.
+        The entry of this table is deleted when the card is
+        removed from the managed system."
+    INDEX { entPhysicalIndex }
+    ::= { cfhCardTable 1 }
+
+CfhCardEntry ::= SEQUENCE {
+    cfhCardFabInUse TruthValue,
+    cfhCardFabUsage CfhScaledPercentage,
+    cfhCardFabInUseDiscTime TimeStamp
+    }
+
+cfhCardFabInUse OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if the fabric is in use by the card
+        (i.e., the card can sustain the fabric control traffic via
+        one or more fabric planes of the card). If the value of this
+        object is 'true', then the fabric is in use by the card,
+         otherwise it is not."
+    ::= { cfhCardEntry 1 }
+
+cfhCardFabUsage OBJECT-TYPE
+    SYNTAX CfhScaledPercentage
+--    Rsyntax Gauge(0..100000)
+--  Units
+--    thousandths of a percent
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The scaled percentage of elapsed time that the fabric has been
+        in use by the card (has sustained fabric control traffic to 
+        the fabric) over the time interval since the last 
+        'discontinuity' in its measurement time. That is, the interval
+        is restarted whenever the value of cfhCardFabInUseDiscTime is
+        changed."
+    ::= { cfhCardEntry 2 }
+
+cfhCardFabInUseDiscTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime on the most recent occasion at
+        which the cfhCardFabUsage (fabric inuse usage) suffered
+        a discontinuity in its measurement.  If no such discontinuity
+        has occurred since the last re-initialization of the local
+        management subsystem, then this object contains a zero value."
+    ::= { cfhCardEntry 3 }
+
+cfhCardPlaneTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfhCardPlaneEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the connectivity information of a card
+        to a fabric plane in a system."
+    ::= { cfhCard 2 }
+
+cfhCardPlaneEntry OBJECT-TYPE
+    SYNTAX CfhCardPlaneEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding the connectivity of a card
+        to a fabric plane.
+        An entry of this table is created when the card associated
+        fabric plane is detected by the fabric software.
+        The entry of this table is deleted when the card is removed
+        from the managed system."
+    INDEX { entPhysicalIndex, cfhPlaneId }
+    ::= { cfhCardPlaneTable 1 }
+
+CfhCardPlaneEntry ::= SEQUENCE {
+    cfhCardPlaneTxConnectivity TruthValue,
+    cfhCardPlaneRxConnectivity TruthValue
+    }
+
+cfhCardPlaneTxConnectivity OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if a card can transmit
+        data via a fabric plane on the card. If the value of this
+        object is 'true', the card can transmit data via
+        the fabric plane; otherwise it is not."
+    ::= { cfhCardPlaneEntry 1 }
+
+cfhCardPlaneRxConnectivity OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates if a card can receive
+        data via a fabric plane on the card. If the value of this
+        object is 'true', the card can transfer data via
+        the fabric plane; otherwise it is not."
+    ::= { cfhCardPlaneEntry 2 }
+
+cfhPlaneStateNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoFabricHfrMIB
+    VARIABLES {
+        cfhPlaneOperStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Fabric plane operational state change notification.
+        This notification is sent when the fabric plane operational
+        state transition occurs."
+    ::= 1
+
+cfhBundleStateNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoFabricHfrMIB
+    VARIABLES {
+        cfhBundleOperStatus, cfhBundlePlane, cfhBundleName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Fabric bundle operational state change notification.
+        This notification is sent when the cfhBundleOperStatus
+        state transition occurs."
+    ::= 2
+
+cfhBundleDownedLinkNotification TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoFabricHfrMIB
+    VARIABLES {
+        cfhBundleOperStatus, cfhBundlePlane, cfhBundleDownedLinks, 
+        cfhBundleName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "Fabric bundle link notification.
+        This notification is sent if the value of cfhBundleOperStatus
+        is 'up' and the value of cfhBundleDownedLinks is changed from
+        0 to nonzero or from non-zero to zero."
+    ::= 3
+
+cfhGenInfoGroup OBJECT IDENTIFIER ::= { cfhMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the general Enhanced Benes
+--    fabric related configuration and statistics capability.
+--  objects
+--    cfhGenPlaneStateTrapEnable, cfhGenBundleStateTrapEnable, 
+--    cfhGenBundleDownedLinkTrapEnable
+
+cfhPlaneGroup OBJECT IDENTIFIER ::= { cfhMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the fabric plane
+--    statistics information.
+--  objects
+--    cfhPlaneAdminStatus, cfhPlaneOperStatus, cfhPlaneTotalBundles, 
+--    cfhPlaneDownedBundles, cfhPlaneStatsRxDataCells, 
+--    cfhPlaneStatsTxDataCells, cfhPlaneStatsRxCECells, 
+--    cfhPlaneStatsRxUCECells, cfhPlaneStatsRxPECells, 
+--    cfhPlaneStatsUnicastLostCells, 
+--    cfhPlaneStatsMulticastLostCells, cfhPlaneStatsCounterDiscTime
+
+cfhBundleGroup OBJECT IDENTIFIER ::= { cfhMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the fabric bundle
+--    state and statistics information.
+--  objects
+--    cfhBundleTotal, cfhBundleDowned, cfhBundleName, 
+--    cfhBundlePlane, cfhBundleOperStatus, cfhBundleTotalLinks, 
+--    cfhBundleDownedLinks, cfhBundlePortLCRCardIndex, 
+--    cfhBundlePortLCRId, cfhBundlePortSecondCardIndex, 
+--    cfhBundlePortSecondId
+
+cfhBundlePortGroup OBJECT IDENTIFIER ::= { cfhMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the fabric bundle
+--    Port state and statistics information.
+--  objects
+--    cfhBundlePortTotalNumber, cfhBundlePortAdminState, 
+--    cfhBundlePortOperState, cfhBundlePortGrpId, 
+--    cfhBundlePortStatsRxDataCells, cfhBundlePortStatsTxDataCells, 
+--    cfhBundlePortStatsRxCECells, cfhBundlePortStatsRxUCECells, 
+--    cfhBundlePortStatsRxPECells, cfhBundlePortStatsHighRxCECells, 
+--    cfhBundlePortStatsHighRxUCECells, 
+--    cfhBundlePortStatsHighRxPECells
+
+cfhCardGroup OBJECT IDENTIFIER ::= { cfhMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the fabric connectivity
+--    management information.
+--  objects
+--    cfhCardFabInUse, cfhCardFabUsage, cfhCardFabInUseDiscTime, 
+--    cfhCardPlaneTxConnectivity, cfhCardPlaneRxConnectivity
+
+cfhFabricCapacityGroup OBJECT IDENTIFIER ::= { cfhMIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the fabric capacity
+--    management information.
+--  objects
+--    cfhPlaneCapacityThreshold
+
+cfhNotificationsGroup OBJECT IDENTIFIER ::= { cfhMIBGroups 6 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The notifications of ciscoFabricHfrMIB that are
+--    required to implement.
+--  notifications
+--    cfhPlaneStateNotification, cfhBundleStateNotification, 
+--    cfhBundleDownedLinkNotification
+
+cfhMIBCompliance OBJECT IDENTIFIER ::= { cfhMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-FABRIC-HFR-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cfhGenInfoGroup
+--   MandGroup
+--    cfhPlaneGroup
+--   MandGroup
+--    cfhBundleGroup
+--   MandGroup
+--    cfhBundlePortGroup
+--   MandGroup
+--    cfhCardGroup
+--   OptGroup
+--    cfhNotificationsGroup
+
+cfhMIBCompliance1 OBJECT IDENTIFIER ::= { cfhMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--    implement the CISCO-FABRIC-HFR-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cfhGenInfoGroup
+--   MandGroup
+--    cfhPlaneGroup
+--   MandGroup
+--    cfhBundleGroup
+--   MandGroup
+--    cfhBundlePortGroup
+--   MandGroup
+--    cfhCardGroup
+--   OptGroup
+--    cfhNotificationsGroup
+--   OptGroup
+--    cfhFabricCapacityGroup
+
+
+END
+

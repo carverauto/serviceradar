@@ -1,0 +1,152 @@
+-- *****************************************************************
+-- CISCO-ENTITY-ASSET-CAPABILITY MIB
+--
+-- AGENT-CAPABILITIES mib for CISCO-ENTITY-ASSET-MIB
+-- 
+--
+-- Apr 2003, Kapil Kataria
+-- Sep 2003, Seth Wang
+--
+-- Copyright(c) 2003 by Cisco Systems,Inc.
+--
+-- *****************************************************************
+
+CISCO-ENTITY-ASSET-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;   
+
+ciscoEntityAssetCapability MODULE-IDENTITY
+        LAST-UPDATED    "200309040000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com
+                        cs-lan-switch-snmp@cisco.com
+                        cs-snmp@cisco.com"
+        DESCRIPTION
+            "The capabilities description of
+             CISCO-ENTITY-ASSET-MIB."
+
+        REVISION        "200309040000Z"
+        DESCRIPTION
+            "Added ceAssetCapV12R0214SXCat6K and
+             ceAssetCapCatOSV08R0101Cat6K."
+        REVISION        "200304300000Z"
+        DESCRIPTION
+            "Initial version of this MIB Module."
+        ::= { ciscoAgentCapability 300 }
+
+ceAssetCapabilityV4R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 4.0.00"
+    STATUS               current
+    DESCRIPTION          "Entity Asset Agent capabilities for
+                          monitoring the asset information of items
+                          in the ENTITY-MIB (RFC 2737) entPhysical
+                          Table."
+
+    SUPPORTS   CISCO-ENTITY-ASSET-MIB
+    INCLUDES   { ceAssetGroup }
+
+    VARIATION  ceAssetOEMString
+    ACCESS     not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION  ceAssetSerialNumber
+    ACCESS     not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION  ceAssetOrderablePartNumber
+    ACCESS     not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION   ceAssetHardwareRevision
+    ACCESS      not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION   ceAssetMfgAssyNumber
+    ACCESS      not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION   ceAssetMfgAssyRevision
+    ACCESS      not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION   ceAssetFirmwareID
+    ACCESS      not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION   ceAssetFirmwareRevision
+    ACCESS      not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION   ceAssetSoftwareID
+    ACCESS      not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION   ceAssetSoftwareRevision
+    ACCESS      not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION   ceAssetAlias
+    ACCESS      not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION   ceAssetTag
+    ACCESS      not-implemented
+    DESCRIPTION
+        "Not supported."
+
+    VARIATION   ceAssetIsFRU
+    ACCESS      not-implemented
+    DESCRIPTION
+        "Not supported."
+
+   ::= { ciscoEntityAssetCapability 1 }
+
+ceAssetCapV12R0214SXCat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS 12.2(14)SX on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS              current
+    DESCRIPTION         "CISCO-ENTITY-ASSET-MIB capabilities."
+
+    SUPPORTS            CISCO-ENTITY-ASSET-MIB
+        INCLUDES        { ceAssetGroupRev1 }
+    ::= { ciscoEntityAssetCapability 2 }
+
+ceAssetCapCatOSV08R0101Cat6K AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco CatOS 8.1(1) on Catalyst 6000/6500
+                         and Cisco 7600 series devices."
+    STATUS               current
+    DESCRIPTION         "CISCO-ENTITY-ASSET-MIB capabilities."
+
+    SUPPORTS            CISCO-ENTITY-ASSET-MIB
+        INCLUDES        { ceAssetGroupRev1 }
+    ::= { ciscoEntityAssetCapability 3 }
+
+END
+

@@ -1,0 +1,1776 @@
+-- *****************************************************************
+-- ciscoAtmCellLayer MIB
+--
+-- March 1999, Shilpa Kale
+--
+-- May 2000, Prashant Desai
+--
+-- April 2002, Sundar Ramamoorthy, Prasanna Mucharikar
+--
+-- Copyright (c) 1998, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+ 
+CISCO-ATM-CELL-LAYER-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+      MODULE-IDENTITY, 
+      Counter32,
+      Counter64,
+      Integer32,
+      OBJECT-TYPE, 
+      Gauge32,
+      Unsigned32      FROM SNMPv2-SMI
+      MODULE-COMPLIANCE,
+      OBJECT-GROUP    FROM SNMPv2-CONF
+      TruthValue      FROM SNMPv2-TC
+      ifIndex         FROM IF-MIB 
+      ciscoMgmt       FROM CISCO-SMI;
+
+ciscoAtmCellLayerMIB MODULE-IDENTITY
+    LAST-UPDATED  "200206280000Z"
+    ORGANIZATION  "Cisco Systems, Inc."
+    CONTACT-INFO
+                  "Cisco Systems
+                   Customer Service
+    
+          Postal : 170 W Tasman Drive
+                   San Jose, CA  95134
+                   USA
+             Tel : +1 800 553-NETS
+          E-mail : cs-wanatm@cisco.com"
+    DESCRIPTION
+       "The MIB module to describe ATM cell layer objects and statistics
+        of a physical line."
+
+    REVISION "200206280000Z"
+    DESCRIPTION
+        "1. Added following objects to caclStatsTable, as 
+            upper 32-bits for 64-bit wide counters:
+            caclHighInRcvCLP0Cells, caclHighInRcvCLP1Cells,
+            caclHighInValidOAMCells, caclHighInVpiVciErrCells,
+            caclHighInXmtCLP0Cells, caclHighInXmtCLP1Cells,
+            caclHighInHecErrDiscCells, caclHighInHecErrCorrectedCells,
+            caclHighOutXmtCLP0Cells, caclHighOutXmtCLP1Cells,
+            caclHighOutValidOAMCells, caclHighOutRcvCLP0Cells,
+            caclHighOutRcvCLP1Cells.
+         2. Added caclXStatsTable which contains 64-bits wide
+            counters.
+         3. Added following objects to caclIntervalStatsTable, as 
+            upper 32-bits for 64-bit wide counters:
+            caclHighIntervalInRcvCLP0Cells, 
+            caclHighIntervalInRcvCLP1Cells,
+            caclHighIntervalInVpiVciErrCells,
+            caclHighIntervalInXmtCLP0Cells,
+            caclHighIntervalInXmtCLP1Cells,
+            caclHighIntervalInHecErrDiscCells,
+            caclHighIntervalInHecErrCorrCells,
+            caclHighIntervalOutXmtCLP0Cells,
+            caclHighIntervalOutXmtCLP1Cells,
+            caclHighIntervalOutVpiVciErrCells,
+            caclHighIntervalOutRcvCLP0Cells,
+            caclHighIntervalOutRcvCLP1Cells.
+         4. Added caclXIntervalStatsTable which contains 64-bits 
+            wide counters.
+         5. Changed IMPORT for Unsigned32 to SNMPv2-SMI, instead 
+            of CISCO-TC."
+
+    REVISION "200005020000Z"
+    DESCRIPTION
+       "Changes made to this MIB module are as follows
+        
+        (1) Added interval statistic table. 
+
+        (2) Corrected some of the typographical errors in description of 
+            certain published objects."
+    REVISION      "9905030000Z"
+    DESCRIPTION
+            "The initial version of this MIB module."
+::= { ciscoMgmt 133 }
+
+ciscoAtmCellLayerMIBObjects    OBJECT IDENTIFIER ::= { ciscoAtmCellLayerMIB 1}
+caclConfig              OBJECT IDENTIFIER ::= { ciscoAtmCellLayerMIBObjects 1}
+caclStats               OBJECT IDENTIFIER ::= { ciscoAtmCellLayerMIBObjects 2}
+
+-- ---------------------------------------------------------------------
+--
+-- Atm Cell Layer Config Group
+--
+-- ---------------------------------------------------------------------
+caclConfigTable OBJECT-TYPE
+    SYNTAX  SEQUENCE OF CaclConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "The  Atm cell layer configuration table. 
+        An entry in this table is automatically created for each entry 
+        in the ifTable which has an ifType of atm(37), and which is
+        layered on top of a SONET,DS3 or DS1 interface on the ATM switch."
+     ::= { caclConfig 1 }
+
+caclConfigEntry OBJECT-TYPE
+    SYNTAX CaclConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS  current
+    DESCRIPTION
+       "An entry in the caclConfigTable. The table is indexed by the 
+        ifIndex of the atm(37) interface."
+    INDEX   { ifIndex }
+     ::= { caclConfigTable 1 }
+
+CaclConfigEntry ::=
+    SEQUENCE {
+             caclNullCellHeader             OCTET STRING,
+             caclNullCellPayload            Unsigned32,
+             caclHecCosetEnable             TruthValue,
+             caclPayloadScramblingEnable    TruthValue,
+             caclTimeElapsed                INTEGER,
+             caclValidIntervals             INTEGER,
+             caclInvalidIntervals           INTEGER     
+             } 
+ 
+caclNullCellHeader OBJECT-TYPE
+    SYNTAX  OCTET STRING (SIZE(4)) 
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "The first four bytes of the ATM header to be used for
+        Null cells. Generally, idle cells are inserted into a cell
+        stream as a mechanism for rate adaptation between the ATM 
+        data link layer and the physical layer. The header fields:
+        Generic flow control,Payload type and Cell Loss Priority can 
+        be specified in the value of this object. It applies to both
+        transmitted as well as received cells."
+    REFERENCE
+       "ITU-T Recomendation I.432"   
+    ::= { caclConfigEntry 1 }
+
+caclNullCellPayload OBJECT-TYPE
+    SYNTAX  Unsigned32  (0..255)
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "Null cell Payload definition. The idle cell
+        information field can be specified in this object. It applies
+        to both transmitted as well as received cells.
+        The default value is 0x6A."
+    REFERENCE
+       "ITU-T Recomendation I.432"   
+    DEFVAL { '6A'h }
+    ::= { caclConfigEntry 2 }
+
+caclHecCosetEnable OBJECT-TYPE
+    SYNTAX  TruthValue  
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "If enabled, the algorithm of Coset Polynomial Addition is applied
+        to do header error check calculations. 
+        It applies to transmitted as well as received cells."
+    REFERENCE
+       "ITU-T Recomendation I.432"   
+    DEFVAL { true }
+    ::= { caclConfigEntry 3 }
+
+caclPayloadScramblingEnable OBJECT-TYPE
+    SYNTAX TruthValue
+    MAX-ACCESS  read-write
+    STATUS  current
+    DESCRIPTION
+       "An indication of whether Payload Scrambling is enabled."
+    REFERENCE
+       "ITU-T Recomendation I.432"
+    DEFVAL { true }
+    ::= { caclConfigEntry 4 }
+
+caclTimeElapsed OBJECT-TYPE
+    SYNTAX  INTEGER (0..899)
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+       "The number of seconds that have elapsed since the
+        beginning of the near end current error-
+        measurement period.  If, for some reason, such as
+        an adjustment in the system's time-of-day clock,
+        the current interval exceeds the maximum value,
+        the agent will return the maximum value."
+    ::= { caclConfigEntry 5 }
+
+caclValidIntervals OBJECT-TYPE
+    SYNTAX  INTEGER (0..96)
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+       "The number of previous near end intervals for
+        which data was collected.  The value will be
+        96 unless the interface was brought online within
+        the last 24 hours, in which case the value will be
+        the number of complete 15 minute near end
+        intervals since the interface has been online.  In
+        the case where the agent is a proxy, it is
+        possible that some intervals are unavailable.  In
+        this case, this interval is the maximum interval
+        number for which data is available."
+    ::= { caclConfigEntry 6 }
+
+caclInvalidIntervals OBJECT-TYPE        
+     SYNTAX  INTEGER (0..96)
+     MAX-ACCESS  read-only
+     STATUS  current
+     DESCRIPTION
+        "The number of near end intervals in the range from 0 to
+         caclValidIntervals for which no data is
+         available.  This object will typically be zero
+         except in cases where the data for some intervals
+         are not available (e.g., in proxy situations)."
+    ::= { caclConfigEntry 7 }
+
+-- --------------------------------------------------------------------
+--
+--      ATM Cell layer statistics Group
+--
+-- --------------------------------------------------------------------
+
+caclStatsTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF CaclStatsEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION 
+          "The ATM Cell layer stats table is for the cell layer over 
+           a physical line. There is an entry for each SONET, DS3 or DS1 
+           line. The table maintains objects that apply to ATM 
+           end-systems, as well as objects that apply only to ATM switches.
+           In all the following descriptions of objects,
+           CLP-0 means Cell Loss Priority = 0, and
+           CLP-1 means Cell Loss Priority = 1.
+           ATM cells with CLP=0 have a higher priority in regard to cell
+           loss than ATM cells with CLP=1.  Therefore, during resource
+           congestions, CLP=1 cells are dropped before any CLP=0 cell is
+           dropped.
+           Ingress direction means coming from network to the switch.
+           Egress direction means going from switch to the network."
+   ::= { caclStats 1 }
+ 
+caclStatsEntry  OBJECT-TYPE
+        SYNTAX CaclStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION 
+           "An entry for the ATM Cell layer statistics for a physical 
+            line. These are realtime statistics which are collected per
+            cell layer over a physical line. Entries are created 
+            automatically for each line.
+            The table is indexed by the ifIndex value of the
+            atm(37) interface."
+        INDEX   { ifIndex}
+        ::= { caclStatsTable 1 }        
+ 
+CaclStatsEntry ::=
+SEQUENCE {
+       caclInRcvCLP0Cells            Counter32,
+       caclInRcvCLP1Cells            Counter32,
+       caclInValidOAMCells           Counter32,
+       caclInErrOAMCells             Counter32,
+       caclInGfcCells                Counter32,
+       caclInVpiVciErrCells          Counter32,
+       caclInLastUnknVpi             Integer32,
+       caclInLastUnknVci             Integer32,
+       caclInXmtCLP0Cells            Counter32,
+       caclInXmtCLP1Cells            Counter32,
+       caclInValidRMCells            Counter32,
+       caclInRcvIdleCells            Counter32,
+       caclInHecErrDiscCells         Counter32,
+       caclInHecErrCorrectedCells    Counter32,
+       caclInUpcCLP0DiscCells        Counter32,
+       caclInUpcTotalDiscCells       Counter32,
+       caclInUpcTotalNonCompCells    Counter32,
+       caclOutXmtCLP0Cells           Counter32,
+       caclOutXmtCLP1Cells           Counter32,
+       caclOutValidOAMCells          Counter32,
+       caclOutErrOAMCells            Counter32,
+       caclOutVpiVciErrCells         Counter32,
+       caclOutRcvCLP0Cells           Counter32,
+       caclOutRcvCLP1Cells           Counter32,
+       caclOutRcvValidRMCells        Counter32,
+       caclOutRcvIdleCells           Counter32,
+       caclHInRcvCLP0Cells           Counter64,
+       caclHInRcvCLP1Cells           Counter64,
+       caclHOutXmtCLP0Cells          Counter64,
+       caclHOutXmtCLP1Cells          Counter64,
+       caclHighInRcvCLP0Cells        Counter32,
+       caclHighInRcvCLP1Cells        Counter32,
+       caclHighInValidOAMCells       Counter32,
+       caclHighInVpiVciErrCells      Counter32,
+       caclHighInXmtCLP0Cells        Counter32,         
+       caclHighInXmtCLP1Cells        Counter32,         
+       caclHighInHecErrDiscCells     Counter32,
+       caclHighInHecErrCorrectedCells Counter32,
+       caclHighOutXmtCLP0Cells       Counter32,
+       caclHighOutXmtCLP1Cells       Counter32,
+       caclHighOutValidOAMCells      Counter32,
+       caclHighOutRcvCLP0Cells       Counter32,                
+       caclHighOutRcvCLP1Cells       Counter32  
+      }
+ 
+caclInRcvCLP0Cells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of cells received on the interface with
+           CLP0 bit set."
+       ::= {caclStatsEntry 1 }
+ 
+caclInRcvCLP1Cells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of cells received on the interface with
+           CLP1 bit set."
+       ::= {caclStatsEntry 2 }
+                
+caclInValidOAMCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of valid Operation and Maintainance(OAM) cells 
+           received  on the interface."
+       ::= {caclStatsEntry 3 }
+
+caclInErrOAMCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of errored OAM cells received on the interface."
+       ::= {caclStatsEntry 4 }
+ 
+caclInGfcCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of non-zero GFC  cells received on the interface."
+       ::= {caclStatsEntry 5 }
+ 
+caclInVpiVciErrCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of cells received from the interface 
+           with unknown Vpi/Vci values."
+       ::= { caclStatsEntry 6 }
+ 
+caclInLastUnknVpi  OBJECT-TYPE
+       SYNTAX Integer32 (0..4095) 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The last unknown Vpi value. This object is valid only
+           if 'caclInVpiVciErrCells' is non-zero." 
+       ::= { caclStatsEntry 7 }
+ 
+ 
+caclInLastUnknVci  OBJECT-TYPE
+       SYNTAX Integer32 (0..65535) 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The last unknown Vci value. This object is valid only
+           if 'caclInVpiVciErrCells' is non-zero." 
+       ::= { caclStatsEntry 8 }
+ 
+caclInXmtCLP0Cells   OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of CLP0 cells received from the interface
+            and transmitted to the switch fabric."
+        ::= {caclStatsEntry 9 }
+        
+caclInXmtCLP1Cells   OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of CLP1 cells received from the interface
+            and transmitted to the switch fabric."
+        ::= {caclStatsEntry 10 }
+                
+caclInValidRMCells    OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Valid RM cells received from the interface."
+        ::= {caclStatsEntry 11 }
+               
+caclInRcvIdleCells     OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of idle cells received from the interface."
+        ::= {caclStatsEntry 12 }
+                
+caclInHecErrDiscCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "Header Error Check (HEC) calculation is used to provide error
+           detection and correction from the ATM cell header. This object
+           is the number of received cells which were discarded because
+           they had HEC errors."
+       ::= { caclStatsEntry 13 }
+ 
+caclInHecErrCorrectedCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of received cells which had HEC errors
+           that were corrected."
+       ::= { caclStatsEntry  14 }
+ 
+caclInUpcCLP0DiscCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "In order to allocate resources fairly among different users, 
+           networks police traffic at resource access points.  The traffic
+           enforcement or policing taken at a UNI is called Usage Parameter
+           Control (UPC). This is the counter associated with the number
+           of CLP0 cells discarded due to policing."
+       ::= { caclStatsEntry 15 }
+ 
+caclInUpcTotalDiscCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The total number of cells(CLP0+1) discarded due to policing."
+       ::= { caclStatsEntry 16 }
+ 
+caclInUpcTotalNonCompCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of non-compliant cells (cells that are not compliant
+           to a specific traffic profile) discarded due to policing."
+       ::= { caclStatsEntry 17 }
+ 
+caclOutXmtCLP0Cells   OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of CLP0 cells transmitted to interface."
+       ::= { caclStatsEntry 18 }
+ 
+caclOutXmtCLP1Cells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of CLP1 cells transmitted to interface."
+       ::= { caclStatsEntry 19 }
+ 
+ 
+caclOutValidOAMCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of Operartion and Maintainance(OAM) cells received 
+           by the interface from the switch fabric."
+       ::= {caclStatsEntry 20 }
+ 
+caclOutErrOAMCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of errored OAM cells received by the interface 
+           from the switch fabric."
+       ::= {caclStatsEntry 21 }
+ 
+caclOutVpiVciErrCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of cells with unknown vpi vci value in
+           received by the interface from the switch fabric."
+       ::= {caclStatsEntry 22 }
+ 
+caclOutRcvCLP0Cells     OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of CLP0 cells received by the interface
+            from the switch fabric." 
+        ::= {caclStatsEntry 23 }
+                
+caclOutRcvCLP1Cells   OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only   
+        STATUS  current
+        DESCRIPTION
+           "The number of CLP1 cells received by the interface
+            from the switch fabric."
+        ::= {caclStatsEntry 24 }
+                
+caclOutRcvValidRMCells  OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Valid RM cells received by the interface
+            from the switch fabric."
+        ::= {caclStatsEntry 25 }
+    
+caclOutRcvIdleCells     OBJECT-TYPE
+    SYNTAX  Counter32
+    MAX-ACCESS  read-only
+    STATUS  current
+    DESCRIPTION
+       "The number of idle cells received by the interface
+        from the switch fabric."
+    ::= {caclStatsEntry 26 }
+    
+caclHInRcvCLP0Cells  OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64-bit version of caclInRcvCLP0Cells."
+       ::= {caclStatsEntry 27 }
+ 
+caclHInRcvCLP1Cells  OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64-bit version of caclnRcvCLP1Cells."
+       ::= {caclStatsEntry 28 }
+  
+caclHOutXmtCLP0Cells    OBJECT-TYPE
+        SYNTAX  Counter64
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The 64-bit version of caclOutXmtCLP0Cells."
+        ::= {caclStatsEntry 29 }
+                
+caclHOutXmtCLP1Cells   OBJECT-TYPE
+        SYNTAX  Counter64
+        MAX-ACCESS  read-only   
+        STATUS  current
+        DESCRIPTION
+           "The 64-bit version of caclOutXmtCLP1Cells."
+        ::= {caclStatsEntry 30 }
+
+ 
+caclHighInRcvCLP0Cells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The upper 32 bit of the number of cells received on the 
+          interface with CLP0 bit set."
+       ::= {caclStatsEntry 31 }
+ 
+caclHighInRcvCLP1Cells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The upper 32 bit of the number of cells received on the 
+          interface with CLP1 bit set."
+       ::= {caclStatsEntry 32 }
+                
+caclHighInValidOAMCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The upper 32 bit of the number of valid Operation and 
+          Maintainance(OAM) cells received  on the interface."
+       ::= {caclStatsEntry 33 }
+
+ 
+caclHighInVpiVciErrCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The upper 32 bit of the number of cells received from the 
+          interface with unknown Vpi/Vci values."
+       ::= { caclStatsEntry 34 }
+
+caclHighInXmtCLP0Cells   OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The upper 32 bit of the number of CLP0 cells received from 
+           the interface and transmitted to the switch fabric."
+        ::= {caclStatsEntry 35 }
+        
+caclHighInXmtCLP1Cells   OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The upper 32 bit of the number of CLP1 cells received from 
+           the interface and transmitted to the switch fabric."
+        ::= {caclStatsEntry 36 }
+
+caclHighInHecErrDiscCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "Header Error Check (HEC) calculation is used to provide error
+           detection and correction from the ATM cell header. This 
+           object is the upper 32 bit of the number of received cells 
+           which were discarded because they had HEC errors."
+       ::= { caclStatsEntry  37 }
+ 
+caclHighInHecErrCorrectedCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The upper 32 bit of the number of received cells which had 
+           HEC errors that were corrected."
+       ::= { caclStatsEntry  38 }
+
+caclHighOutXmtCLP0Cells   OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The upper 32 bit of the number of CLP0 cells transmitted to 
+          interface."
+       ::= { caclStatsEntry 39 }
+ 
+caclHighOutXmtCLP1Cells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The upper 32 bit of the number of CLP1 cells transmitted to 
+          interface."
+       ::= { caclStatsEntry  40 }
+ 
+ 
+caclHighOutValidOAMCells  OBJECT-TYPE
+       SYNTAX  Counter32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The upper 32 bit of the  number of Operartion and 
+          Maintainance(OAM) cells received by the interface from the 
+          switch fabric."
+       ::= {caclStatsEntry 41 }
+
+caclHighOutRcvCLP0Cells     OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The upper 32 bit of the number of CLP0 cells received by 
+           the interface from the switch fabric." 
+        ::= {caclStatsEntry 42 }
+                
+caclHighOutRcvCLP1Cells   OBJECT-TYPE
+        SYNTAX  Counter32
+        MAX-ACCESS  read-only   
+        STATUS  current
+        DESCRIPTION
+           "The upper 32 bit of the number of CLP1 cells received by 
+           the interface from the switch fabric."
+        ::= {caclStatsEntry 43 }
+
+-- --------------------------------------------------------------------
+--
+--      ATM Cell layer interval statistics
+--  
+-- --------------------------------------------------------------------
+
+caclIntervalStatsTable OBJECT-TYPE
+   SYNTAX  SEQUENCE OF CaclIntervalStatsEntry
+   MAX-ACCESS  not-accessible
+   STATUS  current
+   DESCRIPTION 
+      "The ATM Cell layer interval stats table. This table contains 
+       statistics for the current (incomplete) interval and upto
+       96 previous (completed) 15-minute intervals."
+   ::= { caclStats 2 }
+ 
+caclIntervalStatsEntry  OBJECT-TYPE
+        SYNTAX CaclIntervalStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION 
+           "An entry for the ATM Cell layer interval statistics for a 
+            physical line. Entries are created automatically for each 
+            line. The table is indexed by the ifIndex and interval 
+            number. Interval number 0 is the current interval being 
+            collected."
+        INDEX   { ifIndex, caclIntervalNumber }
+        ::= { caclIntervalStatsTable 1 }        
+ 
+CaclIntervalStatsEntry ::=
+    SEQUENCE {
+       caclIntervalNumber                    INTEGER,
+       caclIntervalInRcvCLP0Cells            Gauge32,
+       caclIntervalInRcvCLP1Cells            Gauge32,
+       caclIntervalInValidOAMCells           Gauge32,
+       caclIntervalInErrOAMCells             Gauge32,
+       caclIntervalInGfcCells                Gauge32,
+       caclIntervalInVpiVciErrCells          Gauge32,
+       caclIntervalInLastUnknVpi             Integer32,
+       caclIntervalInLastUnknVci             Integer32,
+       caclIntervalInXmtCLP0Cells            Gauge32,
+       caclIntervalInXmtCLP1Cells            Gauge32,
+       caclIntervalInValidRMCells            Gauge32,
+       caclIntervalInRcvIdleCells            Gauge32,
+       caclIntervalInHecErrDiscCells         Gauge32,
+       caclIntervalInHecErrCorrCells         Gauge32,
+       caclIntervalInUpcCLP0DiscCells        Gauge32,
+       caclIntervalInUpcTotalDiscCells       Gauge32,
+       caclIntervalInUpcTotNonCmpCells       Gauge32,
+       caclIntervalOutXmtCLP0Cells           Gauge32,
+       caclIntervalOutXmtCLP1Cells           Gauge32,
+       caclIntervalOutValidOAMCells          Gauge32,
+       caclIntervalOutErrOAMCells            Gauge32,
+       caclIntervalOutVpiVciErrCells         Gauge32,
+       caclIntervalOutRcvCLP0Cells           Gauge32,
+       caclIntervalOutRcvCLP1Cells           Gauge32,
+       caclIntervalOutRcvValidRMCells        Gauge32,
+       caclIntervalOutRcvIdleCells           Gauge32,
+       caclHighIntervalInRcvCLP0Cells        Gauge32,
+       caclHighIntervalInRcvCLP1Cells        Gauge32,
+       caclHighIntervalInVpiVciErrCells      Gauge32,
+       caclHighIntervalInXmtCLP0Cells        Gauge32,
+       caclHighIntervalInXmtCLP1Cells        Gauge32,
+       caclHighIntervalInHecErrDiscCells     Gauge32,
+       caclHighIntervalInHecErrCorrCells     Gauge32,       
+       caclHighIntervalOutXmtCLP0Cells       Gauge32,
+       caclHighIntervalOutXmtCLP1Cells       Gauge32,
+       caclHighIntervalOutVpiVciErrCells     Gauge32,
+       caclHighIntervalOutRcvCLP0Cells       Gauge32,
+       caclHighIntervalOutRcvCLP1Cells       Gauge32
+      }
+
+caclIntervalNumber OBJECT-TYPE
+        SYNTAX  INTEGER (0..96)
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION
+          "A number between 0 and 96, where 1 is the most
+           recently completed 15 minute interval and 96 is
+           the 15 minutes interval completed 23 hours and 45
+           minutes prior to interval 1. 0 means the current
+           interval being collected."
+        ::= { caclIntervalStatsEntry 1 }
+
+ 
+caclIntervalInRcvCLP0Cells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of cells received on the interface with
+           CLP0 bit set during 15 minute interval."
+       ::= { caclIntervalStatsEntry 2 }
+ 
+caclIntervalInRcvCLP1Cells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of cells received on the interface with
+           CLP1 bit set during 15 minute interval."
+       ::= { caclIntervalStatsEntry 3 }
+                
+caclIntervalInValidOAMCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of valid Operation and Maintainance(OAM) cells 
+           received  on the interface during 15 minute interval."
+       ::= { caclIntervalStatsEntry 4 }
+
+caclIntervalInErrOAMCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of errored OAM cells received on the interface
+           during 15 minute interval."
+       ::= { caclIntervalStatsEntry 5 }
+ 
+caclIntervalInGfcCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of non-zero GFC  cells received on the interface
+             during 15 minute interval."
+       ::= { caclIntervalStatsEntry 6 }
+ 
+caclIntervalInVpiVciErrCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of cells received from the interface 
+           with unknown Vpi/Vci values during 15 minute interval."
+       ::= { caclIntervalStatsEntry 7 }
+ 
+caclIntervalInLastUnknVpi  OBJECT-TYPE
+       SYNTAX Integer32 (0..4095) 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The last unknown Vpi value during 15 minute interval.
+           This object is valid only if the value of 
+           'caclIntervalInVpiVciErrCells' for the same interval 
+           is non-zero." 
+       ::= { caclIntervalStatsEntry 8 }
+ 
+caclIntervalInLastUnknVci  OBJECT-TYPE
+       SYNTAX Integer32 (0..65535) 
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The last unknown Vci value during 15 minute interval.
+           This object is valid only if the value of
+           'caclIntervalInVpiVciErrCells' for the same interval
+           is non-zero." 
+       ::= { caclIntervalStatsEntry 9 }
+ 
+caclIntervalInXmtCLP0Cells   OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of CLP0 cells received from the interface
+            and transmitted to the switch fabric during 15 minute
+            interval."
+        ::= {caclIntervalStatsEntry 10 }
+        
+caclIntervalInXmtCLP1Cells   OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of CLP1 cells received from the interface
+            and transmitted to the switch fabric during 15 minute
+            interval."
+        ::= {caclIntervalStatsEntry 11 }
+                
+caclIntervalInValidRMCells    OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Valid RM cells received from the interface
+             during 15 minute interval."
+        ::= {caclIntervalStatsEntry 12 }
+               
+caclIntervalInRcvIdleCells     OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of idle cells received from the interface
+             during 15 minute interval."
+        ::= {caclIntervalStatsEntry 13 }
+                
+caclIntervalInHecErrDiscCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "This object is the number of received cells which were 
+           discarded because they had HEC errors during 15 minute 
+           interval."
+       ::= { caclIntervalStatsEntry 14 }
+ 
+caclIntervalInHecErrCorrCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of received cells which had HEC errors
+           that were corrected during 15 minute interval."
+       ::= { caclIntervalStatsEntry  15 }
+ 
+caclIntervalInUpcCLP0DiscCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "This is the counter associated with the number of CLP0
+           cells discarded due to policing during 15 minute interval."
+       ::= { caclIntervalStatsEntry 16 }
+ 
+caclIntervalInUpcTotalDiscCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The total number of cells(CLP0+1) discarded due to policing
+           during 15 minute interval."
+       ::= { caclIntervalStatsEntry 17 }
+ 
+caclIntervalInUpcTotNonCmpCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of non-compliant cells (cells that are not 
+           compliant to a specific traffic profile) discarded due to 
+           policing during 15 minute interval."
+       ::= { caclIntervalStatsEntry 18 }
+ 
+caclIntervalOutXmtCLP0Cells   OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of CLP0 cells transmitted to interface during 
+           15 minute interval."
+       ::= { caclIntervalStatsEntry 19 }
+ 
+caclIntervalOutXmtCLP1Cells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of CLP1 cells transmitted to interface during 
+           15 minute interval."
+       ::= { caclIntervalStatsEntry 20 }
+  
+caclIntervalOutValidOAMCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of Operartion and Maintainance(OAM) cells received 
+           by the interface from the switch fabric during 15 minute 
+           interval."
+       ::= { caclIntervalStatsEntry 21 }
+ 
+caclIntervalOutErrOAMCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of errored OAM cells received by the interface 
+           from the switch fabric during 15 minute interval."
+       ::= { caclIntervalStatsEntry 22 }
+ 
+caclIntervalOutVpiVciErrCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of cells with unknown vpi vci value in
+           received by the interface from the switch fabric 
+           during 15 minute interval."
+       ::= { caclIntervalStatsEntry 23 }
+ 
+caclIntervalOutRcvCLP0Cells     OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of CLP0 cells received by the interface
+            from the switch fabric during 15 minute interval." 
+        ::= { caclIntervalStatsEntry 24 }
+                
+caclIntervalOutRcvCLP1Cells   OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only   
+        STATUS  current
+        DESCRIPTION
+           "The number of CLP1 cells received by the interface
+            from the switch fabric during 15 minute interval."
+        ::= { caclIntervalStatsEntry 25 }
+                
+caclIntervalOutRcvValidRMCells  OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of Valid RM cells received by the interface
+            from the switch fabric during 15 minute interval."
+        ::= { caclIntervalStatsEntry 26 }
+    
+caclIntervalOutRcvIdleCells     OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of idle cells received by the interface
+            from the switch fabric during 15 minute interval."
+        ::= { caclIntervalStatsEntry 27 }
+
+caclHighIntervalInRcvCLP0Cells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The Upper 32 bit of the number of cells received on the 
+           interface with CLP0 bit set during 15 minute interval."
+       ::= { caclIntervalStatsEntry 28 }
+ 
+caclHighIntervalInRcvCLP1Cells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The Upper 32 bit of the number of cells received on the 
+           interface with CLP1 bit set during 15 minute interval."
+       ::= { caclIntervalStatsEntry 29 }
+
+caclHighIntervalInVpiVciErrCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The Upper 32 bit of the number of cells received from the 
+           interface with unknown Vpi/Vci values during 15 minute 
+           interval."
+       ::= { caclIntervalStatsEntry 30 }
+
+caclHighIntervalInXmtCLP0Cells   OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The Upper 32 bit of the number of CLP0 cells received 
+            from the interface  and transmitted to the switch fabric 
+            during 15 minute interval."
+        ::= {caclIntervalStatsEntry 31 }
+        
+caclHighIntervalInXmtCLP1Cells   OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The Upper 32 bit of the number of CLP1 cells received 
+            from the interface and transmitted to the switch fabric 
+            during 15 minute interval."
+        ::= {caclIntervalStatsEntry 32 }
+
+caclHighIntervalInHecErrDiscCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "This object is the Upper 32 bit of the number of 
+           received cells which were discarded because they had
+           HEC errors during 15 minute interval."
+       ::= { caclIntervalStatsEntry 33 }
+ 
+caclHighIntervalInHecErrCorrCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of received cells which had HEC errors
+           that were corrected during 15 minute interval."
+       ::= { caclIntervalStatsEntry  34 }
+
+caclHighIntervalOutXmtCLP0Cells   OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of CLP0 cells transmitted to interface during 15 
+           minute interval."
+       ::= { caclIntervalStatsEntry 35 }
+ 
+caclHighIntervalOutXmtCLP1Cells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The number of CLP1 cells transmitted to interface during 15 
+           minute interval."
+       ::= { caclIntervalStatsEntry 36 }
+
+ caclHighIntervalOutVpiVciErrCells  OBJECT-TYPE
+       SYNTAX  Gauge32
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  number of cells with unknown vpi vci value in
+           received by the interface from the switch fabric 
+           during 15 minute interval."
+       ::= { caclIntervalStatsEntry 37 }
+ 
+caclHighIntervalOutRcvCLP0Cells     OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The number of CLP0 cells received by the interface
+            from the switch fabric during 15 minute interval." 
+        ::= { caclIntervalStatsEntry 38 }
+                
+caclHighIntervalOutRcvCLP1Cells   OBJECT-TYPE
+        SYNTAX  Gauge32
+        MAX-ACCESS  read-only   
+        STATUS  current
+        DESCRIPTION
+           "The number of CLP1 cells received by the interface
+            from the switch fabric during 15 minute interval."
+        ::= { caclIntervalStatsEntry 39 }
+
+--   Extension to the caclStatsTable table
+
+caclXStatsTable OBJECT-TYPE
+       SYNTAX  SEQUENCE OF CaclXStatsEntry
+       MAX-ACCESS  not-accessible
+       STATUS  current
+       DESCRIPTION 
+          "The ATM Cell layer stats table is for the cell layer over 
+           a physical line. There is an entry for each SONET, DS3 or 
+           DS1 line. The table maintains objects that apply to ATM 
+           end-systems, as well as objects that apply only to ATM 
+           switches.
+           In all the following descriptions of objects,
+           CLP-0 means Cell Loss Priority = 0, and
+           CLP-1 means Cell Loss Priority = 1.
+           ATM cells with CLP=0 have a higher priority in regard to cell
+           loss than ATM cells with CLP=1.  Therefore, during resource
+           congestions, CLP=1 cells are dropped before any CLP=0 cell is
+           dropped.
+           Ingress direction means coming from network to the switch.
+           Egress direction means going from switch to the network."
+   ::= { caclStats 3 }
+ 
+caclXStatsEntry  OBJECT-TYPE
+        SYNTAX CaclXStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION 
+           "An entry for the ATM Cell layer statistics for a physical 
+            line. These are realtime statistics which are collected per
+            cell layer over a physical line. Entries are created 
+            automatically for each line.
+            The table is indexed by the ifIndex value of the
+            atm(37) interface."
+        AUGMENTS    {caclStatsEntry}	    
+        ::= { caclXStatsTable 1 }        
+ 
+CaclXStatsEntry ::=
+SEQUENCE {
+       caclHCInValidOAMCells         Counter64,
+       caclHCInVpiVciErrCells        Counter64,
+       caclHCInXmtCLP0Cells          Counter64,         
+       caclHCInXmtCLP1Cells          Counter64,         
+       caclHCInHecErrDiscCells       Counter64,
+       caclHCInHecErrCorrectedCells  Counter64,
+       caclHCOutValidOAMCells        Counter64,
+       caclHCOutRcvCLP0Cells         Counter64,                
+       caclHCOutRcvCLP1Cells         Counter64 
+}
+
+caclHCInValidOAMCells  OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64 bit version of the number of valid Operation 
+           and Maintainance(OAM) cells received  on the interface."
+       ::= {caclXStatsEntry 1 }
+
+ 
+caclHCInVpiVciErrCells   OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64 bit version of the number of cells received from the 
+           interface with unknown Vpi/Vci values."
+       ::= { caclXStatsEntry 2 }
+
+caclHCInXmtCLP0Cells   OBJECT-TYPE
+        SYNTAX  Counter64
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The 64 bit version of the number of CLP0 cells received 
+            from the interface and transmitted to the switch fabric."
+        ::= {caclXStatsEntry 3 }
+        
+caclHCInXmtCLP1Cells   OBJECT-TYPE
+        SYNTAX  Counter64
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The 64 bit version of the number of CLP1 cells received 
+            from the interface and transmitted to the switch 
+            fabric."
+        ::= {caclXStatsEntry 4 }
+
+caclHCInHecErrDiscCells  OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "Header Error Check (HEC) calculation is used to provide 
+           error detection and correction from the ATM cell header. 
+           This object is 64 bit version of the the number of 
+           received cells which were discarded because they had 
+           HEC errors."
+       ::= { caclXStatsEntry  5 }
+ 
+caclHCInHecErrCorrectedCells  OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64 bit version of thenumber of received cells which had 
+           HEC errors that were corrected."
+       ::= { caclXStatsEntry   6 }
+ 
+caclHCOutValidOAMCells  OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  64 bit version of the number of Operartion and 
+           Maintainance(OAM) cells received by the interface from the 
+           switch fabric."
+       ::= {caclXStatsEntry  7 }
+
+caclHCOutRcvCLP0Cells     OBJECT-TYPE
+        SYNTAX  Counter64
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The 64 bit version of the number of CLP0 cells received by 
+            the interface from the switch fabric." 
+        ::= {caclXStatsEntry  8 }
+                
+caclHCOutRcvCLP1Cells   OBJECT-TYPE
+        SYNTAX  Counter64
+        MAX-ACCESS  read-only   
+        STATUS  current
+        DESCRIPTION
+           "The 64 bit version of the number of CLP1 cells received by 
+            the interface from the switch fabric."
+        ::= {caclXStatsEntry  9 }
+
+ 
+--   Extension to the caclIntervalStatsTable
+
+caclXIntervalStatsTable OBJECT-TYPE
+   SYNTAX  SEQUENCE OF CaclXIntervalStatsEntry
+   MAX-ACCESS  not-accessible
+   STATUS  current
+   DESCRIPTION 
+      "The ATM Cell layer interval stats table. This table contains 
+       statistics for the current (incomplete) interval and upto
+       96 previous (completed) 15-minute intervals."
+   ::= { caclStats 4 }
+ 
+caclXIntervalStatsEntry  OBJECT-TYPE
+        SYNTAX CaclXIntervalStatsEntry
+        MAX-ACCESS  not-accessible
+        STATUS  current
+        DESCRIPTION 
+           "An entry for the ATM Cell layer interval statistics for a 
+            physical line. Entries are created automatically for each 
+            line. The table is indexed by the ifIndex and interval 
+            number. Interval number 0 is the current interval being 
+            collected."
+        INDEX   { ifIndex, caclIntervalNumber }
+        ::= { caclXIntervalStatsTable 1 }        
+ 
+CaclXIntervalStatsEntry ::=
+    SEQUENCE {
+       caclHCIntervalInRcvCLP0Cells          Counter64,
+       caclHCIntervalInRcvCLP1Cells          Counter64,
+       caclHCIntervalInVpiVciErrCells        Counter64,
+       caclHCIntervalInXmtCLP0Cells          Counter64,
+       caclHCIntervalInXmtCLP1Cells          Counter64,
+       caclHCIntervalInHecErrDiscCells       Counter64,
+       caclHCIntervalInHecErrCorrCells       Counter64,       
+       caclHCIntervalOutXmtCLP0Cells         Counter64,
+       caclHCIntervalOutXmtCLP1Cells         Counter64,
+       caclHCIntervalOutVpiVciErrCells       Counter64,
+       caclHCIntervalOutRcvCLP0Cells         Counter64,
+       caclHCIntervalOutRcvCLP1Cells         Counter64   
+}
+      
+caclHCIntervalInRcvCLP0Cells     OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64 bit version of the number of cells received on the 
+           interface with CLP0 bit set during 15 minute interval."
+       ::= { caclXIntervalStatsEntry  1 }
+ 
+caclHCIntervalInRcvCLP1Cells   OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64 bit version of the number of cells received on the 
+           interface with CLP1 bit set during 15 minute interval."
+       ::= { caclXIntervalStatsEntry  2 }
+
+caclHCIntervalInVpiVciErrCells   OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64 bit version of the number of cells received from the 
+           interface with unknown Vpi/Vci values during 15 minute 
+           interval."
+       ::= { caclXIntervalStatsEntry  3 }
+
+caclHCIntervalInXmtCLP0Cells   OBJECT-TYPE
+        SYNTAX  Counter64
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The 64 bit version of the number of CLP0 cells received 
+            from the interface and transmitted to the switch fabric 
+            during 15 minute interval."
+        ::= {caclXIntervalStatsEntry 4 }
+        
+caclHCIntervalInXmtCLP1Cells   OBJECT-TYPE
+        SYNTAX  Counter64
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The 64 bit version of the number of CLP1 cells received 
+            from the interface and transmitted to the switch fabric 
+            during 15 minute interval."
+        ::= {caclXIntervalStatsEntry  5 }
+
+caclHCIntervalInHecErrDiscCells  OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "This object is the 64 bit version of the number of 
+           received cells which were discarded because they had HEC 
+           errors during 15 minute interval."
+       ::= { caclXIntervalStatsEntry  6 }
+ 
+caclHCIntervalInHecErrCorrCells  OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64 bit version of the number of received cells which 
+           had HEC errors that were corrected during 15 minute 
+           interval."
+       ::= { caclXIntervalStatsEntry   7 }
+
+caclHCIntervalOutXmtCLP0Cells   OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64 bit version of the number of CLP0 cells transmitted 
+           to interface during 15 minute interval."
+       ::= { caclXIntervalStatsEntry  8 }
+ 
+caclHCIntervalOutXmtCLP1Cells  OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The 64 bit version of the number of CLP1 cells transmitted 
+           to interface during 15 minute interval."
+       ::= { caclXIntervalStatsEntry   9 }
+
+ 
+caclHCIntervalOutVpiVciErrCells  OBJECT-TYPE
+       SYNTAX  Counter64
+       MAX-ACCESS  read-only
+       STATUS  current
+       DESCRIPTION
+          "The  64 bit version of the number of cells with unknown vpi 
+           vci value in  received by the interface from the switch 
+           fabric during 15 minute interval."
+       ::= { caclXIntervalStatsEntry   10 }
+ 
+caclHCIntervalOutRcvCLP0Cells     OBJECT-TYPE
+        SYNTAX  Counter64
+        MAX-ACCESS  read-only
+        STATUS  current
+        DESCRIPTION
+           "The 64 bit version of the number of CLP0 cells received by 
+            the interfacefrom the switch fabric during 15 minute 
+            interval." 
+        ::= { caclXIntervalStatsEntry  11 }
+                
+caclHCIntervalOutRcvCLP1Cells   OBJECT-TYPE
+        SYNTAX  Counter64
+        MAX-ACCESS  read-only   
+        STATUS  current
+        DESCRIPTION
+           "The 64 bit version of the number of CLP1 cells received by 
+            the interface from the switch fabric during 15 minute 
+            interval."
+        ::= { caclXIntervalStatsEntry 12 }
+
+ -- conformance information
+ 
+caclMIBConformance OBJECT IDENTIFIER ::= {ciscoAtmCellLayerMIBObjects 3}
+
+caclMIBCompliances OBJECT IDENTIFIER
+     ::= {caclMIBConformance 1}
+caclMIBGroups  OBJECT IDENTIFIER
+     ::= {caclMIBConformance 2}
+
+caclMIBCompliance MODULE-COMPLIANCE
+    STATUS deprecated -- replaced by caclMIBCompliance1
+    DESCRIPTION
+       "The Compliance statement for the Cisco ATM Cell layer MIB."
+    MODULE -- this module
+    MANDATORY-GROUPS { caclMIBGroup }
+    GROUP caclATMSwitchStatsMIBGroup
+    DESCRIPTION
+       "Required if the system is an ATM switch."
+    GROUP caclATMEndSyatemStatsMIBGroup
+    DESCRIPTION
+       "Required if the system is an End System."
+    GROUP caclHighSpeedATMMIBGroup
+    DESCRIPTION
+       "Required if the system has interface speed of OC12 or higher."
+    ::= {caclMIBCompliances 1}
+ 
+
+caclMIBCompliance1 MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+       "The Compliance statement for the Cisco ATM Cell layer MIB."
+    MODULE -- this module
+    MANDATORY-GROUPS { caclMIBGroup }
+    GROUP caclATMSwitchStatsMIBGroup1
+    DESCRIPTION
+       "Required if the system is an ATM switch."
+    GROUP caclATMStatsMIBGroup
+    DESCRIPTION
+       "Required if the system is an ATM switch or an End System."
+    GROUP caclHighSpeedATMMIBGroup1
+    DESCRIPTION
+       "Required if the system has interface speed of OC12 or higher."  
+    GROUP caclIntervalStatsMIBGroup1
+    DESCRIPTION
+       "Required if the system supports interval statistics."
+    GROUP caclHCIntervalStatsMIBGroup
+    DESCRIPTION
+       "Required if the system supports interval statistics and has 
+       interface speed of OC12 or higher."
+    ::= {caclMIBCompliances 2}
+  
+-- units of conformance
+caclMIBGroup OBJECT-GROUP
+        OBJECTS { 
+                 caclNullCellHeader,      
+                 caclNullCellPayload,
+                 caclHecCosetEnable,  
+                 caclPayloadScramblingEnable
+                 }
+       STATUS current
+       DESCRIPTION
+          "A collection of objects which provide ATM cell layer configuration
+           parmeters."
+       ::= { caclMIBGroups 1}
+
+caclATMSwitchStatsMIBGroup OBJECT-GROUP
+        OBJECTS {
+            caclInRcvCLP0Cells,
+            caclInRcvCLP1Cells,
+            caclInValidOAMCells,
+            caclInErrOAMCells,
+            caclInGfcCells,
+            caclInVpiVciErrCells,
+            caclInLastUnknVpi,
+            caclInLastUnknVci,
+            caclInXmtCLP0Cells,         
+            caclInXmtCLP1Cells,         
+            caclInValidRMCells,         
+            caclInRcvIdleCells,         
+            caclInHecErrDiscCells,
+            caclInHecErrCorrectedCells,
+            caclInUpcCLP0DiscCells,
+            caclInUpcTotalDiscCells,
+            caclInUpcTotalNonCompCells,
+            caclOutXmtCLP0Cells,
+            caclOutXmtCLP1Cells,
+            caclOutValidOAMCells,
+            caclOutErrOAMCells,
+            caclOutVpiVciErrCells,
+            caclOutRcvCLP0Cells,                
+            caclOutRcvCLP1Cells,                
+            caclOutRcvValidRMCells,
+            caclOutRcvIdleCells
+            }
+       STATUS deprecated -- replaced by caclATMStatsMIBGroup and
+                         -- caclATMSwitchStatsMIBGroup1
+       DESCRIPTION
+          "A collection of objects which provide statistics for ATM switch
+           interfaces."
+       ::= { caclMIBGroups 2}
+      
+caclATMEndSyatemStatsMIBGroup OBJECT-GROUP
+        OBJECTS {
+            caclInRcvCLP0Cells,
+            caclInRcvCLP1Cells,
+            caclInValidOAMCells,
+            caclInErrOAMCells,
+            caclInGfcCells,
+            caclInVpiVciErrCells,
+            caclInLastUnknVpi,
+            caclInLastUnknVci,
+            caclInValidRMCells,         
+            caclInRcvIdleCells,         
+            caclInHecErrDiscCells,
+            caclInHecErrCorrectedCells,
+            caclInUpcCLP0DiscCells,
+            caclInUpcTotalDiscCells,
+            caclInUpcTotalNonCompCells,
+            caclOutXmtCLP0Cells,
+            caclOutXmtCLP1Cells,
+            caclOutValidOAMCells,
+            caclOutErrOAMCells,
+            caclOutVpiVciErrCells
+            }
+       STATUS deprecated  -- replaced by caclATMStatsMIBGroup
+       DESCRIPTION
+          "A collection of objects which provide statistics for ATM end-system
+           interfaces."
+       ::= { caclMIBGroups 3}
+             
+caclHighSpeedATMMIBGroup OBJECT-GROUP
+        OBJECTS {
+            caclHInRcvCLP0Cells,
+            caclHInRcvCLP1Cells,
+            caclHOutXmtCLP0Cells,
+            caclHOutXmtCLP1Cells
+            }              
+       STATUS deprecated -- replaced by caclHighSpeedATMMIBGroup1
+       DESCRIPTION
+          "These statistics apply to ATM interfaces with speed of 
+           OC12 or higher."
+       ::= { caclMIBGroups 4}
+
+caclIntervalStatsMIBGroup OBJECT-GROUP
+        OBJECTS {
+               caclTimeElapsed,
+               caclValidIntervals,
+               caclInvalidIntervals,
+               caclIntervalInRcvCLP0Cells,
+               caclIntervalInRcvCLP1Cells,
+               caclIntervalInValidOAMCells,
+               caclIntervalInErrOAMCells,
+               caclIntervalInGfcCells,
+               caclIntervalInVpiVciErrCells,
+               caclIntervalInLastUnknVpi,
+               caclIntervalInLastUnknVci,
+               caclIntervalInXmtCLP0Cells,
+               caclIntervalInXmtCLP1Cells,
+               caclIntervalInValidRMCells,
+               caclIntervalInRcvIdleCells,
+               caclIntervalInHecErrDiscCells,
+               caclIntervalInHecErrCorrCells,
+               caclIntervalInUpcCLP0DiscCells,
+               caclIntervalInUpcTotalDiscCells,
+               caclIntervalInUpcTotNonCmpCells,
+               caclIntervalOutXmtCLP0Cells,
+               caclIntervalOutXmtCLP1Cells,
+               caclIntervalOutValidOAMCells,
+               caclIntervalOutErrOAMCells,
+               caclIntervalOutVpiVciErrCells,
+               caclIntervalOutRcvCLP0Cells,
+               caclIntervalOutRcvCLP1Cells,     
+               caclIntervalOutRcvValidRMCells,
+               caclIntervalOutRcvIdleCells
+     
+        }
+        STATUS deprecated  -- replaced by caclIntervalStatsMIBGroup1
+        DESCRIPTION
+           "A collection of interval statistics."
+       ::= { caclMIBGroups 5 }
+
+
+caclATMSwitchStatsMIBGroup1 OBJECT-GROUP
+        OBJECTS {
+            caclInXmtCLP0Cells,         
+            caclInXmtCLP1Cells,
+            caclOutRcvCLP0Cells,                
+            caclOutRcvCLP1Cells,                
+            caclOutRcvValidRMCells,
+            caclOutRcvIdleCells,
+            caclHighInXmtCLP0Cells,         
+            caclHighInXmtCLP1Cells,         
+            caclHighOutRcvCLP0Cells,
+            caclHighOutRcvCLP1Cells   
+         }
+       STATUS current
+       DESCRIPTION
+          "A collection of objects which provide statistics 
+           for ATM switch interfaces."
+       ::= { caclMIBGroups 6}
+
+caclATMStatsMIBGroup OBJECT-GROUP
+        OBJECTS {
+            caclInRcvCLP0Cells,
+            caclInRcvCLP1Cells,
+            caclInValidOAMCells,
+            caclInErrOAMCells,
+            caclInGfcCells,
+            caclInVpiVciErrCells,
+            caclInLastUnknVpi,
+            caclInLastUnknVci,
+            caclInValidRMCells,         
+            caclInRcvIdleCells,         
+            caclInHecErrDiscCells,
+            caclInHecErrCorrectedCells,
+            caclInUpcCLP0DiscCells,
+            caclInUpcTotalDiscCells,
+            caclInUpcTotalNonCompCells,
+            caclOutXmtCLP0Cells,
+            caclOutXmtCLP1Cells,
+            caclOutValidOAMCells,
+            caclOutErrOAMCells,
+            caclOutVpiVciErrCells,
+            caclHighInRcvCLP0Cells,
+            caclHighInRcvCLP1Cells,
+            caclHighInValidOAMCells,
+            caclHighInVpiVciErrCells,
+            caclHighInHecErrDiscCells,
+            caclHighInHecErrCorrectedCells,
+            caclHighOutXmtCLP0Cells,
+            caclHighOutXmtCLP1Cells,
+            caclHighOutValidOAMCells
+            }
+       STATUS current
+       DESCRIPTION
+          "A collection of objects which provide statistics 
+           for ATM switch and ATM end-system interfaces."
+       ::= { caclMIBGroups 7}
+
+caclHighSpeedATMMIBGroup1 OBJECT-GROUP
+        OBJECTS {
+            caclHInRcvCLP0Cells,
+            caclHInRcvCLP1Cells,
+            caclHOutXmtCLP0Cells,
+            caclHOutXmtCLP1Cells,
+            caclHCInValidOAMCells,
+            caclHCInVpiVciErrCells,
+            caclHCInXmtCLP0Cells,         
+            caclHCInXmtCLP1Cells,         
+            caclHCInHecErrDiscCells,
+            caclHCInHecErrCorrectedCells,
+            caclHCOutValidOAMCells,
+            caclHCOutRcvCLP0Cells,                
+            caclHCOutRcvCLP1Cells
+            }              
+       STATUS current
+       DESCRIPTION
+          "These statistics apply to ATM interfaces with speed of 
+           OC12 or higher."
+       ::= { caclMIBGroups 8}
+
+caclIntervalStatsMIBGroup1 OBJECT-GROUP
+        OBJECTS {
+               caclTimeElapsed,
+               caclValidIntervals,
+               caclInvalidIntervals,
+               caclIntervalInRcvCLP0Cells,
+               caclIntervalInRcvCLP1Cells,
+               caclIntervalInValidOAMCells,
+               caclIntervalInErrOAMCells,
+               caclIntervalInGfcCells,
+               caclIntervalInVpiVciErrCells,
+               caclIntervalInLastUnknVpi,
+               caclIntervalInLastUnknVci,
+               caclIntervalInXmtCLP0Cells,
+               caclIntervalInXmtCLP1Cells,
+               caclIntervalInValidRMCells,
+               caclIntervalInRcvIdleCells,
+               caclIntervalInHecErrDiscCells,
+               caclIntervalInHecErrCorrCells,
+               caclIntervalInUpcCLP0DiscCells,
+               caclIntervalInUpcTotalDiscCells,
+               caclIntervalInUpcTotNonCmpCells,
+               caclIntervalOutXmtCLP0Cells,
+               caclIntervalOutXmtCLP1Cells,
+               caclIntervalOutValidOAMCells,
+               caclIntervalOutErrOAMCells,
+               caclIntervalOutVpiVciErrCells,
+               caclIntervalOutRcvCLP0Cells,
+               caclIntervalOutRcvCLP1Cells,     
+               caclIntervalOutRcvValidRMCells,
+               caclIntervalOutRcvIdleCells,
+               caclHighIntervalInRcvCLP0Cells,
+               caclHighIntervalInRcvCLP1Cells,
+               caclHighIntervalInVpiVciErrCells,
+               caclHighIntervalInXmtCLP0Cells,
+               caclHighIntervalInXmtCLP1Cells,
+	       caclHighIntervalInHecErrDiscCells,
+               caclHighIntervalInHecErrCorrCells,       
+               caclHighIntervalOutXmtCLP0Cells,
+               caclHighIntervalOutXmtCLP1Cells,
+               caclHighIntervalOutVpiVciErrCells,
+               caclHighIntervalOutRcvCLP0Cells,
+               caclHighIntervalOutRcvCLP1Cells
+
+        }
+        STATUS current
+        DESCRIPTION
+           "A collection of interval statistics."
+       ::= { caclMIBGroups  9}
+
+
+caclHCIntervalStatsMIBGroup OBJECT-GROUP
+        OBJECTS {
+               caclHCIntervalInRcvCLP0Cells,
+               caclHCIntervalInRcvCLP1Cells,
+               caclHCIntervalInVpiVciErrCells,
+               caclHCIntervalInXmtCLP0Cells,
+               caclHCIntervalInXmtCLP1Cells,
+	       caclHCIntervalInHecErrDiscCells,
+               caclHCIntervalInHecErrCorrCells,       
+               caclHCIntervalOutXmtCLP0Cells,
+               caclHCIntervalOutXmtCLP1Cells,
+               caclHCIntervalOutVpiVciErrCells,
+               caclHCIntervalOutRcvCLP0Cells,
+               caclHCIntervalOutRcvCLP1Cells
+        }
+        STATUS current
+        DESCRIPTION
+           "A collection of interval statistics."
+       ::= { caclMIBGroups 10 }
+
+
+END
+
+

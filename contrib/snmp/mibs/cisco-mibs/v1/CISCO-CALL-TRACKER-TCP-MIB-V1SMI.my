@@ -1,0 +1,297 @@
+-- MIB file created 26-Jan-2006 13:29:53, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-CALL-TRACKER-TCP-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-CALL-TRACKER-TCP-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    CiscoPort
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    cctActiveCallId, cctHistoryIndex
+            FROM CISCO-CALL-TRACKER-MIB
+    Counter, IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoCallTrackerTCPMIB OBJECT IDENTIFIER ::= { ciscoMgmt 164 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200512060000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-dial@cisco.com
+--  Descr
+--    This MIB module provides TCP service connection
+--     related data for tracking the progress and status of
+--     a call.
+--    
+--     This module extends tables defined in the MIB module
+--     ciscoCallTrackerMIB in CISCO-CALL-TRACKER-MIB.
+--  RevDate
+--    200512060000Z
+--  RevDescr
+--    Removed Unsigned32 from the imports since it is not used.
+--  RevDate
+--    200006070000Z
+--  RevDescr
+--    Initial version of this mib.
+
+ccttMIBObjects  OBJECT IDENTIFIER ::= { ciscoCallTrackerTCPMIB 1 }
+ccttActive      OBJECT IDENTIFIER ::= { ccttMIBObjects 1 }
+ccttHistory     OBJECT IDENTIFIER ::= { ccttMIBObjects 2 }
+ccttMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoCallTrackerTCPMIB 2 }
+ccttMIBNotifications OBJECT IDENTIFIER ::= { ccttMIBNotificationPrefix 0 }
+ccttMIBConformance OBJECT IDENTIFIER ::= { ciscoCallTrackerTCPMIB 3 }
+ccttMIBCompliances OBJECT IDENTIFIER ::= { ccttMIBConformance 1 }
+ccttMIBGroups   OBJECT IDENTIFIER ::= { ccttMIBConformance 2 }
+
+ccttActiveTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcttActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains entries for active calls in the
+         system which utilize TCP connections, as reported by
+         cctActiveServiceType.
+        
+         This table extends the cctActiveTable, using the same
+         index, cctActiveCallId."
+    ::= { ccttActive 1 }
+
+ccttActiveEntry OBJECT-TYPE
+    SYNTAX CcttActiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information related to TCP connection for a single
+         call.
+        
+         Entries are created if the call requests TCP connection
+         based service. Entries are deleted when the call
+         terminates."
+    INDEX { cctActiveCallId }
+    ::= { ccttActiveTable 1 }
+
+CcttActiveEntry ::= SEQUENCE {
+    ccttActiveLocalIpAddress IpAddress,
+    ccttActiveLocalTcpPort CiscoPort,
+    ccttActiveRemoteIpAddress IpAddress,
+    ccttActiveRemoteTcpPort CiscoPort,
+    ccttActiveDestinationFailures Counter
+    }
+
+ccttActiveLocalIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address for local endpoint of the call's TCP
+         connection.
+        
+         This object has the same value as tcpConnLocalAddress
+         from TCP-MIB."
+    REFERENCE
+        "RFC 2012 TCP-MIB"
+    ::= { ccttActiveEntry 1 }
+
+ccttActiveLocalTcpPort OBJECT-TYPE
+    SYNTAX CiscoPort
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "TCP port number for local endpoint of the call's TCP
+         connection.
+        
+         This object has the same value as tcpConnLocalPort
+         from TCP-MIB."
+    REFERENCE
+        "RFC 2012 TCP-MIB"
+    ::= { ccttActiveEntry 2 }
+
+ccttActiveRemoteIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address for remote endpoint of the call's TCP
+         connection.
+        
+         This object has the same value as tcpConnRemAddress
+         from TCP-MIB."
+    REFERENCE
+        "RFC 2012 TCP-MIB"
+    ::= { ccttActiveEntry 3 }
+
+ccttActiveRemoteTcpPort OBJECT-TYPE
+    SYNTAX CiscoPort
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "TCP port number for remote endpoint of the call's TCP
+         connection.
+        
+         This object has the same value as tcpConnRemPort
+         from TCP-MIB."
+    REFERENCE
+        "RFC 2012 TCP-MIB"
+    ::= { ccttActiveEntry 4 }
+
+ccttActiveDestinationFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of requests from the call processing
+         software to the Telnet/TCP to setup a connection for
+         which Telnet/TCP was unable to establish the requested
+         connection."
+    ::= { ccttActiveEntry 5 }
+
+ccttHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcttHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides information on terminated calls
+         with associated TCP connections, as reported by
+         cctHistoryServiceType.
+        
+         This table extends the cctHistoryTable, using the same
+         index, cctHistoryIndex."
+    ::= { ccttHistory 1 }
+
+ccttHistoryEntry OBJECT-TYPE
+    SYNTAX CcttHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The information regarding a single terminated call with
+         TCP connections.
+        
+         Entries are created and deleted in sync with the entries
+         in cctHistoryTable, when there is a TCP connection
+         service requested for the call."
+    INDEX { cctHistoryIndex }
+    ::= { ccttHistoryTable 1 }
+
+CcttHistoryEntry ::= SEQUENCE {
+    ccttHistoryLocalIpAddress IpAddress,
+    ccttHistoryLocalTcpPort CiscoPort,
+    ccttHistoryRemoteIpAddress IpAddress,
+    ccttHistoryRemoteTcpPort CiscoPort,
+    ccttHistoryDestinationFailures Counter
+    }
+
+ccttHistoryLocalIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address for local endpoint of the call's TCP
+         connection."
+    ::= { ccttHistoryEntry 1 }
+
+ccttHistoryLocalTcpPort OBJECT-TYPE
+    SYNTAX CiscoPort
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "TCP port number for local endpoint of the call's TCP
+         connection."
+    ::= { ccttHistoryEntry 2 }
+
+ccttHistoryRemoteIpAddress OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address for remote endpoint of the call's TCP
+         connection.
+        
+         If no TCP connection was established, this object
+         reports the first destination attempted."
+    ::= { ccttHistoryEntry 3 }
+
+ccttHistoryRemoteTcpPort OBJECT-TYPE
+    SYNTAX CiscoPort
+--    Rsyntax INTEGER(0..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "TCP port number for remote endpoint of the call's TCP
+         connection.
+        
+         If no TCP connection was established, this object reports
+         the TCP port of the first destination attempted."
+    ::= { ccttHistoryEntry 4 }
+
+ccttHistoryDestinationFailures OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of requests from the call processing
+         software to the Telnet/TCP to setup a connection for
+         which Telnet/TCP was unable to establish the requested
+         connection."
+    ::= { ccttHistoryEntry 5 }
+
+ccttActiveGroup OBJECT IDENTIFIER ::= { ccttMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the
+--     active call information.
+--  objects
+--    ccttActiveLocalIpAddress, ccttActiveLocalTcpPort, 
+--    ccttActiveRemoteIpAddress, ccttActiveRemoteTcpPort, 
+--    ccttActiveDestinationFailures
+
+ccttHistoryGroup OBJECT IDENTIFIER ::= { ccttMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the
+--     historical call information.
+--  objects
+--    ccttHistoryLocalIpAddress, ccttHistoryLocalTcpPort, 
+--    ccttHistoryRemoteIpAddress, ccttHistoryRemoteTcpPort, 
+--    ccttHistoryDestinationFailures
+
+ccttMIBCompliance OBJECT IDENTIFIER ::= { ccttMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which
+--     implement the CISCO CALL TRACKER TCP MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ccttActiveGroup
+--   MandGroup
+--    ccttHistoryGroup
+
+
+END
+

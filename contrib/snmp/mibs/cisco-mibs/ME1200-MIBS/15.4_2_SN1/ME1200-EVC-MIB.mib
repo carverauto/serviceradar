@@ -1,0 +1,2993 @@
+-- *****************************************************************
+-- EVC-MIB:  Vitesse private MIB
+--
+-- Copyright (c) 2002-2013 Vitesse Semiconductor Corporation "Vitesse".
+-- All Rights Reserved.
+--
+-- ****************************************************************
+
+ME1200-EVC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200InterfaceIndex FROM ME1200-TC
+    TruthValue FROM SNMPv2-TC
+    Integer32 FROM SNMPv2-SMI
+    ME1200Unsigned8 FROM ME1200-TC
+    Unsigned32 FROM SNMPv2-SMI
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200PortList FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    MacAddress FROM SNMPv2-TC
+    IpAddress FROM SNMPv2-SMI
+    InetAddressIPv6 FROM INET-ADDRESS-MIB
+    Counter64 FROM SNMPv2-SMI
+    ;
+
+me1200EvcMIB MODULE-IDENTITY
+    LAST-UPDATED "201402210000Z"
+    ORGANIZATION
+        "Vitesse Semiconductor Corporation"
+    CONTACT-INFO
+        "Application Support <application_support@vitesse.com>"
+    DESCRIPTION
+        "This is a private MIB for EVC"
+    REVISION    "201402210000Z"
+    DESCRIPTION
+        "Updated integer ranges"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201401080000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 62 }
+
+
+ME1200VcapKeyType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents a VCAP key type selector."
+    SYNTAX      INTEGER { normal(0), doubleTag(1), ipAddr(2), macIpAddr(3) }
+
+ME1200HschMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The EVC scheduler mode."
+    SYNTAX      INTEGER { normal(0), basic(1), hierarchical(2) }
+
+ME1200L2cpMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The EVC port L2CP mode."
+    SYNTAX      INTEGER { forward(0), discard(1), peer(2) }
+
+ME1200PolicerType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The EVC policer type."
+    SYNTAX      INTEGER { mef(0), single(1) }
+
+ME1200PolicerMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The EVC policer mode."
+    SYNTAX      INTEGER { coupled(0), aware(1) }
+
+ME1200PolicerOp ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The policer operator."
+    SYNTAX      INTEGER { normal(0), none(1), discard(2), evc(3) }
+
+ME1200DestMacType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents a destination MAC type selector."
+    SYNTAX      INTEGER { any(0), unicast(1), multicast(2), broadcast(3) }
+
+ME1200VlanTagType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents a VLAN tag type selector."
+    SYNTAX      INTEGER { any(0), untagged(1), tagged(2), cTagged(3), sTagged(4) }
+
+ME1200VlanTagPriority ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "VLAN priority."
+    SYNTAX      INTEGER { any(0), value0(1), value1(2), value2(3), value3(4), value4(5), value5(6), value6(7), value7(8), range0to1(9), range2to3(10), range4to5(11), range6to7(12), range0to3(13), range4to7(14) }
+
+ME1200BitType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "Represents a bit selector."
+    SYNTAX      INTEGER { any(0), zero(1), one(2) }
+
+ME1200FrameType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The ECE frame type."
+    SYNTAX      INTEGER { any(0), etype(1), llc(2), snap(3), l2cp(4), ipv4(5), ipv6(6) }
+
+ME1200L2cpType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The L2CP type."
+    SYNTAX      INTEGER { none(0), stp(1), pause(2), lacp(3), lamp(4), loam(5), dot1x(6), elmi(7), pb(8), pbGvrp(9), lldp(10), gmrp(11), gvrp(12), uld(13), pagp(14), pvst(15), ciscoVlan(16), cdp(17), vtp(18), dtp(19), ciscoStp(20), ciscoCfm(21) }
+
+ME1200Direction ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The ECE direction."
+    SYNTAX      INTEGER { both(0), uniToNni(1), nniToUni(2) }
+
+ME1200RuleType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The ECE rule type."
+    SYNTAX      INTEGER { both(0), rx(1), tx(2) }
+
+ME1200TxLookup ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The ECE egress lookup key type."
+    SYNTAX      INTEGER { vid(0), vidPcp(1), isdx(2) }
+
+ME1200PopTag ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The number of tags popped."
+    SYNTAX      INTEGER { zero(0), one(1), two(2) }
+
+ME1200PcpMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The ECE PCP mode."
+    SYNTAX      INTEGER { classified(0), fixed(1), mapped(2) }
+
+ME1200DeiMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The ECE DEI mode."
+    SYNTAX      INTEGER { classified(0), fixed(1), dp(2) }
+
+ME1200InnerTagType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The inner tag type."
+    SYNTAX      INTEGER { none(0), cTagged(1), sTagged(2), sCustomTagged(3) }
+
+ME1200EceL2cpMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The ECE L2CP forward mode."
+    SYNTAX      INTEGER { forward(0), discard(1), peer(2), tunnel(3) }
+
+ME1200L2cpDmac ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "The ECE DMAC used for L2CP tunneling."
+    SYNTAX      INTEGER { custom(0), cisco(1) }
+
+me1200EvcMIBObjects OBJECT IDENTIFIER
+    ::= { me1200EvcMIB 1 }
+
+me1200EvcConfig OBJECT IDENTIFIER
+    ::= { me1200EvcMIBObjects 2 }
+
+me1200EvcConfigInterface OBJECT IDENTIFIER
+    ::= { me1200EvcConfig 2 }
+
+me1200EvcConfigIfTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcConfigIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides EVC configuration for interfaces"
+    ::= { me1200EvcConfigInterface 1 }
+
+me1200EvcConfigIfEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcConfigIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for an interface"
+    INDEX       { me1200EvcConfigIfIfIndex }
+    ::= { me1200EvcConfigIfTable 1 }
+
+ME1200EvcConfigIfEntry ::= SEQUENCE {
+    me1200EvcConfigIfIfIndex      ME1200InterfaceIndex,
+    me1200EvcConfigIfKey      ME1200VcapKeyType,
+    me1200EvcConfigIfKeyAdv   ME1200VcapKeyType,
+    me1200EvcConfigIfAddrMode     TruthValue,
+    me1200EvcConfigIfAddrModeAdv      TruthValue,
+    me1200EvcConfigIfHschMode     ME1200HschMode
+}
+
+me1200EvcConfigIfIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200EvcConfigIfEntry 1 }
+
+me1200EvcConfigIfKey OBJECT-TYPE
+    SYNTAX      ME1200VcapKeyType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The key type for the basic ingress lookup"
+    ::= { me1200EvcConfigIfEntry 2 }
+
+me1200EvcConfigIfKeyAdv OBJECT-TYPE
+    SYNTAX      ME1200VcapKeyType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The key type for the advanced ingress lookup"
+    ::= { me1200EvcConfigIfEntry 3 }
+
+me1200EvcConfigIfAddrMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If false, the basic ingress lookup is based on SMAC/SIP. If true, the
+         basic ingress lookup is based on DMAC/DIP."
+    ::= { me1200EvcConfigIfEntry 4 }
+
+me1200EvcConfigIfAddrModeAdv OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "If false, the advanced ingress lookup is based on SMAC/SIP. If true,
+         the advanced ingress lookup is based on DMAC/DIP."
+    ::= { me1200EvcConfigIfEntry 5 }
+
+me1200EvcConfigIfHschMode OBJECT-TYPE
+    SYNTAX      ME1200HschMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Scheduler mode."
+    ::= { me1200EvcConfigIfEntry 6 }
+
+me1200EvcConfigIfL2cpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcConfigIfL2cpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides L2CP configuration for interfaces"
+    ::= { me1200EvcConfigInterface 2 }
+
+me1200EvcConfigIfL2cpEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcConfigIfL2cpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for an L2CP"
+    INDEX       { me1200EvcConfigIfL2cpIfIndex, me1200EvcConfigIfL2cpL2cpId }
+    ::= { me1200EvcConfigIfL2cpTable 1 }
+
+ME1200EvcConfigIfL2cpEntry ::= SEQUENCE {
+    me1200EvcConfigIfL2cpIfIndex      ME1200InterfaceIndex,
+    me1200EvcConfigIfL2cpL2cpId   Integer32,
+    me1200EvcConfigIfL2cpL2cpMode     ME1200L2cpMode
+}
+
+me1200EvcConfigIfL2cpIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200EvcConfigIfL2cpEntry 1 }
+
+me1200EvcConfigIfL2cpL2cpId OBJECT-TYPE
+    SYNTAX      Integer32 (0..31)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "L2CP ID."
+    ::= { me1200EvcConfigIfL2cpEntry 2 }
+
+me1200EvcConfigIfL2cpL2cpMode OBJECT-TYPE
+    SYNTAX      ME1200L2cpMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The forwarding mode for the L2CP."
+    ::= { me1200EvcConfigIfL2cpEntry 3 }
+
+me1200EvcConfigIfEvcTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcConfigIfEvcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides EVC configuration for interfaces"
+    ::= { me1200EvcConfigInterface 3 }
+
+me1200EvcConfigIfEvcEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcConfigIfEvcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for an EVC"
+    INDEX       { me1200EvcConfigIfEvcIfIndex, me1200EvcConfigIfEvcEvcId }
+    ::= { me1200EvcConfigIfEvcTable 1 }
+
+ME1200EvcConfigIfEvcEntry ::= SEQUENCE {
+    me1200EvcConfigIfEvcIfIndex   ME1200InterfaceIndex,
+    me1200EvcConfigIfEvcEvcId     Integer32,
+    me1200EvcConfigIfEvcDwrrCount     ME1200Unsigned8,
+    me1200EvcConfigIfEvcShaperEnable      TruthValue,
+    me1200EvcConfigIfEvcShaperRate    Unsigned32,
+    me1200EvcConfigIfEvcMinRate   Unsigned32
+}
+
+me1200EvcConfigIfEvcIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200EvcConfigIfEvcEntry 1 }
+
+me1200EvcConfigIfEvcEvcId OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "EVC ID, allowed range depends on platform."
+    ::= { me1200EvcConfigIfEvcEntry 2 }
+
+me1200EvcConfigIfEvcDwrrCount OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of queues using DWRR (0 or 6)."
+    ::= { me1200EvcConfigIfEvcEntry 3 }
+
+me1200EvcConfigIfEvcShaperEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable or disable shaper."
+    ::= { me1200EvcConfigIfEvcEntry 4 }
+
+me1200EvcConfigIfEvcShaperRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Shaper rate in kbps."
+    ::= { me1200EvcConfigIfEvcEntry 5 }
+
+me1200EvcConfigIfEvcMinRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Minimum guarateed rate in kbps."
+    ::= { me1200EvcConfigIfEvcEntry 6 }
+
+me1200EvcConfigIfEvcQueueTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcConfigIfEvcQueueEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides EVC configuration for interface queues"
+    ::= { me1200EvcConfigInterface 4 }
+
+me1200EvcConfigIfEvcQueueEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcConfigIfEvcQueueEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for an EVC"
+    INDEX       { me1200EvcConfigIfEvcQueueIfIndex, me1200EvcConfigIfEvcQueueEvcId, me1200EvcConfigIfEvcQueueQueue }
+    ::= { me1200EvcConfigIfEvcQueueTable 1 }
+
+ME1200EvcConfigIfEvcQueueEntry ::= SEQUENCE {
+    me1200EvcConfigIfEvcQueueIfIndex      ME1200InterfaceIndex,
+    me1200EvcConfigIfEvcQueueEvcId    Integer32,
+    me1200EvcConfigIfEvcQueueQueue    Integer32,
+    me1200EvcConfigIfEvcQueueShaperEnable     TruthValue,
+    me1200EvcConfigIfEvcQueueShaperRate   Unsigned32,
+    me1200EvcConfigIfEvcQueueSchedulerWeight      ME1200Unsigned8
+}
+
+me1200EvcConfigIfEvcQueueIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200EvcConfigIfEvcQueueEntry 1 }
+
+me1200EvcConfigIfEvcQueueEvcId OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "EVC ID, allowed range depends on platform."
+    ::= { me1200EvcConfigIfEvcQueueEntry 2 }
+
+me1200EvcConfigIfEvcQueueQueue OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Queue number."
+    ::= { me1200EvcConfigIfEvcQueueEntry 3 }
+
+me1200EvcConfigIfEvcQueueShaperEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable or disable shaper."
+    ::= { me1200EvcConfigIfEvcQueueEntry 4 }
+
+me1200EvcConfigIfEvcQueueShaperRate OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Shaper rate in kbps."
+    ::= { me1200EvcConfigIfEvcQueueEntry 5 }
+
+me1200EvcConfigIfEvcQueueSchedulerWeight OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Scheduler weight, 0-100."
+    ::= { me1200EvcConfigIfEvcQueueEntry 6 }
+
+me1200EvcConfigPolicerTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcConfigPolicerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides EVC policer configuration"
+    ::= { me1200EvcConfig 3 }
+
+me1200EvcConfigPolicerEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcConfigPolicerEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for a policer"
+    INDEX       { me1200EvcConfigPolicerPolicerId }
+    ::= { me1200EvcConfigPolicerTable 1 }
+
+ME1200EvcConfigPolicerEntry ::= SEQUENCE {
+    me1200EvcConfigPolicerPolicerId   Integer32,
+    me1200EvcConfigPolicerEnable      TruthValue,
+    me1200EvcConfigPolicerPolicerType     ME1200PolicerType,
+    me1200EvcConfigPolicerPolicerMode     ME1200PolicerMode,
+    me1200EvcConfigPolicerLineRate    TruthValue,
+    me1200EvcConfigPolicerCir     Unsigned32,
+    me1200EvcConfigPolicerCbs     Unsigned32,
+    me1200EvcConfigPolicerEir     Unsigned32,
+    me1200EvcConfigPolicerEbs     Unsigned32
+}
+
+me1200EvcConfigPolicerPolicerId OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Policer ID, allowed range depends on platform."
+    ::= { me1200EvcConfigPolicerEntry 1 }
+
+me1200EvcConfigPolicerEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable or disable policer."
+    ::= { me1200EvcConfigPolicerEntry 2 }
+
+me1200EvcConfigPolicerPolicerType OBJECT-TYPE
+    SYNTAX      ME1200PolicerType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The EVC policer type."
+    ::= { me1200EvcConfigPolicerEntry 3 }
+
+me1200EvcConfigPolicerPolicerMode OBJECT-TYPE
+    SYNTAX      ME1200PolicerMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The EVC policer mode."
+    ::= { me1200EvcConfigPolicerEntry 4 }
+
+me1200EvcConfigPolicerLineRate OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable or disable line rate policing."
+    ::= { me1200EvcConfigPolicerEntry 5 }
+
+me1200EvcConfigPolicerCir OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Committed Information Rate in kbps."
+    ::= { me1200EvcConfigPolicerEntry 6 }
+
+me1200EvcConfigPolicerCbs OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Committed Burst Size in bytes."
+    ::= { me1200EvcConfigPolicerEntry 7 }
+
+me1200EvcConfigPolicerEir OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Excess Information Rate in kbps."
+    ::= { me1200EvcConfigPolicerEntry 8 }
+
+me1200EvcConfigPolicerEbs OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Excess Burst Size in bytes."
+    ::= { me1200EvcConfigPolicerEntry 9 }
+
+me1200EvcConfigEvc OBJECT IDENTIFIER
+    ::= { me1200EvcConfig 4 }
+
+me1200EvcEvcTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcEvcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the configuration of EVCs"
+    ::= { me1200EvcConfigEvc 1 }
+
+me1200EvcEvcEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcEvcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for an EVC"
+    INDEX       { me1200EvcEvcEvcId }
+    ::= { me1200EvcEvcTable 1 }
+
+ME1200EvcEvcEntry ::= SEQUENCE {
+    me1200EvcEvcEvcId     Integer32,
+    me1200EvcEvcVid   ME1200Unsigned16,
+    me1200EvcEvcIvid      ME1200Unsigned16,
+    me1200EvcEvcNniPortList   ME1200PortList,
+    me1200EvcEvcLearning      TruthValue,
+    me1200EvcEvcPolicerOp     ME1200PolicerOp,
+    me1200EvcEvcPolicerId     ME1200Unsigned16,
+    me1200EvcEvcAction    ME1200RowEditorState
+}
+
+me1200EvcEvcEvcId OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "EVC ID, allowed range depends on platform."
+    ::= { me1200EvcEvcEntry 1 }
+
+me1200EvcEvcVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID used in the outer tag for the EVC."
+    ::= { me1200EvcEvcEntry 2 }
+
+me1200EvcEvcIvid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The internal classified VLAN ID for the EVC."
+    ::= { me1200EvcEvcEntry 3 }
+
+me1200EvcEvcNniPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "List of NNI ports for the EVC."
+    ::= { me1200EvcEvcEntry 4 }
+
+me1200EvcEvcLearning OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable or disable MAC address learning for the EVC."
+    ::= { me1200EvcEvcEntry 5 }
+
+me1200EvcEvcPolicerOp OBJECT-TYPE
+    SYNTAX      ME1200PolicerOp
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Policer operator for the EVC."
+    ::= { me1200EvcEvcEntry 6 }
+
+me1200EvcEvcPolicerId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Policer ID for the EVC."
+    ::= { me1200EvcEvcEntry 7 }
+
+me1200EvcEvcAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200EvcEvcEntry 10000 }
+
+me1200EvcEvcTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200EvcConfigEvc 2 }
+
+me1200EvcEvcTableRowEditorEvcId OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "EVC ID, allowed range depends on platform."
+    ::= { me1200EvcEvcTableRowEditor 1 }
+
+me1200EvcEvcTableRowEditorVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID used in the outer tag for the EVC."
+    ::= { me1200EvcEvcTableRowEditor 2 }
+
+me1200EvcEvcTableRowEditorIvid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The internal classified VLAN ID for the EVC."
+    ::= { me1200EvcEvcTableRowEditor 3 }
+
+me1200EvcEvcTableRowEditorNniPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "List of NNI ports for the EVC."
+    ::= { me1200EvcEvcTableRowEditor 4 }
+
+me1200EvcEvcTableRowEditorLearning OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable or disable MAC address learning for the EVC."
+    ::= { me1200EvcEvcTableRowEditor 5 }
+
+me1200EvcEvcTableRowEditorPolicerOp OBJECT-TYPE
+    SYNTAX      ME1200PolicerOp
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Policer operator for the EVC."
+    ::= { me1200EvcEvcTableRowEditor 6 }
+
+me1200EvcEvcTableRowEditorPolicerId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Policer ID for the EVC."
+    ::= { me1200EvcEvcTableRowEditor 7 }
+
+me1200EvcEvcTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200EvcEvcTableRowEditor 10000 }
+
+me1200EvcConfigEce OBJECT IDENTIFIER
+    ::= { me1200EvcConfig 5 }
+
+me1200EvcEceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcEceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the configuration of ECEs"
+    ::= { me1200EvcConfigEce 1 }
+
+me1200EvcEceEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcEceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the configuration for an ECE"
+    INDEX       { me1200EvcEceEceId }
+    ::= { me1200EvcEceTable 1 }
+
+ME1200EvcEceEntry ::= SEQUENCE {
+    me1200EvcEceEceId     Integer32,
+    me1200EvcEceNextId    Unsigned32,
+    me1200EvcEceAdvLookup     TruthValue,
+    me1200EvcEceUniPortList   ME1200PortList,
+    me1200EvcEceSrcMac    MacAddress,
+    me1200EvcEceSrcMacMask    MacAddress,
+    me1200EvcEceDestMacType   ME1200DestMacType,
+    me1200EvcEceDestMac   MacAddress,
+    me1200EvcEceDestMacMask   MacAddress,
+    me1200EvcEceOtMatchType   ME1200VlanTagType,
+    me1200EvcEceOtMatchVid    Unsigned32,
+    me1200EvcEceOtMatchPcp    ME1200VlanTagPriority,
+    me1200EvcEceOtMatchDei    ME1200BitType,
+    me1200EvcEceItMatchType   ME1200VlanTagType,
+    me1200EvcEceItMatchVid    Unsigned32,
+    me1200EvcEceItMatchPcp    ME1200VlanTagPriority,
+    me1200EvcEceItMatchDei    ME1200BitType,
+    me1200EvcEceFrameType     ME1200FrameType,
+    me1200EvcEceEtype     ME1200Unsigned16,
+    me1200EvcEceEtypeMask     ME1200Unsigned16,
+    me1200EvcEceEtypeData     ME1200Unsigned16,
+    me1200EvcEceEtypeDataMask     ME1200Unsigned16,
+    me1200EvcEceLlcDsap   ME1200Unsigned8,
+    me1200EvcEceLlcDsapMask   ME1200Unsigned8,
+    me1200EvcEceLlcSsap   ME1200Unsigned8,
+    me1200EvcEceLlcSsapMask   ME1200Unsigned8,
+    me1200EvcEceLlcControl    ME1200Unsigned8,
+    me1200EvcEceLlcControlMask    ME1200Unsigned8,
+    me1200EvcEceLlcPid    ME1200Unsigned16,
+    me1200EvcEceLlcPidMask    ME1200Unsigned16,
+    me1200EvcEceSnapOui   Unsigned32,
+    me1200EvcEceSnapOuiMask   Unsigned32,
+    me1200EvcEceSnapPid   ME1200Unsigned16,
+    me1200EvcEceSnapPidMask   ME1200Unsigned16,
+    me1200EvcEceL2cpType      ME1200L2cpType,
+    me1200EvcEceIpv4Dscp      Unsigned32,
+    me1200EvcEceIpv4Proto     ME1200Unsigned8,
+    me1200EvcEceIpv4ProtoMask     ME1200Unsigned8,
+    me1200EvcEceIpv4Fragment      ME1200BitType,
+    me1200EvcEceIpv4SrcIp     IpAddress,
+    me1200EvcEceIpv4SrcIpMask     IpAddress,
+    me1200EvcEceIpv4DestIp    IpAddress,
+    me1200EvcEceIpv4DestIpMask    IpAddress,
+    me1200EvcEceIpv4SrcPort   Unsigned32,
+    me1200EvcEceIpv4DestPort      Unsigned32,
+    me1200EvcEceIpv6Dscp      Unsigned32,
+    me1200EvcEceIpv6Proto     ME1200Unsigned8,
+    me1200EvcEceIpv6ProtoMask     ME1200Unsigned8,
+    me1200EvcEceIpv6SrcIp     InetAddressIPv6,
+    me1200EvcEceIpv6SrcIpMask     InetAddressIPv6,
+    me1200EvcEceIpv6DestIp    InetAddressIPv6,
+    me1200EvcEceIpv6DestIpMask    InetAddressIPv6,
+    me1200EvcEceIpv6SrcPort   Unsigned32,
+    me1200EvcEceIpv6DestPort      Unsigned32,
+    me1200EvcEceDirection     ME1200Direction,
+    me1200EvcEceRuleType      ME1200RuleType,
+    me1200EvcEceTxLookup      ME1200TxLookup,
+    me1200EvcEcePopTag    ME1200PopTag,
+    me1200EvcEceOtAddEnable   TruthValue,
+    me1200EvcEceOtAddVid      ME1200Unsigned16,
+    me1200EvcEceOtAddPcpMode      ME1200PcpMode,
+    me1200EvcEceOtAddPcp      Unsigned32,
+    me1200EvcEceOtAddDeiMode      ME1200DeiMode,
+    me1200EvcEceOtAddDei      ME1200Unsigned8,
+    me1200EvcEceItAddType     ME1200InnerTagType,
+    me1200EvcEceItAddVid      ME1200Unsigned16,
+    me1200EvcEceItAddPcpMode      ME1200PcpMode,
+    me1200EvcEceItAddPcp      Unsigned32,
+    me1200EvcEceItAddDeiMode      ME1200DeiMode,
+    me1200EvcEceItAddDei      ME1200Unsigned8,
+    me1200EvcEceEvcId     ME1200Unsigned16,
+    me1200EvcEcePolicerOp     ME1200PolicerOp,
+    me1200EvcEcePolicerId     ME1200Unsigned16,
+    me1200EvcEcePolicyNo      Unsigned32,
+    me1200EvcEceCosEnable     TruthValue,
+    me1200EvcEceCos   Unsigned32,
+    me1200EvcEceDpEnable      TruthValue,
+    me1200EvcEceDp    ME1200Unsigned8,
+    me1200EvcEceL2cpMode      ME1200EceL2cpMode,
+    me1200EvcEceL2cpDmac      ME1200L2cpDmac,
+    me1200EvcEceAction    ME1200RowEditorState
+}
+
+me1200EvcEceEceId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4096)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "ECE ID, allowed range depends on platform."
+    ::= { me1200EvcEceEntry 1 }
+
+me1200EvcEceNextId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ID of the next ECE."
+    ::= { me1200EvcEceEntry 2 }
+
+me1200EvcEceAdvLookup OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable advanced ingress lookup."
+    ::= { me1200EvcEceEntry 3 }
+
+me1200EvcEceUniPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "List of UNI ports for the ECE."
+    ::= { me1200EvcEceEntry 4 }
+
+me1200EvcEceSrcMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source MAC address to match."
+    ::= { me1200EvcEceEntry 10 }
+
+me1200EvcEceSrcMacMask OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source MAC address mask."
+    ::= { me1200EvcEceEntry 11 }
+
+me1200EvcEceDestMacType OBJECT-TYPE
+    SYNTAX      ME1200DestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination MAC address type to match."
+    ::= { me1200EvcEceEntry 12 }
+
+me1200EvcEceDestMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination MAC address to match."
+    ::= { me1200EvcEceEntry 13 }
+
+me1200EvcEceDestMacMask OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination MAC address mask."
+    ::= { me1200EvcEceEntry 14 }
+
+me1200EvcEceOtMatchType OBJECT-TYPE
+    SYNTAX      ME1200VlanTagType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The outer tag type to match."
+    ::= { me1200EvcEceEntry 20 }
+
+me1200EvcEceOtMatchVid OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The outer tag VLAN ID range to match. The minimum value is encoded in
+         the 16 least significant bits. The maximum value is encoded in the 16
+         most significant bits."
+    ::= { me1200EvcEceEntry 21 }
+
+me1200EvcEceOtMatchPcp OBJECT-TYPE
+    SYNTAX      ME1200VlanTagPriority
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The outer tag PCP to match."
+    ::= { me1200EvcEceEntry 22 }
+
+me1200EvcEceOtMatchDei OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The outer tag DEI to match."
+    ::= { me1200EvcEceEntry 23 }
+
+me1200EvcEceItMatchType OBJECT-TYPE
+    SYNTAX      ME1200VlanTagType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner tag type to match."
+    ::= { me1200EvcEceEntry 30 }
+
+me1200EvcEceItMatchVid OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner tag VLAN ID range to match. The minimum value is encoded in
+         the 16 least significant bits. The maximum value is encoded in the 16
+         most significant bits."
+    ::= { me1200EvcEceEntry 31 }
+
+me1200EvcEceItMatchPcp OBJECT-TYPE
+    SYNTAX      ME1200VlanTagPriority
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner tag PCP to match."
+    ::= { me1200EvcEceEntry 32 }
+
+me1200EvcEceItMatchDei OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner tag DEI to match."
+    ::= { me1200EvcEceEntry 33 }
+
+me1200EvcEceFrameType OBJECT-TYPE
+    SYNTAX      ME1200FrameType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ECE frame type."
+    ::= { me1200EvcEceEntry 50 }
+
+me1200EvcEceEtype OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Ethernet Type to match."
+    ::= { me1200EvcEceEntry 100 }
+
+me1200EvcEceEtypeMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Ethernet Type mask."
+    ::= { me1200EvcEceEntry 101 }
+
+me1200EvcEceEtypeData OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Ethernet Type data to match."
+    ::= { me1200EvcEceEntry 102 }
+
+me1200EvcEceEtypeDataMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Ethernet Type data mask."
+    ::= { me1200EvcEceEntry 103 }
+
+me1200EvcEceLlcDsap OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC DSAP field to match."
+    ::= { me1200EvcEceEntry 200 }
+
+me1200EvcEceLlcDsapMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC DSAP mask."
+    ::= { me1200EvcEceEntry 201 }
+
+me1200EvcEceLlcSsap OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC SSAP field to match."
+    ::= { me1200EvcEceEntry 202 }
+
+me1200EvcEceLlcSsapMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC SSAP mask."
+    ::= { me1200EvcEceEntry 203 }
+
+me1200EvcEceLlcControl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC Control field to match."
+    ::= { me1200EvcEceEntry 204 }
+
+me1200EvcEceLlcControlMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC Control mask."
+    ::= { me1200EvcEceEntry 205 }
+
+me1200EvcEceLlcPid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC Protocol ID to match."
+    ::= { me1200EvcEceEntry 206 }
+
+me1200EvcEceLlcPidMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC Protocol ID mask."
+    ::= { me1200EvcEceEntry 207 }
+
+me1200EvcEceSnapOui OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The SNAP OUI to match."
+    ::= { me1200EvcEceEntry 300 }
+
+me1200EvcEceSnapOuiMask OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The SNAP OUI mask."
+    ::= { me1200EvcEceEntry 301 }
+
+me1200EvcEceSnapPid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The SNAP Protocol ID to match."
+    ::= { me1200EvcEceEntry 302 }
+
+me1200EvcEceSnapPidMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The SNAP Protocol ID mask."
+    ::= { me1200EvcEceEntry 303 }
+
+me1200EvcEceL2cpType OBJECT-TYPE
+    SYNTAX      ME1200L2cpType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The L2CP type to match. The value 'none' is not valid for SET
+         operations."
+    ::= { me1200EvcEceEntry 400 }
+
+me1200EvcEceIpv4Dscp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 DSCP range to match. The minimum value is encoded in the 16
+         least significant bits. The maximum value is encoded in the 16 most
+         significant bits."
+    ::= { me1200EvcEceEntry 500 }
+
+me1200EvcEceIpv4Proto OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 protocol number to match."
+    ::= { me1200EvcEceEntry 501 }
+
+me1200EvcEceIpv4ProtoMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 protocol mask."
+    ::= { me1200EvcEceEntry 502 }
+
+me1200EvcEceIpv4Fragment OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 fragment match."
+    ::= { me1200EvcEceEntry 503 }
+
+me1200EvcEceIpv4SrcIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 source address."
+    ::= { me1200EvcEceEntry 504 }
+
+me1200EvcEceIpv4SrcIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 source address mask."
+    ::= { me1200EvcEceEntry 505 }
+
+me1200EvcEceIpv4DestIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 destination address."
+    ::= { me1200EvcEceEntry 506 }
+
+me1200EvcEceIpv4DestIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 destination address mask."
+    ::= { me1200EvcEceEntry 507 }
+
+me1200EvcEceIpv4SrcPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 UDP/TCP source port range to match. The minimum value is
+         encoded in the 16 least significant bits. The maximum value is encoded
+         in the 16 most significant bits."
+    ::= { me1200EvcEceEntry 508 }
+
+me1200EvcEceIpv4DestPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 UDP/TCP destination port range to match. The minimum value is
+         encoded in the 16 least significant bits. The maximum value is encoded
+         in the 16 most significant bits."
+    ::= { me1200EvcEceEntry 509 }
+
+me1200EvcEceIpv6Dscp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 DSCP range to match. The minimum value is encoded in the 16
+         least significant bits. The maximum value is encoded in the 16 most
+         significant bits."
+    ::= { me1200EvcEceEntry 600 }
+
+me1200EvcEceIpv6Proto OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 protocol number to match."
+    ::= { me1200EvcEceEntry 601 }
+
+me1200EvcEceIpv6ProtoMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 protocol mask."
+    ::= { me1200EvcEceEntry 602 }
+
+me1200EvcEceIpv6SrcIp OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 source address."
+    ::= { me1200EvcEceEntry 603 }
+
+me1200EvcEceIpv6SrcIpMask OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 source address mask."
+    ::= { me1200EvcEceEntry 604 }
+
+me1200EvcEceIpv6DestIp OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 destination address."
+    ::= { me1200EvcEceEntry 605 }
+
+me1200EvcEceIpv6DestIpMask OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 destination address mask."
+    ::= { me1200EvcEceEntry 606 }
+
+me1200EvcEceIpv6SrcPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 UDP/TCP source port range to match. The minimum value is
+         encoded in the 16 least significant bits. The maximum value is encoded
+         in the 16 most significant bits."
+    ::= { me1200EvcEceEntry 607 }
+
+me1200EvcEceIpv6DestPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 UDP/TCP destination port range to match. The minimum value is
+         encoded in the 16 least significant bits. The maximum value is encoded
+         in the 16 most significant bits."
+    ::= { me1200EvcEceEntry 608 }
+
+me1200EvcEceDirection OBJECT-TYPE
+    SYNTAX      ME1200Direction
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ECE direction."
+    ::= { me1200EvcEceEntry 1000 }
+
+me1200EvcEceRuleType OBJECT-TYPE
+    SYNTAX      ME1200RuleType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ECE rule type."
+    ::= { me1200EvcEceEntry 1010 }
+
+me1200EvcEceTxLookup OBJECT-TYPE
+    SYNTAX      ME1200TxLookup
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The egress lookup key type."
+    ::= { me1200EvcEceEntry 1011 }
+
+me1200EvcEcePopTag OBJECT-TYPE
+    SYNTAX      ME1200PopTag
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The number of tags popped."
+    ::= { me1200EvcEceEntry 1020 }
+
+me1200EvcEceOtAddEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable outer tag pushing for NNI-to-UNI direction."
+    ::= { me1200EvcEceEntry 1100 }
+
+me1200EvcEceOtAddVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID pushed for NNI-to-UNI direction."
+    ::= { me1200EvcEceEntry 1101 }
+
+me1200EvcEceOtAddPcpMode OBJECT-TYPE
+    SYNTAX      ME1200PcpMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP mode for the outer tag pushed."
+    ::= { me1200EvcEceEntry 1102 }
+
+me1200EvcEceOtAddPcp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value for the outer tag pushed."
+    ::= { me1200EvcEceEntry 1104 }
+
+me1200EvcEceOtAddDeiMode OBJECT-TYPE
+    SYNTAX      ME1200DeiMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI mode for the outer tag pushed."
+    ::= { me1200EvcEceEntry 1105 }
+
+me1200EvcEceOtAddDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI value for the outer tag pushed."
+    ::= { me1200EvcEceEntry 1106 }
+
+me1200EvcEceItAddType OBJECT-TYPE
+    SYNTAX      ME1200InnerTagType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The tag type for the inner tag pushed."
+    ::= { me1200EvcEceEntry 1200 }
+
+me1200EvcEceItAddVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID for the inner tag pushed."
+    ::= { me1200EvcEceEntry 1201 }
+
+me1200EvcEceItAddPcpMode OBJECT-TYPE
+    SYNTAX      ME1200PcpMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP mode for the inner tag pushed."
+    ::= { me1200EvcEceEntry 1202 }
+
+me1200EvcEceItAddPcp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value for the inner tag pushed."
+    ::= { me1200EvcEceEntry 1204 }
+
+me1200EvcEceItAddDeiMode OBJECT-TYPE
+    SYNTAX      ME1200DeiMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI mode for the inner tag pushed."
+    ::= { me1200EvcEceEntry 1205 }
+
+me1200EvcEceItAddDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI value for the inner tag pushed."
+    ::= { me1200EvcEceEntry 1206 }
+
+me1200EvcEceEvcId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The EVC ID for the ECE."
+    ::= { me1200EvcEceEntry 1300 }
+
+me1200EvcEcePolicerOp OBJECT-TYPE
+    SYNTAX      ME1200PolicerOp
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policer operator for the ECE."
+    ::= { me1200EvcEceEntry 1301 }
+
+me1200EvcEcePolicerId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policer ID for the ECE."
+    ::= { me1200EvcEceEntry 1302 }
+
+me1200EvcEcePolicyNo OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ACL policy number for the ECE."
+    ::= { me1200EvcEceEntry 1310 }
+
+me1200EvcEceCosEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable CoS assignment."
+    ::= { me1200EvcEceEntry 1320 }
+
+me1200EvcEceCos OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The CoS value for the ECE."
+    ::= { me1200EvcEceEntry 1321 }
+
+me1200EvcEceDpEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable Drop Precendence assignment."
+    ::= { me1200EvcEceEntry 1330 }
+
+me1200EvcEceDp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Drop Precedence value for the ECE."
+    ::= { me1200EvcEceEntry 1331 }
+
+me1200EvcEceL2cpMode OBJECT-TYPE
+    SYNTAX      ME1200EceL2cpMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The L2CP forward mode for the ECE."
+    ::= { me1200EvcEceEntry 1332 }
+
+me1200EvcEceL2cpDmac OBJECT-TYPE
+    SYNTAX      ME1200L2cpDmac
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DMAC used for L2CP tunneling for the ECE."
+    ::= { me1200EvcEceEntry 1333 }
+
+me1200EvcEceAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200EvcEceEntry 10000 }
+
+me1200EvcEceTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200EvcConfigEce 2 }
+
+me1200EvcEceTableRowEditorEceId OBJECT-TYPE
+    SYNTAX      Integer32 (1..4096)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "ECE ID, allowed range depends on platform."
+    ::= { me1200EvcEceTableRowEditor 1 }
+
+me1200EvcEceTableRowEditorNextId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ID of the next ECE."
+    ::= { me1200EvcEceTableRowEditor 2 }
+
+me1200EvcEceTableRowEditorAdvLookup OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable advanced ingress lookup."
+    ::= { me1200EvcEceTableRowEditor 3 }
+
+me1200EvcEceTableRowEditorUniPortList OBJECT-TYPE
+    SYNTAX      ME1200PortList
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "List of UNI ports for the ECE."
+    ::= { me1200EvcEceTableRowEditor 4 }
+
+me1200EvcEceTableRowEditorSrcMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source MAC address to match."
+    ::= { me1200EvcEceTableRowEditor 10 }
+
+me1200EvcEceTableRowEditorSrcMacMask OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The source MAC address mask."
+    ::= { me1200EvcEceTableRowEditor 11 }
+
+me1200EvcEceTableRowEditorDestMacType OBJECT-TYPE
+    SYNTAX      ME1200DestMacType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination MAC address type to match."
+    ::= { me1200EvcEceTableRowEditor 12 }
+
+me1200EvcEceTableRowEditorDestMac OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination MAC address to match."
+    ::= { me1200EvcEceTableRowEditor 13 }
+
+me1200EvcEceTableRowEditorDestMacMask OBJECT-TYPE
+    SYNTAX      MacAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The destination MAC address mask."
+    ::= { me1200EvcEceTableRowEditor 14 }
+
+me1200EvcEceTableRowEditorOtMatchType OBJECT-TYPE
+    SYNTAX      ME1200VlanTagType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The outer tag type to match."
+    ::= { me1200EvcEceTableRowEditor 20 }
+
+me1200EvcEceTableRowEditorOtMatchVid OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The outer tag VLAN ID range to match. The minimum value is encoded in
+         the 16 least significant bits. The maximum value is encoded in the 16
+         most significant bits."
+    ::= { me1200EvcEceTableRowEditor 21 }
+
+me1200EvcEceTableRowEditorOtMatchPcp OBJECT-TYPE
+    SYNTAX      ME1200VlanTagPriority
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The outer tag PCP to match."
+    ::= { me1200EvcEceTableRowEditor 22 }
+
+me1200EvcEceTableRowEditorOtMatchDei OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The outer tag DEI to match."
+    ::= { me1200EvcEceTableRowEditor 23 }
+
+me1200EvcEceTableRowEditorItMatchType OBJECT-TYPE
+    SYNTAX      ME1200VlanTagType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner tag type to match."
+    ::= { me1200EvcEceTableRowEditor 30 }
+
+me1200EvcEceTableRowEditorItMatchVid OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner tag VLAN ID range to match. The minimum value is encoded in
+         the 16 least significant bits. The maximum value is encoded in the 16
+         most significant bits."
+    ::= { me1200EvcEceTableRowEditor 31 }
+
+me1200EvcEceTableRowEditorItMatchPcp OBJECT-TYPE
+    SYNTAX      ME1200VlanTagPriority
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner tag PCP to match."
+    ::= { me1200EvcEceTableRowEditor 32 }
+
+me1200EvcEceTableRowEditorItMatchDei OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The inner tag DEI to match."
+    ::= { me1200EvcEceTableRowEditor 33 }
+
+me1200EvcEceTableRowEditorFrameType OBJECT-TYPE
+    SYNTAX      ME1200FrameType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ECE frame type."
+    ::= { me1200EvcEceTableRowEditor 50 }
+
+me1200EvcEceTableRowEditorEtype OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Ethernet Type to match."
+    ::= { me1200EvcEceTableRowEditor 100 }
+
+me1200EvcEceTableRowEditorEtypeMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Ethernet Type mask."
+    ::= { me1200EvcEceTableRowEditor 101 }
+
+me1200EvcEceTableRowEditorEtypeData OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Ethernet Type data to match."
+    ::= { me1200EvcEceTableRowEditor 102 }
+
+me1200EvcEceTableRowEditorEtypeDataMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Ethernet Type data mask."
+    ::= { me1200EvcEceTableRowEditor 103 }
+
+me1200EvcEceTableRowEditorLlcDsap OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC DSAP field to match."
+    ::= { me1200EvcEceTableRowEditor 200 }
+
+me1200EvcEceTableRowEditorLlcDsapMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC DSAP mask."
+    ::= { me1200EvcEceTableRowEditor 201 }
+
+me1200EvcEceTableRowEditorLlcSsap OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC SSAP field to match."
+    ::= { me1200EvcEceTableRowEditor 202 }
+
+me1200EvcEceTableRowEditorLlcSsapMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC SSAP mask."
+    ::= { me1200EvcEceTableRowEditor 203 }
+
+me1200EvcEceTableRowEditorLlcControl OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC Control field to match."
+    ::= { me1200EvcEceTableRowEditor 204 }
+
+me1200EvcEceTableRowEditorLlcControlMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC Control mask."
+    ::= { me1200EvcEceTableRowEditor 205 }
+
+me1200EvcEceTableRowEditorLlcPid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC Protocol ID to match."
+    ::= { me1200EvcEceTableRowEditor 206 }
+
+me1200EvcEceTableRowEditorLlcPidMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLC Protocol ID mask."
+    ::= { me1200EvcEceTableRowEditor 207 }
+
+me1200EvcEceTableRowEditorSnapOui OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The SNAP OUI to match."
+    ::= { me1200EvcEceTableRowEditor 300 }
+
+me1200EvcEceTableRowEditorSnapOuiMask OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The SNAP OUI mask."
+    ::= { me1200EvcEceTableRowEditor 301 }
+
+me1200EvcEceTableRowEditorSnapPid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The SNAP Protocol ID to match."
+    ::= { me1200EvcEceTableRowEditor 302 }
+
+me1200EvcEceTableRowEditorSnapPidMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The SNAP Protocol ID mask."
+    ::= { me1200EvcEceTableRowEditor 303 }
+
+me1200EvcEceTableRowEditorL2cpType OBJECT-TYPE
+    SYNTAX      ME1200L2cpType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The L2CP type to match. The value 'none' is not valid for SET
+         operations."
+    ::= { me1200EvcEceTableRowEditor 400 }
+
+me1200EvcEceTableRowEditorIpv4Dscp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 DSCP range to match. The minimum value is encoded in the 16
+         least significant bits. The maximum value is encoded in the 16 most
+         significant bits."
+    ::= { me1200EvcEceTableRowEditor 500 }
+
+me1200EvcEceTableRowEditorIpv4Proto OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 protocol number to match."
+    ::= { me1200EvcEceTableRowEditor 501 }
+
+me1200EvcEceTableRowEditorIpv4ProtoMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 protocol mask."
+    ::= { me1200EvcEceTableRowEditor 502 }
+
+me1200EvcEceTableRowEditorIpv4Fragment OBJECT-TYPE
+    SYNTAX      ME1200BitType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 fragment match."
+    ::= { me1200EvcEceTableRowEditor 503 }
+
+me1200EvcEceTableRowEditorIpv4SrcIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 source address."
+    ::= { me1200EvcEceTableRowEditor 504 }
+
+me1200EvcEceTableRowEditorIpv4SrcIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 source address mask."
+    ::= { me1200EvcEceTableRowEditor 505 }
+
+me1200EvcEceTableRowEditorIpv4DestIp OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 destination address."
+    ::= { me1200EvcEceTableRowEditor 506 }
+
+me1200EvcEceTableRowEditorIpv4DestIpMask OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 destination address mask."
+    ::= { me1200EvcEceTableRowEditor 507 }
+
+me1200EvcEceTableRowEditorIpv4SrcPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 UDP/TCP source port range to match. The minimum value is
+         encoded in the 16 least significant bits. The maximum value is encoded
+         in the 16 most significant bits."
+    ::= { me1200EvcEceTableRowEditor 508 }
+
+me1200EvcEceTableRowEditorIpv4DestPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv4 UDP/TCP destination port range to match. The minimum value is
+         encoded in the 16 least significant bits. The maximum value is encoded
+         in the 16 most significant bits."
+    ::= { me1200EvcEceTableRowEditor 509 }
+
+me1200EvcEceTableRowEditorIpv6Dscp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 DSCP range to match. The minimum value is encoded in the 16
+         least significant bits. The maximum value is encoded in the 16 most
+         significant bits."
+    ::= { me1200EvcEceTableRowEditor 600 }
+
+me1200EvcEceTableRowEditorIpv6Proto OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 protocol number to match."
+    ::= { me1200EvcEceTableRowEditor 601 }
+
+me1200EvcEceTableRowEditorIpv6ProtoMask OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 protocol mask."
+    ::= { me1200EvcEceTableRowEditor 602 }
+
+me1200EvcEceTableRowEditorIpv6SrcIp OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 source address."
+    ::= { me1200EvcEceTableRowEditor 603 }
+
+me1200EvcEceTableRowEditorIpv6SrcIpMask OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 source address mask."
+    ::= { me1200EvcEceTableRowEditor 604 }
+
+me1200EvcEceTableRowEditorIpv6DestIp OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 destination address."
+    ::= { me1200EvcEceTableRowEditor 605 }
+
+me1200EvcEceTableRowEditorIpv6DestIpMask OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 destination address mask."
+    ::= { me1200EvcEceTableRowEditor 606 }
+
+me1200EvcEceTableRowEditorIpv6SrcPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 UDP/TCP source port range to match. The minimum value is
+         encoded in the 16 least significant bits. The maximum value is encoded
+         in the 16 most significant bits."
+    ::= { me1200EvcEceTableRowEditor 607 }
+
+me1200EvcEceTableRowEditorIpv6DestPort OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The IPv6 UDP/TCP destination port range to match. The minimum value is
+         encoded in the 16 least significant bits. The maximum value is encoded
+         in the 16 most significant bits."
+    ::= { me1200EvcEceTableRowEditor 608 }
+
+me1200EvcEceTableRowEditorDirection OBJECT-TYPE
+    SYNTAX      ME1200Direction
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ECE direction."
+    ::= { me1200EvcEceTableRowEditor 1000 }
+
+me1200EvcEceTableRowEditorRuleType OBJECT-TYPE
+    SYNTAX      ME1200RuleType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ECE rule type."
+    ::= { me1200EvcEceTableRowEditor 1010 }
+
+me1200EvcEceTableRowEditorTxLookup OBJECT-TYPE
+    SYNTAX      ME1200TxLookup
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The egress lookup key type."
+    ::= { me1200EvcEceTableRowEditor 1011 }
+
+me1200EvcEceTableRowEditorPopTag OBJECT-TYPE
+    SYNTAX      ME1200PopTag
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The number of tags popped."
+    ::= { me1200EvcEceTableRowEditor 1020 }
+
+me1200EvcEceTableRowEditorOtAddEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable outer tag pushing for NNI-to-UNI direction."
+    ::= { me1200EvcEceTableRowEditor 1100 }
+
+me1200EvcEceTableRowEditorOtAddVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID pushed for NNI-to-UNI direction."
+    ::= { me1200EvcEceTableRowEditor 1101 }
+
+me1200EvcEceTableRowEditorOtAddPcpMode OBJECT-TYPE
+    SYNTAX      ME1200PcpMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP mode for the outer tag pushed."
+    ::= { me1200EvcEceTableRowEditor 1102 }
+
+me1200EvcEceTableRowEditorOtAddPcp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value for the outer tag pushed."
+    ::= { me1200EvcEceTableRowEditor 1104 }
+
+me1200EvcEceTableRowEditorOtAddDeiMode OBJECT-TYPE
+    SYNTAX      ME1200DeiMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI mode for the outer tag pushed."
+    ::= { me1200EvcEceTableRowEditor 1105 }
+
+me1200EvcEceTableRowEditorOtAddDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI value for the outer tag pushed."
+    ::= { me1200EvcEceTableRowEditor 1106 }
+
+me1200EvcEceTableRowEditorItAddType OBJECT-TYPE
+    SYNTAX      ME1200InnerTagType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The tag type for the inner tag pushed."
+    ::= { me1200EvcEceTableRowEditor 1200 }
+
+me1200EvcEceTableRowEditorItAddVid OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The VLAN ID for the inner tag pushed."
+    ::= { me1200EvcEceTableRowEditor 1201 }
+
+me1200EvcEceTableRowEditorItAddPcpMode OBJECT-TYPE
+    SYNTAX      ME1200PcpMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP mode for the inner tag pushed."
+    ::= { me1200EvcEceTableRowEditor 1202 }
+
+me1200EvcEceTableRowEditorItAddPcp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The PCP value for the inner tag pushed."
+    ::= { me1200EvcEceTableRowEditor 1204 }
+
+me1200EvcEceTableRowEditorItAddDeiMode OBJECT-TYPE
+    SYNTAX      ME1200DeiMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI mode for the inner tag pushed."
+    ::= { me1200EvcEceTableRowEditor 1205 }
+
+me1200EvcEceTableRowEditorItAddDei OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DEI value for the inner tag pushed."
+    ::= { me1200EvcEceTableRowEditor 1206 }
+
+me1200EvcEceTableRowEditorEvcId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The EVC ID for the ECE."
+    ::= { me1200EvcEceTableRowEditor 1300 }
+
+me1200EvcEceTableRowEditorPolicerOp OBJECT-TYPE
+    SYNTAX      ME1200PolicerOp
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policer operator for the ECE."
+    ::= { me1200EvcEceTableRowEditor 1301 }
+
+me1200EvcEceTableRowEditorPolicerId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policer ID for the ECE."
+    ::= { me1200EvcEceTableRowEditor 1302 }
+
+me1200EvcEceTableRowEditorPolicyNo OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The ACL policy number for the ECE."
+    ::= { me1200EvcEceTableRowEditor 1310 }
+
+me1200EvcEceTableRowEditorCosEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable CoS assignment."
+    ::= { me1200EvcEceTableRowEditor 1320 }
+
+me1200EvcEceTableRowEditorCos OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The CoS value for the ECE."
+    ::= { me1200EvcEceTableRowEditor 1321 }
+
+me1200EvcEceTableRowEditorDpEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable Drop Precendence assignment."
+    ::= { me1200EvcEceTableRowEditor 1330 }
+
+me1200EvcEceTableRowEditorDp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The Drop Precedence value for the ECE."
+    ::= { me1200EvcEceTableRowEditor 1331 }
+
+me1200EvcEceTableRowEditorL2cpMode OBJECT-TYPE
+    SYNTAX      ME1200EceL2cpMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The L2CP forward mode for the ECE."
+    ::= { me1200EvcEceTableRowEditor 1332 }
+
+me1200EvcEceTableRowEditorL2cpDmac OBJECT-TYPE
+    SYNTAX      ME1200L2cpDmac
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The DMAC used for L2CP tunneling for the ECE."
+    ::= { me1200EvcEceTableRowEditor 1333 }
+
+me1200EvcEceTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200EvcEceTableRowEditor 10000 }
+
+me1200EvcEcePrecedenceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcEcePrecedenceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the precedence of ECEs ordered by their position"
+    ::= { me1200EvcConfigEce 3 }
+
+me1200EvcEcePrecedenceEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcEcePrecedenceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the precedence for an ECE"
+    INDEX       { me1200EvcEcePrecedenceIndex }
+    ::= { me1200EvcEcePrecedenceTable 1 }
+
+ME1200EvcEcePrecedenceEntry ::= SEQUENCE {
+    me1200EvcEcePrecedenceIndex   Integer32,
+    me1200EvcEcePrecedenceEceId   Unsigned32
+}
+
+me1200EvcEcePrecedenceIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "ECE precedence index, allowed range depends on platform."
+    ::= { me1200EvcEcePrecedenceEntry 1 }
+
+me1200EvcEcePrecedenceEceId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "ECE ID."
+    ::= { me1200EvcEcePrecedenceEntry 2 }
+
+me1200EvcStatus OBJECT IDENTIFIER
+    ::= { me1200EvcMIBObjects 3 }
+
+me1200EvcStatusEvcTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcStatusEvcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the status of EVCs"
+    ::= { me1200EvcStatus 3 }
+
+me1200EvcStatusEvcEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcStatusEvcEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the status for an EVC"
+    INDEX       { me1200EvcStatusEvcEvcId }
+    ::= { me1200EvcStatusEvcTable 1 }
+
+ME1200EvcStatusEvcEntry ::= SEQUENCE {
+    me1200EvcStatusEvcEvcId   Integer32,
+    me1200EvcStatusEvcConflict    TruthValue
+}
+
+me1200EvcStatusEvcEvcId OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "EVC ID, allowed range depends on platform."
+    ::= { me1200EvcStatusEvcEntry 1 }
+
+me1200EvcStatusEvcConflict OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Resource conflict indication."
+    ::= { me1200EvcStatusEvcEntry 2 }
+
+me1200EvcStatusEceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcStatusEceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains the status of ECEs"
+    ::= { me1200EvcStatus 4 }
+
+me1200EvcStatusEceEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcStatusEceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the status for an ECE"
+    INDEX       { me1200EvcStatusEceIndex }
+    ::= { me1200EvcStatusEceTable 1 }
+
+ME1200EvcStatusEceEntry ::= SEQUENCE {
+    me1200EvcStatusEceIndex   Integer32,
+    me1200EvcStatusEceConflict    TruthValue
+}
+
+me1200EvcStatusEceIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "ECE precedence index, allowed range depends on platform."
+    ::= { me1200EvcStatusEceEntry 1 }
+
+me1200EvcStatusEceConflict OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Resource conflict indication."
+    ::= { me1200EvcStatusEceEntry 2 }
+
+me1200EvcStatusEvcIfTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcStatusEvcIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains EVC interface statistics"
+    ::= { me1200EvcStatus 5 }
+
+me1200EvcStatusEvcIfEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcStatusEvcIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the statistics for an EVC and interface"
+    INDEX       { me1200EvcStatusEvcIfEvcId, me1200EvcStatusEvcIfIfIndex }
+    ::= { me1200EvcStatusEvcIfTable 1 }
+
+ME1200EvcStatusEvcIfEntry ::= SEQUENCE {
+    me1200EvcStatusEvcIfEvcId     Integer32,
+    me1200EvcStatusEvcIfIfIndex   ME1200InterfaceIndex,
+    me1200EvcStatusEvcIfRxGreenFrames     Counter64,
+    me1200EvcStatusEvcIfRxGreenBytes      Counter64,
+    me1200EvcStatusEvcIfRxYellowFrames    Counter64,
+    me1200EvcStatusEvcIfRxYellowBytes     Counter64,
+    me1200EvcStatusEvcIfRxRedFrames   Counter64,
+    me1200EvcStatusEvcIfRxRedBytes    Counter64,
+    me1200EvcStatusEvcIfRxDiscardFrames   Counter64,
+    me1200EvcStatusEvcIfRxDiscardBytes    Counter64,
+    me1200EvcStatusEvcIfTxGreenFrames     Counter64,
+    me1200EvcStatusEvcIfTxGreenBytes      Counter64,
+    me1200EvcStatusEvcIfTxYellowFrames    Counter64,
+    me1200EvcStatusEvcIfTxYellowBytes     Counter64,
+    me1200EvcStatusEvcIfTxDiscardFrames   Counter64,
+    me1200EvcStatusEvcIfTxDiscardBytes    Counter64
+}
+
+me1200EvcStatusEvcIfEvcId OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "EVC ID, allowed range depends on platform."
+    ::= { me1200EvcStatusEvcIfEntry 1 }
+
+me1200EvcStatusEvcIfIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200EvcStatusEvcIfEntry 2 }
+
+me1200EvcStatusEvcIfRxGreenFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received green frames."
+    ::= { me1200EvcStatusEvcIfEntry 3 }
+
+me1200EvcStatusEvcIfRxGreenBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received green bytes."
+    ::= { me1200EvcStatusEvcIfEntry 4 }
+
+me1200EvcStatusEvcIfRxYellowFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received yellow frames."
+    ::= { me1200EvcStatusEvcIfEntry 5 }
+
+me1200EvcStatusEvcIfRxYellowBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received yellow bytes."
+    ::= { me1200EvcStatusEvcIfEntry 6 }
+
+me1200EvcStatusEvcIfRxRedFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received red frames."
+    ::= { me1200EvcStatusEvcIfEntry 7 }
+
+me1200EvcStatusEvcIfRxRedBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received red bytes."
+    ::= { me1200EvcStatusEvcIfEntry 8 }
+
+me1200EvcStatusEvcIfRxDiscardFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received discarded frames."
+    ::= { me1200EvcStatusEvcIfEntry 9 }
+
+me1200EvcStatusEvcIfRxDiscardBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received discarded bytes."
+    ::= { me1200EvcStatusEvcIfEntry 10 }
+
+me1200EvcStatusEvcIfTxGreenFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of transmitted green frames."
+    ::= { me1200EvcStatusEvcIfEntry 100 }
+
+me1200EvcStatusEvcIfTxGreenBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of transmitted green bytes."
+    ::= { me1200EvcStatusEvcIfEntry 101 }
+
+me1200EvcStatusEvcIfTxYellowFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of transmitted yellow frames."
+    ::= { me1200EvcStatusEvcIfEntry 102 }
+
+me1200EvcStatusEvcIfTxYellowBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of transmitted yellow bytes."
+    ::= { me1200EvcStatusEvcIfEntry 103 }
+
+me1200EvcStatusEvcIfTxDiscardFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of egress discarded frames."
+    ::= { me1200EvcStatusEvcIfEntry 104 }
+
+me1200EvcStatusEvcIfTxDiscardBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of egress discarded bytes."
+    ::= { me1200EvcStatusEvcIfEntry 105 }
+
+me1200EvcStatusEceIfTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcStatusEceIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table contains ECE interface statistics"
+    ::= { me1200EvcStatus 6 }
+
+me1200EvcStatusEceIfEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcStatusEceIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the statistics for an ECE and interface"
+    INDEX       { me1200EvcStatusEceIfIndex, me1200EvcStatusEceIfIfIndex }
+    ::= { me1200EvcStatusEceIfTable 1 }
+
+ME1200EvcStatusEceIfEntry ::= SEQUENCE {
+    me1200EvcStatusEceIfIndex     Integer32,
+    me1200EvcStatusEceIfIfIndex   ME1200InterfaceIndex,
+    me1200EvcStatusEceIfRxGreenFrames     Counter64,
+    me1200EvcStatusEceIfRxGreenBytes      Counter64,
+    me1200EvcStatusEceIfRxYellowFrames    Counter64,
+    me1200EvcStatusEceIfRxYellowBytes     Counter64,
+    me1200EvcStatusEceIfRxRedFrames   Counter64,
+    me1200EvcStatusEceIfRxRedBytes    Counter64,
+    me1200EvcStatusEceIfRxDiscardFrames   Counter64,
+    me1200EvcStatusEceIfRxDiscardBytes    Counter64,
+    me1200EvcStatusEceIfTxGreenFrames     Counter64,
+    me1200EvcStatusEceIfTxGreenBytes      Counter64,
+    me1200EvcStatusEceIfTxYellowFrames    Counter64,
+    me1200EvcStatusEceIfTxYellowBytes     Counter64,
+    me1200EvcStatusEceIfTxDiscardFrames   Counter64,
+    me1200EvcStatusEceIfTxDiscardBytes    Counter64
+}
+
+me1200EvcStatusEceIfIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "ECE precedence index, allowed range depends on platform."
+    ::= { me1200EvcStatusEceIfEntry 1 }
+
+me1200EvcStatusEceIfIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200EvcStatusEceIfEntry 2 }
+
+me1200EvcStatusEceIfRxGreenFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received green frames."
+    ::= { me1200EvcStatusEceIfEntry 3 }
+
+me1200EvcStatusEceIfRxGreenBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received green bytes."
+    ::= { me1200EvcStatusEceIfEntry 4 }
+
+me1200EvcStatusEceIfRxYellowFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received yellow frames."
+    ::= { me1200EvcStatusEceIfEntry 5 }
+
+me1200EvcStatusEceIfRxYellowBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received yellow bytes."
+    ::= { me1200EvcStatusEceIfEntry 6 }
+
+me1200EvcStatusEceIfRxRedFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received red frames."
+    ::= { me1200EvcStatusEceIfEntry 7 }
+
+me1200EvcStatusEceIfRxRedBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received red bytes."
+    ::= { me1200EvcStatusEceIfEntry 8 }
+
+me1200EvcStatusEceIfRxDiscardFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received discarded frames."
+    ::= { me1200EvcStatusEceIfEntry 9 }
+
+me1200EvcStatusEceIfRxDiscardBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of received discarded bytes."
+    ::= { me1200EvcStatusEceIfEntry 10 }
+
+me1200EvcStatusEceIfTxGreenFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of transmitted green frames."
+    ::= { me1200EvcStatusEceIfEntry 100 }
+
+me1200EvcStatusEceIfTxGreenBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of transmitted green bytes."
+    ::= { me1200EvcStatusEceIfEntry 101 }
+
+me1200EvcStatusEceIfTxYellowFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of transmitted yellow frames."
+    ::= { me1200EvcStatusEceIfEntry 102 }
+
+me1200EvcStatusEceIfTxYellowBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of transmitted yellow bytes."
+    ::= { me1200EvcStatusEceIfEntry 103 }
+
+me1200EvcStatusEceIfTxDiscardFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of egress discarded frames."
+    ::= { me1200EvcStatusEceIfEntry 104 }
+
+me1200EvcStatusEceIfTxDiscardBytes OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Number of egress discarded bytes."
+    ::= { me1200EvcStatusEceIfEntry 105 }
+
+me1200EvcControl OBJECT IDENTIFIER
+    ::= { me1200EvcMIBObjects 4 }
+
+me1200EvcControlEvcIfTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcControlEvcIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides EVC interface control"
+    ::= { me1200EvcControl 5 }
+
+me1200EvcControlEvcIfEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcControlEvcIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row controls an EVC and interface"
+    INDEX       { me1200EvcControlEvcIfEvcId, me1200EvcControlEvcIfIfIndex }
+    ::= { me1200EvcControlEvcIfTable 1 }
+
+ME1200EvcControlEvcIfEntry ::= SEQUENCE {
+    me1200EvcControlEvcIfEvcId    Integer32,
+    me1200EvcControlEvcIfIfIndex      ME1200InterfaceIndex,
+    me1200EvcControlEvcIfClearStatistics      TruthValue
+}
+
+me1200EvcControlEvcIfEvcId OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "EVC ID, allowed range depends on platform."
+    ::= { me1200EvcControlEvcIfEntry 1 }
+
+me1200EvcControlEvcIfIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200EvcControlEvcIfEntry 2 }
+
+me1200EvcControlEvcIfClearStatistics OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear statistics by setting to true."
+    ::= { me1200EvcControlEvcIfEntry 3 }
+
+me1200EvcControlEceIfTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200EvcControlEceIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table provides ECE interface control"
+    ::= { me1200EvcControl 6 }
+
+me1200EvcControlEceIfEntry OBJECT-TYPE
+    SYNTAX      ME1200EvcControlEceIfEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row controls an ECE and interface"
+    INDEX       { me1200EvcControlEceIfIndex, me1200EvcControlEceIfIfIndex }
+    ::= { me1200EvcControlEceIfTable 1 }
+
+ME1200EvcControlEceIfEntry ::= SEQUENCE {
+    me1200EvcControlEceIfIndex    Integer32,
+    me1200EvcControlEceIfIfIndex      ME1200InterfaceIndex,
+    me1200EvcControlEceIfClearStatistics      TruthValue
+}
+
+me1200EvcControlEceIfIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..4095)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "ECE precedence index, allowed range depends on platform."
+    ::= { me1200EvcControlEceIfEntry 1 }
+
+me1200EvcControlEceIfIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface index."
+    ::= { me1200EvcControlEceIfEntry 2 }
+
+me1200EvcControlEceIfClearStatistics OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Clear statistics by setting to true."
+    ::= { me1200EvcControlEceIfEntry 3 }
+
+me1200EvcMIBConformance OBJECT IDENTIFIER
+    ::= { me1200EvcMIB 3 }
+
+me1200EvcMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200EvcMIBConformance 1 }
+
+me1200EvcMIBGroups OBJECT IDENTIFIER
+    ::= { me1200EvcMIBConformance 2 }
+
+me1200EvcConfigIfTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcConfigIfKey, me1200EvcConfigIfKeyAdv, me1200EvcConfigIfAddrMode, 
+                  me1200EvcConfigIfAddrModeAdv, me1200EvcConfigIfHschMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 1 }
+
+me1200EvcConfigIfL2cpTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcConfigIfL2cpL2cpMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 2 }
+
+me1200EvcConfigIfEvcTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcConfigIfEvcDwrrCount, me1200EvcConfigIfEvcShaperEnable, 
+                  me1200EvcConfigIfEvcShaperRate, me1200EvcConfigIfEvcMinRate }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 3 }
+
+me1200EvcConfigIfEvcQueueTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcConfigIfEvcQueueShaperEnable, 
+                  me1200EvcConfigIfEvcQueueShaperRate, 
+                  me1200EvcConfigIfEvcQueueSchedulerWeight }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 4 }
+
+me1200EvcConfigPolicerTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcConfigPolicerEnable, me1200EvcConfigPolicerPolicerType, 
+                  me1200EvcConfigPolicerPolicerMode, me1200EvcConfigPolicerLineRate, 
+                  me1200EvcConfigPolicerCir, me1200EvcConfigPolicerCbs, 
+                  me1200EvcConfigPolicerEir, me1200EvcConfigPolicerEbs }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 5 }
+
+me1200EvcEvcTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcEvcVid, me1200EvcEvcIvid, me1200EvcEvcNniPortList, 
+                  me1200EvcEvcLearning, me1200EvcEvcPolicerOp, me1200EvcEvcPolicerId, 
+                  me1200EvcEvcAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 6 }
+
+me1200EvcEvcTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcEvcTableRowEditorEvcId, me1200EvcEvcTableRowEditorVid, 
+                  me1200EvcEvcTableRowEditorIvid, 
+                  me1200EvcEvcTableRowEditorNniPortList, 
+                  me1200EvcEvcTableRowEditorLearning, 
+                  me1200EvcEvcTableRowEditorPolicerOp, 
+                  me1200EvcEvcTableRowEditorPolicerId, 
+                  me1200EvcEvcTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 7 }
+
+me1200EvcEceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcEceNextId, me1200EvcEceAdvLookup, me1200EvcEceUniPortList, 
+                  me1200EvcEceSrcMac, me1200EvcEceSrcMacMask, me1200EvcEceDestMacType, 
+                  me1200EvcEceDestMac, me1200EvcEceDestMacMask, me1200EvcEceOtMatchType, 
+                  me1200EvcEceOtMatchVid, me1200EvcEceOtMatchPcp, me1200EvcEceOtMatchDei, 
+                  me1200EvcEceItMatchType, me1200EvcEceItMatchVid, me1200EvcEceItMatchPcp, 
+                  me1200EvcEceItMatchDei, me1200EvcEceFrameType, me1200EvcEceEtype, 
+                  me1200EvcEceEtypeMask, me1200EvcEceEtypeData, me1200EvcEceEtypeDataMask, 
+                  me1200EvcEceLlcDsap, me1200EvcEceLlcDsapMask, me1200EvcEceLlcSsap, 
+                  me1200EvcEceLlcSsapMask, me1200EvcEceLlcControl, 
+                  me1200EvcEceLlcControlMask, me1200EvcEceLlcPid, me1200EvcEceLlcPidMask, 
+                  me1200EvcEceSnapOui, me1200EvcEceSnapOuiMask, me1200EvcEceSnapPid, 
+                  me1200EvcEceSnapPidMask, me1200EvcEceL2cpType, me1200EvcEceIpv4Dscp, 
+                  me1200EvcEceIpv4Proto, me1200EvcEceIpv4ProtoMask, 
+                  me1200EvcEceIpv4Fragment, me1200EvcEceIpv4SrcIp, 
+                  me1200EvcEceIpv4SrcIpMask, me1200EvcEceIpv4DestIp, 
+                  me1200EvcEceIpv4DestIpMask, me1200EvcEceIpv4SrcPort, 
+                  me1200EvcEceIpv4DestPort, me1200EvcEceIpv6Dscp, me1200EvcEceIpv6Proto, 
+                  me1200EvcEceIpv6ProtoMask, me1200EvcEceIpv6SrcIp, 
+                  me1200EvcEceIpv6SrcIpMask, me1200EvcEceIpv6DestIp, 
+                  me1200EvcEceIpv6DestIpMask, me1200EvcEceIpv6SrcPort, 
+                  me1200EvcEceIpv6DestPort, me1200EvcEceDirection, me1200EvcEceRuleType, 
+                  me1200EvcEceTxLookup, me1200EvcEcePopTag, me1200EvcEceOtAddEnable, 
+                  me1200EvcEceOtAddVid, me1200EvcEceOtAddPcpMode, me1200EvcEceOtAddPcp, 
+                  me1200EvcEceOtAddDeiMode, me1200EvcEceOtAddDei, me1200EvcEceItAddType, 
+                  me1200EvcEceItAddVid, me1200EvcEceItAddPcpMode, me1200EvcEceItAddPcp, 
+                  me1200EvcEceItAddDeiMode, me1200EvcEceItAddDei, me1200EvcEceEvcId, 
+                  me1200EvcEcePolicerOp, me1200EvcEcePolicerId, me1200EvcEcePolicyNo, 
+                  me1200EvcEceCosEnable, me1200EvcEceCos, me1200EvcEceDpEnable, me1200EvcEceDp, 
+                  me1200EvcEceL2cpMode, me1200EvcEceL2cpDmac, me1200EvcEceAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 8 }
+
+me1200EvcEceTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcEceTableRowEditorEceId, me1200EvcEceTableRowEditorNextId, 
+                  me1200EvcEceTableRowEditorAdvLookup, 
+                  me1200EvcEceTableRowEditorUniPortList, 
+                  me1200EvcEceTableRowEditorSrcMac, 
+                  me1200EvcEceTableRowEditorSrcMacMask, 
+                  me1200EvcEceTableRowEditorDestMacType, 
+                  me1200EvcEceTableRowEditorDestMac, 
+                  me1200EvcEceTableRowEditorDestMacMask, 
+                  me1200EvcEceTableRowEditorOtMatchType, 
+                  me1200EvcEceTableRowEditorOtMatchVid, 
+                  me1200EvcEceTableRowEditorOtMatchPcp, 
+                  me1200EvcEceTableRowEditorOtMatchDei, 
+                  me1200EvcEceTableRowEditorItMatchType, 
+                  me1200EvcEceTableRowEditorItMatchVid, 
+                  me1200EvcEceTableRowEditorItMatchPcp, 
+                  me1200EvcEceTableRowEditorItMatchDei, 
+                  me1200EvcEceTableRowEditorFrameType, 
+                  me1200EvcEceTableRowEditorEtype, 
+                  me1200EvcEceTableRowEditorEtypeMask, 
+                  me1200EvcEceTableRowEditorEtypeData, 
+                  me1200EvcEceTableRowEditorEtypeDataMask, 
+                  me1200EvcEceTableRowEditorLlcDsap, 
+                  me1200EvcEceTableRowEditorLlcDsapMask, 
+                  me1200EvcEceTableRowEditorLlcSsap, 
+                  me1200EvcEceTableRowEditorLlcSsapMask, 
+                  me1200EvcEceTableRowEditorLlcControl, 
+                  me1200EvcEceTableRowEditorLlcControlMask, 
+                  me1200EvcEceTableRowEditorLlcPid, 
+                  me1200EvcEceTableRowEditorLlcPidMask, 
+                  me1200EvcEceTableRowEditorSnapOui, 
+                  me1200EvcEceTableRowEditorSnapOuiMask, 
+                  me1200EvcEceTableRowEditorSnapPid, 
+                  me1200EvcEceTableRowEditorSnapPidMask, 
+                  me1200EvcEceTableRowEditorL2cpType, 
+                  me1200EvcEceTableRowEditorIpv4Dscp, 
+                  me1200EvcEceTableRowEditorIpv4Proto, 
+                  me1200EvcEceTableRowEditorIpv4ProtoMask, 
+                  me1200EvcEceTableRowEditorIpv4Fragment, 
+                  me1200EvcEceTableRowEditorIpv4SrcIp, 
+                  me1200EvcEceTableRowEditorIpv4SrcIpMask, 
+                  me1200EvcEceTableRowEditorIpv4DestIp, 
+                  me1200EvcEceTableRowEditorIpv4DestIpMask, 
+                  me1200EvcEceTableRowEditorIpv4SrcPort, 
+                  me1200EvcEceTableRowEditorIpv4DestPort, 
+                  me1200EvcEceTableRowEditorIpv6Dscp, 
+                  me1200EvcEceTableRowEditorIpv6Proto, 
+                  me1200EvcEceTableRowEditorIpv6ProtoMask, 
+                  me1200EvcEceTableRowEditorIpv6SrcIp, 
+                  me1200EvcEceTableRowEditorIpv6SrcIpMask, 
+                  me1200EvcEceTableRowEditorIpv6DestIp, 
+                  me1200EvcEceTableRowEditorIpv6DestIpMask, 
+                  me1200EvcEceTableRowEditorIpv6SrcPort, 
+                  me1200EvcEceTableRowEditorIpv6DestPort, 
+                  me1200EvcEceTableRowEditorDirection, 
+                  me1200EvcEceTableRowEditorRuleType, 
+                  me1200EvcEceTableRowEditorTxLookup, 
+                  me1200EvcEceTableRowEditorPopTag, 
+                  me1200EvcEceTableRowEditorOtAddEnable, 
+                  me1200EvcEceTableRowEditorOtAddVid, 
+                  me1200EvcEceTableRowEditorOtAddPcpMode, 
+                  me1200EvcEceTableRowEditorOtAddPcp, 
+                  me1200EvcEceTableRowEditorOtAddDeiMode, 
+                  me1200EvcEceTableRowEditorOtAddDei, 
+                  me1200EvcEceTableRowEditorItAddType, 
+                  me1200EvcEceTableRowEditorItAddVid, 
+                  me1200EvcEceTableRowEditorItAddPcpMode, 
+                  me1200EvcEceTableRowEditorItAddPcp, 
+                  me1200EvcEceTableRowEditorItAddDeiMode, 
+                  me1200EvcEceTableRowEditorItAddDei, 
+                  me1200EvcEceTableRowEditorEvcId, 
+                  me1200EvcEceTableRowEditorPolicerOp, 
+                  me1200EvcEceTableRowEditorPolicerId, 
+                  me1200EvcEceTableRowEditorPolicyNo, 
+                  me1200EvcEceTableRowEditorCosEnable, me1200EvcEceTableRowEditorCos, 
+                  me1200EvcEceTableRowEditorDpEnable, me1200EvcEceTableRowEditorDp, 
+                  me1200EvcEceTableRowEditorL2cpMode, 
+                  me1200EvcEceTableRowEditorL2cpDmac, 
+                  me1200EvcEceTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 9 }
+
+me1200EvcEcePrecedenceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcEcePrecedenceEceId }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 10 }
+
+me1200EvcStatusEvcTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcStatusEvcConflict }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 11 }
+
+me1200EvcStatusEceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcStatusEceConflict }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 12 }
+
+me1200EvcStatusEvcIfTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcStatusEvcIfRxGreenFrames, 
+                  me1200EvcStatusEvcIfRxGreenBytes, 
+                  me1200EvcStatusEvcIfRxYellowFrames, 
+                  me1200EvcStatusEvcIfRxYellowBytes, me1200EvcStatusEvcIfRxRedFrames, 
+                  me1200EvcStatusEvcIfRxRedBytes, 
+                  me1200EvcStatusEvcIfRxDiscardFrames, 
+                  me1200EvcStatusEvcIfRxDiscardBytes, 
+                  me1200EvcStatusEvcIfTxGreenFrames, 
+                  me1200EvcStatusEvcIfTxGreenBytes, 
+                  me1200EvcStatusEvcIfTxYellowFrames, 
+                  me1200EvcStatusEvcIfTxYellowBytes, 
+                  me1200EvcStatusEvcIfTxDiscardFrames, 
+                  me1200EvcStatusEvcIfTxDiscardBytes }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 13 }
+
+me1200EvcStatusEceIfTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcStatusEceIfRxGreenFrames, 
+                  me1200EvcStatusEceIfRxGreenBytes, 
+                  me1200EvcStatusEceIfRxYellowFrames, 
+                  me1200EvcStatusEceIfRxYellowBytes, me1200EvcStatusEceIfRxRedFrames, 
+                  me1200EvcStatusEceIfRxRedBytes, 
+                  me1200EvcStatusEceIfRxDiscardFrames, 
+                  me1200EvcStatusEceIfRxDiscardBytes, 
+                  me1200EvcStatusEceIfTxGreenFrames, 
+                  me1200EvcStatusEceIfTxGreenBytes, 
+                  me1200EvcStatusEceIfTxYellowFrames, 
+                  me1200EvcStatusEceIfTxYellowBytes, 
+                  me1200EvcStatusEceIfTxDiscardFrames, 
+                  me1200EvcStatusEceIfTxDiscardBytes }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 14 }
+
+me1200EvcControlEvcIfTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcControlEvcIfClearStatistics }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 15 }
+
+me1200EvcControlEceIfTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200EvcControlEceIfClearStatistics }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200EvcMIBGroups 16 }
+
+me1200EvcMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200EvcConfigIfTableInfoGroup, 
+                  me1200EvcConfigIfL2cpTableInfoGroup, 
+                  me1200EvcConfigIfEvcTableInfoGroup, 
+                  me1200EvcConfigIfEvcQueueTableInfoGroup, 
+                  me1200EvcConfigPolicerTableInfoGroup, me1200EvcEvcTableInfoGroup, 
+                  me1200EvcEvcTableRowEditorInfoGroup, me1200EvcEceTableInfoGroup, 
+                  me1200EvcEceTableRowEditorInfoGroup, 
+                  me1200EvcEcePrecedenceTableInfoGroup, 
+                  me1200EvcStatusEvcTableInfoGroup, me1200EvcStatusEceTableInfoGroup, 
+                  me1200EvcStatusEvcIfTableInfoGroup, 
+                  me1200EvcStatusEceIfTableInfoGroup, 
+                  me1200EvcControlEvcIfTableInfoGroup, 
+                  me1200EvcControlEceIfTableInfoGroup }
+
+    ::= { me1200EvcMIBCompliances 1 }
+
+END

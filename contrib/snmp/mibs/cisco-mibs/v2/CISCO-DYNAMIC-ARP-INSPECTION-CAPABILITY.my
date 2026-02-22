@@ -1,0 +1,178 @@
+-- *****************************************************************
+-- CISCO-DYNAMIC-ARP-INSPECTION-CAPABILITY.my:
+-- Cisco CISCO-DYNAMIC-ARP-INSPECTION-MIB AGENT-CAPABILITIES
+--   
+-- January 2004, Edward Pham
+--   
+-- Copyright (c) 2004, 2007, 2010-2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-DYNAMIC-ARP-INSPECTION-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    Unsigned32
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    RowStatus
+        FROM SNMPv2-TC
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoDynamicArpInspCapability MODULE-IDENTITY
+    LAST-UPDATED    "201103240000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-DYNAMIC-ARP-INSPECTION-MIB."
+    REVISION        "201103240000Z"
+    DESCRIPTION
+        "Added cdaiCapV15R0002SGPCat4K agent
+        capability statement."
+    REVISION        "201005070000Z"
+    DESCRIPTION
+        "Added cdaiCapV12R0254SGPCat4K agent
+        capability statement."
+    REVISION        "200707020000Z"
+    DESCRIPTION
+        "Added cdaiCapV12R0233SXHPCat6k agent
+        capability statement."
+    REVISION        "200401130000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 382 }
+
+
+
+cdaiCapabilityCatOSV08R0301Cat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco CatOS 8.3(1) on Catalyst 6000/6500
+                          and Cisco 7600 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DYNAMIC-ARP-INSPECTION-MIB capabilities."
+
+    SUPPORTS        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+    INCLUDES        {
+                        cdaiVlanConfigGroup,
+                        cdaiGlobalLoggingGroup,
+                        cdaiIfConfigGroup
+                    }
+    VARIATION       cdaiVlanDynArpInspEnable
+    DESCRIPTION
+        "Only support false(2) on management VLAN 1."
+
+    ::= { ciscoDynamicArpInspCapability 1 }
+
+cdaiCapV12R0233SXHPCat6k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(33)SXH on Catalyst 6000/6500
+                         series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DYNAMIC-ARP-INSPECTION-MIB capabilities."
+
+    SUPPORTS        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+    INCLUDES        {
+                        cdaiVlanConfigGroup,
+                        cdaiIfConfigGroup,
+                        cdaiIfRateLimitGroup
+                    }
+    VARIATION       cdaiIfRateLimit
+    SYNTAX          Unsigned32 (0..2048 | 4294967295)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    ::= { ciscoDynamicArpInspCapability 2 }
+
+cdaiCapV12R0254SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(54)SG on Cat4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DYNAMIC-ARP-INSPECTION-MIB capabilities."
+
+    SUPPORTS        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+    INCLUDES        {
+                        cdaiVlanConfigGroup,
+                        cdaiIfConfigGroup,
+                        cdaiIfRateLimitGroup
+                    }
+    VARIATION       cdaiIfRateLimit
+    SYNTAX          Unsigned32 (0..2048 | 4294967295)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    ::= { ciscoDynamicArpInspCapability 3 }
+
+cdaiCapV15R0002SGPCat4K AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.0(2)SG on Cat4K family switches."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-DYNAMIC-ARP-INSPECTION-MIB capabilities."
+
+    SUPPORTS        CISCO-DYNAMIC-ARP-INSPECTION-MIB
+    INCLUDES        {
+                        cdaiVlanConfigGroup,
+                        cdaiIfConfigGroup,
+                        cdaiIfRateLimitGroup,
+                        cdaiLoggingConfigGroup,
+                        cdaiAddressValidationGroup,
+                        cdaiVlanCfgGroup,
+                        cdaiVlanStatisticsGroup,
+                        cdaiLogBufferGroup,
+                        cdaiVlanExtStatisticsGroup,
+                        cdaiVlanArpProbeGroup,
+                        cdaiLogBufferActionGroup
+                    }
+    VARIATION       cdaiIfRateLimit
+    SYNTAX          Unsigned32 (0..2048 | 4294967295)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cdaiLogBufferSize
+    SYNTAX          Unsigned32 (0..1024)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cdaiLoggingRate
+    SYNTAX          Unsigned32 (0..1024)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cdaiLoggingInterval
+    SYNTAX          Unsigned32 (0..86400)
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    VARIATION       cdaiVlanCfgStorageType
+    ACCESS          read-only
+    DESCRIPTION
+        "Write-access is not supported."
+
+    VARIATION       cdaiVlanCfgRowStatus
+    SYNTAX          RowStatus {
+                        active(1),
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    DESCRIPTION
+        "Only limited set of values are supported."
+
+    ::= { ciscoDynamicArpInspCapability 4 }
+
+END
+
+
+

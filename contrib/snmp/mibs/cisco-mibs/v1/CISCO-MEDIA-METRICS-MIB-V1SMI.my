@@ -1,0 +1,619 @@
+-- MIB file created 08-Oct-2014 15:12:26, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-MEDIA-METRICS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-MEDIA-METRICS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TimeStamp
+            FROM SNMPv2-TC-v1
+    cfmFlowMonitorId, cfmFlowId, cfmFlowMetricsIntNumber
+            FROM CISCO-FLOW-MONITOR-MIB
+    ReportIntervalCount
+            FROM CISCO-REPORT-INTERVAL-TC-MIB
+    FlowBitRateUnits
+            FROM CISCO-FLOW-MONITOR-TC-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge, Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoMediaMetricsMIB OBJECT IDENTIFIER ::= { ciscoMgmt 771 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201103230000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    
+--    Postal: 170 W Tasman Drive
+--    
+--    San Jose, CA  95134
+--    
+--    USA
+--    
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    
+--    E-mail: cs-snmp@cisco.com
+--  Descr
+--    This MIB module defines objects that describe the quality
+--    metrics of Media streams.
+--    
+--    GLOSSARY
+--    ============
+--    
+--    Flow Monitor - a hardware or software entity that classifies
+--        traffic flows, collects flow data, and periodically
+--        computes flow metrics.
+--    
+--    Flow Metric - a measurement that reflects the quality of a
+--        traffic flow.
+--    
+--    Measurement Interval - the length of time over which a flow
+--        monitor collects data related to a traffic flow, after
+--        which the flow monitor computes flow metrics using the 
+--        collected data.
+--    
+--    Traffic Flow - a unidirectional stream of packets conforming to
+--        a classifier.  For example, packets having a particular 
+--        source IP address, destination IP address, protocol type,
+--        source port number, and destination port number.
+--    
+--    Traffic Flow Stream - when the monitor identifies multiple
+--        individual traffic flows based on the flow classificiation,
+--        the monitor aggregates the flows and represents them as a 
+--        single entry in the cfmFlowTable.  The individual traffic
+--        flows contributing to the metrics are called as individual
+--        traffic flow stream. The metrics for the traffic flow with
+--        multiple streams contributing, are determined either by 
+--        aggregating metrics of all individual streams, for example,
+--        cumulative bit rate is computed by cumulative bits of all 
+--        streams divided by total duration, or by selecting the 
+--        metric for one of the individual stream, for example,
+--        maximum bit rate of an individual stream.
+--  RevDate
+--    201103230000Z
+--  RevDescr
+--    Latest version of this MIB module.
+
+ciscoMediaMetricsMIBNotifs OBJECT IDENTIFIER ::= { ciscoMediaMetricsMIB 0 }
+ciscoMediaMetricsMIBObjects OBJECT IDENTIFIER ::= { ciscoMediaMetricsMIB 1 }
+ciscoMediaMetricsMIBConform OBJECT IDENTIFIER ::= { ciscoMediaMetricsMIB 2 }
+ciscoMediaMetricsMIBIds OBJECT IDENTIFIER ::= { ciscoMediaMetricsMIB 3 }
+ciscoMediaMetricsMIBCompliances OBJECT IDENTIFIER ::= { ciscoMediaMetricsMIBConform 1 }
+cfmMediaMetrics OBJECT IDENTIFIER ::= { ciscoMediaMetricsMIBObjects 1 }
+ciscoMediaMetricsMIBGroups OBJECT IDENTIFIER ::= { ciscoMediaMetricsMIBConform 2 }
+
+cfmMediaMetricsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmMediaMetricsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains aggregate data maintained by a flow monitor
+        for traffic flows for which it is computing Media metrics.
+        
+        This table has an sparse dependent relationship on the
+        cfmFlowMetricsTable (defined by the CISCO-FLOW-MONITOR-MIB),
+        containing a row for each row in the cfmFlowMetricsTable having
+        a corresponding instance of cfmFlowMetricsCollected with the
+        'media' bit set to one."
+    ::= { cfmMediaMetrics 1 }
+
+cfmMediaMetricsEntry OBJECT-TYPE
+    SYNTAX CfmMediaMetricsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry describes cumulative and aggregate Media metrics for a
+        single traffic flow.
+        
+        The devices creates a row in the cfmMediaMetricsTable when a flow
+        monitor starts monitoring a traffic flow and has been configured
+        to compute Media metrics for the same traffic flow. Likewise, the
+        device destroys a row in the cfmMediaMetricsTable when the
+        corresponding flow monitor has ceased monitoring the traffic
+        flow (e.g., when a traffic flow has timed out)."
+    INDEX { cfmFlowMonitorId, cfmFlowId }
+    ::= { cfmMediaMetricsTable 1 }
+
+CfmMediaMetricsEntry ::= SEQUENCE {
+    cfmMediaMetricsValid OCTET STRING,
+    cfmMediaMetricsPkts Counter,
+    cfmMediaMetricsOctets Counter,
+    cfmMediaMetricsBitRateUnits FlowBitRateUnits,
+    cfmMediaMetricsBitRate Gauge,
+    cfmMediaMetricsPktRate Gauge,
+    cfmMediaMetricsStreamBitRateUnits FlowBitRateUnits,
+    cfmMediaMetricsStreamBitRate Gauge,
+    cfmMediaMetricsStreamBitRateMaxUnits FlowBitRateUnits,
+    cfmMediaMetricsStreamBitRateMax Gauge,
+    cfmMediaMetricsStreamBitRateMinUnits FlowBitRateUnits,
+    cfmMediaMetricsStreamBitRateMin Gauge
+    }
+
+cfmMediaMetricsValid OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   pkts(0)
+        --   octets(1)
+        --   bitRate(2)
+        --   pktRate(3)
+        --   streamBitRate(4)
+        --   streamBitRateMax(5)
+        --   streamBitRateMin(6)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates which metrics are valid for the traffic
+        flow:
+        
+            'pkts'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMediaMetricsPkts is valid.
+        
+            'octets'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMediaMetricsOctets is valid.
+        
+            'bitRate'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMediaMetricsBitRateUnits and 
+                cfmMediaMetricsBitRate are valid.
+        
+            'pktRate'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMediaMetricsPktRate is valid.
+        
+            'streamBitRate'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMediaMetricsStreamBitRateUnits and 
+                cfmMediaMetricsStreamBitRate are valid.
+        
+            'streamBitRateMax'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMediaMetricsStreamBitRateMaxUnits
+                and cfmMediaMetricsStreamBitRateMax are valid.
+        
+            'streamBitRateMin'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMediaMetricsStreamBitRateMinUnits
+                and cfmMediaMetricsStreamBitRateMin are valid."
+    ::= { cfmMediaMetricsEntry 1 }
+
+cfmMediaMetricsPkts OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of packets, containing
+        media payload, processed by the corresponding flow monitor for
+        the corresponding traffic flow."
+    ::= { cfmMediaMetricsEntry 2 }
+
+cfmMediaMetricsOctets OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of octets representing
+        media payload, processed by the corresponding flow monitor for
+        the corresponding traffic flow."
+    ::= { cfmMediaMetricsEntry 3 }
+
+cfmMediaMetricsBitRateUnits OBJECT-TYPE
+    SYNTAX FlowBitRateUnits
+--    Rsyntax INTEGER {
+--        bps(1),
+--        kbps(2),
+--        mbps(3),
+--        gbps(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmMediaMetricsBitRate."
+    ::= { cfmMediaMetricsEntry 4 }
+
+cfmMediaMetricsBitRate OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the average bit rate at which the
+        corresponding flow monitor is processing data, containing media
+        payload, for the corresponding traffic flow.  This value is
+        cumulative over the lifetime of the traffic flow."
+    ::= { cfmMediaMetricsEntry 5 }
+
+cfmMediaMetricsPktRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    packets per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the average packet rate at which the
+        corresponding flow monitor is processing data, containing media
+        payload, for the corresponding traffic flow.  This value is
+        cumulative over the lifetime of the traffic flow."
+    ::= { cfmMediaMetricsEntry 6 }
+
+cfmMediaMetricsStreamBitRateUnits OBJECT-TYPE
+    SYNTAX FlowBitRateUnits
+--    Rsyntax INTEGER {
+--        bps(1),
+--        kbps(2),
+--        mbps(3),
+--        gbps(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmMediaMetricsStreamBitRate."
+    ::= { cfmMediaMetricsEntry 7 }
+
+cfmMediaMetricsStreamBitRate OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the average of media bit rates of all the
+        individual streams contributing to the traffic flow.  This
+        object is computed by dividing the average media bit rate,
+        indicated by 'cfmMediaMetricsBitRate', by the number of streams
+        which have contributed to the metrics over the lifetime of the
+        traffic flow."
+    ::= { cfmMediaMetricsEntry 8 }
+
+cfmMediaMetricsStreamBitRateMaxUnits OBJECT-TYPE
+    SYNTAX FlowBitRateUnits
+--    Rsyntax INTEGER {
+--        bps(1),
+--        kbps(2),
+--        mbps(3),
+--        gbps(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmMediaMetricsStreamBitRateMax."
+    ::= { cfmMediaMetricsEntry 9 }
+
+cfmMediaMetricsStreamBitRateMax OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum media bit rate observed,
+        among the individual streams, that have contributed to the
+        metrics over the lifetime of the traffic flow."
+    ::= { cfmMediaMetricsEntry 10 }
+
+cfmMediaMetricsStreamBitRateMinUnits OBJECT-TYPE
+    SYNTAX FlowBitRateUnits
+--    Rsyntax INTEGER {
+--        bps(1),
+--        kbps(2),
+--        mbps(3),
+--        gbps(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmMediaMetricsStreamBitRateMin."
+    ::= { cfmMediaMetricsEntry 11 }
+
+cfmMediaMetricsStreamBitRateMin OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the minimum media bit rate observed,
+        among the individual streams, that have contributed to the
+        metrics over the lifetime of the traffic flow."
+    ::= { cfmMediaMetricsEntry 12 }
+
+cfmMediaMetricsTableChanged OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device created/destroyed a row in the cfmMediaMetricsTable."
+    ::= { cfmMediaMetrics 2 }
+
+cfmMediaMetricsIntTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CfmMediaMetricsIntEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains historic Media metrics for the traffic flows
+        monitored by each of the flow monitors supported by the device.
+        
+        This table has an sparse dependent relationship on the
+        cfmFlowMetricsIntTable (defined by the CISCO-FLOW-MONITOR-MIB),
+        containing a row for each row in the cfmFlowMetricsIntTable
+        having a corresponding instance of cfmFlowMetricsCollected with
+        the 'media' bit set to one."
+    ::= { cfmMediaMetrics 3 }
+
+cfmMediaMetricsIntEntry OBJECT-TYPE
+    SYNTAX CfmMediaMetricsIntEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry describes Media metrics collected for a previous
+        measurement interval for a corresponding traffic flow."
+    INDEX { cfmFlowMonitorId, cfmFlowId, cfmFlowMetricsIntNumber }
+    ::= { cfmMediaMetricsIntTable 1 }
+
+CfmMediaMetricsIntEntry ::= SEQUENCE {
+    cfmMediaMetricsIntValid OCTET STRING,
+    cfmMediaMetricsIntPkts ReportIntervalCount,
+    cfmMediaMetricsIntOctets ReportIntervalCount,
+    cfmMediaMetricsIntBitRateUnits FlowBitRateUnits,
+    cfmMediaMetricsIntBitRate ReportIntervalCount,
+    cfmMediaMetricsIntPktRate ReportIntervalCount,
+    cfmMediaMetricsIntStreamBitRateUnits FlowBitRateUnits,
+    cfmMediaMetricsIntStreamBitRate ReportIntervalCount,
+    cfmMediaMetricsIntStreamBitRateMaxUnits FlowBitRateUnits,
+    cfmMediaMetricsIntStreamBitRateMax Gauge,
+    cfmMediaMetricsIntStreamBitRateMinUnits FlowBitRateUnits,
+    cfmMediaMetricsIntStreamBitRateMin Gauge
+    }
+
+cfmMediaMetricsIntValid OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..2))
+        -- BITS are:
+        --   pkts(0)
+        --   octets(1)
+        --   bitRate(2)
+        --   pktRate(3)
+        --   streamBitRate(4)
+        --   streamBitRateMax(5)
+        --   streamBitRateMin(6)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates which metrics are valid for the
+        measurement interval:
+        
+            'pkts'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMediaMetricsIntPkts is valid.
+        
+            'octets'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMediaMetricsIntOctets is valid.
+        
+            'bitRate'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMediaMetricsIntBitRateUnits and 
+                cfmMediaMetricsIntBitRate are valid.
+        
+            'pktRate'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMediaMetricsIntPktRate is valid.
+        
+            'streamBitRate'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMediaMetricsIntStreamBitRateUnits
+                and cfmMediaMetricsIntStreamBitRate are valid.
+        
+            'streamBitRateMax'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMediaMetricsIntStreamBitRateMaxUnits
+                and cfmMediaMetricsIntStreamBitRateMax are valid.
+        
+            'streamBitRateMin'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMediaMetricsIntStreamBitRateMinUnits
+                and cfmMediaMetricsIntStreamBitRateMin are valid."
+    ::= { cfmMediaMetricsIntEntry 1 }
+
+cfmMediaMetricsIntPkts OBJECT-TYPE
+    SYNTAX ReportIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of packets, containing
+        media payload, processed by the corresponding flow monitor for
+        the corresponding traffic flow during the measurement interval."
+    ::= { cfmMediaMetricsIntEntry 2 }
+
+cfmMediaMetricsIntOctets OBJECT-TYPE
+    SYNTAX ReportIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    octets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the total number of octets contained by
+        the packets, representing media payload, processed by the
+        corresponding flow monitor for the corresponding traffic flow
+        during the measurement interval."
+    ::= { cfmMediaMetricsIntEntry 3 }
+
+cfmMediaMetricsIntBitRateUnits OBJECT-TYPE
+    SYNTAX FlowBitRateUnits
+--    Rsyntax INTEGER {
+--        bps(1),
+--        kbps(2),
+--        mbps(3),
+--        gbps(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmMediaMetricsIntBitRate."
+    ::= { cfmMediaMetricsIntEntry 4 }
+
+cfmMediaMetricsIntBitRate OBJECT-TYPE
+    SYNTAX ReportIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the average bit rate at which the
+        corresponding flow monitor processed data, containing media
+        payload, for the corresponding traffic flow during the 
+        measurement interval."
+    ::= { cfmMediaMetricsIntEntry 5 }
+
+cfmMediaMetricsIntPktRate OBJECT-TYPE
+    SYNTAX ReportIntervalCount
+--    Rsyntax Gauge
+--  Units
+--    packets per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the average packet rate at which the
+        corresponding flow monitor processed data, containing media
+        payload, for the corresponding traffic flow during the
+        measurement interval."
+    ::= { cfmMediaMetricsIntEntry 6 }
+
+cfmMediaMetricsIntStreamBitRateUnits OBJECT-TYPE
+    SYNTAX FlowBitRateUnits
+--    Rsyntax INTEGER {
+--        bps(1),
+--        kbps(2),
+--        mbps(3),
+--        gbps(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmMediaMetricsIntStreamBitRate."
+    ::= { cfmMediaMetricsIntEntry 7 }
+
+cfmMediaMetricsIntStreamBitRate OBJECT-TYPE
+    SYNTAX ReportIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the average of media bit rates of all the
+        individual streams which contributed to the traffic flow during
+        measurement interval."
+    ::= { cfmMediaMetricsIntEntry 8 }
+
+cfmMediaMetricsIntStreamBitRateMaxUnits OBJECT-TYPE
+    SYNTAX FlowBitRateUnits
+--    Rsyntax INTEGER {
+--        bps(1),
+--        kbps(2),
+--        mbps(3),
+--        gbps(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmMediaMetricsIntStreamBitRateMax."
+    ::= { cfmMediaMetricsIntEntry 9 }
+
+cfmMediaMetricsIntStreamBitRateMax OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the maximum media bit rate observed,
+        among the individual streams, which contributed to the traffic
+        flow during the measurement interval."
+    ::= { cfmMediaMetricsIntEntry 10 }
+
+cfmMediaMetricsIntStreamBitRateMinUnits OBJECT-TYPE
+    SYNTAX FlowBitRateUnits
+--    Rsyntax INTEGER {
+--        bps(1),
+--        kbps(2),
+--        mbps(3),
+--        gbps(4)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmMediaMetricsIntStreamBitRateMin."
+    ::= { cfmMediaMetricsIntEntry 11 }
+
+cfmMediaMetricsIntStreamBitRateMin OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the minimum media bit rate observed,
+        among the individual streams, which contributed to the traffic
+        flow during the measurement interval."
+    ::= { cfmMediaMetricsIntEntry 12 }
+
+ciscoMediaMetricsGroup OBJECT IDENTIFIER ::= { ciscoMediaMetricsMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This group contains objects that describe Media metrics.
+--  objects
+--    cfmMediaMetricsValid, cfmMediaMetricsPkts, 
+--    cfmMediaMetricsOctets, cfmMediaMetricsBitRateUnits, 
+--    cfmMediaMetricsBitRate, cfmMediaMetricsPktRate, 
+--    cfmMediaMetricsStreamBitRateUnits, 
+--    cfmMediaMetricsStreamBitRate, 
+--    cfmMediaMetricsStreamBitRateMaxUnits, 
+--    cfmMediaMetricsStreamBitRateMax, 
+--    cfmMediaMetricsStreamBitRateMinUnits, 
+--    cfmMediaMetricsStreamBitRateMin, cfmMediaMetricsTableChanged, 
+--    cfmMediaMetricsIntValid, cfmMediaMetricsIntPkts, 
+--    cfmMediaMetricsIntOctets, cfmMediaMetricsIntBitRateUnits, 
+--    cfmMediaMetricsIntBitRate, cfmMediaMetricsIntPktRate, 
+--    cfmMediaMetricsIntStreamBitRateUnits, 
+--    cfmMediaMetricsIntStreamBitRate, 
+--    cfmMediaMetricsIntStreamBitRateMaxUnits, 
+--    cfmMediaMetricsIntStreamBitRateMax, 
+--    cfmMediaMetricsIntStreamBitRateMinUnits, 
+--    cfmMediaMetricsIntStreamBitRateMin
+
+ciscoMediaMetricsMIBCompliance01 OBJECT IDENTIFIER ::= { ciscoMediaMetricsMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    This compliance statement specifies the minimal requirements an
+--    implementation must meet in order to claim full compliance with
+--    the definition of the CISCO-MEDIA-METRICS-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoMediaMetricsGroup
+
+
+END
+

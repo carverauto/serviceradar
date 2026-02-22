@@ -1,0 +1,264 @@
+-- *****************************************************************
+-- CISCO-VLAN-GROUP-MIB.my
+-- February 2009, Binh P Le
+-- Copyright (c) 2009-2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VLAN-GROUP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    StorageType,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    Cisco2KVlanList
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoVlanGroupMIB MODULE-IDENTITY
+    LAST-UPDATED    "201103220000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB module for monitoring and configuring VLAN Group Mapping
+        information."
+    REVISION        "201103220000Z"
+    DESCRIPTION
+        "Added cvgConfigTableSizeGroup."
+    REVISION        "200911200000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 709 }
+
+
+ciscoVlanGroupMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoVlanGroupMIB 0 }
+
+ciscoVlanGroupMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoVlanGroupMIB 1 }
+
+ciscoVlanGroupMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoVlanGroupMIB 2 }
+
+
+cvgConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CvgConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A list of VLAN groups configured in the system."
+    ::= { ciscoVlanGroupMIBObjects 1 }
+
+cvgConfigEntry OBJECT-TYPE
+    SYNTAX          CvgConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing VLAN mapping configuration for a particular
+        VLAN group.  At least one VLAN must be associated with the group
+        specified by cvgConfigGroupName when the entry is created."
+    INDEX           { cvgConfigGroupName } 
+    ::= { cvgConfigTable 1 }
+
+CvgConfigEntry ::= SEQUENCE {
+        cvgConfigGroupName     SnmpAdminString,
+        cvgConfigVlansFirst2K  Cisco2KVlanList,
+        cvgConfigVlansSecond2K Cisco2KVlanList,
+        cvgConfigStorageType   StorageType,
+        cvgConfigRowStatus     RowStatus
+}
+
+cvgConfigGroupName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The name of the VLAN group." 
+    ::= { cvgConfigEntry 1 }
+
+cvgConfigVlansFirst2K OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for VLANs 0 to
+        2047." 
+    ::= { cvgConfigEntry 2 }
+
+cvgConfigVlansSecond2K OBJECT-TYPE
+    SYNTAX          Cisco2KVlanList
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A string of octets containing one bit per VLAN for VLANs 2048
+        to 4095." 
+    ::= { cvgConfigEntry 3 }
+
+cvgConfigStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual row
+        in ciscoVlanGroupTable."
+    DEFVAL          { volatile } 
+    ::= { cvgConfigEntry 4 }
+
+cvgConfigRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+
+        All writable objects in this row may be modified at any time." 
+    ::= { cvgConfigEntry 5 }
+ 
+
+
+cvgConfigTableSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the maximum number of entries that can
+        be created in cvgConfigTable. A value of zero indicates 
+        no limit to the number of entries that can be created
+        in cvgConfigTable." 
+    ::= { ciscoVlanGroupMIBObjects 2 }
+ciscoVlanGroupMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoVlanGroupMIBConform 1 }
+
+ciscoVlanGroupMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoVlanGroupMIBConform 2 }
+
+
+ciscoVlanGroupMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        CISCO-VLAN-GROUP-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoVlanGroupConfigGroup }
+
+    OBJECT          cvgConfigVlansFirst2K
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cvgConfigVlansSecond2K
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cvgConfigStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cvgConfigRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+
+        Support for createAndWait and notInService is not required."
+    ::= { ciscoVlanGroupMIBCompliances 1 }
+
+ciscoVlanGroupMIBCompliance2 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        CISCO-VLAN-GROUP-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoVlanGroupConfigGroup }
+
+    GROUP           cvgConfigTableSizeGroup
+    DESCRIPTION
+        "This group is mandatory for those platforms which
+        support the limit information on the number of
+        VLAN groups that can be created."
+
+    OBJECT          cvgConfigVlansFirst2K
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cvgConfigVlansSecond2K
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cvgConfigStorageType
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          cvgConfigRowStatus
+    SYNTAX          INTEGER  {
+                        active(1)
+                    }
+    WRITE-SYNTAX    INTEGER  {
+                        createAndGo(4),
+                        destroy(6)
+                    }
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required.
+
+        Support for createAndWait and notInService is not required."
+    ::= { ciscoVlanGroupMIBCompliances 2 }
+
+-- Units of Conformance
+
+ciscoVlanGroupConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cvgConfigVlansFirst2K,
+                        cvgConfigVlansSecond2K,
+                        cvgConfigRowStatus,
+                        cvgConfigStorageType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects for VLAN Group configuration."
+    ::= { ciscoVlanGroupMIBGroups 1 }
+
+cvgConfigTableSizeGroup OBJECT-GROUP
+    OBJECTS         { cvgConfigTableSize }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects which provides the limit information
+        on the number of VLAN groups that can be created."
+    ::= { ciscoVlanGroupMIBGroups 2 }
+
+END
+
+
+

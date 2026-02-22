@@ -1,0 +1,451 @@
+-- *****************************************************************
+-- CISCO-VOICE-APPS-MIB.my: Cisco Voice Applications MIB file.
+--
+-- Feb. 2001, Sam Lee
+--
+-- Copyright (c) 2001 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-VOICE-APPS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    DisplayString, TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoVoiceAppsMIB  MODULE-IDENTITY
+    LAST-UPDATED    "200512220000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+        "    Cisco Systems
+            Customer Service
+
+        Postal: 170 W. Tasman Drive
+            San Jose, CA  95134
+            USA
+
+        Tel: +1 800 553-NETS
+
+        E-mail: cs-selsius@cisco.com"
+
+    DESCRIPTION
+        "The MIB Module for the management of Cisco Voice
+         Applications.  This MIB is designed to work in 
+         conjunction with the SYSAPPL-MIB to provide status
+         monitoring, provisioning and notification."
+    REVISION        "200512220000Z"
+    DESCRIPTION  
+            "Imported Unsigned32 from SNMPv2-SMI instead 
+             of CISCO-TC."
+    REVISION        "200102260000Z"
+    DESCRIPTION
+            "The initial version of this MIB module."
+    ::= { ciscoMgmt 190 }
+
+
+ciscoVoiceAppsMIBObjects OBJECT IDENTIFIER ::= 
+                           { ciscoVoiceAppsMIB 1 }
+cvaGeneralInfo OBJECT IDENTIFIER ::= 
+                           { ciscoVoiceAppsMIBObjects 1 }
+cvaModuleFailureInfo OBJECT IDENTIFIER ::= 
+                           { ciscoVoiceAppsMIBObjects 2 }
+
+
+
+--
+--    THE APPLICATION WORKFLOW INSTALLATION TABLE
+--
+
+cvaWorkflowInstallTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CvaWorkflowInstallEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "The table containing the list of installed Workflow 
+        applications provisioned on the media server.
+
+        For instance, this table may contain an entry for
+        each of the Auto Attendant(AA) or Integrated Contact 
+        Distribution(ICD) application installed on the Cisco 
+        Workflow Application."
+    ::= { cvaGeneralInfo 1 }
+
+cvaWorkflowInstallEntry OBJECT-TYPE
+    SYNTAX      CvaWorkflowInstallEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry (conceptual row) in the Workflow Installation 
+        Table, containing information associated with the Cisco
+        Workflow Application.  This entry is created when a
+        workflow application is installed via the application
+        Administration page."
+    INDEX    { cvaWorkflowInstallIndex }
+    ::= { cvaWorkflowInstallTable 1 }
+
+CvaWorkflowInstallEntry ::= SEQUENCE {
+    cvaWorkflowInstallIndex              Unsigned32,
+    cvaWorkflowInstallName               SnmpAdminString,
+    cvaWorkflowInstallLocator            OCTET STRING,
+    cvaWorkflowInstallScriptName         SnmpAdminString,
+    cvaWorkflowInstallEnable             TruthValue
+}
+
+cvaWorkflowInstallIndex OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An arbitrary integer which uniquely identifies an Workflow
+         Application."
+    ::= { cvaWorkflowInstallEntry 1 }
+
+cvaWorkflowInstallName OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE(0..128))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The name of the workflow application."
+    ::= { cvaWorkflowInstallEntry 2 }
+
+cvaWorkflowInstallLocator OBJECT-TYPE
+    SYNTAX      OCTET STRING (SIZE(0..128))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The extension number or CTI (Computer 
+         Telephony Integration) route point associated
+         with the workflow application.  
+         For instance, 5000 for extension 5000."
+    ::= { cvaWorkflowInstallEntry 3 }
+
+cvaWorkflowInstallScriptName OBJECT-TYPE
+    SYNTAX      SnmpAdminString (SIZE(0..128))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The workflow application script name."
+    ::= { cvaWorkflowInstallEntry 4 }
+
+cvaWorkflowInstallEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The status of the workflow application.
+            true(1):   Workflow Application is enabled
+            false(2):  Workflow Application is disabled."
+    ::= { cvaWorkflowInstallEntry 5 }
+
+
+cvaNotificationEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "To enable(1) or disable(2) generation of the following 
+        notifications:
+            cvaModuleStart notification
+            cvaModuleStop notification
+            cvaModuleRunTimeFailure notification
+            cvaProcessStart notification
+            cvaProcessStop notification
+         The default value is enable(1)."  
+    ::= { cvaGeneralInfo 3 }
+
+--
+-- THE MODULE FAILURE GROUP
+-- a collection of objects common to application server notifications
+--
+
+cvaAlarmSeverity OBJECT-TYPE
+    SYNTAX      INTEGER {
+        emergency(1),
+        alert(2),
+        critical(3),
+        error(4),
+        warning(5),
+        notice(6),
+        informational(7)
+    }
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "The application alarm notification severity code.
+            emergency:                System unusable
+            alert:                    Immediate response needed
+            critical:                 Critical condition
+            error:                    Error condition
+            warning:                  Warning condition
+            notice:                   Normal but significant condition
+            informational:            Informational situation."
+    ::= { cvaModuleFailureInfo 1 }
+
+cvaModuleName OBJECT-TYPE
+    SYNTAX      DisplayString(SIZE(0..32))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+            "The application module or subsystem name."  
+    ::= { cvaModuleFailureInfo 2 }
+
+cvaProcessId OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "A unique value for each of the process running on the host.
+        Wherever possible, this should be the system's native, unique
+        Identification number (process id)."  
+    ::= { cvaModuleFailureInfo 3 }
+ 
+cvaModuleFailureName OBJECT-TYPE
+    SYNTAX      DisplayString(SIZE(0..32))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+            "The application module name which causes the failure."  
+    ::= { cvaModuleFailureInfo 4 }
+ 
+cvaModuleFailureCause OBJECT-TYPE
+    SYNTAX      INTEGER {
+        other(1),
+        gracefulShutDown(2),
+        heartBeatFailure(3),
+        initFailure(4),
+        outOfResource(5),
+        partialFailure(6)
+       }
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "The application module failure cause code.  This is used
+         by cvaModuleStop to indicate reason of module stop if known.  
+            other:            Other unspecified failure cause
+            gracefulShutDown: Module is gracefully shut down
+            heartBeatStopped: Module heart beat stopped is detected
+            initFailure:      Module is failed during initialization
+            outOfResource:    Module is failed due to out of resource
+            partialFailure:   Module partially failure is detected."
+    ::= { cvaModuleFailureInfo 5 }
+ 
+
+cvaModuleFailureMessage OBJECT-TYPE
+    SYNTAX      DisplayString(SIZE(0..255))
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+            "The application module failure message."  
+    ::= { cvaModuleFailureInfo 6 }
+ 
+cvaModuleRunTimeFailureCause OBJECT-TYPE
+    SYNTAX      INTEGER {
+        other(1),
+        readAccessFailure(2),
+        writeAccessFailure(3),
+        createFailure(4),
+        deleteFailure(5),
+        updateFailure(6),
+        initFailure(7),
+        loadFailure(8),
+        outOfResource(9),
+        callProcessFailure(10),
+        registrationFailure(11),
+        deRegistrationFailure(12),
+        connectionFailure(13),
+        disconnectionFailure(14),
+        unknownTarget(15),
+        unReacheableTarget(16)
+    }
+
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "The application module run-time failure cause code.  
+            other:                 Other or unspecified failure
+            readAccessFailure:     Read Access failure
+            writeAccessFailure:    Write Access failure
+            createFailure:         Resource Creation failure
+            deleteFailure:         Resource Deletion failure
+            updateFailure:         Update failure
+            initFailure:           Initialization failure
+            loadFailure:           Resource Load failure
+            outOfResource:         Out of Resource
+            callProcessFailure:    Call Processing failure
+            registrationFailure:   Registration failure
+            deRegistrationFailure: De-Registration failure
+            connectionFailure:     Connection failure
+            disconnectionFailure:  Desconnection failure
+            unknownTarget:         Unknown Target/destination
+            unReacheableTarget:    UnReacheable Target/destination"
+    ::= { cvaModuleFailureInfo 7 }
+
+
+--
+--        Notifications
+--
+ciscoVoiceAppsMIBNotificationPrefix OBJECT IDENTIFIER ::= 
+                                 { ciscoVoiceAppsMIB 2 }
+ciscoVoiceAppsMIBNotifications      OBJECT IDENTIFIER ::= 
+                {ciscoVoiceAppsMIBNotificationPrefix 0 }
+
+
+cvaModuleStart NOTIFICATION-TYPE
+  OBJECTS   { cvaAlarmSeverity, cvaModuleName }
+  STATUS    current
+  DESCRIPTION
+        "A cvaModuleStart notification signifies that an 
+        application module or subsystem has successfully
+        started and transitioned into in-service state.  
+        This notification is working in conjunction with
+        the cvaModuleStop notification to notify the start
+        and stop status of a particular application module."
+  ::= {ciscoVoiceAppsMIBNotifications 1} 
+
+cvaModuleStop NOTIFICATION-TYPE
+  OBJECTS   { cvaAlarmSeverity, cvaModuleName, cvaModuleFailureCause,
+              cvaModuleFailureName, cvaModuleFailureMessage }
+  STATUS     current
+  DESCRIPTION
+        "A cvaModuleStop notification signifies that an
+        application module or subsystem has stopped.  This 
+        notification is working in conjunction with the 
+        cvaModuleStart notification to notify the start 
+        and stop status of a particular application module. 
+        If failure cause is known then it will be specified 
+        in the cvaModuleFailureCause variable.  Additional 
+        failure information associated with cvaModuleFailureCause
+        can be specified in the cvaModuleFailureCauseMessage."
+  ::= {ciscoVoiceAppsMIBNotifications 2} 
+
+cvaModuleRunTimeFailure NOTIFICATION-TYPE
+  OBJECTS   { cvaAlarmSeverity, cvaModuleName, 
+              cvaModuleRunTimeFailureCause, cvaModuleFailureName,
+              cvaModuleFailureMessage }
+  STATUS    current
+  DESCRIPTION
+        "A cvaModuleRunTimeFailure notification signifies that a run
+        time failure has occurred.  If failure cause is known then it 
+        will be specified in the cvaModuleRunTimeFailureCause 
+        variable. Additional failure information associated with 
+        cvaModuleRunTimeFailureCause can be specified in the 
+        cvaModuleFailureCauseMessage."
+  ::= {ciscoVoiceAppsMIBNotifications 3} 
+
+cvaProcessStart NOTIFICATION-TYPE
+  OBJECTS   { cvaAlarmSeverity, cvaModuleName, cvaProcessId }
+  STATUS    current
+  DESCRIPTION
+        "A cvaProcessStart notification signifies that a process has 
+        just started.  This notification is intended to work in 
+        conjunction with the caProcessStop notification to notify 
+        the start and stop status of a particular process."
+  ::= {ciscoVoiceAppsMIBNotifications 4} 
+
+cvaProcessStop NOTIFICATION-TYPE
+  OBJECTS   { cvaAlarmSeverity, cvaModuleName, cvaProcessId }
+  STATUS     current
+  DESCRIPTION
+        "A cvaProcessStop notification signifies that a process has 
+        just stopped.  This notification is intended to work in 
+        conjunction with the cvaProcessStart notification to notify 
+        the start and stop status of a particular process."
+  ::= {ciscoVoiceAppsMIBNotifications 5} 
+
+
+--
+--        MIB Conformance Statements
+--
+
+ciscoVoiceAppsMIBConformance OBJECT IDENTIFIER ::= 
+                               { ciscoVoiceAppsMIB 3 }
+ciscoVoiceAppsMIBCompliances OBJECT IDENTIFIER ::= 
+                               { ciscoVoiceAppsMIBConformance 1 }
+ciscoVoiceAppsMIBGroups      OBJECT IDENTIFIER ::= 
+                               { ciscoVoiceAppsMIBConformance 2 }
+
+-- Compliance Statements
+
+ciscoVoiceAppsMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for entities which implement
+        the CISCO APPLICATION MIB."
+    MODULE
+    MANDATORY-GROUPS {
+        cvaModuleInfoGroup,
+        cvaNotificationInfoGroup
+    }
+    GROUP     cvaNotificationGroup
+    DESCRIPTION
+        "Support for these notifications is optional."
+    ::= { ciscoVoiceAppsMIBCompliances 1 }
+
+-- Units of Conformance
+
+cvaModuleInfoGroup OBJECT-GROUP
+    OBJECTS {
+        cvaWorkflowInstallName,
+        cvaWorkflowInstallLocator,
+        cvaWorkflowInstallScriptName,
+        cvaWorkflowInstallEnable,
+        cvaNotificationEnable
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects which provide info about the
+         application.  It comprises of all the modules and servers
+         associated with the application."
+    ::= { ciscoVoiceAppsMIBGroups 1 }
+
+cvaNotificationInfoGroup OBJECT-GROUP
+    OBJECTS {
+        cvaAlarmSeverity,
+        cvaModuleName,
+        cvaProcessId,
+        cvaModuleFailureName,
+        cvaModuleFailureCause,
+        cvaModuleFailureMessage,
+        cvaModuleRunTimeFailureCause
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of notification objects which provide info 
+        about the application notification."
+    ::= { ciscoVoiceAppsMIBGroups 2 }
+
+cvaNotificationGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        cvaModuleStart,
+        cvaModuleStop,
+        cvaModuleRunTimeFailure,
+        cvaProcessStart,
+        cvaProcessStop
+    }
+    STATUS      current
+    DESCRIPTION
+        "A collection of notifications."
+    ::= { ciscoVoiceAppsMIBGroups 3 }
+
+
+
+END
+
+     
+  
+ 
+ 
+     
+  
+ 
+ 

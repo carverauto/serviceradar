@@ -1,0 +1,1282 @@
+-- *****************************************************************
+-- IPMC-MVR-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-IPMC-MVR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    InetAddressIPv6 FROM INET-ADDRESS-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200PortListStackable FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    IpAddress FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200IpmcMvrMib MODULE-IDENTITY
+    LAST-UPDATED "201403110000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the IPMC MVR MIB"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402150000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201402140000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 68 }
+
+
+ME1200IpmcMvrGroupSrcListGroupFilterMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the group filter mode for an IPMC group
+         address."
+    SYNTAX      INTEGER { exclude(0), include(1) }
+
+ME1200IpmcMvrGroupSrcListSourceType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the source filtering type from IPMC."
+    SYNTAX      INTEGER { deny(0), permit(1) }
+
+ME1200IpmcMvrInterfaceQuerierStatus ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the Querier status for MVR VLAN interface."
+    SYNTAX      INTEGER { disabled(-1), initial(0), idle(1), active(2) }
+
+ME1200IpmcMvrVlanInterfaceMode ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the MVR VLAN interface's operational mode."
+    SYNTAX      INTEGER { dynamic(0), compatible(1) }
+
+ME1200IpmcMvrVlanInterfacePortRole ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the MVR port's operational role."
+    SYNTAX      INTEGER { inactive(0), source(1), receiver(2) }
+
+ME1200IpmcMvrVlanInterfaceTagging ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration indicates the VLAN tagging for IPMC control frames in
+         MVR."
+    SYNTAX      INTEGER { untagged(0), tagging(1) }
+
+me1200IpmcMvrMIBObjects OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrMib 1 }
+
+me1200IpmcMvrConfig OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrMIBObjects 2 }
+
+me1200IpmcMvrGlobals OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrConfig 1 }
+
+me1200IpmcMvrGlobalsAdminState OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable the IPMC MVR global functionality."
+    ::= { me1200IpmcMvrGlobals 1 }
+
+me1200IpmcMvrPortTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcMvrPortEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing extra MVR helper features per port basis."
+    ::= { me1200IpmcMvrConfig 2 }
+
+me1200IpmcMvrPortEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrPortEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of parameters."
+    INDEX       { me1200IpmcMvrPortPortIndex }
+    ::= { me1200IpmcMvrPortTable 1 }
+
+ME1200IpmcMvrPortEntry ::= SEQUENCE {
+    me1200IpmcMvrPortPortIndex    ME1200InterfaceIndex,
+    me1200IpmcMvrPortDoImmediateLeave     TruthValue
+}
+
+me1200IpmcMvrPortPortIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200IpmcMvrPortEntry 1 }
+
+me1200IpmcMvrPortDoImmediateLeave OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enable/Disable the MVR immediate leave functionality."
+    ::= { me1200IpmcMvrPortEntry 2 }
+
+me1200IpmcMvrInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcMvrInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing MVR VLAN interface entries."
+    ::= { me1200IpmcMvrConfig 3 }
+
+me1200IpmcMvrInterfaceEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters"
+    INDEX       { me1200IpmcMvrInterfaceIfIndex }
+    ::= { me1200IpmcMvrInterfaceTable 1 }
+
+ME1200IpmcMvrInterfaceEntry ::= SEQUENCE {
+    me1200IpmcMvrInterfaceIfIndex     ME1200InterfaceIndex,
+    me1200IpmcMvrInterfaceName    ME1200DisplayString,
+    me1200IpmcMvrInterfaceIgmpQuerierAddress      IpAddress,
+    me1200IpmcMvrInterfaceMode    ME1200IpmcMvrVlanInterfaceMode,
+    me1200IpmcMvrInterfaceTagging     ME1200IpmcMvrVlanInterfaceTagging,
+    me1200IpmcMvrInterfacePriority    ME1200Unsigned8,
+    me1200IpmcMvrInterfaceLastListenerQueryInterval   Unsigned32,
+    me1200IpmcMvrInterfaceChannelProfile      ME1200DisplayString,
+    me1200IpmcMvrInterfaceAction      ME1200RowEditorState
+}
+
+me1200IpmcMvrInterfaceIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the VLAN interface."
+    ::= { me1200IpmcMvrInterfaceEntry 1 }
+
+me1200IpmcMvrInterfaceName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "MVR Name is an optional attribute to indicate the name of the specific
+         MVR VLAN that user could easily associate the MVR VLAN purpose with its
+         name."
+    ::= { me1200IpmcMvrInterfaceEntry 2 }
+
+me1200IpmcMvrInterfaceIgmpQuerierAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The static IPv4 source address of the specific MVR interface for seding
+         IGMP Query message with respect to IGMP Querier election."
+    ::= { me1200IpmcMvrInterfaceEntry 3 }
+
+me1200IpmcMvrInterfaceMode OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrVlanInterfaceMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "In Dynamic mode, MVR allows dynamic MVR membership reports on source
+         ports. In Compatible mode, MVR membership reports are forbidden on
+         source ports."
+    ::= { me1200IpmcMvrInterfaceEntry 4 }
+
+me1200IpmcMvrInterfaceTagging OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrVlanInterfaceTagging
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Specify whether the traversed IGMP/MLD control frames will be sent as
+         Untagged or Tagged with MVR VID."
+    ::= { me1200IpmcMvrInterfaceEntry 5 }
+
+me1200IpmcMvrInterfacePriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Specify how the traversed IGMP/MLD control frames will be sent in
+         prioritized manner in VLAN tag."
+    ::= { me1200IpmcMvrInterfaceEntry 6 }
+
+me1200IpmcMvrInterfaceLastListenerQueryInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "This setting Last Listener/Member Query Interval is used to control
+         IGMP protocol stack for fast aging mechanism. It defines the maximum
+         time to wait for IGMP/MLD report memberships on a port before removing
+         the port from multicast group membership. The value is in units of
+         tenths of a seconds. The range is from 0 to 31744."
+    ::= { me1200IpmcMvrInterfaceEntry 7 }
+
+me1200IpmcMvrInterfaceChannelProfile OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The profile used for the channel filtering condition in the specific
+         MVR VLAN. Profile selected for designated interface channel is not
+         allowed to have overlapped permit group address by comparing with other
+         MVR VLAN interface's channel."
+    ::= { me1200IpmcMvrInterfaceEntry 8 }
+
+me1200IpmcMvrInterfaceAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpmcMvrInterfaceEntry 100 }
+
+me1200IpmcMvrInterfaceTableRowEditor OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrConfig 4 }
+
+me1200IpmcMvrInterfaceTableRowEditorIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the VLAN interface."
+    ::= { me1200IpmcMvrInterfaceTableRowEditor 1 }
+
+me1200IpmcMvrInterfaceTableRowEditorName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "MVR Name is an optional attribute to indicate the name of the specific
+         MVR VLAN that user could easily associate the MVR VLAN purpose with its
+         name."
+    ::= { me1200IpmcMvrInterfaceTableRowEditor 2 }
+
+me1200IpmcMvrInterfaceTableRowEditorIgmpQuerierAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The static IPv4 source address of the specific MVR interface for seding
+         IGMP Query message with respect to IGMP Querier election."
+    ::= { me1200IpmcMvrInterfaceTableRowEditor 3 }
+
+me1200IpmcMvrInterfaceTableRowEditorMode OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrVlanInterfaceMode
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "In Dynamic mode, MVR allows dynamic MVR membership reports on source
+         ports. In Compatible mode, MVR membership reports are forbidden on
+         source ports."
+    ::= { me1200IpmcMvrInterfaceTableRowEditor 4 }
+
+me1200IpmcMvrInterfaceTableRowEditorTagging OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrVlanInterfaceTagging
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Specify whether the traversed IGMP/MLD control frames will be sent as
+         Untagged or Tagged with MVR VID."
+    ::= { me1200IpmcMvrInterfaceTableRowEditor 5 }
+
+me1200IpmcMvrInterfaceTableRowEditorPriority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Specify how the traversed IGMP/MLD control frames will be sent in
+         prioritized manner in VLAN tag."
+    ::= { me1200IpmcMvrInterfaceTableRowEditor 6 }
+
+me1200IpmcMvrInterfaceTableRowEditorLastListenerQueryInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "This setting Last Listener/Member Query Interval is used to control
+         IGMP protocol stack for fast aging mechanism. It defines the maximum
+         time to wait for IGMP/MLD report memberships on a port before removing
+         the port from multicast group membership. The value is in units of
+         tenths of a seconds. The range is from 0 to 31744."
+    ::= { me1200IpmcMvrInterfaceTableRowEditor 7 }
+
+me1200IpmcMvrInterfaceTableRowEditorChannelProfile OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The profile used for the channel filtering condition in the specific
+         MVR VLAN. Profile selected for designated interface channel is not
+         allowed to have overlapped permit group address by comparing with other
+         MVR VLAN interface's channel."
+    ::= { me1200IpmcMvrInterfaceTableRowEditor 8 }
+
+me1200IpmcMvrInterfaceTableRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200IpmcMvrInterfaceTableRowEditor 100 }
+
+me1200IpmcMvrVlanPortTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcMvrVlanPortEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for managing MVR port roles of a specific MVR VLAN
+         interface."
+    ::= { me1200IpmcMvrConfig 5 }
+
+me1200IpmcMvrVlanPortEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrVlanPortEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of parameters."
+    INDEX       { me1200IpmcMvrVlanPortIfIndex, me1200IpmcMvrVlanPortPortIndex }
+    ::= { me1200IpmcMvrVlanPortTable 1 }
+
+ME1200IpmcMvrVlanPortEntry ::= SEQUENCE {
+    me1200IpmcMvrVlanPortIfIndex      ME1200InterfaceIndex,
+    me1200IpmcMvrVlanPortPortIndex    ME1200InterfaceIndex,
+    me1200IpmcMvrVlanPortRole     ME1200IpmcMvrVlanInterfacePortRole
+}
+
+me1200IpmcMvrVlanPortIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the VLAN interface."
+    ::= { me1200IpmcMvrVlanPortEntry 1 }
+
+me1200IpmcMvrVlanPortPortIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200IpmcMvrVlanPortEntry 2 }
+
+me1200IpmcMvrVlanPortRole OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrVlanInterfacePortRole
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Configure a MVR port of the designated MVR VLAN as one of the following
+         roles: Inactive, Source or Receiver. An inactive port does not
+         participate MVR operations. Configure uplink ports that receive and
+         send multicast data as a source port, and multicast subscribers cannot
+         be directly connected to source ports. Configure a port as a receiver
+         port if it is a subscriber port and should only receive multicast data,
+         and a receiver port does not receive data unless it becomes a member of
+         the multicast group by issuing IGMP/MLD control messages. Be Caution:
+         MVR source ports are not recommended to be overlapped with management
+         VLAN ports."
+    ::= { me1200IpmcMvrVlanPortEntry 3 }
+
+me1200IpmcMvrStatus OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrMIBObjects 3 }
+
+me1200IpmcMvrGroupAddressCount OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrStatus 1 }
+
+me1200IpmcMvrGroupAddressCountFromIgmp OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote the total number of registered multicast group
+         address from IGMP learning in MVR."
+    ::= { me1200IpmcMvrGroupAddressCount 1 }
+
+me1200IpmcMvrGroupAddressCountFromMld OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote the total number of registered multicast group
+         address from MLD learning in MVR."
+    ::= { me1200IpmcMvrGroupAddressCount 2 }
+
+me1200IpmcMvrIgmpVlanStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcMvrIgmpVlanStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying the per VLAN interface status in MVR
+         from IGMP protocol."
+    ::= { me1200IpmcMvrStatus 2 }
+
+me1200IpmcMvrIgmpVlanStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrIgmpVlanStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters."
+    INDEX       { me1200IpmcMvrIgmpVlanStatusIfIndex }
+    ::= { me1200IpmcMvrIgmpVlanStatusTable 1 }
+
+ME1200IpmcMvrIgmpVlanStatusEntry ::= SEQUENCE {
+    me1200IpmcMvrIgmpVlanStatusIfIndex    ME1200InterfaceIndex,
+    me1200IpmcMvrIgmpVlanStatusQuerierStatus      ME1200IpmcMvrInterfaceQuerierStatus,
+    me1200IpmcMvrIgmpVlanStatusActiveQuerierAddress   IpAddress,
+    me1200IpmcMvrIgmpVlanStatusQuerierUptime      Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusQueryInterval      Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusStartupQueryCount      Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusQuerierExpiryTime      Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusCounterTxQuery     Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusCounterTxSpecificQuery     Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusCounterRxQuery     Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusCounterRxV1Join    Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusCounterRxV2Join    Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusCounterRxV2Leave   Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusCounterRxV3Join    Unsigned32,
+    me1200IpmcMvrIgmpVlanStatusCounterRxErrors    Unsigned32
+}
+
+me1200IpmcMvrIgmpVlanStatusIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the VLAN interface."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 1 }
+
+me1200IpmcMvrIgmpVlanStatusQuerierStatus OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrInterfaceQuerierStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The IGMP Querier status of the specific VLAN interface."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 2 }
+
+me1200IpmcMvrIgmpVlanStatusActiveQuerierAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The active IGMP Querier address on the specific VLAN interface."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 3 }
+
+me1200IpmcMvrIgmpVlanStatusQuerierUptime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the in operation timer for the specific interface act as a
+         IGMP Querier."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 4 }
+
+me1200IpmcMvrIgmpVlanStatusQueryInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This setting is used to control IGMP protocol stack as stated in
+         RFC-3376 8.2."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 5 }
+
+me1200IpmcMvrIgmpVlanStatusStartupQueryCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This setting is used to control IGMP protocol stack as stated in
+         RFC-3376 8.7."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 6 }
+
+me1200IpmcMvrIgmpVlanStatusQuerierExpiryTime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This setting is used to control IGMP protocol stack as stated in
+         RFC-3376 8.5."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 7 }
+
+me1200IpmcMvrIgmpVlanStatusCounterTxQuery OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific IGMP interface for
+         transmitting IGMP Query control frames."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 8 }
+
+me1200IpmcMvrIgmpVlanStatusCounterTxSpecificQuery OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific IGMP interface for
+         transmitting IGMP Specific Query control frames."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 9 }
+
+me1200IpmcMvrIgmpVlanStatusCounterRxQuery OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific IGMP interface for
+         receiving IGMP Query control frames."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 10 }
+
+me1200IpmcMvrIgmpVlanStatusCounterRxV1Join OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific IGMP interface for
+         receiving IGMPv1 Join control frames."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 11 }
+
+me1200IpmcMvrIgmpVlanStatusCounterRxV2Join OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific IGMP interface for
+         receiving IGMPv2 Join control frames."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 12 }
+
+me1200IpmcMvrIgmpVlanStatusCounterRxV2Leave OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific IGMP interface for
+         receiving IGMPv2 Leave control frames."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 13 }
+
+me1200IpmcMvrIgmpVlanStatusCounterRxV3Join OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific IGMP interface for
+         receiving IGMPv3 Join control frames."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 14 }
+
+me1200IpmcMvrIgmpVlanStatusCounterRxErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific IGMP interface for
+         receiving invalid IGMP control frames."
+    ::= { me1200IpmcMvrIgmpVlanStatusEntry 15 }
+
+me1200IpmcMvrIgmpGroupAddressTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcMvrIgmpGroupAddressEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying the registered IPv4 multicast group
+         address status in IGMP from MVR."
+    ::= { me1200IpmcMvrStatus 3 }
+
+me1200IpmcMvrIgmpGroupAddressEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrIgmpGroupAddressEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters."
+    INDEX       { me1200IpmcMvrIgmpGroupAddressIfIndex, me1200IpmcMvrIgmpGroupAddressGroupAddress }
+    ::= { me1200IpmcMvrIgmpGroupAddressTable 1 }
+
+ME1200IpmcMvrIgmpGroupAddressEntry ::= SEQUENCE {
+    me1200IpmcMvrIgmpGroupAddressIfIndex      ME1200InterfaceIndex,
+    me1200IpmcMvrIgmpGroupAddressGroupAddress     IpAddress,
+    me1200IpmcMvrIgmpGroupAddressMemberPorts      ME1200PortListStackable,
+    me1200IpmcMvrIgmpGroupAddressHardwareSwitch   TruthValue
+}
+
+me1200IpmcMvrIgmpGroupAddressIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the VLAN interface."
+    ::= { me1200IpmcMvrIgmpGroupAddressEntry 1 }
+
+me1200IpmcMvrIgmpGroupAddressGroupAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IPv4 multicast address."
+    ::= { me1200IpmcMvrIgmpGroupAddressEntry 2 }
+
+me1200IpmcMvrIgmpGroupAddressMemberPorts OBJECT-TYPE
+    SYNTAX      ME1200PortListStackable
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote the memberships of the registered multicast group
+         address from MVR."
+    ::= { me1200IpmcMvrIgmpGroupAddressEntry 3 }
+
+me1200IpmcMvrIgmpGroupAddressHardwareSwitch OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote whether the multicast traffic destined to the
+         registered group address could be forwarding by switch hardware or not."
+    ::= { me1200IpmcMvrIgmpGroupAddressEntry 4 }
+
+me1200IpmcMvrIgmpGroupSrcListTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcMvrIgmpGroupSrcListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying the address SFM (a.k.a Source List
+         Multicast) status in source list of the registered IPv4 multicast group
+         in IGMP from MVR."
+    ::= { me1200IpmcMvrStatus 4 }
+
+me1200IpmcMvrIgmpGroupSrcListEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrIgmpGroupSrcListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters."
+    INDEX       { me1200IpmcMvrIgmpGroupSrcListIfIndex, me1200IpmcMvrIgmpGroupSrcListGroupAddress, me1200IpmcMvrIgmpGroupSrcListPortIndex, me1200IpmcMvrIgmpGroupSrcListHostAddress }
+    ::= { me1200IpmcMvrIgmpGroupSrcListTable 1 }
+
+ME1200IpmcMvrIgmpGroupSrcListEntry ::= SEQUENCE {
+    me1200IpmcMvrIgmpGroupSrcListIfIndex      ME1200InterfaceIndex,
+    me1200IpmcMvrIgmpGroupSrcListGroupAddress     IpAddress,
+    me1200IpmcMvrIgmpGroupSrcListPortIndex    ME1200InterfaceIndex,
+    me1200IpmcMvrIgmpGroupSrcListHostAddress      IpAddress,
+    me1200IpmcMvrIgmpGroupSrcListGroupFilterMode      ME1200IpmcMvrGroupSrcListGroupFilterMode,
+    me1200IpmcMvrIgmpGroupSrcListFilterTimer      Unsigned32,
+    me1200IpmcMvrIgmpGroupSrcListSourceType   ME1200IpmcMvrGroupSrcListSourceType,
+    me1200IpmcMvrIgmpGroupSrcListSourceTimer      Unsigned32,
+    me1200IpmcMvrIgmpGroupSrcListHardwareFilter   TruthValue
+}
+
+me1200IpmcMvrIgmpGroupSrcListIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the VLAN interface."
+    ::= { me1200IpmcMvrIgmpGroupSrcListEntry 1 }
+
+me1200IpmcMvrIgmpGroupSrcListGroupAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IPv4 multicast address."
+    ::= { me1200IpmcMvrIgmpGroupSrcListEntry 2 }
+
+me1200IpmcMvrIgmpGroupSrcListPortIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200IpmcMvrIgmpGroupSrcListEntry 3 }
+
+me1200IpmcMvrIgmpGroupSrcListHostAddress OBJECT-TYPE
+    SYNTAX      IpAddress
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IPv4 source address."
+    ::= { me1200IpmcMvrIgmpGroupSrcListEntry 4 }
+
+me1200IpmcMvrIgmpGroupSrcListGroupFilterMode OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrGroupSrcListGroupFilterMode
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote the source filtering mode of the specific
+         registered multicast group address from MVR."
+    ::= { me1200IpmcMvrIgmpGroupSrcListEntry 5 }
+
+me1200IpmcMvrIgmpGroupSrcListFilterTimer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to count down the timer for the specific multicast group's
+         filtering mode transition."
+    ::= { me1200IpmcMvrIgmpGroupSrcListEntry 6 }
+
+me1200IpmcMvrIgmpGroupSrcListSourceType OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrGroupSrcListSourceType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote the filtering type of the specific source address
+         in multicasting to the registered group address."
+    ::= { me1200IpmcMvrIgmpGroupSrcListEntry 7 }
+
+me1200IpmcMvrIgmpGroupSrcListSourceTimer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to count down the timer for purging the specific source
+         address from the registered multicast group's source list."
+    ::= { me1200IpmcMvrIgmpGroupSrcListEntry 8 }
+
+me1200IpmcMvrIgmpGroupSrcListHardwareFilter OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote whether the traffic destined to the multicast
+         group address from the specific source address could be forwarding by
+         switch hardware or not."
+    ::= { me1200IpmcMvrIgmpGroupSrcListEntry 9 }
+
+me1200IpmcMvrMldVlanStatusTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcMvrMldVlanStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying the per VLAN interface status in MVR
+         from MLD protocol."
+    ::= { me1200IpmcMvrStatus 5 }
+
+me1200IpmcMvrMldVlanStatusEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrMldVlanStatusEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters."
+    INDEX       { me1200IpmcMvrMldVlanStatusIfIndex }
+    ::= { me1200IpmcMvrMldVlanStatusTable 1 }
+
+ME1200IpmcMvrMldVlanStatusEntry ::= SEQUENCE {
+    me1200IpmcMvrMldVlanStatusIfIndex     ME1200InterfaceIndex,
+    me1200IpmcMvrMldVlanStatusQuerierStatus   ME1200IpmcMvrInterfaceQuerierStatus,
+    me1200IpmcMvrMldVlanStatusActiveQuerierAddress    InetAddressIPv6,
+    me1200IpmcMvrMldVlanStatusQuerierUptime   Unsigned32,
+    me1200IpmcMvrMldVlanStatusQueryInterval   Unsigned32,
+    me1200IpmcMvrMldVlanStatusStartupQueryCount   Unsigned32,
+    me1200IpmcMvrMldVlanStatusQuerierExpiryTime   Unsigned32,
+    me1200IpmcMvrMldVlanStatusCounterTxQuery      Unsigned32,
+    me1200IpmcMvrMldVlanStatusCounterTxSpecificQuery      Unsigned32,
+    me1200IpmcMvrMldVlanStatusCounterRxQuery      Unsigned32,
+    me1200IpmcMvrMldVlanStatusCounterRxV1Report   Unsigned32,
+    me1200IpmcMvrMldVlanStatusCounterRxV1Done     Unsigned32,
+    me1200IpmcMvrMldVlanStatusCounterRxV2Report   Unsigned32,
+    me1200IpmcMvrMldVlanStatusCounterRxErrors     Unsigned32
+}
+
+me1200IpmcMvrMldVlanStatusIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the VLAN interface."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 1 }
+
+me1200IpmcMvrMldVlanStatusQuerierStatus OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrInterfaceQuerierStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The MLD Querier status of the specific VLAN interface."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 2 }
+
+me1200IpmcMvrMldVlanStatusActiveQuerierAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The active MLD Querier address on the specific VLAN interface."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 3 }
+
+me1200IpmcMvrMldVlanStatusQuerierUptime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the in operation timer for the specific interface act as a
+         MLD Querier."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 4 }
+
+me1200IpmcMvrMldVlanStatusQueryInterval OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This setting is used to control MLD protocol stack as stated in
+         RFC-3810 9.2."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 5 }
+
+me1200IpmcMvrMldVlanStatusStartupQueryCount OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This setting is used to control MLD protocol stack as stated in
+         RFC-3810 9.7."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 6 }
+
+me1200IpmcMvrMldVlanStatusQuerierExpiryTime OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "This setting is used to control MLD protocol stack as stated in
+         RFC-3810 9.5."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 7 }
+
+me1200IpmcMvrMldVlanStatusCounterTxQuery OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific MLD interface for
+         transmitting MLD Query control frames."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 8 }
+
+me1200IpmcMvrMldVlanStatusCounterTxSpecificQuery OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific MLD interface for
+         transmitting MLD Specific Query control frames."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 9 }
+
+me1200IpmcMvrMldVlanStatusCounterRxQuery OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific MLD interface for
+         receiving MLD Query control frames."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 10 }
+
+me1200IpmcMvrMldVlanStatusCounterRxV1Report OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific MLD interface for
+         receiving MLDv1 Report control frames."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 11 }
+
+me1200IpmcMvrMldVlanStatusCounterRxV1Done OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific MLD interface for
+         receiving MLDv1 Done control frames."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 12 }
+
+me1200IpmcMvrMldVlanStatusCounterRxV2Report OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific MLD interface for
+         receiving MLDv2 Report control frames."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 13 }
+
+me1200IpmcMvrMldVlanStatusCounterRxErrors OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It presents the current packet count on the specific MLD interface for
+         receiving invalid MLD control frames."
+    ::= { me1200IpmcMvrMldVlanStatusEntry 14 }
+
+me1200IpmcMvrMldGroupAddressTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcMvrMldGroupAddressEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying the registered IPv6 multicast group
+         address status in MLD from MVR."
+    ::= { me1200IpmcMvrStatus 6 }
+
+me1200IpmcMvrMldGroupAddressEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrMldGroupAddressEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters."
+    INDEX       { me1200IpmcMvrMldGroupAddressIfIndex, me1200IpmcMvrMldGroupAddressGroupAddress }
+    ::= { me1200IpmcMvrMldGroupAddressTable 1 }
+
+ME1200IpmcMvrMldGroupAddressEntry ::= SEQUENCE {
+    me1200IpmcMvrMldGroupAddressIfIndex   ME1200InterfaceIndex,
+    me1200IpmcMvrMldGroupAddressGroupAddress      InetAddressIPv6,
+    me1200IpmcMvrMldGroupAddressMemberPorts   ME1200PortListStackable,
+    me1200IpmcMvrMldGroupAddressHardwareSwitch    TruthValue
+}
+
+me1200IpmcMvrMldGroupAddressIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the VLAN interface."
+    ::= { me1200IpmcMvrMldGroupAddressEntry 1 }
+
+me1200IpmcMvrMldGroupAddressGroupAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IPv6 multicast address."
+    ::= { me1200IpmcMvrMldGroupAddressEntry 2 }
+
+me1200IpmcMvrMldGroupAddressMemberPorts OBJECT-TYPE
+    SYNTAX      ME1200PortListStackable
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote the memberships of the registered multicast group
+         address from MVR."
+    ::= { me1200IpmcMvrMldGroupAddressEntry 3 }
+
+me1200IpmcMvrMldGroupAddressHardwareSwitch OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote whether the multicast traffic destined to the
+         registered group address could be forwarding by switch hardware or not."
+    ::= { me1200IpmcMvrMldGroupAddressEntry 4 }
+
+me1200IpmcMvrMldGroupSrcListTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200IpmcMvrMldGroupSrcListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table for displaying the address SFM (a.k.a Source List
+         Multicast) status in source list of the registered IPv6 multicast group
+         in MLD from MVR."
+    ::= { me1200IpmcMvrStatus 7 }
+
+me1200IpmcMvrMldGroupSrcListEntry OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrMldGroupSrcListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of parameters."
+    INDEX       { me1200IpmcMvrMldGroupSrcListIfIndex, me1200IpmcMvrMldGroupSrcListGroupAddress, me1200IpmcMvrMldGroupSrcListPortIndex, me1200IpmcMvrMldGroupSrcListHostAddress }
+    ::= { me1200IpmcMvrMldGroupSrcListTable 1 }
+
+ME1200IpmcMvrMldGroupSrcListEntry ::= SEQUENCE {
+    me1200IpmcMvrMldGroupSrcListIfIndex   ME1200InterfaceIndex,
+    me1200IpmcMvrMldGroupSrcListGroupAddress      InetAddressIPv6,
+    me1200IpmcMvrMldGroupSrcListPortIndex     ME1200InterfaceIndex,
+    me1200IpmcMvrMldGroupSrcListHostAddress   InetAddressIPv6,
+    me1200IpmcMvrMldGroupSrcListGroupFilterMode   ME1200IpmcMvrGroupSrcListGroupFilterMode,
+    me1200IpmcMvrMldGroupSrcListFilterTimer   Unsigned32,
+    me1200IpmcMvrMldGroupSrcListSourceType    ME1200IpmcMvrGroupSrcListSourceType,
+    me1200IpmcMvrMldGroupSrcListSourceTimer   Unsigned32,
+    me1200IpmcMvrMldGroupSrcListHardwareFilter    TruthValue
+}
+
+me1200IpmcMvrMldGroupSrcListIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the VLAN interface."
+    ::= { me1200IpmcMvrMldGroupSrcListEntry 1 }
+
+me1200IpmcMvrMldGroupSrcListGroupAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IPv6 multicast address."
+    ::= { me1200IpmcMvrMldGroupSrcListEntry 2 }
+
+me1200IpmcMvrMldGroupSrcListPortIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the physical port."
+    ::= { me1200IpmcMvrMldGroupSrcListEntry 3 }
+
+me1200IpmcMvrMldGroupSrcListHostAddress OBJECT-TYPE
+    SYNTAX      InetAddressIPv6
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Assigned IPv6 source address."
+    ::= { me1200IpmcMvrMldGroupSrcListEntry 4 }
+
+me1200IpmcMvrMldGroupSrcListGroupFilterMode OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrGroupSrcListGroupFilterMode
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote the source filtering mode of the specific
+         registered multicast group address from MVR."
+    ::= { me1200IpmcMvrMldGroupSrcListEntry 5 }
+
+me1200IpmcMvrMldGroupSrcListFilterTimer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to count down the timer for the specific multicast group's
+         filtering mode transition."
+    ::= { me1200IpmcMvrMldGroupSrcListEntry 6 }
+
+me1200IpmcMvrMldGroupSrcListSourceType OBJECT-TYPE
+    SYNTAX      ME1200IpmcMvrGroupSrcListSourceType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote the filtering type of the specific source address
+         in multicasting to the registered group address."
+    ::= { me1200IpmcMvrMldGroupSrcListEntry 7 }
+
+me1200IpmcMvrMldGroupSrcListSourceTimer OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to count down the timer for purging the specific source
+         address from the registered multicast group's source list."
+    ::= { me1200IpmcMvrMldGroupSrcListEntry 8 }
+
+me1200IpmcMvrMldGroupSrcListHardwareFilter OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "It is used to denote whether the traffic destined to the multicast
+         group address from the specific source address could be forwarding by
+         switch hardware or not."
+    ::= { me1200IpmcMvrMldGroupSrcListEntry 9 }
+
+me1200IpmcMvrControl OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrMIBObjects 4 }
+
+me1200IpmcMvrControlStatisticsClear OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrControl 1 }
+
+me1200IpmcMvrControlStatisticsClearIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of the VLAN interface."
+    ::= { me1200IpmcMvrControlStatisticsClear 1 }
+
+me1200IpmcMvrMIBConformance OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrMib 2 }
+
+me1200IpmcMvrMIBCompliances OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrMIBConformance 1 }
+
+me1200IpmcMvrMIBGroups OBJECT IDENTIFIER
+    ::= { me1200IpmcMvrMIBConformance 2 }
+
+me1200IpmcMvrGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrGlobalsAdminState }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 1 }
+
+me1200IpmcMvrPortTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrPortDoImmediateLeave }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 2 }
+
+me1200IpmcMvrInterfaceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrInterfaceName, 
+                  me1200IpmcMvrInterfaceIgmpQuerierAddress, 
+                  me1200IpmcMvrInterfaceMode, me1200IpmcMvrInterfaceTagging, 
+                  me1200IpmcMvrInterfacePriority, 
+                  me1200IpmcMvrInterfaceLastListenerQueryInterval, 
+                  me1200IpmcMvrInterfaceChannelProfile, me1200IpmcMvrInterfaceAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 3 }
+
+me1200IpmcMvrInterfaceTableRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrInterfaceTableRowEditorIfIndex, 
+                  me1200IpmcMvrInterfaceTableRowEditorName, 
+                  me1200IpmcMvrInterfaceTableRowEditorIgmpQuerierAddress, 
+                  me1200IpmcMvrInterfaceTableRowEditorMode, 
+                  me1200IpmcMvrInterfaceTableRowEditorTagging, 
+                  me1200IpmcMvrInterfaceTableRowEditorPriority, 
+                  me1200IpmcMvrInterfaceTableRowEditorLastListenerQueryInterval, 
+                  me1200IpmcMvrInterfaceTableRowEditorChannelProfile, 
+                  me1200IpmcMvrInterfaceTableRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 4 }
+
+me1200IpmcMvrVlanPortTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrVlanPortRole }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 5 }
+
+me1200IpmcMvrGroupAddressCountInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrGroupAddressCountFromIgmp, 
+                  me1200IpmcMvrGroupAddressCountFromMld }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 6 }
+
+me1200IpmcMvrIgmpVlanStatusTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrIgmpVlanStatusQuerierStatus, 
+                  me1200IpmcMvrIgmpVlanStatusActiveQuerierAddress, 
+                  me1200IpmcMvrIgmpVlanStatusQuerierUptime, 
+                  me1200IpmcMvrIgmpVlanStatusQueryInterval, 
+                  me1200IpmcMvrIgmpVlanStatusStartupQueryCount, 
+                  me1200IpmcMvrIgmpVlanStatusQuerierExpiryTime, 
+                  me1200IpmcMvrIgmpVlanStatusCounterTxQuery, 
+                  me1200IpmcMvrIgmpVlanStatusCounterTxSpecificQuery, 
+                  me1200IpmcMvrIgmpVlanStatusCounterRxQuery, 
+                  me1200IpmcMvrIgmpVlanStatusCounterRxV1Join, 
+                  me1200IpmcMvrIgmpVlanStatusCounterRxV2Join, 
+                  me1200IpmcMvrIgmpVlanStatusCounterRxV2Leave, 
+                  me1200IpmcMvrIgmpVlanStatusCounterRxV3Join, 
+                  me1200IpmcMvrIgmpVlanStatusCounterRxErrors }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 7 }
+
+me1200IpmcMvrIgmpGroupAddressTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrIgmpGroupAddressMemberPorts, 
+                  me1200IpmcMvrIgmpGroupAddressHardwareSwitch }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 8 }
+
+me1200IpmcMvrIgmpGroupSrcListTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrIgmpGroupSrcListGroupFilterMode, 
+                  me1200IpmcMvrIgmpGroupSrcListFilterTimer, 
+                  me1200IpmcMvrIgmpGroupSrcListSourceType, 
+                  me1200IpmcMvrIgmpGroupSrcListSourceTimer, 
+                  me1200IpmcMvrIgmpGroupSrcListHardwareFilter }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 9 }
+
+me1200IpmcMvrMldVlanStatusTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrMldVlanStatusQuerierStatus, 
+                  me1200IpmcMvrMldVlanStatusActiveQuerierAddress, 
+                  me1200IpmcMvrMldVlanStatusQuerierUptime, 
+                  me1200IpmcMvrMldVlanStatusQueryInterval, 
+                  me1200IpmcMvrMldVlanStatusStartupQueryCount, 
+                  me1200IpmcMvrMldVlanStatusQuerierExpiryTime, 
+                  me1200IpmcMvrMldVlanStatusCounterTxQuery, 
+                  me1200IpmcMvrMldVlanStatusCounterTxSpecificQuery, 
+                  me1200IpmcMvrMldVlanStatusCounterRxQuery, 
+                  me1200IpmcMvrMldVlanStatusCounterRxV1Report, 
+                  me1200IpmcMvrMldVlanStatusCounterRxV1Done, 
+                  me1200IpmcMvrMldVlanStatusCounterRxV2Report, 
+                  me1200IpmcMvrMldVlanStatusCounterRxErrors }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 10 }
+
+me1200IpmcMvrMldGroupAddressTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrMldGroupAddressMemberPorts, 
+                  me1200IpmcMvrMldGroupAddressHardwareSwitch }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 11 }
+
+me1200IpmcMvrMldGroupSrcListTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrMldGroupSrcListGroupFilterMode, 
+                  me1200IpmcMvrMldGroupSrcListFilterTimer, 
+                  me1200IpmcMvrMldGroupSrcListSourceType, 
+                  me1200IpmcMvrMldGroupSrcListSourceTimer, 
+                  me1200IpmcMvrMldGroupSrcListHardwareFilter }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 12 }
+
+me1200IpmcMvrControlStatisticsClearInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200IpmcMvrControlStatisticsClearIfIndex }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200IpmcMvrMIBGroups 13 }
+
+me1200IpmcMvrMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200IpmcMvrGlobalsInfoGroup, 
+                  me1200IpmcMvrPortTableInfoGroup, 
+                  me1200IpmcMvrInterfaceTableInfoGroup, 
+                  me1200IpmcMvrInterfaceTableRowEditorInfoGroup, 
+                  me1200IpmcMvrVlanPortTableInfoGroup, 
+                  me1200IpmcMvrGroupAddressCountInfoGroup, 
+                  me1200IpmcMvrIgmpVlanStatusTableInfoGroup, 
+                  me1200IpmcMvrIgmpGroupAddressTableInfoGroup, 
+                  me1200IpmcMvrIgmpGroupSrcListTableInfoGroup, 
+                  me1200IpmcMvrMldVlanStatusTableInfoGroup, 
+                  me1200IpmcMvrMldGroupAddressTableInfoGroup, 
+                  me1200IpmcMvrMldGroupSrcListTableInfoGroup, 
+                  me1200IpmcMvrControlStatisticsClearInfoGroup }
+
+    ::= { me1200IpmcMvrMIBCompliances 1 }
+
+END

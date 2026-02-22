@@ -1,0 +1,241 @@
+-- MIB file created 29-Jun-2009 13:28:22, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-P2P-IF-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-P2P-IF-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoP2PIfMIB OBJECT IDENTIFIER ::= { ciscoMgmt 668 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200808120000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: q-snmp@cisco.com
+--  Descr
+--    The Point to Point Interface MIB module.
+--    This MIB manages the generic objects for
+--    Serial link or SONET/SDH like point to point network 
+--    interfaces with the encapsulations of PPP 
+--    (Point to Point Protocol), HDLC (High Level Data Link Control)
+--    or cHDLC (CIsco extension to High Level Data Link Control) 
+--    framing.
+--    Acronyms and terms:
+--    FCS - Frame Check Sequence. The frame check sequence is 
+--          used to ensure that the data received is actually 
+--          the data sent.
+--    CRC - Cyclic Redundancy Check. The transmitting system 
+--          processes the frame check sequence portion of the 
+--          frame through an algorithm called a CRC (Cyclic 
+--          Redundancy Check).
+--    
+--    One of the usages of CRC is in the following 
+--    PPP/HLDC over SONET/SDH example.
+--    +====+
+--    | PPP|   FCS           Bit                      SONET/SDH
+--    |HDLC|=> Generation => Stuffing => Scrambling => Framing
+--    +====+   CRC 16,32
+--  RevDate
+--    200808120000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoP2PIfMIBNotifs OBJECT IDENTIFIER ::= { ciscoP2PIfMIB 0 }
+ciscoP2PIfMIBObjects OBJECT IDENTIFIER ::= { ciscoP2PIfMIB 1 }
+cp2pIfGeneralObjects OBJECT IDENTIFIER ::= { ciscoP2PIfMIBObjects 1 }
+ciscoP2PIfMIBConformance OBJECT IDENTIFIER ::= { ciscoP2PIfMIB 3 }
+ciscoP2PIfMIBCompliances OBJECT IDENTIFIER ::= { ciscoP2PIfMIBConformance 1 }
+ciscoP2PIfMIBGroups OBJECT IDENTIFIER ::= { ciscoP2PIfMIBConformance 2 }
+
+Cp2pIfCrcMode ::= INTEGER {
+        crc16(1),
+        crc32(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    Specifies the CRC mode of Cyclic Redundancy Check.
+--    crc16 - 16-bit CRC.
+--    crc32 - 32-bit CRC.
+--  Refer
+--    RFC-2615, PPP over SONET/SDH: Section 5. Configuration 
+--    Details.
+
+Cp2pIfScramblingMode ::= INTEGER {
+        on(1),
+        off(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    An enumerated value of the Scrambling encryption mode of
+--    an interface. 
+--    on  - scrambling encryption enabled.
+--    off - scrambling encryption disabled.
+--  Refer
+--    RFC-2615, PPP over SONET/SDH: Section 4. X**43 + 1 
+--    Scrambler Description.
+
+cp2pIfCfgTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cp2pIfCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Point to Point generic Configuration Table. It contains
+        the standard configuration information of the Point to Point
+        interface."
+    ::= { cp2pIfGeneralObjects 1 }
+
+cp2pIfCfgEntry OBJECT-TYPE
+    SYNTAX Cp2pIfCfgEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the configuration table for each Point to Point
+        interface. The entry is created when the Point to Point
+        related interface is created in ifTable.
+        The possible ifType of point to point interface are listed 
+        as follows:
+        [1] ppp(23)
+        [2] hdlc(118)
+        [3] propPointToPointSerial(22)"
+    INDEX { ifIndex }
+    ::= { cp2pIfCfgTable 1 }
+
+Cp2pIfCfgEntry ::= SEQUENCE {
+    cp2pIfCfgCrcMode Cp2pIfCrcMode,
+    cp2pIfCfgScramblingMode Cp2pIfScramblingMode,
+    cp2pIfCfgTransmitDelay Gauge
+    }
+
+cp2pIfCfgCrcMode OBJECT-TYPE
+    SYNTAX Cp2pIfCrcMode
+--    Rsyntax INTEGER {
+--        crc16(1),
+--        crc32(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the CRC mode for the FCS generation of a packet
+        sending via the Point to point interface."
+    DEFVAL { crc32 }
+    ::= { cp2pIfCfgEntry 1 }
+
+cp2pIfCfgScramblingMode OBJECT-TYPE
+    SYNTAX Cp2pIfScramblingMode
+--    Rsyntax INTEGER {
+--        on(1),
+--        off(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the scrambling encryption mode of the point
+        to point interface."
+    DEFVAL { off }
+    ::= { cp2pIfCfgEntry 2 }
+
+cp2pIfCfgTransmitDelay OBJECT-TYPE
+    SYNTAX Gauge(0..18000)
+--  Units
+--    microseconds
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specified the minimum delay after sending a packet via
+        the point to point interface. The value of '0' indicates 
+        the transmit delay of packet is disabled."
+    DEFVAL { 0 }
+    ::= { cp2pIfCfgEntry 3 }
+
+cp2pIfStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cp2pIfStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Point to Point Interface Statistics Table.  It contains
+        statistics information of a Point to Point interface
+        including the error statistics."
+    ::= { cp2pIfGeneralObjects 2 }
+
+cp2pIfStatsEntry OBJECT-TYPE
+    SYNTAX Cp2pIfStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the statistics table for each Point to Point
+        interface."
+    INDEX { ifIndex }
+-- Augments cp2pIfCfgEntry
+    ::= { cp2pIfStatsTable 1 }
+
+Cp2pIfStatsEntry ::= SEQUENCE {
+    cp2pIfStatsInCrcErrors Counter
+    }
+
+cp2pIfStatsInCrcErrors OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Accumulated number of CRC errors that are detected on
+        the received packets via the Point to Point interface
+        since system startup."
+    ::= { cp2pIfStatsEntry 1 }
+
+ciscoP2PIfMIBGeneralGroup OBJECT IDENTIFIER ::= { ciscoP2PIfMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects providing general information
+--    about the Cisco Point to Point interfaces.
+--  objects
+--    cp2pIfCfgCrcMode, cp2pIfCfgScramblingMode, 
+--    cp2pIfCfgTransmitDelay, cp2pIfStatsInCrcErrors
+
+ciscoP2PIfMIBCompliance OBJECT IDENTIFIER ::= { ciscoP2PIfMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Point to Point interface MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoP2PIfMIBGeneralGroup
+--   ObjVar
+--    cp2pIfCfgCrcMode
+--   ObjVar
+--    cp2pIfCfgScramblingMode
+--   ObjVar
+--    cp2pIfCfgTransmitDelay
+
+
+END
+

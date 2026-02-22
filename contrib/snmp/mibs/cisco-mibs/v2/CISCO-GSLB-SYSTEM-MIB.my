@@ -1,0 +1,1235 @@
+-- *******************************************************************
+-- CISCO-GSLB-SYSTEM-MIB.my:  Global Server Load Balancing
+-- Platform and System Status
+--   
+-- Dec 2006, Pawan N
+--   
+-- Copyright (c) 2006, 2010-2011 by Cisco Systems Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-GSLB-SYSTEM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter32,
+    Unsigned32,
+    Gauge32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    RowStatus,
+    StorageType,
+    TruthValue
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress,
+    InetAddressDNS
+        FROM INET-ADDRESS-MIB
+    sysName
+        FROM SNMPv2-MIB
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    CiscoGslbNodeServices,
+    CiscoGslbPeerStatus
+        FROM CISCO-GSLB-TC-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoGslbSystemMIB MODULE-IDENTITY
+    LAST-UPDATED    "201106060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-slb@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects for network and system
+        information of Global Server Load Balancer(GSLB) as a
+        network device.  A GSLB device is used to allocate the
+        least-loaded and proximate resource to the requester.
+        The MIB objects define information about GLSB status,
+        GSLB's peers (other GSLB devices available on its
+        network with which it interacts) information & status,
+        GSLB's proximity information related statistics, etc.
+        Further it defines related notifications.
+
+        Acronyms and their description:
+
+        DNS          : Domain Name Service (RFC1035).
+
+        D-proxy      : Local DNS name server of the client.
+
+        Proximity    : Refers to the distance or delay, in terms
+                       of network topology and not geographic
+                       distance, between the requesting client's
+                       D-proxy and the resources corresponding
+                       to that request.
+
+        Proximity    : To respond to DNS requests with the most
+        probing        proximate answers, the GSLB device
+                       communicates with a probing device located
+                       in each proximity zone to gather round-trip
+                       time (RTT) metric information measured
+                       between the requesting client's D-proxy 
+                       and the zone.  The GSLB device then directs
+                       client requests to an available resource
+                       with the lowest RTT value.
+
+        Probed       : This is the device to which the GSLB device
+        device         sends a proximity probe. This is done to
+                       learn the proximity of the device.
+
+        DRP          : Director Response Protocol (DRP) is a
+                       simple User Datagram Protocol (UDP)
+                       based application developed by
+                       Cisco Systems, Inc.  DRP enables
+                       Cisco Distributed-Director product to
+                       perform global load distribution and
+                       content routing in a sophisticated manner
+                       that accounts for server availability,
+                       relative client-to-server topological
+                       proximities, and client-to-server link
+                       latency to determine the best server.
+                       Using routing table intelligence in the
+                       network infrastructure, Distributed-Director
+                       transparently redirects end-user service
+                       requests to the closest server, as
+                       determined by client-to-server topological
+                       proximity or client-to-server link latency,
+                       resulting in increased access performance
+                       seen by the end user.
+
+        Region       : Higher-level geographical groupings that
+                       may contain one or more locations.  Each
+                       location should be assigned to a region.
+
+        Location     : Grouping for devices with common
+                       geographical attributes.  A location is
+                       assigned to a region.
+                       A location is also assigned to a zone,
+                       which is used for proximity probing.
+
+        Zone         : A network can be logically partioned into
+                       zones based on the arrangement of devices
+                       and network partion characteristics.
+                       A zone can be geographically related to
+                       data centers in a continent, a country,
+                       or a major city.  All devices, such as web
+                       servers in a data center, that are located
+                       in the same zone have the same proximity
+                       value when communicating with other areas
+                       of the Internet.  Within each zone, there
+                       is an active probing device that is
+                       configured to accept probing instructions
+                       from any GSLB device.  Probing here refers
+                       to the process of measuring RTT from one
+                       probing device to a requesting D-proxy."
+    REVISION        "201106060000Z"
+    DESCRIPTION
+        "-Deprecated cgsRegionTable and replaced it with
+        cgsRegionIdTable
+
+        -Deprecated ciscoGslbSystemMIBCompliance and replaced it with
+        ciscoGslbSystemMIBComplianceRev1
+
+        -Deprecated ciscoGslbSystemResourceGroup and replaced it with
+        ciscoGslbSystemResourceLocationGroup and 
+        ciscoGslbSystemResourceRegionGroup"
+    REVISION        "200612040000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 589 }
+
+
+ciscoGslbSystemMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIB 0 }
+
+ciscoGslbSystemMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIB 1 }
+
+ciscoGslbSystemMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIB 2 }
+
+-- Objects for Notification Control
+
+cgsNotifControl  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIBObjects 1 }
+
+-- Objects for Notification
+
+cgsNotifObjects  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIBObjects 2 }
+
+-- Objects for general status
+
+cgsGeneral  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIBObjects 3 }
+
+-- Objects for status of GSLB peers
+
+cgsPeer  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIBObjects 4 }
+
+-- Objects for Proximity Probes statistics
+
+cgsProxZoneStats  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIBObjects 5 }
+
+-- Objects for Resources
+
+cgsResources  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIBObjects 6 }
+
+
+-- General Status Objects
+
+cgsNodeService OBJECT-TYPE
+    SYNTAX          CiscoGslbNodeServices
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of role of the GSLB
+        device amongst its peers." 
+    ::= { cgsGeneral 1 }
+
+cgsNodeCommIfName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the textual name of the interface
+        used by the GSLB device to communicate with peer GSLB
+        devices.  The value of this object must be same as the
+        ifName reported by IF-MIB  for the interface instance." 
+    ::= { cgsGeneral 2 }
+
+cgsNodeCommIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object is used as an identifier for the interface
+        used by the GSLB device to communicate with peer GSLB
+        devices.  The value of this object must be same as the
+        ifIndex reported by IF-MIB for the interface identified
+        by cgsNodeCommIfName." 
+    ::= { cgsGeneral 3 }
+
+cgsNodeStatus OBJECT-TYPE
+    SYNTAX          CiscoGslbPeerStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of the GSLB device as
+        known on the GSLB network of peers." 
+    ::= { cgsGeneral 4 }
+
+cgsNodeLocation OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the administratively assigned
+        location for the GSLB device." 
+    ::= { cgsGeneral 5 }
+
+cgsNodeRegion OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the administratively assigned
+        region for the GSLB device.  This value corresponds to
+        an instance of cgsLocationRegion from cgsLocationTable." 
+    ::= { cgsGeneral 6 }
+
+cgsPeerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgsPeerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table lists the information on peers in the GSLB
+        network of devices."
+    ::= { cgsPeer 1 }
+
+cgsPeerEntry OBJECT-TYPE
+    SYNTAX          CgsPeerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cgsPeerEntryTable.  Each entry contains
+        information on the GSLB peers.  Entries are
+        added/deleted when a GSLB peer device is added/deleted
+        in GSLB network of peers."
+    INDEX           {
+                        cgsPeerAddressType,
+                        cgsPeerAddress
+                    } 
+    ::= { cgsPeerTable 1 }
+
+CgsPeerEntry ::= SEQUENCE {
+        cgsPeerAddressType InetAddressType,
+        cgsPeerAddress     InetAddress,
+        cgsPeerLocation    SnmpAdminString,
+        cgsPeerDnsName     InetAddressDNS,
+        cgsPeerService     CiscoGslbNodeServices,
+        cgsPeerStatus      CiscoGslbPeerStatus,
+        cgsPeerVersion     SnmpAdminString
+}
+
+cgsPeerAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address type of the
+        GSLB peer." 
+    ::= { cgsPeerEntry 1 }
+
+cgsPeerAddress OBJECT-TYPE
+    SYNTAX          InetAddress (SIZE  (1..16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the GSLB peer IP address.
+        The type of IP address is identified by
+        cgsPeerAddressType." 
+    ::= { cgsPeerEntry 2 }
+
+cgsPeerLocation OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the administratively assigned
+        location of the GSLB peer.  Its value must be same as
+        the value configured in cgsLocationTable." 
+    ::= { cgsPeerEntry 3 }
+
+cgsPeerDnsName OBJECT-TYPE
+    SYNTAX          InetAddressDNS
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the host name assigned uniquely
+        to a GSLB peer.  Its value is same as the value of
+        sysName of the GSLB peer." 
+    ::= { cgsPeerEntry 4 }
+
+cgsPeerService OBJECT-TYPE
+    SYNTAX          CiscoGslbNodeServices
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of role the GSLB peer
+        has in a GSLB network of peers.  Its value is same as
+        value of cgsNodeService of the GSLB peer." 
+    ::= { cgsPeerEntry 5 }
+
+cgsPeerStatus OBJECT-TYPE
+    SYNTAX          CiscoGslbPeerStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the status of GSLB peer as
+        known to the reporting GSLB device." 
+    ::= { cgsPeerEntry 6 }
+
+cgsPeerVersion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the software version installed
+        on the GSLB peer." 
+    ::= { cgsPeerEntry 7 }
+ 
+
+
+cgsProxZoneTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgsProxZoneEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used for configuring proximity zones.
+        It consists a  list of proximity probing statistics
+        for each configured proximity zone."
+    ::= { cgsProxZoneStats 1 }
+
+cgsProxZoneEntry OBJECT-TYPE
+    SYNTAX          CgsProxZoneEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cgsProxZoneTable.  Each entry contains
+        information on proximity zones and probing statistics.
+        Entries can be added/deleted/modified by administrator
+        action."
+    INDEX           { cgsProxZoneName } 
+    ::= { cgsProxZoneTable 1 }
+
+CgsProxZoneEntry ::= SEQUENCE {
+        cgsProxZoneName             SnmpAdminString,
+        cgsProxPrimaryAddressType   InetAddressType,
+        cgsProxPrimaryAddress       InetAddress,
+        cgsProxSecondaryAddressType InetAddressType,
+        cgsProxSecondaryAddress     InetAddress,
+        cgsProxEchoSentReqs         Counter32,
+        cgsProxEchoRcvdResps        Counter32,
+        cgsProxSentMeasureReqs      Counter32,
+        cgsProxRcvdMeasureResps     Counter32,
+        cgsProxTotalSentReqs        Counter32,
+        cgsProxTotalRcvdResps       Counter32,
+        cgsProxSendRate             Unsigned32,
+        cgsProxRcvdRate             Unsigned32,
+        cgsProxPeakSendRate         Unsigned32,
+        cgsProxPeakRcvdRate         Unsigned32,
+        cgsProxStorageType          StorageType,
+        cgsProxRowStatus            RowStatus
+}
+
+cgsProxZoneName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a name given uniquely for
+        a proximity zone." 
+    ::= { cgsProxZoneEntry 1 }
+
+cgsProxPrimaryAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address type of the
+        primary device being probed in the proximity zone."
+    DEFVAL          { ipv4 } 
+    ::= { cgsProxZoneEntry 2 }
+
+cgsProxPrimaryAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address of the primary
+        device being probed  in the proximity zone.  The type of
+        IP address is identified by cgsProxPrimaryAddressType.
+        This object is mandatory for row creation." 
+    ::= { cgsProxZoneEntry 3 }
+
+cgsProxSecondaryAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address type of the
+        secondary device that may be probed in the
+        proximity zone."
+    DEFVAL          { ipv4 } 
+    ::= { cgsProxZoneEntry 4 }
+
+cgsProxSecondaryAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the IP address of the secondary
+        device that may be probed for proximity in the proximity
+        zone.  The type of IP address is identified by
+        cgsProxSecondaryAddressType."
+    DEFVAL          { "" } 
+    ::= { cgsProxZoneEntry 5 }
+
+cgsProxEchoSentReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DRP echo requests
+        sent by GSLB to all probed devices." 
+    ::= { cgsProxZoneEntry 6 }
+
+cgsProxEchoRcvdResps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DRP echo responses
+        received by GLSB from all probed devices." 
+    ::= { cgsProxZoneEntry 7 }
+
+cgsProxSentMeasureReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DRP measured
+        requests sent by GSLB to all probed devices." 
+    ::= { cgsProxZoneEntry 8 }
+
+cgsProxRcvdMeasureResps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of DRP measured
+        responses received by GSLB from all probed devices." 
+    ::= { cgsProxZoneEntry 9 }
+
+cgsProxTotalSentReqs OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "requests"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total of DRP requests sent
+        by GSLB to probed device in the proximity zone." 
+    ::= { cgsProxZoneEntry 10 }
+
+cgsProxTotalRcvdResps OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "responses"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total of DRP responses
+        received by GSLB from all probed devices in the
+        proximity zone." 
+    ::= { cgsProxZoneEntry 11 }
+
+cgsProxSendRate OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "rate per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current transmitted DRP
+        request rate per second." 
+    ::= { cgsProxZoneEntry 12 }
+
+cgsProxRcvdRate OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "rate per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the current received DRP response
+        rate per second." 
+    ::= { cgsProxZoneEntry 13 }
+
+cgsProxPeakSendRate OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "rate per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the peak transmitted DRP request
+        rate per second." 
+    ::= { cgsProxZoneEntry 14 }
+
+cgsProxPeakRcvdRate OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "rate per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the peak received DRP response
+        rate per second." 
+    ::= { cgsProxZoneEntry 15 }
+
+cgsProxStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cgsProxZoneEntry 16 }
+
+cgsProxRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cgsProxZoneTable." 
+    ::= { cgsProxZoneEntry 17 }
+ 
+
+
+cgsRegionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgsRegionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This table is used to configure regions on the device.
+        It consists a list of regions configured on the GSLB
+        device."
+    ::= { cgsResources 1 }
+
+cgsRegionEntry OBJECT-TYPE
+    SYNTAX          CgsRegionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "An entry in cgsRegionTable.  Each entry contains the
+        information about a region.  Entries can be
+        added/deleted/modified by administrator action."
+    INDEX           { cgsRegionName } 
+    ::= { cgsRegionTable 1 }
+
+CgsRegionEntry ::= SEQUENCE {
+        cgsRegionName        SnmpAdminString,
+        cgsRegionComments    SnmpAdminString,
+        cgsRegionStorageType StorageType,
+        cgsRegionRowStatus   RowStatus
+}
+
+cgsRegionName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      not-accessible
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the name given uniquely for a
+        region." 
+    ::= { cgsRegionEntry 1 }
+
+cgsRegionComments OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the comments associated with the
+        region."
+    DEFVAL          { "" } 
+    ::= { cgsRegionEntry 2 }
+
+cgsRegionStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cgsRegionEntry 3 }
+
+cgsRegionRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cgsRegionTable" 
+    ::= { cgsRegionEntry 4 }
+ 
+
+
+cgsLocationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgsLocationEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure locations on the device.
+        It consists a list of locations configured on the GSLB
+        device."
+    ::= { cgsResources 2 }
+
+cgsLocationEntry OBJECT-TYPE
+    SYNTAX          CgsLocationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cgsLocationTable.  Each entry contains the
+        information about a location.  Entries can be
+        added/deleted/modified by administrator action."
+    INDEX           { cgsLocationName } 
+    ::= { cgsLocationTable 1 }
+
+CgsLocationEntry ::= SEQUENCE {
+        cgsLocationName        SnmpAdminString,
+        cgsLocationRegion      SnmpAdminString,
+        cgsLocationZone        SnmpAdminString,
+        cgsLocationComments    SnmpAdminString,
+        cgsLocationStorageType StorageType,
+        cgsLocationRowStatus   RowStatus
+}
+
+cgsLocationName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name given uniquely for a
+        location." 
+    ::= { cgsLocationEntry 1 }
+
+cgsLocationRegion OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a region to which this location
+        instance is associated.
+        This object is mandatory for a row creation." 
+    ::= { cgsLocationEntry 2 }
+
+cgsLocationZone OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies a zone to which this location
+        instance is associated."
+    DEFVAL          { "" } 
+    ::= { cgsLocationEntry 3 }
+
+cgsLocationComments OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the comments associated with the
+        location."
+    DEFVAL          { "" } 
+    ::= { cgsLocationEntry 4 }
+
+cgsLocationStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row"
+    DEFVAL          { nonVolatile } 
+    ::= { cgsLocationEntry 5 }
+
+cgsLocationRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cgsLocationTable" 
+    ::= { cgsLocationEntry 6 }
+ 
+
+
+cgsRegionIdTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CgsRegionIdEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure regions on the device.
+        It consists a list of regions configured on the GSLB
+        device."
+    ::= { cgsResources 3 }
+
+cgsRegionIdEntry OBJECT-TYPE
+    SYNTAX          CgsRegionIdEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cgsRegionIdTable.Each entry contains the
+        information about a region.  Entries can be
+        added/deleted/modified by administrator action."
+    INDEX           { cgsRegionId } 
+    ::= { cgsRegionIdTable 1 }
+
+CgsRegionIdEntry ::= SEQUENCE {
+        cgsRegionId                          Unsigned32,
+        cgsRegionIdName                      SnmpAdminString,
+        cgsRegionIdComments                  SnmpAdminString,
+        cgsReqCountPerRegionId               Counter32,
+        cgsReqCountRatePerRegionId1Min       Gauge32,
+        cgsReqCountRatePerRegionId5Min       Gauge32,
+        cgsReqCountRatePerRegionId30Min      Gauge32,
+        cgsReqCountRatePerRegionId4Hr        Gauge32,
+        cgsAnswerCountPerRegionId            Counter32,
+        cgsAnswerCountRatePerRegionId1Min    Gauge32,
+        cgsAnswerCountRatePerRegionId5Min    Gauge32,
+        cgsAnswerCountRatePerRegionId30Min   Gauge32,
+        cgsAnswerCountRatePerRegionId4Hr     Gauge32,
+        cgsUnAnswerCountPerRegionId          Counter32,
+        cgsUnAnswerCountRatePerRegionId1Min  Gauge32,
+        cgsUnAnswerCountRatePerRegionId5Min  Gauge32,
+        cgsUnAnswerCountRatePerRegionId30Min Gauge32,
+        cgsUnAnswerCountRatePerRegionId4Hr   Gauge32,
+        cgsRegionIdStorageType               StorageType,
+        cgsRegionIdRowStatus                 RowStatus
+}
+
+cgsRegionId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies a region." 
+    ::= { cgsRegionIdEntry 1 }
+
+cgsRegionIdName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..80))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name given uniquely for a
+        region." 
+    ::= { cgsRegionIdEntry 2 }
+
+cgsRegionIdComments OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the comments associated with the
+        region."
+    DEFVAL          { "" } 
+    ::= { cgsRegionIdEntry 3 }
+
+cgsReqCountPerRegionId OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of DNS requests
+        received from this region since the GSLB device was last
+        started." 
+    ::= { cgsRegionIdEntry 4 }
+
+cgsReqCountRatePerRegionId1Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second DNS requests
+        received from this region, calculated during the last one 
+        minute interval." 
+    ::= { cgsRegionIdEntry 5 }
+
+cgsReqCountRatePerRegionId5Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second DNS requests
+        received from this region , calculated during the last 5 
+        minute interval." 
+    ::= { cgsRegionIdEntry 6 }
+
+cgsReqCountRatePerRegionId30Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second DNS requests
+        received from this region , calculated during the last 30
+        minute interval." 
+    ::= { cgsRegionIdEntry 7 }
+
+cgsReqCountRatePerRegionId4Hr OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second DNS requests
+        received from this region , calculated during the last 4
+        hour interval." 
+    ::= { cgsRegionIdEntry 8 }
+
+cgsAnswerCountPerRegionId OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of times answers in
+        this region are used in replying for DNS queries, since the 
+        GSLB device was last started." 
+    ::= { cgsRegionIdEntry 9 }
+
+cgsAnswerCountRatePerRegionId1Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second hit count for
+        answers in this region, calculated during the last 1 minute
+        interval." 
+    ::= { cgsRegionIdEntry 10 }
+
+cgsAnswerCountRatePerRegionId5Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second hit count for
+        answers in this region, calculated during the last 5 minute
+        interval." 
+    ::= { cgsRegionIdEntry 11 }
+
+cgsAnswerCountRatePerRegionId30Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second hit count for
+        answers in this region, calculated during the last 30 minute
+        interval." 
+    ::= { cgsRegionIdEntry 12 }
+
+cgsAnswerCountRatePerRegionId4Hr OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second hit count for
+        answers in this region, calculated during the last 4 hour
+        interval." 
+    ::= { cgsRegionIdEntry 13 }
+
+cgsUnAnswerCountPerRegionId OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "number of hits"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the total number of times DNS requests
+        from this region have not been answered, since the GSLB device
+        was last started." 
+    ::= { cgsRegionIdEntry 14 }
+
+cgsUnAnswerCountRatePerRegionId1Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second unanswered
+        DNS requests from this region, calculated during the last
+        one minute." 
+    ::= { cgsRegionIdEntry 15 }
+
+cgsUnAnswerCountRatePerRegionId5Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second unanswered
+        DNS requests from this region, calculated during the
+        last 5 minute interval." 
+    ::= { cgsRegionIdEntry 16 }
+
+cgsUnAnswerCountRatePerRegionId30Min OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second unanswered
+        DNS requests from this region, calculated during the 
+        last 30 minute interval." 
+    ::= { cgsRegionIdEntry 17 }
+
+cgsUnAnswerCountRatePerRegionId4Hr OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "hits per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the average per second unanswered
+        DNS requests from this region, calculated during the 
+        last 4 hour interval." 
+    ::= { cgsRegionIdEntry 18 }
+
+cgsRegionIdStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cgsRegionIdEntry 19 }
+
+cgsRegionIdRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cgsRegionIdTable. Users can modify all writable objects
+        in this row when this object value is 'active'. The 
+        cgsRegionIdName object need to be set to valid value
+        by the users before user can activate the row." 
+    ::= { cgsRegionIdEntry 20 }
+ 
+
+
+-- Notification Control Group
+
+cgsPeerEventNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state of sending
+        notifications to signal a GSLB peer status change."
+    DEFVAL          { false } 
+    ::= { cgsNotifControl 1 }
+
+-- Objects for Notification
+
+cgsPeerPrevStatus OBJECT-TYPE
+    SYNTAX          CiscoGslbPeerStatus
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object is used for sending the value of cgsPeerStatus
+        before transitioning to new state." 
+    ::= { cgsNotifObjects 1 }
+
+-- Notifications
+
+ciscoGslbSystemPeerEventStatus NOTIFICATION-TYPE
+    OBJECTS         {
+                        sysName,
+                        cgsPeerDnsName,
+                        cgsPeerService,
+                        cgsPeerPrevStatus,
+                        cgsPeerStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when the value of
+        cgsPeerStatus changes from one state to another.
+        This notification is reported only by a GSLB device
+        with cgsNodeService value of 'primary'."
+   ::= { ciscoGslbSystemMIBNotifs 1 }
+-- Conformance
+
+ciscoGslbSystemMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIBConform 1 }
+
+ciscoGslbSystemMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoGslbSystemMIBConform 2 }
+
+
+-- Compliance
+
+ciscoGslbSystemMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Compliance statement for entities which implement
+        the Cisco GSLB System MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoGslbSystemGeneralGroup,
+                        ciscoGslbSystemPeerGroup,
+                        ciscoGslbSystemProxZoneGroup,
+                        ciscoGslbSystemResourceGroup,
+                        ciscoGslbSystemNotifControlGroup,
+                        ciscoGslbSystemNotifObjectsGroup,
+                        ciscoGslbSystemNotifGroup
+                    }
+    ::= { ciscoGslbSystemMIBCompliances 1 }
+
+ciscoGslbSystemMIBComplianceRev1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance statement for entities which implement
+        the Cisco GSLB System MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoGslbSystemGeneralGroup,
+                        ciscoGslbSystemPeerGroup,
+                        ciscoGslbSystemProxZoneGroup,
+                        ciscoGslbSystemNotifControlGroup,
+                        ciscoGslbSystemNotifObjectsGroup,
+                        ciscoGslbSystemNotifGroup,
+                        ciscoGslbSystemResourceLocationGroup,
+                        ciscoGslbSystemResourceRegionGroup
+                    }
+    ::= { ciscoGslbSystemMIBCompliances 2 }
+
+-- Units of Conformance
+
+ciscoGslbSystemGeneralGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgsNodeService,
+                        cgsNodeCommIfName,
+                        cgsNodeCommIfIndex,
+                        cgsNodeStatus,
+                        cgsNodeLocation,
+                        cgsNodeRegion
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing general GSLB status."
+    ::= { ciscoGslbSystemMIBGroups 1 }
+
+ciscoGslbSystemPeerGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgsPeerLocation,
+                        cgsPeerDnsName,
+                        cgsPeerService,
+                        cgsPeerStatus,
+                        cgsPeerVersion
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing GSLB peer status."
+    ::= { ciscoGslbSystemMIBGroups 2 }
+
+ciscoGslbSystemProxZoneGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgsProxPrimaryAddressType,
+                        cgsProxPrimaryAddress,
+                        cgsProxSecondaryAddressType,
+                        cgsProxSecondaryAddress,
+                        cgsProxEchoSentReqs,
+                        cgsProxEchoRcvdResps,
+                        cgsProxSentMeasureReqs,
+                        cgsProxRcvdMeasureResps,
+                        cgsProxTotalSentReqs,
+                        cgsProxTotalRcvdResps,
+                        cgsProxSendRate,
+                        cgsProxRcvdRate,
+                        cgsProxPeakSendRate,
+                        cgsProxPeakRcvdRate,
+                        cgsProxStorageType,
+                        cgsProxRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing GSLB proximity
+        zone statistics."
+    ::= { ciscoGslbSystemMIBGroups 3 }
+
+ciscoGslbSystemResourceGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgsRegionComments,
+                        cgsRegionStorageType,
+                        cgsRegionRowStatus,
+                        cgsLocationRegion,
+                        cgsLocationZone,
+                        cgsLocationComments,
+                        cgsLocationStorageType,
+                        cgsLocationRowStatus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing GSLB resource
+        configurations."
+    ::= { ciscoGslbSystemMIBGroups 4 }
+
+ciscoGslbSystemNotifControlGroup OBJECT-GROUP
+    OBJECTS         { cgsPeerEventNotifEnable }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects controls the sending of
+        notifications defined in this MIB module."
+    ::= { ciscoGslbSystemMIBGroups 5 }
+
+ciscoGslbSystemNotifObjectsGroup OBJECT-GROUP
+    OBJECTS         { cgsPeerPrevStatus }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects that convey information for
+        notifications defined in this MIB module."
+    ::= { ciscoGslbSystemMIBGroups 6 }
+
+ciscoGslbSystemNotifGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoGslbSystemPeerEventStatus }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing GSLB System events."
+    ::= { ciscoGslbSystemMIBGroups 7 }
+
+ciscoGslbSystemResourceLocationGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgsLocationRegion,
+                        cgsLocationZone,
+                        cgsLocationComments,
+                        cgsLocationStorageType,
+                        cgsLocationRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing GSLB location resource
+        configurations."
+    ::= { ciscoGslbSystemMIBGroups 8 }
+
+ciscoGslbSystemResourceRegionGroup OBJECT-GROUP
+    OBJECTS         {
+                        cgsRegionIdName,
+                        cgsRegionIdComments,
+                        cgsReqCountPerRegionId,
+                        cgsReqCountRatePerRegionId1Min,
+                        cgsReqCountRatePerRegionId5Min,
+                        cgsReqCountRatePerRegionId30Min,
+                        cgsReqCountRatePerRegionId4Hr,
+                        cgsAnswerCountPerRegionId,
+                        cgsAnswerCountRatePerRegionId1Min,
+                        cgsAnswerCountRatePerRegionId5Min,
+                        cgsAnswerCountRatePerRegionId30Min,
+                        cgsAnswerCountRatePerRegionId4Hr,
+                        cgsUnAnswerCountPerRegionId,
+                        cgsUnAnswerCountRatePerRegionId1Min,
+                        cgsUnAnswerCountRatePerRegionId5Min,
+                        cgsUnAnswerCountRatePerRegionId30Min,
+                        cgsUnAnswerCountRatePerRegionId4Hr,
+                        cgsRegionIdStorageType,
+                        cgsRegionIdRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing GSLB region resource
+        configurations."
+    ::= { ciscoGslbSystemMIBGroups 9 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+

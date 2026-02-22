@@ -1,0 +1,549 @@
+-- *****************************************************************
+-- CISCO-WAN-OPTIMIZATION-CAPABILITY.my : A MIB for
+-- CISCO-WAN-OPTIMIZATION-MIB capabilities
+--   
+-- June 2012, Srividya Lakshmi and Nikhita P
+-- Copyright (c) 2012, 2015 by cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-WAN-OPTIMIZATION-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoWanOptimizationCapability MODULE-IDENTITY
+    LAST-UPDATED    "201511090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-waas@cisco.com"
+    DESCRIPTION
+        "Agent capabilities for CISCO-WAN-OPTIMIZATION MIB"
+    REVISION        "201511090000Z"
+    DESCRIPTION
+        "Added CIFS and Video AO objects to the list of Not-supported
+        objects in ciscoWanOptimizationCapabilityWAASV6R0 agent."
+    REVISION        "201510050000Z"
+    DESCRIPTION
+        "Added ciscoWanOptimizationCapabilityWAASV6R0 agent for
+        CISCO-WAN-OPTIMIZATION-MIB"
+    REVISION        "201206230000Z"
+    DESCRIPTION
+        "Added ciscoWanOptimizationCapabilityWAASV5R0 agent for
+        CISCO-WAN-OPTIMIZATION-CAPABILITY MIB."
+    REVISION        "201206220000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoAgentCapability 611 }
+
+
+
+ciscoWanOptimizationCapabilityWAASV4R4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=WAAS
+                     OSVERSION=V4R4"
+    STATUS          current
+    DESCRIPTION
+        "Agent capabilities for CISCO-WAN-OPTIMIZATION-MIB of WAAS V4R4"
+
+    SUPPORTS        CISCO-WAN-OPTIMIZATION-MIB
+    INCLUDES        {
+                        cwoGeneralGroup,
+                        cwoTfoBaseGroup,
+                        cwoTfoExtGroup,
+                        cwoAoStatsGroup,
+                        cwoOverloadNotificationGroup,
+                        cwoCpuNotificationGroup,
+                        cwoAoSmbExtendedStatsGroup
+                    }
+    VARIATION       cwoGeneralActivePeers
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoGeneralMaxActivePeers
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoGeneralCpuThrottleHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoGeneralCpuThrottleLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoGeneralCpuThrottlPeriod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsBytesReadCache
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsBytesWriteCache
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsBytesReadServer
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsBytesWriteServer
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsBytesReadClient
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsBytesWriteClient
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsActiveReqs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsProcessedReqs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsTotalTimedOutReqs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsTotalRemoteReqs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsTotalLocalReqs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsRemoteAvgTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsLocalAvgTime
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsMDCacheHitCount
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsRACacheHitCount
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsRACacheHitRate
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsMDCacheHitRate
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsMaxRACacheSize
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsMaxMDCacheSize
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsMDCacheSize
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsRAEvictedAge
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsRTT
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsTotalRespTimeSaving
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsOpenFiles
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsTotalFilesInRACache
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoTfoConnectionOverload
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoPeerOverload
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoCpuThrottlingOn
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoCpuThrottlingOff
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    ::= { ciscoWanOptimizationCapability 1 }
+
+ciscoWanOptimizationCapabilityWAASV5R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=WAAS
+                     OSVERSION=V5R0"
+    STATUS          current
+    DESCRIPTION
+        "Agent capability for CISCO-WAN-OPTIMIZATION-MIB of WAAS V5R0"
+
+    SUPPORTS        CISCO-WAN-OPTIMIZATION-MIB
+    INCLUDES        {
+                        cwoGeneralGroup,
+                        cwoTfoBaseGroup,
+                        cwoTfoExtGroup,
+                        cwoAoStatsGroup,
+                        cwoOverloadNotificationGroup,
+                        cwoCpuNotificationGroup,
+                        cwoAoSmbExtendedStatsGroup,
+                        cwoLicenseNotificationGroup,
+                        cwoAoHttpExtendedStatsGroup,
+                        cwoAoMapiExtendedStatsGroup,
+                        cwoAoNfsExtendedStatsGroup,
+                        cwoAoVideoExtendedStatsGroup,
+                        cwoAoCifsExtendedStatsGroup,
+                        cwoAoApplicationStatsGroup,
+                        cwoAoPolicyMapStatsGroup,
+                        cwoAoClassMapStatsGroup,
+                        cwoAoStatsGroupRev1,
+                        cwoAoTfoExtGroupRev1
+                    }
+    VARIATION       cwoGeneralActivePeers
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoGeneralMaxActivePeers
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoGeneralCpuThrottleHigh
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoGeneralCpuThrottleLow
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoGeneralCpuThrottlPeriod
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsTotalTimedOutReqs
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoAoSmbxStatsTotalFilesInRACache
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoTfoConnectionOverload
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoPeerOverload
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoCpuThrottlingOn
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    VARIATION       cwoCpuThrottlingOff
+    ACCESS          not-implemented
+    DESCRIPTION
+        "Not implemented"
+
+    ::= { ciscoWanOptimizationCapability 2 }
+
+ciscoWanOptimizationCapabilityWAASV6R0 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "OS=WAAS
+                     OSVERSION=V6R0"
+    STATUS          current
+    DESCRIPTION
+        "Agent capability for CISCO-WAN-OPTIMIZATION-MIB of WAAS V6R0"
+
+    SUPPORTS        CISCO-WAN-OPTIMIZATION-MIB
+    INCLUDES        {
+                        cwoGeneralGroup,
+                        cwoTfoBaseGroup,
+                        cwoTfoExtGroup,
+                        cwoAoStatsGroup,
+                        cwoOverloadNotificationGroup,
+                        cwoCpuNotificationGroup,
+                        cwoAoSmbExtendedStatsGroup,
+                        cwoLicenseNotificationGroup,
+                        cwoAoHttpExtendedStatsGroup,
+                        cwoAoMapiExtendedStatsGroup,
+                        cwoAoNfsExtendedStatsGroup,
+                        cwoAoApplicationStatsGroup,
+                        cwoAoPolicyMapStatsGroup,
+                        cwoAoClassMapStatsGroup,
+                        cwoAoStatsGroupRev1,
+                        cwoAoTfoExtGroupRev1,
+                        cwoAoHttpExtendedStatsGroupRev1,
+                        cwoAoSmbExtendedStatsGroupRev1
+                    }
+    VARIATION       cwoGeneralActivePeers
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cwoGeneralMaxActivePeers
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cwoGeneralCpuThrottleHigh
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cwoGeneralCpuThrottleLow
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cwoGeneralCpuThrottlPeriod
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cwoAoSmbxStatsTotalTimedOutReqs
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cwoAoSmbxStatsMDCacheSize
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cwoAoVideoxStatsTotalInBytes
+    DESCRIPTION
+        "Not supported as Video Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoVideoxStatsTotalOutBytes
+    DESCRIPTION
+        "Not supported as Video Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsTotalReadBytes
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsTotalWrittenBytes
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsTotalRemoteReqs
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsTotalLocalReqs
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsTotalRemoteTime
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsTotalLocalTime
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsConnectedSessions
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsOpenFiles
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsMaxCacheSize
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsCurrentCacheSize
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsMaxCacheResources
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsCacheResources
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsEvictedResources
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsLastEvictedTime
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsVolHiWatermark
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsVolLoWatermark
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsAmntHiWatermark
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsAmntLoWatermark
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsEvictedAge
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsEvictedLastAccess
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsFFTotalReqs
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsFFRemoteReqs
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsFFLocalRespTime
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsFFRemoteRespTime
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoAoCifsxStatsDirResources
+    DESCRIPTION
+        "Not supported as CIFS Application Optimizer support is removed
+        from WAAS."
+
+    VARIATION       cwoTfoConnectionOverload
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cwoPeerOverload
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cwoCpuThrottlingOn
+    DESCRIPTION
+        "Not supported"
+
+    VARIATION       cwoCpuThrottlingOff
+    DESCRIPTION
+        "Not supported"
+
+    ::= { ciscoWanOptimizationCapability 3 }
+
+END
+
+
+
+
+
+
+
+
+

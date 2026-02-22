@@ -1,0 +1,794 @@
+-- *****************************************************************
+-- CISCO-VISM-CONN-STAT-MIB 
+--   The MIB contains channel counters information for 
+--   VISM(Voice Interworking Service Module).
+--
+-- April 2004, Rashmi Purandare
+-- August 2005, Rashmi Purandare
+--
+-- Copyright (c) 2003, 2004, 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ****************************************************************
+
+CISCO-VISM-CONN-STAT-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Integer32,
+    Counter32,
+    Unsigned32
+                               FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP               FROM SNMPv2-CONF
+
+    vismChanGrp                FROM BASIS-MIB
+
+    ciscoWan                   FROM CISCOWAN-SMI;
+
+ciscoVismConnStatMIB MODULE-IDENTITY
+    LAST-UPDATED    "200509260000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+    DESCRIPTION
+        "The MIB module contain VISM channel
+         counters information.
+        "
+    REVISION    "200509260000Z"
+    DESCRIPTION
+        "Added 
+          - vismChanOamLpbkTimeoutCnts
+          - vismChanOamLpbkTimeoutDuration
+        "
+    REVISION    "200404220000Z"
+    DESCRIPTION
+        "Added 
+          - vismChanXmtAisCnts
+          - vismChanRcvAisCnts
+          - vismChanXmtFerfCnts
+          - vismChanRcvFerfCnts
+          - vismChanAal5PduSentPkts
+          - vismChanAal5PduRcvdPkts
+          - vismChanAisDelayLeft
+        "
+    REVISION    "200312120000Z"
+    DESCRIPTION
+        "Added 
+          - vismChan24HrPeakXmtCellRate
+          - vismChanCurrentXmtCellRate
+          - vismChan24HrPeakRcvCellRate
+          - vismChanCurrentRcvCellRate
+          - vismAisSuppressCnt
+          - ciscoVismConnStatGroup1
+          - ciscoVismConnStatCompliance1
+
+         Deprecated
+          - ciscoVismConnStatCompliance
+        "
+    REVISION    "200310150000Z"
+    DESCRIPTION
+        "Initial version of the MIB.
+
+        The content of this MIB was originally available
+        in SMIv1 version. The MIB has been converted to
+        SMIv2 version and descriptions of some of the objects
+        have been modified."
+    ::= { ciscoWan 89 }
+
+
+vismChanCntGrp          OBJECT IDENTIFIER ::= { vismChanGrp 3 }
+
+ 
+vismChanCntGrpTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismChanCntGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "vismChanCntGrpTable contains VISM channels counters. 
+        "
+    ::= { vismChanCntGrp 1 }
+ 
+vismChanCntGrpEntry OBJECT-TYPE
+    SYNTAX      VismChanCntGrpEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry for each voice channel.
+        "
+    INDEX   { vismCntChanNum }
+    ::= { vismChanCntGrpTable 1 }
+ 
+VismChanCntGrpEntry ::=
+    SEQUENCE {
+                vismCntChanNum                          Integer32,
+                vismCntClrButton                        INTEGER,
+                vismChanAal2HecErrors                   Counter32,
+                vismChanAal2CrcErrors                   Counter32,
+                vismChanAal2OamLpbLostCells             Counter32,
+                vismChanAal2InvOsfCells                 Counter32,
+                vismChanAal2InvParCells                 Counter32,
+                vismChanAal2CpsSentPkts                 Counter32,
+                vismChanAal2CpsRcvdPkts                 Counter32,
+                vismChanAal2CpsInvCidPkts               Counter32,
+                vismChanAal2CpsInvUuiPkts               Counter32,
+                vismChanAal2CpsInvLenPkts               Counter32,
+                vismChanAal5InvCpiPdus                  Counter32,
+                vismChanAal5OversizedSdusRcvdPdus       Counter32,
+                vismChanAal5InvLenPdus                  Counter32,
+                vismChanAal5Crc32ErrorPdus              Counter32,
+                vismChanAal5ReassemTimerExpiryPdus      Counter32,
+                vismChan24HrPeakXmtCellRate             Counter32,
+                vismChanCurrentXmtCellRate              Counter32,
+                vismChan24HrPeakRcvCellRate             Counter32,
+                vismChanCurrentRcvCellRate              Counter32,
+                vismChanAisSuppressCount                Counter32,
+                vismChanXmtAisCnts                      Counter32,
+                vismChanRcvAisCnts                      Counter32,
+                vismChanXmtFerfCnts                     Counter32,
+                vismChanRcvFerfCnts                     Counter32,
+                vismChanAal5PduSentPkts                 Counter32,
+                vismChanAal5PduRcvdPkts                 Counter32,
+                vismChanAisDelayLeft                    Unsigned32,
+                vismChanOamLpbkTimeoutCnts              Counter32,
+                vismChanOamLpbkTimeoutDuration          Unsigned32
+}
+
+vismCntChanNum OBJECT-TYPE
+    SYNTAX      Integer32 (131..510)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object identifies the LCN(Logical Channel
+         Number) on the VISM.
+        "
+    ::= { vismChanCntGrpEntry 1 }
+
+
+-- The following objects are commented out and 
+-- obsoleted in the V1 version and thus remain
+-- here for consistency.
+
+
+-- vismChanReassCells   OBJECT-TYPE
+--    SYNTAX      Counter32
+--    MAX-ACCESS  read-only
+--    STATUS      current
+-- obsolete
+--    DESCRIPTION
+--        "The number of cells played out to T1/E1 port.
+--        "
+--    ::= { vismChanCntGrpEntry   2 }
+-- 
+-- vismChanGenCells     OBJECT-TYPE
+--    SYNTAX      Counter32
+--    MAX-ACCESS  read-only
+--    STATUS       current
+-- obsolete
+--    DESCRIPTION
+--        "The number of cells generated from T1/E1 port.
+--        "
+--    ::= { vismChanCntGrpEntry   3 }
+-- 
+-- vismChanPointerReframes  OBJECT-TYPE
+--    SYNTAX      Counter32
+--    MAX-ACCESS  read-only
+--    STATUS      current
+-- obsolete
+--    DESCRIPTION
+--        "The number of events of SDT pointers wrong arrival.
+--        "
+--    ::= { vismChanCntGrpEntry   4 }
+-- 
+-- vismChanBufUnderflows    OBJECT-TYPE
+--    SYNTAX      Counter32
+--    MAX-ACCESS  read-only
+--    STATUS      current
+-- obsolete
+--    DESCRIPTION
+--        "The number of buffer underflows in Egress direction.
+--        "
+--    ::= { vismChanCntGrpEntry   5 }
+-- 
+-- vismChanBufOverflows OBJECT-TYPE
+--    SYNTAX      Counter32
+--    MAX-ACCESS  read-only
+--    STATUS      current
+-- obsolete
+--    DESCRIPTION
+--        "The number of buffer overflows in Egress direction.
+--        "
+--    ::= { vismChanCntGrpEntry   6 }
+-- 
+-- vismChanIngrDiscardedBytes   OBJECT-TYPE
+--    SYNTAX      Counter32
+--    MAX-ACCESS  read-only
+--    STATUS      current
+-- obsolete
+--    DESCRIPTION
+--        "The number of bytes discarded due to shelf alarm in ingress
+--         direction from port data.
+--        "
+--    ::= { vismChanCntGrpEntry   7 }
+-- 
+-- vismChanUflowInsCells    OBJECT-TYPE
+--    SYNTAX      Counter32
+--    MAX-ACCESS  read-only
+--    STATUS      current
+-- obsolete
+--    DESCRIPTION
+--        "The Number of All 1's cells inserted in case of
+--         Egress Buffer Underflow.
+--        "
+--    ::= { vismChanCntGrpEntry   8 }
+-- 
+-- vismChanOflowDropBytes   OBJECT-TYPE
+--    SYNTAX      Counter32
+--    MAX-ACCESS  read-only
+--    STATUS      current
+-- obsolete
+--    DESCRIPTION
+--        "The Number of bytes discarded in Egress direction because of
+--         Egress buffer overflow.
+--        "
+--    ::= { vismChanCntGrpEntry 9 }
+--
+
+vismCntClrButton   OBJECT-TYPE
+    SYNTAX      INTEGER {
+                   noAction      (1),
+                   resetcounters (2)
+                }
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object is use to either reset counters or
+         perform no action(do not clear counters).
+        "
+    ::= { vismChanCntGrpEntry 10 }
+
+vismChanAal2HecErrors   OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object keep count of egress AAL2(ATM
+         Adaptation layer 2) CPS(Common Part Sub-layer)
+         PDU(Protocol Data Unit) dropped due to HEC(Header
+         Error Control) error.
+        "
+    ::= { vismChanCntGrpEntry 11 }
+ 
+vismChanAal2CrcErrors   OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object keeps track of egress AAL2 Type3
+        CPS PDUs dropped due to invalid CRC-10(Cyclic
+        redundancy check) error. CRC validation is for
+        Type 3 packets only. Type 1 packets are not
+        subjected to CRC-10 error validation. Also this
+        counter keeps track of CRC-10 errors for the
+        Type 3 packets which are generated by the the
+        datamover CPU only. It does not take into account
+        of Type 3 packets generated by the DSP(Digital
+        Signal Processing).
+        "
+    ::= { vismChanCntGrpEntry 12 }
+ 
+
+vismChanAal2OamLpbLostCells  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object keeps track of the number of
+         OAM(Operation and management) loopback cells 
+         lost. OAM loopback cells are sent on a periodic
+         basis (1 sec) on each PVC(Permanent Virtual 
+         Circuit) to monitor the health of the PVC.
+        "
+    ::= { vismChanCntGrpEntry 13 }
+
+vismChanAal2InvOsfCells  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object keeps track of the number AAL2 cells
+         dropped due to invalid OSF (OffSet Field) in
+         the egress direction.
+        "
+    ::= { vismChanCntGrpEntry 14 }
+
+vismChanAal2InvParCells  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object keeps track of the number of AAL2
+         cells dropped due to invalid Parity bit field
+         in the egress direction.
+        "
+    ::= { vismChanCntGrpEntry 15 }
+
+vismChanAal2CpsSentPkts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object keeps track of the number of AAL2
+         CPS packets sent to the network.
+        "
+    ::= { vismChanCntGrpEntry 16 }
+
+vismChanAal2CpsRcvdPkts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object keeps track of AAL2 CPS packets
+         received from the network. This does not include
+         the packets which are counted as error packets.
+        "
+    ::= { vismChanCntGrpEntry 17 }
+ 
+vismChanAal2CpsInvCidPkts OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object keeps track of AAL2 CPS packets
+         dropped in the egress direction due to invalid
+         CID(Channel Identifier). The CID may be
+         considered as invalid if it is out of range or
+         not configured.
+        "
+    ::= { vismChanCntGrpEntry 18 }
+ 
+vismChanAal2CpsInvUuiPkts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object keeps track of AAL2 CPS packets
+         dropped in the egress direction due to invalid
+         UUI (User-to-User Information) field. 
+        "
+    ::= { vismChanCntGrpEntry 19 }
+
+vismChanAal2CpsInvLenPkts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object keeps track of AAL2 CPS packets
+         dropped in the egress direction due to invalid
+         length field. 
+        "
+    ::= { vismChanCntGrpEntry 20 }
+ 
+vismChanAal5InvCpiPdus  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts the number of AAL5 PDUs
+         dropped in the egress direction due to invalid
+         CPI(Common Part Indicator) field in the AAL5 PDU
+         trailer. This is applicable only to the PVCs
+         configured as AAL5 PVCs (VoIP(Voice Over IP) PVCs
+         or CCS(Common Channel Signaling) PVCs in the
+         case of VoAAL2 application.
+        "
+    ::= { vismChanCntGrpEntry 21 }
+ 
+vismChanAal5OversizedSdusRcvdPdus  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts the number AAL5 PDUs 
+        dropped due to the SDU(Service Data Unit)
+        size bigger than the configured value. This
+        is applicable for AAL5 PVCs only.
+        "
+    ::= { vismChanCntGrpEntry 22 }
+ 
+vismChanAal5InvLenPdus OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts the number of AAL5 PDUs
+        dropped due to the length violations. This is
+        applicable to the CCS PVCs. The HDLC(High Level
+        Data Link Control) frames should have a minimum
+        frame size in order for the proper interpretation
+        by the upper layer protocol. 
+        "
+    ::= { vismChanCntGrpEntry 23 }
+ 
+vismChanAal5Crc32ErrorPdus  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts the number of AAL5 PDUs
+         dropped in the egress direction due to CRC-32
+         errors detected by the SAR(Segmentation and 
+         Reassembly). 
+        "
+    ::= { vismChanCntGrpEntry 24 }
+ 
+vismChanAal5ReassemTimerExpiryPdus OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts of AAL5 PDU reassembly
+         timer expirations. The timers are maintained
+         in the egress direction for building an AAL5
+         PDU from the cells.
+        "
+    ::= { vismChanCntGrpEntry 25 }
+
+vismChan24HrPeakXmtCellRate OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object counts the peak transmit cell rate 
+         (cells per second) for the channel since midnight
+         with reference to node time; 
+         the peak cell rate counter gets reset to 0 
+         every 24 hours at midnight.
+         If the node time is changed, the counter will 
+         continue to gather data until the next time midnight
+         is reached."
+::= { vismChanCntGrpEntry 26 }
+
+vismChanCurrentXmtCellRate OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object counts the current transmit cell
+         rate (cells per second) for the channel."
+::= { vismChanCntGrpEntry 27 }
+
+vismChan24HrPeakRcvCellRate OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object counts the peak receive cell rate 
+         (cells per second) for the channel since midnight
+         with reference to node time; 
+         the peak cell rate counter gets reset to 0 
+         every 24 hours at midnight.
+         If the node time is changed, the counter will 
+         continue to gather data until the next time midnight
+         is reached."
+::= { vismChanCntGrpEntry 28 }
+
+vismChanCurrentRcvCellRate OBJECT-TYPE
+    SYNTAX     Counter32
+    MAX-ACCESS read-only
+    STATUS     current
+    DESCRIPTION
+        "This object counts the current receive cell
+         rate (cells per second) for the channel."
+::= { vismChanCntGrpEntry 29 }
+
+vismChanAisSuppressCount  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object holds the number of times that ATM network
+         alarms were successfully suppressed and prevented from 
+         propagating onto the TDM side for this PVC."
+    ::= { vismChanCntGrpEntry 30 }
+
+vismChanXmtAisCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of instances that an ATM AIS alarm was 
+         transmitted."
+    ::= { vismChanCntGrpEntry 31 }
+
+vismChanRcvAisCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of instances that an ATM AIS alarm was 
+         received."
+    ::= { vismChanCntGrpEntry 32 }
+
+vismChanXmtFerfCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of instances that an ATM FERF alarm was 
+         transmitted."
+    ::= { vismChanCntGrpEntry 33 }
+
+vismChanRcvFerfCnts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of instances that an ATM FERF alarm was 
+         received."
+    ::= { vismChanCntGrpEntry 34 }
+
+vismChanAal5PduSentPkts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts the number of AAL5 PDUs transmitted 
+         to the network. This is only applicable to the PVCs 
+         configured as AAL5 PVCs, VoIP (Voice Over IP) PVCs 
+         or CCS (Common Channel Signaling) PVCs in the case of 
+         VoAAL2 applications."
+    ::= { vismChanCntGrpEntry 35 }
+
+vismChanAal5PduRcvdPkts  OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "This object counts the number of AAL5 PDUs received 
+         from the network. This is only applicable to the PVCs 
+         configured as AAL5 PVCs, VoIP (Voice Over IP) PVCs 
+         or CCS (Common Channel Signaling) PVCs in the case of 
+         VoAAL2 applications."
+    ::= { vismChanCntGrpEntry 36 }
+
+vismChanAisDelayLeft OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The real-time number of seconds remaining for the AIS 
+         delay timer after which the ATM alarm will be propagated
+         to the TDM side. 
+         This object is tied to the vismChanAisDelayTime object 
+         in the CISCO-VISM-CONN-MIB. vismChanAisDelayTime will store 
+         the configurable AIS delay timer. The delay time left 
+         (vismChanAisDelayLeft) will be equal to the delay time 
+         in vismChanAisDelayTime until an AIS alarm is received at 
+         which point it starts to decrement and could go down to 0 
+         and propagate the alarm to the TDM side."
+    ::= { vismChanCntGrpEntry 37 }
+
+vismChanOamLpbkTimeoutCnts OBJECT-TYPE
+    SYNTAX      Counter32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The number of instances that OAM loopback 
+         timeout alarm has occurred since the system
+         was last re-initialized."
+    ::= { vismChanCntGrpEntry 38}
+
+vismChanOamLpbkTimeoutDuration OBJECT-TYPE
+    SYNTAX      Unsigned32
+    UNITS       "seconds"
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION
+        "The total duration of OAM loopback timeout 
+         alarms since the system was last 
+         re-initialized."
+    ::= { vismChanCntGrpEntry 39}
+
+-- conformance information
+
+ciscoVismConnStatMIBConformance  OBJECT IDENTIFIER ::= 
+                                 { ciscoVismConnStatMIB 2 }
+
+ciscoVismConnStatMIBGroups       OBJECT IDENTIFIER ::=
+                                 { ciscoVismConnStatMIBConformance 1 }
+
+ciscoVismConnStatMIBCompliances  OBJECT IDENTIFIER ::=
+                                 { ciscoVismConnStatMIBConformance 2 }
+
+-- compliance statements
+
+ciscoVismConnStatCompliance MODULE-COMPLIANCE
+         STATUS  deprecated --in favor of ciscoVismConnStatCompliance1
+         DESCRIPTION
+             "The compliance statement for objects related
+             to VISM channel counters."
+         MODULE  -- this module
+             MANDATORY-GROUPS {
+                 ciscoVismConnStatGroup
+             }
+         ::= { ciscoVismConnStatMIBCompliances 1 }
+
+
+ciscoVismConnStatCompliance1 MODULE-COMPLIANCE
+         STATUS  deprecated -- Replaced by ciscoVismConnStatCompliance2
+         DESCRIPTION
+             "The compliance statement for objects related
+             to VISM channel counters."
+         MODULE  -- this module
+             MANDATORY-GROUPS {
+                 ciscoVismConnStatGroup1
+             }
+         ::= { ciscoVismConnStatMIBCompliances 2 }
+
+ciscoVismConnStatCompliance2 MODULE-COMPLIANCE
+         STATUS  deprecated --Replaced by 
+                            --ciscoVismConnStatCompliance3
+         DESCRIPTION
+             "The compliance statement for objects related
+             to VISM channel counters."
+         MODULE  -- this module
+             MANDATORY-GROUPS {
+                 ciscoVismConnStatGroup2
+             }
+         ::= { ciscoVismConnStatMIBCompliances 3 }
+
+ciscoVismConnStatCompliance3 MODULE-COMPLIANCE
+         STATUS  current
+         DESCRIPTION
+             "The compliance statement for objects related
+             to VISM channel counters."
+         MODULE  -- this module
+             MANDATORY-GROUPS {
+                 ciscoVismConnStatGroup3
+             }
+         ::= { ciscoVismConnStatMIBCompliances 4 }
+
+ciscoVismConnStatGroup OBJECT-GROUP
+          OBJECTS {
+                vismCntChanNum,
+                vismCntClrButton,
+                vismChanAal2HecErrors,
+                vismChanAal2CrcErrors,
+                vismChanAal2OamLpbLostCells,
+                vismChanAal2InvOsfCells,
+                vismChanAal2InvParCells,
+                vismChanAal2CpsSentPkts,
+                vismChanAal2CpsRcvdPkts,
+                vismChanAal2CpsInvCidPkts,
+                vismChanAal2CpsInvUuiPkts,
+                vismChanAal2CpsInvLenPkts,
+                vismChanAal5InvCpiPdus,
+                vismChanAal5OversizedSdusRcvdPdus,
+                vismChanAal5InvLenPdus,
+                vismChanAal5Crc32ErrorPdus,
+                vismChanAal5ReassemTimerExpiryPdus
+          }
+          STATUS deprecated --in favor of ciscoVismConnStatGroup1
+          DESCRIPTION
+               "The collection of objects which are used to represent
+               VISM channel counter group."
+           ::= { ciscoVismConnStatMIBGroups 1 }
+
+ciscoVismConnStatGroup1 OBJECT-GROUP
+          OBJECTS {
+                vismCntChanNum,
+                vismCntClrButton,
+                vismChanAal2HecErrors,
+                vismChanAal2CrcErrors,
+                vismChanAal2OamLpbLostCells,
+                vismChanAal2InvOsfCells,
+                vismChanAal2InvParCells,
+                vismChanAal2CpsSentPkts,
+                vismChanAal2CpsRcvdPkts,
+                vismChanAal2CpsInvCidPkts,
+                vismChanAal2CpsInvUuiPkts,
+                vismChanAal2CpsInvLenPkts,
+                vismChanAal5InvCpiPdus,
+                vismChanAal5OversizedSdusRcvdPdus,
+                vismChanAal5InvLenPdus,
+                vismChanAal5Crc32ErrorPdus,
+                vismChanAal5ReassemTimerExpiryPdus,
+                vismChan24HrPeakXmtCellRate,
+                vismChanCurrentXmtCellRate,
+                vismChan24HrPeakRcvCellRate,
+                vismChanCurrentRcvCellRate,
+                vismChanAisSuppressCount
+          }
+          STATUS deprecated --Replaced by ciscoVismConnStatGroup2
+          DESCRIPTION
+               "The collection of objects which are used to represent
+               VISM channel counter group."
+           ::= { ciscoVismConnStatMIBGroups 2 }
+
+ciscoVismConnStatGroup2 OBJECT-GROUP
+          OBJECTS {
+                vismCntChanNum,
+                vismCntClrButton,
+                vismChanAal2HecErrors,
+                vismChanAal2CrcErrors,
+                vismChanAal2OamLpbLostCells,
+                vismChanAal2InvOsfCells,
+                vismChanAal2InvParCells,
+                vismChanAal2CpsSentPkts,
+                vismChanAal2CpsRcvdPkts,
+                vismChanAal2CpsInvCidPkts,
+                vismChanAal2CpsInvUuiPkts,
+                vismChanAal2CpsInvLenPkts,
+                vismChanAal5InvCpiPdus,
+                vismChanAal5OversizedSdusRcvdPdus,
+                vismChanAal5InvLenPdus,
+                vismChanAal5Crc32ErrorPdus,
+                vismChanAal5ReassemTimerExpiryPdus,
+                vismChan24HrPeakXmtCellRate,
+                vismChanCurrentXmtCellRate,
+                vismChan24HrPeakRcvCellRate,
+                vismChanCurrentRcvCellRate,
+                vismChanAisSuppressCount,
+                vismChanXmtAisCnts,
+                vismChanRcvAisCnts,
+                vismChanXmtFerfCnts,
+                vismChanRcvFerfCnts,
+                vismChanAal5PduSentPkts,
+                vismChanAal5PduRcvdPkts,
+                vismChanAisDelayLeft
+          }
+          STATUS deprecated --Replaced by ciscoVismConnStatGroup3
+          DESCRIPTION
+               "The collection of objects which are used to represent
+               VISM channel counter group."
+           ::= { ciscoVismConnStatMIBGroups 3 }
+
+ciscoVismConnStatGroup3 OBJECT-GROUP
+          OBJECTS {
+                vismCntChanNum,
+                vismCntClrButton,
+                vismChanAal2HecErrors,
+                vismChanAal2CrcErrors,
+                vismChanAal2OamLpbLostCells,
+                vismChanAal2InvOsfCells,
+                vismChanAal2InvParCells,
+                vismChanAal2CpsSentPkts,
+                vismChanAal2CpsRcvdPkts,
+                vismChanAal2CpsInvCidPkts,
+                vismChanAal2CpsInvUuiPkts,
+                vismChanAal2CpsInvLenPkts,
+                vismChanAal5InvCpiPdus,
+                vismChanAal5OversizedSdusRcvdPdus,
+                vismChanAal5InvLenPdus,
+                vismChanAal5Crc32ErrorPdus,
+                vismChanAal5ReassemTimerExpiryPdus,
+                vismChan24HrPeakXmtCellRate,
+                vismChanCurrentXmtCellRate,
+                vismChan24HrPeakRcvCellRate,
+                vismChanCurrentRcvCellRate,
+                vismChanAisSuppressCount,
+                vismChanXmtAisCnts,
+                vismChanRcvAisCnts,
+                vismChanXmtFerfCnts,
+                vismChanRcvFerfCnts,
+                vismChanAal5PduSentPkts,
+                vismChanAal5PduRcvdPkts,
+                vismChanAisDelayLeft,
+                vismChanOamLpbkTimeoutCnts,
+                vismChanOamLpbkTimeoutDuration
+          }
+          STATUS current
+          DESCRIPTION
+               "The collection of objects which are used to represent
+               VISM channel counter group."
+           ::= { ciscoVismConnStatMIBGroups 4 }
+END

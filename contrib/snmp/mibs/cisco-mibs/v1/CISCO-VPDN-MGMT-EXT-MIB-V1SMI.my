@@ -1,0 +1,568 @@
+-- MIB file created 07-Feb-2013 16:13:35, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VPDN-MGMT-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VPDN-MGMT-EXT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    DisplayString, TruthValue
+            FROM SNMPv2-TC-v1
+    cvpdnSystemTunnelType, cvpdnTunnelAttrTunnelId, 
+    cvpdnSystemTunnelType, cvpdnTunnelAttrTunnelId, 
+    cvpdnSessionAttrSessionId
+            FROM CISCO-VPDN-MGMT-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    Counter, TimeTicks
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVpdnMgmtExtMIB OBJECT IDENTIFIER ::= { ciscoExperiment 51 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201112010000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-vpdn@cisco.com
+--  Descr
+--    Cisco VPDN  management MIB extension Module.
+--    This MIB is a supplement to CISCO-VPDN-MGMT-MIB.my.
+--    
+--    The main enhancements are:
+--    
+--    1. Added cvpdnTunnelExtTable for more tunnel information.
+--    2. Added cvpdnSessionExtTable for more session information.
+--    
+--    Please notice that objects in  CvpdnTunnelEntry and 
+--    CvpdnTunnelSessionEntry are still applicable to the 
+--    corresponding tunnels and sessions.
+--  RevDate
+--    201112010000Z
+--  RevDescr
+--    This revision involves the following changes to table
+--    cvpdnTunnelExtTable.
+--    1] Deprecated cvpdnTunnelBytesIn, cvpdnTunnelBytesOut 32-bit
+--    counters.
+--    2] Added new OIDs cvpdnTunnelBytesIn64, cvpdnTunnelBytesOut64
+--    64-bit counters.
+--  RevDate
+--    200706040000Z
+--  RevDescr
+--    Corrected the format of LAST-UPDATED and REVISION fields.
+--  RevDate
+--    199904140000Z
+--  RevDescr
+--    Original version of this MIB.
+
+ciscoVpdnMgmtExtMIBObjects OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIB 1 }
+cvpdnTunnelExtInfo OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIBObjects 1 }
+cvpdnSessionExtInfo OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIBObjects 2 }
+ciscoVpdnMgtExtMIBNotificationPrefix OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIB 2 }
+ciscoVpdnMgmtExtMIBConformance OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIB 3 }
+ciscoVpdnMgmtExtMIBCompliances OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIBConformance 1 }
+ciscoVpdnMgmtExtMIBGroups OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIBConformance 2 }
+
+cvpdnTunnelExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvpdnTunnelExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Vpn Tunnel table includes all tunnels configured."
+    ::= { cvpdnTunnelExtInfo 1 }
+
+cvpdnTunnelExtEntry OBJECT-TYPE
+    SYNTAX CvpdnTunnelExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Please notice that this entry is a supplement to
+        CvpdnTunnelEntry in CISCO-VPDN-MGMT-MIB for the 
+        L2TP tunnels. Here more objects are used to 
+        reflect tunnel parameters. Included are tunnel
+        statistics, UDP port numbers and the time of last 
+        state (cvpdnTunnelState) change."
+    INDEX { cvpdnSystemTunnelType, cvpdnTunnelAttrTunnelId }
+-- Augments cvpdnTunnelAttrEntry FROM CISCO-VPDN-MGMT-MIB
+    ::= { cvpdnTunnelExtTable 1 }
+
+CvpdnTunnelExtEntry ::= SEQUENCE {
+    cvpdnTunnelLocalPort INTEGER,
+    cvpdnTunnelRemotePort INTEGER,
+    cvpdnTunnelLastChange TimeTicks,
+    cvpdnTunnelPacketsOut Counter,
+    cvpdnTunnelBytesOut Counter,
+    cvpdnTunnelPacketsIn Counter,
+    cvpdnTunnelBytesIn Counter,
+    cvpdnTunnelBytesIn64 Counter,
+    cvpdnTunnelBytesOut64 Counter
+    }
+
+cvpdnTunnelLocalPort OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The local port number of the tunnel. This is the UDP port
+        of the interface at the local end of the tunnel."
+    ::= { cvpdnTunnelExtEntry 1 }
+
+cvpdnTunnelRemotePort OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The remote port number of the tunnel. This is the UDP port
+        of the interface at the remote end of the tunnel."
+    ::= { cvpdnTunnelExtEntry 2 }
+
+cvpdnTunnelLastChange OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time of last state change reflected in cvpdnTunnelState."
+    ::= { cvpdnTunnelExtEntry 3 }
+
+cvpdnTunnelPacketsOut OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of output packets through the tunnel."
+    ::= { cvpdnTunnelExtEntry 4 }
+
+cvpdnTunnelBytesOut OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The total number of output bytes through the tunnel.
+        cvpdnTunnelBytesOut object is superseded by
+        cvpdnTunnelBytesOut64."
+    ::= { cvpdnTunnelExtEntry 5 }
+
+cvpdnTunnelPacketsIn OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of input packets through the tunnel."
+    ::= { cvpdnTunnelExtEntry 6 }
+
+cvpdnTunnelBytesIn OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    bytes
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The total number of input bytes through the tunnel.
+        cvpdnTunnelBytesIn object is superseded by
+        cvpdnTunnelBytesIn64."
+    ::= { cvpdnTunnelExtEntry 7 }
+
+cvpdnTunnelBytesIn64 OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of input bytes through the tunnel."
+    ::= { cvpdnTunnelExtEntry 8 }
+
+cvpdnTunnelBytesOut64 OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of output bytes through the tunnel."
+    ::= { cvpdnTunnelExtEntry 9 }
+
+cvpdnSessionExtTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CvpdnSessionExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Session table includes all Sessions currently active."
+    ::= { cvpdnSessionExtInfo 1 }
+
+cvpdnSessionExtEntry OBJECT-TYPE
+    SYNTAX CvpdnSessionExtEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Please notice that this entry is a supplement to
+        CvpdnTunnelSessionEntry in CISCO-VPDN-MGMT-MIB 
+        for the L2TP sessions. Here more objects are
+        used to reflect session parameters."
+    INDEX { cvpdnSystemTunnelType, cvpdnTunnelAttrTunnelId, cvpdnSessionAttrSessionId }
+-- Augments cvpdnSessionAttrEntry FROM CISCO-VPDN-MGMT-MIB
+    ::= { cvpdnSessionExtTable 1 }
+
+CvpdnSessionExtEntry ::= SEQUENCE {
+    cvpdnSessionRemoteId INTEGER,
+    cvpdnSessionInterfaceName DisplayString,
+    cvpdnSessionLastChange TimeTicks,
+    cvpdnSessionOutOfOrderPackets Counter,
+    cvpdnSessionSequencing TruthValue,
+    cvpdnSessionSendSequence INTEGER,
+    cvpdnSessionRecvSequence INTEGER,
+    cvpdnSessionRemoteSendSequence INTEGER,
+    cvpdnSessionRemoteRecvSequence INTEGER,
+    cvpdnSessionSentZLB Counter,
+    cvpdnSessionRecvZLB Counter,
+    cvpdnSessionSentRBits Counter,
+    cvpdnSessionRecvRBits Counter,
+    cvpdnSessionLocalWindowSize INTEGER,
+    cvpdnSessionRemoteWindowSize INTEGER,
+    cvpdnSessionCurrentWindowSize INTEGER,
+    cvpdnSessionMinimumWindowSize INTEGER,
+    cvpdnSessionATOTimeouts INTEGER,
+    cvpdnSessionOutGoingQueueSize INTEGER,
+    cvpdnSessionCalculationType INTEGER,
+    cvpdnSessionAdaptiveTimeOut INTEGER,
+    cvpdnSessionRoundTripTime INTEGER,
+    cvpdnSessionPktProcessingDelay INTEGER,
+    cvpdnSessionZLBTime INTEGER
+    }
+
+cvpdnSessionRemoteId OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The remote end ID of an active VPN tunnel user session."
+    ::= { cvpdnSessionExtEntry 1 }
+
+cvpdnSessionInterfaceName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..255))
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The interface name (description) of the user session."
+    ::= { cvpdnSessionExtEntry 2 }
+
+cvpdnSessionLastChange OBJECT-TYPE
+    SYNTAX TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The time stamp of last change in cvpdnTunnelSessionState."
+    ::= { cvpdnSessionExtEntry 3 }
+
+cvpdnSessionOutOfOrderPackets OBJECT-TYPE
+    SYNTAX Counter
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of out of order packets through
+        this active user session."
+    ::= { cvpdnSessionExtEntry 4 }
+
+cvpdnSessionSequencing OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object indicates whether sequencing is on or not."
+    ::= { cvpdnSessionExtEntry 5 }
+
+cvpdnSessionSendSequence OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the next send sequence number
+        for for this session."
+    ::= { cvpdnSessionExtEntry 6 }
+
+cvpdnSessionRecvSequence OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the next receive sequence
+        number expected to be received on this session."
+    ::= { cvpdnSessionExtEntry 7 }
+
+cvpdnSessionRemoteSendSequence OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the next send sequence number
+        for for this session."
+    ::= { cvpdnSessionExtEntry 8 }
+
+cvpdnSessionRemoteRecvSequence OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the next receive sequence
+        number expected to be received on this session."
+    ::= { cvpdnSessionExtEntry 9 }
+
+cvpdnSessionSentZLB OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of Zero
+        Length Body acknowledgement packets transmitted
+        on this session."
+    ::= { cvpdnSessionExtEntry 10 }
+
+cvpdnSessionRecvZLB OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the total number of Zero Length
+        Body acknowlegement payload packets received for
+        this session."
+    ::= { cvpdnSessionExtEntry 11 }
+
+cvpdnSessionSentRBits OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the total number of sequence
+        number resets (payload packets with the R-bit set)
+        received on this session."
+    ::= { cvpdnSessionExtEntry 12 }
+
+cvpdnSessionRecvRBits OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the total number of sequence
+        number resets (payload packets with the R-bit set)
+        received on this session."
+    ::= { cvpdnSessionExtEntry 13 }
+
+cvpdnSessionLocalWindowSize OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the local send window size
+        for this session. If the value of the object
+        cvpdnSessionSequencing is false,
+        then this object should return value zero."
+    ::= { cvpdnSessionExtEntry 14 }
+
+cvpdnSessionRemoteWindowSize OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the initial remote send
+        window size for this session.  If the value
+        of the object cvpdnSessionSequencingState
+        is none(1) then this object should not be
+        interpreted."
+    ::= { cvpdnSessionExtEntry 15 }
+
+cvpdnSessionCurrentWindowSize OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the local send window size
+        for this session. If the value of the object
+        cvpdnSessionSequencingState is none(1)
+        then this object should not be interpreted."
+    ::= { cvpdnSessionExtEntry 16 }
+
+cvpdnSessionMinimumWindowSize OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object returns the initial remote send
+        window size for this session.  If the value
+        of the object cvpdnSessionSequencingState
+        is none(1) then this object should not be
+        interpreted."
+    ::= { cvpdnSessionExtEntry 17 }
+
+cvpdnSessionATOTimeouts OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    msecs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object reflects the current adaptive timeout
+        the system is using."
+    ::= { cvpdnSessionExtEntry 18 }
+
+cvpdnSessionOutGoingQueueSize OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object reflects the queue size of out going queue."
+    ::= { cvpdnSessionExtEntry 19 }
+
+cvpdnSessionCalculationType OBJECT-TYPE
+    SYNTAX INTEGER {
+        manual(1),
+        adaptive(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object reflects the round trip time calculation type."
+    ::= { cvpdnSessionExtEntry 20 }
+
+cvpdnSessionAdaptiveTimeOut OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    msecs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object reflects the configured session adaptive timeout."
+    ::= { cvpdnSessionExtEntry 21 }
+
+cvpdnSessionRoundTripTime OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    msecs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object reflects the round trip time."
+    ::= { cvpdnSessionExtEntry 22 }
+
+cvpdnSessionPktProcessingDelay OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    packets
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object reflects the number of packets in
+        processing delay for this session."
+    ::= { cvpdnSessionExtEntry 23 }
+
+cvpdnSessionZLBTime OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+--  Units
+--    msecs
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object reflects the zero length body time interval."
+    ::= { cvpdnSessionExtEntry 24 }
+
+cvpdnTunnelExtGroup OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    VPN Tunnel Group.
+--    cvpdnTunnelExtGroup is superseded by cvpdnTunnelExtGroupV2
+--  objects
+--    cvpdnTunnelLocalPort, cvpdnTunnelRemotePort, 
+--    cvpdnTunnelLastChange, cvpdnTunnelPacketsIn, 
+--    cvpdnTunnelPacketsOut, cvpdnTunnelBytesIn, 
+--    cvpdnTunnelBytesOut
+
+cvpdnSessionExtGroup OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    VPDP Session Group.
+--  objects
+--    cvpdnSessionRemoteId, cvpdnSessionInterfaceName, 
+--    cvpdnSessionLastChange, cvpdnSessionSequencing, 
+--    cvpdnSessionSendSequence, cvpdnSessionRecvSequence, 
+--    cvpdnSessionRemoteSendSequence, 
+--    cvpdnSessionRemoteRecvSequence, cvpdnSessionOutOfOrderPackets, 
+--    cvpdnSessionSentZLB, cvpdnSessionRecvZLB, 
+--    cvpdnSessionSentRBits, cvpdnSessionRecvRBits, 
+--    cvpdnSessionLocalWindowSize, cvpdnSessionRemoteWindowSize, 
+--    cvpdnSessionCurrentWindowSize, cvpdnSessionMinimumWindowSize, 
+--    cvpdnSessionATOTimeouts, cvpdnSessionOutGoingQueueSize, 
+--    cvpdnSessionCalculationType, cvpdnSessionAdaptiveTimeOut, 
+--    cvpdnSessionRoundTripTime, cvpdnSessionPktProcessingDelay, 
+--    cvpdnSessionZLBTime
+
+cvpdnTunnelExtGroupV2 OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    VPN Tunnel Group Version 2.
+--  objects
+--    cvpdnTunnelLocalPort, cvpdnTunnelRemotePort, 
+--    cvpdnTunnelLastChange, cvpdnTunnelPacketsOut, 
+--    cvpdnTunnelPacketsIn, cvpdnTunnelBytesIn64, 
+--    cvpdnTunnelBytesOut64
+
+ciscoVpdnMgmtExtMIBBasicCompliance OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco VPN Management MIB.
+--    ciscoVpdnMgmtExtMIBBasicCompliance is superseded by
+--    ciscoVpdnMgmtExtMIBBasicComplianceV2.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvpdnTunnelExtGroup
+--   MandGroup
+--    cvpdnSessionExtGroup
+
+ciscoVpdnMgmtExtMIBBasicComplianceV2 OBJECT IDENTIFIER ::= { ciscoVpdnMgmtExtMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco VPN Management MIB Version 2.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cvpdnSessionExtGroup
+--   MandGroup
+--    cvpdnTunnelExtGroupV2
+
+
+END
+

@@ -1,0 +1,97 @@
+-- *******************************************************************
+-- CISCO-WIRELESS-HOTSPOT MIB CAPABILITY
+--
+-- November 18, 2020
+--
+-- Copyright (c) 2020, 2022 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-WIRELESS-HOTSPOT-CAPABILITY DEFINITIONS ::= BEGIN
+
+
+IMPORTS
+       MODULE-IDENTITY
+           FROM SNMPv2-SMI
+       AGENT-CAPABILITIES
+           FROM SNMPv2-CONF
+       ciscoAgentCapability
+           FROM CISCO-SMI;
+
+
+ciscoWirelessHotspotCapability  MODULE-IDENTITY
+
+       LAST-UPDATED         "202011180000Z"
+       ORGANIZATION         "Cisco Systems, Inc."
+       CONTACT-INFO
+               "Cisco Systems
+               Customer Service
+
+               Postal: 170 W Tasman Drive
+               San Jose, CA  95134
+               USA
+
+               Tel: +1 800 553-NETS
+
+               E-mail: cs-wnbu-snmp@cisco.com"
+
+       DESCRIPTION
+               "Agent capabilities for
+               CISCO-WIRELESS-HOTSPOT-MIB "
+       REVISION      "202011180000Z"
+       DESCRIPTION
+               "Initial version of this MIB module. "
+
+   ::= { ciscoAgentCapability 1166 }
+
+ciscoWirelessHotspotCapabilityCEV1R0 AGENT-CAPABILITIES
+
+       PRODUCT-RELEASE "Cisco EWLC 1.0"
+       STATUS          current
+       DESCRIPTION     "CISCO-WIRELESS-HOTSPOT--MIB capabilities."
+
+       SUPPORTS        CISCO-WIRELESS-HOTSPOT-MIB
+       INCLUDES        {
+                           cLHotspotRealmEAPAuthTable,
+                           cLHotspotAnqpServerConfigTable
+                       }
+
+       VARIATION       cLHotspotRealmEAPAuthEntry
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHotspotRealmEAPAuthMethod
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHotspotRealmEAPAuthRowStatus
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHotspotRealmEAPAuthInnerAuthEAPType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHotspotRealmEAPAuthNonInnerAuthEAPType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHotspotRealmEAPAuthCredentialType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHotspotRealmEAPAuthTunneledEAPCredentialType
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHotspotWanIsAtCapacity
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+       VARIATION       cLHotspotTermsConditionsDate
+       ACCESS          not-implemented
+       DESCRIPTION     "Not supported"
+
+   ::= { ciscoWirelessHotspotCapability 1 }
+
+END

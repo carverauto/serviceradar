@@ -1,0 +1,1233 @@
+-- *********************************************************************
+-- CISCO-FIREPOWER-AP-NFS-MIB.my
+-- 
+-- MIB representation of the Cisco Firepower
+-- NFS management information model package
+-- 
+-- Created January 2023 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2023 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-FIREPOWER-AP-NFS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoFirepowerApMIBObjects,
+    CfprApManagedObjectId,
+    CfprApManagedObjectDn
+        FROM CISCO-FIREPOWER-AP-MIB
+    CfprApConditionRemoteInvRslt,
+    CfprApFsmCompletion,
+    CfprApFsmFlags,
+    CfprApFsmFsmStageStatus,
+    CfprApNfsClientConfigState,
+    CfprApNfsDefAdminState,
+    CfprApNfsMntAdminState,
+    CfprApNfsMntOperState,
+    CfprApNfsMountDefFsmCurrentFsm,
+    CfprApNfsMountDefFsmStageName,
+    CfprApNfsMountDefFsmTaskItem,
+    CfprApNfsMountInstFsmCurrentFsm,
+    CfprApNfsMountInstFsmStageName,
+    CfprApNfsMountInstFsmTaskItem,
+    CfprApNfsPurpose,
+    CfprApPolicyPolicyOwner
+        FROM CISCO-FIREPOWER-AP-TC-MIB;
+
+cfprApNfsObjects MODULE-IDENTITY
+    LAST-UPDATED    "202301250000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553-NETS
+        
+        E-mail: firepower-mibs@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Firepower
+        NFS management information model package"
+    ::= { ciscoFirepowerApMIBObjects 53 }
+
+cfprApNfsEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApNfsEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nfs:Ep managed object table"
+    ::= { cfprApNfsObjects 1 }
+
+cfprApNfsEpEntry OBJECT-TYPE
+    SYNTAX           CfprApNfsEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApNfsEpTable table."
+    INDEX { cfprApNfsEpInstanceId }
+    ::= { cfprApNfsEpTable 1 }
+
+CfprApNfsEpEntry ::= SEQUENCE {
+    cfprApNfsEpInstanceId                                            CfprApManagedObjectId,
+    cfprApNfsEpDn                                                    CfprApManagedObjectDn,
+    cfprApNfsEpRn                                                    SnmpAdminString
+}
+
+cfprApNfsEpInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApNfsEpEntry 1 }
+
+cfprApNfsEpDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:Ep:dn managed object property"
+    ::= { cfprApNfsEpEntry 2 }
+
+cfprApNfsEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:Ep:rn managed object property"
+    ::= { cfprApNfsEpEntry 3 }
+
+cfprApNfsMountDefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApNfsMountDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef managed object table"
+    ::= { cfprApNfsObjects 2 }
+
+cfprApNfsMountDefEntry OBJECT-TYPE
+    SYNTAX           CfprApNfsMountDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApNfsMountDefTable table."
+    INDEX { cfprApNfsMountDefInstanceId }
+    ::= { cfprApNfsMountDefTable 1 }
+
+CfprApNfsMountDefEntry ::= SEQUENCE {
+    cfprApNfsMountDefInstanceId                                      CfprApManagedObjectId,
+    cfprApNfsMountDefDn                                              CfprApManagedObjectDn,
+    cfprApNfsMountDefRn                                              SnmpAdminString,
+    cfprApNfsMountDefAdminState                                      CfprApNfsDefAdminState,
+    cfprApNfsMountDefDescr                                           SnmpAdminString,
+    cfprApNfsMountDefFltAggr                                         Unsigned64,
+    cfprApNfsMountDefFsmDescr                                        SnmpAdminString,
+    cfprApNfsMountDefFsmPrev                                         SnmpAdminString,
+    cfprApNfsMountDefFsmProgr                                        Gauge32,
+    cfprApNfsMountDefFsmRmtInvErrCode                                Gauge32,
+    cfprApNfsMountDefFsmRmtInvErrDescr                               SnmpAdminString,
+    cfprApNfsMountDefFsmRmtInvRslt                                   CfprApConditionRemoteInvRslt,
+    cfprApNfsMountDefFsmStageDescr                                   SnmpAdminString,
+    cfprApNfsMountDefFsmStamp                                        DateAndTime,
+    cfprApNfsMountDefFsmStatus                                       SnmpAdminString,
+    cfprApNfsMountDefFsmTry                                          Gauge32,
+    cfprApNfsMountDefIntId                                           SnmpAdminString,
+    cfprApNfsMountDefLocalDir                                        SnmpAdminString,
+    cfprApNfsMountDefName                                            SnmpAdminString,
+    cfprApNfsMountDefPolicyLevel                                     Gauge32,
+    cfprApNfsMountDefPolicyOwner                                     CfprApPolicyPolicyOwner,
+    cfprApNfsMountDefPurpose                                         CfprApNfsPurpose,
+    cfprApNfsMountDefRemoteDir                                       SnmpAdminString,
+    cfprApNfsMountDefServer                                          SnmpAdminString
+}
+
+cfprApNfsMountDefInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApNfsMountDefEntry 1 }
+
+cfprApNfsMountDefDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:dn managed object property"
+    ::= { cfprApNfsMountDefEntry 2 }
+
+cfprApNfsMountDefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:rn managed object property"
+    ::= { cfprApNfsMountDefEntry 3 }
+
+cfprApNfsMountDefAdminState OBJECT-TYPE
+    SYNTAX       CfprApNfsDefAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:adminState managed object property"
+    ::= { cfprApNfsMountDefEntry 4 }
+
+cfprApNfsMountDefDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:descr managed object property"
+    ::= { cfprApNfsMountDefEntry 5 }
+
+cfprApNfsMountDefFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fltAggr managed object property"
+    ::= { cfprApNfsMountDefEntry 6 }
+
+cfprApNfsMountDefFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fsmDescr managed object property"
+    ::= { cfprApNfsMountDefEntry 7 }
+
+cfprApNfsMountDefFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fsmPrev managed object property"
+    ::= { cfprApNfsMountDefEntry 8 }
+
+cfprApNfsMountDefFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fsmProgr managed object property"
+    ::= { cfprApNfsMountDefEntry 9 }
+
+cfprApNfsMountDefFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprApNfsMountDefEntry 10 }
+
+cfprApNfsMountDefFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprApNfsMountDefEntry 11 }
+
+cfprApNfsMountDefFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fsmRmtInvRslt managed
+        object property"
+    ::= { cfprApNfsMountDefEntry 12 }
+
+cfprApNfsMountDefFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fsmStageDescr managed
+        object property"
+    ::= { cfprApNfsMountDefEntry 13 }
+
+cfprApNfsMountDefFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fsmStamp managed object property"
+    ::= { cfprApNfsMountDefEntry 14 }
+
+cfprApNfsMountDefFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fsmStatus managed object property"
+    ::= { cfprApNfsMountDefEntry 15 }
+
+cfprApNfsMountDefFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:fsmTry managed object property"
+    ::= { cfprApNfsMountDefEntry 16 }
+
+cfprApNfsMountDefIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:intId managed object property"
+    ::= { cfprApNfsMountDefEntry 17 }
+
+cfprApNfsMountDefLocalDir OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:localDir managed object property"
+    ::= { cfprApNfsMountDefEntry 18 }
+
+cfprApNfsMountDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:name managed object property"
+    ::= { cfprApNfsMountDefEntry 19 }
+
+cfprApNfsMountDefPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:policyLevel managed object property"
+    ::= { cfprApNfsMountDefEntry 20 }
+
+cfprApNfsMountDefPolicyOwner OBJECT-TYPE
+    SYNTAX       CfprApPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:policyOwner managed object property"
+    ::= { cfprApNfsMountDefEntry 21 }
+
+cfprApNfsMountDefPurpose OBJECT-TYPE
+    SYNTAX       CfprApNfsPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:purpose managed object property"
+    ::= { cfprApNfsMountDefEntry 22 }
+
+cfprApNfsMountDefRemoteDir OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:remoteDir managed object property"
+    ::= { cfprApNfsMountDefEntry 23 }
+
+cfprApNfsMountDefServer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDef:server managed object property"
+    ::= { cfprApNfsMountDefEntry 24 }
+
+cfprApNfsMountDefFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApNfsMountDefFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm managed object table"
+    ::= { cfprApNfsObjects 3 }
+
+cfprApNfsMountDefFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApNfsMountDefFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApNfsMountDefFsmTable table."
+    INDEX { cfprApNfsMountDefFsmInstanceId }
+    ::= { cfprApNfsMountDefFsmTable 1 }
+
+CfprApNfsMountDefFsmEntry ::= SEQUENCE {
+    cfprApNfsMountDefFsmInstanceId                                   CfprApManagedObjectId,
+    cfprApNfsMountDefFsmDn                                           CfprApManagedObjectDn,
+    cfprApNfsMountDefFsmRn                                           SnmpAdminString,
+    cfprApNfsMountDefFsmCompletionTime                               DateAndTime,
+    cfprApNfsMountDefFsmCurrentFsm                                   CfprApNfsMountDefFsmCurrentFsm,
+    cfprApNfsMountDefFsmDescrData                                    SnmpAdminString,
+    cfprApNfsMountDefFsmFsmStatus                                    CfprApFsmFsmStageStatus,
+    cfprApNfsMountDefFsmProgress                                     Gauge32,
+    cfprApNfsMountDefFsmRmtErrCode                                   Gauge32,
+    cfprApNfsMountDefFsmRmtErrDescr                                  SnmpAdminString,
+    cfprApNfsMountDefFsmRmtRslt                                      CfprApConditionRemoteInvRslt
+}
+
+cfprApNfsMountDefFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApNfsMountDefFsmEntry 1 }
+
+cfprApNfsMountDefFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm:dn managed object property"
+    ::= { cfprApNfsMountDefFsmEntry 2 }
+
+cfprApNfsMountDefFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm:rn managed object property"
+    ::= { cfprApNfsMountDefFsmEntry 3 }
+
+cfprApNfsMountDefFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm:completionTime
+        managed object property"
+    ::= { cfprApNfsMountDefFsmEntry 4 }
+
+cfprApNfsMountDefFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApNfsMountDefFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm:currentFsm managed
+        object property"
+    ::= { cfprApNfsMountDefFsmEntry 5 }
+
+cfprApNfsMountDefFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm:descr managed object property"
+    ::= { cfprApNfsMountDefFsmEntry 6 }
+
+cfprApNfsMountDefFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm:fsmStatus managed
+        object property"
+    ::= { cfprApNfsMountDefFsmEntry 7 }
+
+cfprApNfsMountDefFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm:progress managed object property"
+    ::= { cfprApNfsMountDefFsmEntry 8 }
+
+cfprApNfsMountDefFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm:rmtErrCode managed
+        object property"
+    ::= { cfprApNfsMountDefFsmEntry 9 }
+
+cfprApNfsMountDefFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm:rmtErrDescr managed
+        object property"
+    ::= { cfprApNfsMountDefFsmEntry 10 }
+
+cfprApNfsMountDefFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsm:rmtRslt managed object property"
+    ::= { cfprApNfsMountDefFsmEntry 11 }
+
+cfprApNfsMountDefFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApNfsMountDefFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmStage managed object table"
+    ::= { cfprApNfsObjects 4 }
+
+cfprApNfsMountDefFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApNfsMountDefFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApNfsMountDefFsmStageTable table."
+    INDEX { cfprApNfsMountDefFsmStageInstanceId }
+    ::= { cfprApNfsMountDefFsmStageTable 1 }
+
+CfprApNfsMountDefFsmStageEntry ::= SEQUENCE {
+    cfprApNfsMountDefFsmStageInstanceId                              CfprApManagedObjectId,
+    cfprApNfsMountDefFsmStageDn                                      CfprApManagedObjectDn,
+    cfprApNfsMountDefFsmStageRn                                      SnmpAdminString,
+    cfprApNfsMountDefFsmStageDescrData                               SnmpAdminString,
+    cfprApNfsMountDefFsmStageLastUpdateTime                          DateAndTime,
+    cfprApNfsMountDefFsmStageName                                    CfprApNfsMountDefFsmStageName,
+    cfprApNfsMountDefFsmStageOrder                                   Gauge32,
+    cfprApNfsMountDefFsmStageRetry                                   Gauge32,
+    cfprApNfsMountDefFsmStageStageStatus                             CfprApFsmFsmStageStatus
+}
+
+cfprApNfsMountDefFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApNfsMountDefFsmStageEntry 1 }
+
+cfprApNfsMountDefFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmStage:dn managed object property"
+    ::= { cfprApNfsMountDefFsmStageEntry 2 }
+
+cfprApNfsMountDefFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmStage:rn managed object property"
+    ::= { cfprApNfsMountDefFsmStageEntry 3 }
+
+cfprApNfsMountDefFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmStage:descr managed
+        object property"
+    ::= { cfprApNfsMountDefFsmStageEntry 4 }
+
+cfprApNfsMountDefFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprApNfsMountDefFsmStageEntry 5 }
+
+cfprApNfsMountDefFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApNfsMountDefFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmStage:name managed
+        object property"
+    ::= { cfprApNfsMountDefFsmStageEntry 6 }
+
+cfprApNfsMountDefFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmStage:order managed
+        object property"
+    ::= { cfprApNfsMountDefFsmStageEntry 7 }
+
+cfprApNfsMountDefFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmStage:retry managed
+        object property"
+    ::= { cfprApNfsMountDefFsmStageEntry 8 }
+
+cfprApNfsMountDefFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmStage:stageStatus
+        managed object property"
+    ::= { cfprApNfsMountDefFsmStageEntry 9 }
+
+cfprApNfsMountDefFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApNfsMountDefFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmTask managed object table"
+    ::= { cfprApNfsObjects 5 }
+
+cfprApNfsMountDefFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApNfsMountDefFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApNfsMountDefFsmTaskTable table."
+    INDEX { cfprApNfsMountDefFsmTaskInstanceId }
+    ::= { cfprApNfsMountDefFsmTaskTable 1 }
+
+CfprApNfsMountDefFsmTaskEntry ::= SEQUENCE {
+    cfprApNfsMountDefFsmTaskInstanceId                               CfprApManagedObjectId,
+    cfprApNfsMountDefFsmTaskDn                                       CfprApManagedObjectDn,
+    cfprApNfsMountDefFsmTaskRn                                       SnmpAdminString,
+    cfprApNfsMountDefFsmTaskCompletion                               CfprApFsmCompletion,
+    cfprApNfsMountDefFsmTaskFlags                                    CfprApFsmFlags,
+    cfprApNfsMountDefFsmTaskItem                                     CfprApNfsMountDefFsmTaskItem,
+    cfprApNfsMountDefFsmTaskSeqId                                    Gauge32
+}
+
+cfprApNfsMountDefFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApNfsMountDefFsmTaskEntry 1 }
+
+cfprApNfsMountDefFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmTask:dn managed object property"
+    ::= { cfprApNfsMountDefFsmTaskEntry 2 }
+
+cfprApNfsMountDefFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmTask:rn managed object property"
+    ::= { cfprApNfsMountDefFsmTaskEntry 3 }
+
+cfprApNfsMountDefFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmTask:completion
+        managed object property"
+    ::= { cfprApNfsMountDefFsmTaskEntry 4 }
+
+cfprApNfsMountDefFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmTask:flags managed
+        object property"
+    ::= { cfprApNfsMountDefFsmTaskEntry 5 }
+
+cfprApNfsMountDefFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApNfsMountDefFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmTask:item managed object property"
+    ::= { cfprApNfsMountDefFsmTaskEntry 6 }
+
+cfprApNfsMountDefFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountDefFsmTask:seqId managed
+        object property"
+    ::= { cfprApNfsMountDefFsmTaskEntry 7 }
+
+cfprApNfsMountInstTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApNfsMountInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst managed object table"
+    ::= { cfprApNfsObjects 6 }
+
+cfprApNfsMountInstEntry OBJECT-TYPE
+    SYNTAX           CfprApNfsMountInstEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApNfsMountInstTable table."
+    INDEX { cfprApNfsMountInstInstanceId }
+    ::= { cfprApNfsMountInstTable 1 }
+
+CfprApNfsMountInstEntry ::= SEQUENCE {
+    cfprApNfsMountInstInstanceId                                     CfprApManagedObjectId,
+    cfprApNfsMountInstDn                                             CfprApManagedObjectDn,
+    cfprApNfsMountInstRn                                             SnmpAdminString,
+    cfprApNfsMountInstAdminState                                     CfprApNfsMntAdminState,
+    cfprApNfsMountInstClientConfigState                              CfprApNfsClientConfigState,
+    cfprApNfsMountInstDefDn                                          SnmpAdminString,
+    cfprApNfsMountInstFsmDescr                                       SnmpAdminString,
+    cfprApNfsMountInstFsmPrev                                        SnmpAdminString,
+    cfprApNfsMountInstFsmProgr                                       Gauge32,
+    cfprApNfsMountInstFsmRmtInvErrCode                               Gauge32,
+    cfprApNfsMountInstFsmRmtInvErrDescr                              SnmpAdminString,
+    cfprApNfsMountInstFsmRmtInvRslt                                  CfprApConditionRemoteInvRslt,
+    cfprApNfsMountInstFsmStageDescr                                  SnmpAdminString,
+    cfprApNfsMountInstFsmStamp                                       DateAndTime,
+    cfprApNfsMountInstFsmStatus                                      SnmpAdminString,
+    cfprApNfsMountInstFsmTry                                         Gauge32,
+    cfprApNfsMountInstLocalDir                                       SnmpAdminString,
+    cfprApNfsMountInstName                                           SnmpAdminString,
+    cfprApNfsMountInstOperState                                      CfprApNfsMntOperState,
+    cfprApNfsMountInstPurpose                                        CfprApNfsPurpose,
+    cfprApNfsMountInstRemoteDir                                      SnmpAdminString,
+    cfprApNfsMountInstServer                                         SnmpAdminString
+}
+
+cfprApNfsMountInstInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApNfsMountInstEntry 1 }
+
+cfprApNfsMountInstDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:dn managed object property"
+    ::= { cfprApNfsMountInstEntry 2 }
+
+cfprApNfsMountInstRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:rn managed object property"
+    ::= { cfprApNfsMountInstEntry 3 }
+
+cfprApNfsMountInstAdminState OBJECT-TYPE
+    SYNTAX       CfprApNfsMntAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:adminState managed object property"
+    ::= { cfprApNfsMountInstEntry 4 }
+
+cfprApNfsMountInstClientConfigState OBJECT-TYPE
+    SYNTAX       CfprApNfsClientConfigState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:clientConfigState
+        managed object property"
+    ::= { cfprApNfsMountInstEntry 5 }
+
+cfprApNfsMountInstDefDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:defDn managed object property"
+    ::= { cfprApNfsMountInstEntry 6 }
+
+cfprApNfsMountInstFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:fsmDescr managed object property"
+    ::= { cfprApNfsMountInstEntry 7 }
+
+cfprApNfsMountInstFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:fsmPrev managed object property"
+    ::= { cfprApNfsMountInstEntry 8 }
+
+cfprApNfsMountInstFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:fsmProgr managed object property"
+    ::= { cfprApNfsMountInstEntry 9 }
+
+cfprApNfsMountInstFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:fsmRmtInvErrCode
+        managed object property"
+    ::= { cfprApNfsMountInstEntry 10 }
+
+cfprApNfsMountInstFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cfprApNfsMountInstEntry 11 }
+
+cfprApNfsMountInstFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:fsmRmtInvRslt managed
+        object property"
+    ::= { cfprApNfsMountInstEntry 12 }
+
+cfprApNfsMountInstFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:fsmStageDescr managed
+        object property"
+    ::= { cfprApNfsMountInstEntry 13 }
+
+cfprApNfsMountInstFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:fsmStamp managed object property"
+    ::= { cfprApNfsMountInstEntry 14 }
+
+cfprApNfsMountInstFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:fsmStatus managed object property"
+    ::= { cfprApNfsMountInstEntry 15 }
+
+cfprApNfsMountInstFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:fsmTry managed object property"
+    ::= { cfprApNfsMountInstEntry 16 }
+
+cfprApNfsMountInstLocalDir OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:localDir managed object property"
+    ::= { cfprApNfsMountInstEntry 17 }
+
+cfprApNfsMountInstName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:name managed object property"
+    ::= { cfprApNfsMountInstEntry 18 }
+
+cfprApNfsMountInstOperState OBJECT-TYPE
+    SYNTAX       CfprApNfsMntOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:operState managed object property"
+    ::= { cfprApNfsMountInstEntry 19 }
+
+cfprApNfsMountInstPurpose OBJECT-TYPE
+    SYNTAX       CfprApNfsPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:purpose managed object property"
+    ::= { cfprApNfsMountInstEntry 20 }
+
+cfprApNfsMountInstRemoteDir OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:remoteDir managed object property"
+    ::= { cfprApNfsMountInstEntry 21 }
+
+cfprApNfsMountInstServer OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInst:server managed object property"
+    ::= { cfprApNfsMountInstEntry 22 }
+
+cfprApNfsMountInstFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApNfsMountInstFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm managed object table"
+    ::= { cfprApNfsObjects 7 }
+
+cfprApNfsMountInstFsmEntry OBJECT-TYPE
+    SYNTAX           CfprApNfsMountInstFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApNfsMountInstFsmTable table."
+    INDEX { cfprApNfsMountInstFsmInstanceId }
+    ::= { cfprApNfsMountInstFsmTable 1 }
+
+CfprApNfsMountInstFsmEntry ::= SEQUENCE {
+    cfprApNfsMountInstFsmInstanceId                                  CfprApManagedObjectId,
+    cfprApNfsMountInstFsmDn                                          CfprApManagedObjectDn,
+    cfprApNfsMountInstFsmRn                                          SnmpAdminString,
+    cfprApNfsMountInstFsmCompletionTime                              DateAndTime,
+    cfprApNfsMountInstFsmCurrentFsm                                  CfprApNfsMountInstFsmCurrentFsm,
+    cfprApNfsMountInstFsmDescrData                                   SnmpAdminString,
+    cfprApNfsMountInstFsmFsmStatus                                   CfprApFsmFsmStageStatus,
+    cfprApNfsMountInstFsmProgress                                    Gauge32,
+    cfprApNfsMountInstFsmRmtErrCode                                  Gauge32,
+    cfprApNfsMountInstFsmRmtErrDescr                                 SnmpAdminString,
+    cfprApNfsMountInstFsmRmtRslt                                     CfprApConditionRemoteInvRslt
+}
+
+cfprApNfsMountInstFsmInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApNfsMountInstFsmEntry 1 }
+
+cfprApNfsMountInstFsmDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm:dn managed object property"
+    ::= { cfprApNfsMountInstFsmEntry 2 }
+
+cfprApNfsMountInstFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm:rn managed object property"
+    ::= { cfprApNfsMountInstFsmEntry 3 }
+
+cfprApNfsMountInstFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm:completionTime
+        managed object property"
+    ::= { cfprApNfsMountInstFsmEntry 4 }
+
+cfprApNfsMountInstFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CfprApNfsMountInstFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm:currentFsm managed
+        object property"
+    ::= { cfprApNfsMountInstFsmEntry 5 }
+
+cfprApNfsMountInstFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm:descr managed object property"
+    ::= { cfprApNfsMountInstFsmEntry 6 }
+
+cfprApNfsMountInstFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm:fsmStatus managed
+        object property"
+    ::= { cfprApNfsMountInstFsmEntry 7 }
+
+cfprApNfsMountInstFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm:progress managed
+        object property"
+    ::= { cfprApNfsMountInstFsmEntry 8 }
+
+cfprApNfsMountInstFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm:rmtErrCode managed
+        object property"
+    ::= { cfprApNfsMountInstFsmEntry 9 }
+
+cfprApNfsMountInstFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm:rmtErrDescr managed
+        object property"
+    ::= { cfprApNfsMountInstFsmEntry 10 }
+
+cfprApNfsMountInstFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CfprApConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsm:rmtRslt managed object property"
+    ::= { cfprApNfsMountInstFsmEntry 11 }
+
+cfprApNfsMountInstFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApNfsMountInstFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmStage managed object table"
+    ::= { cfprApNfsObjects 8 }
+
+cfprApNfsMountInstFsmStageEntry OBJECT-TYPE
+    SYNTAX           CfprApNfsMountInstFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApNfsMountInstFsmStageTable table."
+    INDEX { cfprApNfsMountInstFsmStageInstanceId }
+    ::= { cfprApNfsMountInstFsmStageTable 1 }
+
+CfprApNfsMountInstFsmStageEntry ::= SEQUENCE {
+    cfprApNfsMountInstFsmStageInstanceId                             CfprApManagedObjectId,
+    cfprApNfsMountInstFsmStageDn                                     CfprApManagedObjectDn,
+    cfprApNfsMountInstFsmStageRn                                     SnmpAdminString,
+    cfprApNfsMountInstFsmStageDescrData                              SnmpAdminString,
+    cfprApNfsMountInstFsmStageLastUpdateTime                         DateAndTime,
+    cfprApNfsMountInstFsmStageName                                   CfprApNfsMountInstFsmStageName,
+    cfprApNfsMountInstFsmStageOrder                                  Gauge32,
+    cfprApNfsMountInstFsmStageRetry                                  Gauge32,
+    cfprApNfsMountInstFsmStageStageStatus                            CfprApFsmFsmStageStatus
+}
+
+cfprApNfsMountInstFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApNfsMountInstFsmStageEntry 1 }
+
+cfprApNfsMountInstFsmStageDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmStage:dn managed object property"
+    ::= { cfprApNfsMountInstFsmStageEntry 2 }
+
+cfprApNfsMountInstFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmStage:rn managed object property"
+    ::= { cfprApNfsMountInstFsmStageEntry 3 }
+
+cfprApNfsMountInstFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmStage:descr managed
+        object property"
+    ::= { cfprApNfsMountInstFsmStageEntry 4 }
+
+cfprApNfsMountInstFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cfprApNfsMountInstFsmStageEntry 5 }
+
+cfprApNfsMountInstFsmStageName OBJECT-TYPE
+    SYNTAX       CfprApNfsMountInstFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmStage:name managed
+        object property"
+    ::= { cfprApNfsMountInstFsmStageEntry 6 }
+
+cfprApNfsMountInstFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmStage:order managed
+        object property"
+    ::= { cfprApNfsMountInstFsmStageEntry 7 }
+
+cfprApNfsMountInstFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmStage:retry managed
+        object property"
+    ::= { cfprApNfsMountInstFsmStageEntry 8 }
+
+cfprApNfsMountInstFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CfprApFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmStage:stageStatus
+        managed object property"
+    ::= { cfprApNfsMountInstFsmStageEntry 9 }
+
+cfprApNfsMountInstFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CfprApNfsMountInstFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmTask managed object table"
+    ::= { cfprApNfsObjects 9 }
+
+cfprApNfsMountInstFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CfprApNfsMountInstFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cfprApNfsMountInstFsmTaskTable table."
+    INDEX { cfprApNfsMountInstFsmTaskInstanceId }
+    ::= { cfprApNfsMountInstFsmTaskTable 1 }
+
+CfprApNfsMountInstFsmTaskEntry ::= SEQUENCE {
+    cfprApNfsMountInstFsmTaskInstanceId                              CfprApManagedObjectId,
+    cfprApNfsMountInstFsmTaskDn                                      CfprApManagedObjectDn,
+    cfprApNfsMountInstFsmTaskRn                                      SnmpAdminString,
+    cfprApNfsMountInstFsmTaskCompletion                              CfprApFsmCompletion,
+    cfprApNfsMountInstFsmTaskFlags                                   CfprApFsmFlags,
+    cfprApNfsMountInstFsmTaskItem                                    CfprApNfsMountInstFsmTaskItem,
+    cfprApNfsMountInstFsmTaskSeqId                                   Gauge32
+}
+
+cfprApNfsMountInstFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cfprApNfsMountInstFsmTaskEntry 1 }
+
+cfprApNfsMountInstFsmTaskDn OBJECT-TYPE
+    SYNTAX       CfprApManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmTask:dn managed object property"
+    ::= { cfprApNfsMountInstFsmTaskEntry 2 }
+
+cfprApNfsMountInstFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmTask:rn managed object property"
+    ::= { cfprApNfsMountInstFsmTaskEntry 3 }
+
+cfprApNfsMountInstFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CfprApFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmTask:completion
+        managed object property"
+    ::= { cfprApNfsMountInstFsmTaskEntry 4 }
+
+cfprApNfsMountInstFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CfprApFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmTask:flags managed
+        object property"
+    ::= { cfprApNfsMountInstFsmTaskEntry 5 }
+
+cfprApNfsMountInstFsmTaskItem OBJECT-TYPE
+    SYNTAX       CfprApNfsMountInstFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmTask:item managed
+        object property"
+    ::= { cfprApNfsMountInstFsmTaskEntry 6 }
+
+cfprApNfsMountInstFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco Firepower nfs:MountInstFsmTask:seqId managed
+        object property"
+    ::= { cfprApNfsMountInstFsmTaskEntry 7 }
+
+END

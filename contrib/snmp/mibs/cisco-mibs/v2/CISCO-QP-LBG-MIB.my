@@ -1,0 +1,1019 @@
+-- *****************************************************************
+-- CISCO-QP-LBG-MIB.my
+--   
+-- Copyright (c) 2014-2015 by Cisco Systems Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-QP-LBG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    MacAddress,
+    TruthValue
+        FROM SNMPv2-TC
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    ifDescr
+        FROM IF-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoQpLbgMIB MODULE-IDENTITY
+    LAST-UPDATED    "201509210000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+                    San Jose, CA  95134
+                    USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-rfgw10@cisco.com"
+    DESCRIPTION
+        "This MIB module represents the Qam-Partition (QP) and Load
+        Balance Group (LBG) parameters in  the headend and it is 
+        supported by an snmp agent. It defines objects for managing 
+        both QP and LBG."
+    REVISION        "201509210000Z"
+    DESCRIPTION
+        "The table cqlqamPartitionTable describes the various
+        parameters of QP such as QP's state, protocol,
+        management IP, server IP, server state, associated 
+        QAM details and configured video route details.
+
+        The table cqlloadBalanceGroupTable describes the LBG 
+        parameters such as total bandwidth, available bandwidth 
+        and reserved bandwidth of QAM & IP based sessions.
+
+        The table cqllbgrouteTable describes the destination IP, 
+        udp range, reserved bandwidth of routes configured under 
+        LBG and flow count per route.
+
+        Following objects were added to the MIB to provide trap 
+        notification support for the over subscribed Qam.
+
+        cqlQamOverSubscribedAlert
+        cqlQamOverSubscribedEnable
+
+        Added object cqlqpServerIpList of type OCTET STRING for
+        displaying multiple server IP's."
+    REVISION        "201408270000Z"
+    DESCRIPTION
+        "Latest version of this MIB module."
+    ::= { ciscoMgmt 824 }
+
+
+-- Textual Conventions definition will be defined before this line
+
+ciscoQpLbgNotifs  OBJECT IDENTIFIER
+    ::= { ciscoQpLbgMIB 0 }
+
+ciscoQpLbgObjects  OBJECT IDENTIFIER
+    ::= { ciscoQpLbgMIB 1 }
+
+ciscoQpLbgConform  OBJECT IDENTIFIER
+    ::= { ciscoQpLbgMIB 2 }
+
+
+-- Default Notification Type
+
+cqlQpStateChange NOTIFICATION-TYPE
+    OBJECTS         { cqlqpState }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when a QP state
+        has changed and the value of cqlQpNotifyEnable is 'true'."
+   ::= { ciscoQpLbgNotifs 1 }
+
+cqlQamAdd NOTIFICATION-TYPE
+    OBJECTS         {
+                        cqlqpId,
+                        ifDescr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when a qam has
+        been added to QP and the value of cqlQamNotifyEnable 
+        is 'true'."
+   ::= { ciscoQpLbgNotifs 2 }
+
+cqlQamDelete NOTIFICATION-TYPE
+    OBJECTS         {
+                        cqlqpId,
+                        ifDescr
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when a qam has
+        been deleted from QP and the value of cqlQamNotifyEnable 
+        is 'true'."
+   ::= { ciscoQpLbgNotifs 3 }
+
+cqlLbgRouteAdd NOTIFICATION-TYPE
+    OBJECTS         { cqlqpRouteDetails }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when a route has
+        been added to QP and the value of cqlRouteNotifyEnable 
+        is 'true'."
+   ::= { ciscoQpLbgNotifs 4 }
+
+cqlLbgRouteDelete NOTIFICATION-TYPE
+    OBJECTS         { cqlqpRouteDetails }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when a route has been
+        deleted from QP and the value of cqlRouteNotifyEnable is
+        'true'."
+   ::= { ciscoQpLbgNotifs 5 }
+
+cqlQamOverSubscribedAlert NOTIFICATION-TYPE
+    OBJECTS         {
+                        ifDescr,
+                        cqlqpQamOversubscribedStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "The device generates this notification when a qam
+        has been oversubscribed or cleared. This will be
+        enabled when the object cqlQamOverSubscribedEnable 
+        is set to 'true'."
+   ::= { ciscoQpLbgNotifs 6 }
+
+cqlqamPartitionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CqlqamPartitionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the various parameters of QP
+        such as QP's state, protocol, management IP, server IP,
+        server state, information related to qam and video routes."
+    ::= { ciscoQpLbgObjects 1 }
+
+cqlqamPartitionEntry OBJECT-TYPE
+    SYNTAX          CqlqamPartitionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry corresponds to the configuration of a QP."
+    INDEX           { cqlqpIndex } 
+    ::= { cqlqamPartitionTable 1 }
+
+CqlqamPartitionEntry ::= SEQUENCE {
+        cqlqpIndex                   Unsigned32,
+        cqlqpId                      Unsigned32,
+        cqlqpMgmtIpAddrType          InetAddressType,
+        cqlqpMgmtIp                  InetAddress,
+        cqlqpServerIpAddrType        InetAddressType,
+        cqlqpServerIp                InetAddress,
+        cqlqpState                   INTEGER,
+        cqlqpProtocol                INTEGER,
+        cqlqpKeepAliveTime           Unsigned32,
+        cqlqpServerState             INTEGER,
+        cqlqpGqiMacAddr              MacAddress,
+        cqlqpGqiResetInterval        Unsigned32,
+        cqlqpNumQams                 Unsigned32,
+        cqlqpQamCarrrierList         OCTET STRING,
+        cqlqpNumRoutes               Unsigned32,
+        cqlqpRouteDetails            OCTET STRING,
+        cqlqpErmiErrpComponentName   OCTET STRING,
+        cqlqpErmiErrpStreamingZone   OCTET STRING,
+        cqlqpErmiErrpHoldTime        Unsigned32,
+        cqlqpErmiErrpConnnectTime    Unsigned32,
+        cqlqpErmiErrpConnectRetry    Unsigned32,
+        cqlqpErmiRtspConnectTime     Unsigned32,
+        cqlqpErmiRtspConnectRetry    Unsigned32,
+        cqlqpErmiRtspKeepAliveTime   Unsigned32,
+        cqlqpErmiRtspSessionTimeout  Unsigned32,
+        cqlqpQamOversubscribedStatus TruthValue,
+        cqlqpServerIpList            OCTET STRING
+}
+
+cqlqpIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Table Index. This index uniquely identifies the QP." 
+    ::= { cqlqamPartitionEntry 1 }
+
+cqlqpId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the QP Id." 
+    ::= { cqlqamPartitionEntry 2 }
+
+cqlqpMgmtIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the Management address as defined inetAddressType.
+        The supported address types are IPv4 and IPv6."
+    DEFVAL          { ipv4 } 
+    ::= { cqlqamPartitionEntry 3 }
+
+cqlqpMgmtIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Management IP address of a QP." 
+    ::= { cqlqamPartitionEntry 4 }
+
+cqlqpServerIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the Server address as defined inetAddressType. The
+        supported address types are IPv4 and IPv6." 
+    ::= { cqlqamPartitionEntry 5 }
+
+cqlqpServerIp OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Server IP of the QP." 
+    ::= { cqlqamPartitionEntry 6 }
+
+cqlqpState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        inactive(1),
+                        init(2),
+                        active(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the state of the QP. The following are
+        the valid states. 
+
+        inactive(1) 
+                   QP is in inactive state.
+        init(2) 
+                   QP is in init state.
+        active(3) 
+                   QP is in active state." 
+    ::= { cqlqamPartitionEntry 7 }
+
+cqlqpProtocol OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        gqi(1),
+                        ermi(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the QP Protocol.
+
+        Gqi(1)
+        Ermi(2)" 
+    ::= { cqlqamPartitionEntry 8 }
+
+cqlqpKeepAliveTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the keepalive timer in
+        seconds for a QP." 
+    ::= { cqlqamPartitionEntry 9 }
+
+cqlqpServerState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        disconnected(1),
+                        connected(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the Server state of the QP.
+
+        disconnected(1)
+                      Server is in disconnected state.
+        connected(2) 
+                      Server is in connected state." 
+    ::= { cqlqamPartitionEntry 10 }
+
+cqlqpGqiMacAddr OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the MAC address of a QP, applicable only
+        for GQI Protocol." 
+    ::= { cqlqamPartitionEntry 11 }
+
+cqlqpGqiResetInterval OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies Reset interval for a QP. It is applicable
+        only for GQI protocol." 
+    ::= { cqlqamPartitionEntry 12 }
+
+cqlqpNumQams OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of qams associated with the QP." 
+    ::= { cqlqamPartitionEntry 13 }
+
+cqlqpQamCarrrierList OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the list of Qam carriers associated with
+        the QP." 
+    ::= { cqlqamPartitionEntry 14 }
+
+cqlqpNumRoutes OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total number of routes associated with the QP." 
+    ::= { cqlqamPartitionEntry 15 }
+
+cqlqpRouteDetails OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Route details of the QP. It includes the configured IP and also
+        the highest and lowest UDP range." 
+    ::= { cqlqamPartitionEntry 16 }
+
+cqlqpErmiErrpComponentName OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Component Name for the QP, applicable only for ERMI protocol." 
+    ::= { cqlqamPartitionEntry 17 }
+
+cqlqpErmiErrpStreamingZone OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Streaming zone for the QP, applicable only for ERMI protocol." 
+    ::= { cqlqamPartitionEntry 18 }
+
+cqlqpErmiErrpHoldTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Hold Time in seconds for the QP, applicable only for ERMI
+        protocol."
+    DEFVAL          { 90 } 
+    ::= { cqlqamPartitionEntry 19 }
+
+cqlqpErmiErrpConnnectTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Connect Time in seconds for the QP, applicable only for ERMI
+        protocol."
+    DEFVAL          { 10 } 
+    ::= { cqlqamPartitionEntry 20 }
+
+cqlqpErmiErrpConnectRetry OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Connection retry in seconds for the QP. It is applicable only
+        for ERMI protocol."
+    DEFVAL          { 0 } 
+    ::= { cqlqamPartitionEntry 21 }
+
+cqlqpErmiRtspConnectTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Connect time in seconds for the QP. It is applicable only for
+        ERMI protocol."
+    DEFVAL          { 200 } 
+    ::= { cqlqamPartitionEntry 22 }
+
+cqlqpErmiRtspConnectRetry OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Connect retry in seconds for the QP, applicable
+        only for ERMI protocol."
+    DEFVAL          { 0 } 
+    ::= { cqlqamPartitionEntry 23 }
+
+cqlqpErmiRtspKeepAliveTime OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Connection timeout in seconds for the QP. It is applicable only
+        for ERMI protocol."
+    DEFVAL          { 300 } 
+    ::= { cqlqamPartitionEntry 24 }
+
+cqlqpErmiRtspSessionTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Session Timeout in seconds for the QP. It is applicable
+        only for ERMI protocol."
+    DEFVAL          { 10800 } 
+    ::= { cqlqamPartitionEntry 25 }
+
+cqlqpQamOversubscribedStatus OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies oversubscription status of a Qam.
+        The value 'True' indicates the Qam is oversubscribed.
+        Otherwise the value 'False' is reported."
+    DEFVAL          { false } 
+    ::= { cqlqamPartitionEntry 26 }
+
+cqlqpServerIpList OBJECT-TYPE
+    SYNTAX          OCTET STRING
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "List of Server IP's for the QP." 
+    ::= { cqlqamPartitionEntry 27 }
+ 
+
+
+cqlloadBalanceGroupTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CqlloadBalanceGroupEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the total bandwidth and the
+        reserved bandwidth of QAM/IP based sessions."
+    ::= { ciscoQpLbgObjects 2 }
+
+cqlloadBalanceGroupEntry OBJECT-TYPE
+    SYNTAX          CqlloadBalanceGroupEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry corresponds to the parameters of a LBG."
+    INDEX           {
+                        entPhysicalIndex,
+                        cqllbgIndex
+                    } 
+    ::= { cqlloadBalanceGroupTable 1 }
+
+CqlloadBalanceGroupEntry ::= SEQUENCE {
+        cqllbgIndex              Unsigned32,
+        cqllbgTotalBandwidth     Unsigned32,
+        cqllbgQamRsvBandwidth    Unsigned32,
+        cqllbgIpRsvBandwidth     Unsigned32,
+        cqllbgAvailableBandwidth Unsigned32
+}
+
+cqllbgIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This index is to identify the LBG group within the slot." 
+    ::= { cqlloadBalanceGroupEntry 1 }
+
+cqllbgTotalBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Kbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total bandwidth in Kbps of a LBG." 
+    ::= { cqlloadBalanceGroupEntry 2 }
+
+cqllbgQamRsvBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Kbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total reserved bandwidth in Kbps for
+        depi sessions." 
+    ::= { cqlloadBalanceGroupEntry 3 }
+
+cqllbgIpRsvBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Kbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total reserved bandwidth
+        in Kbps for video sessions." 
+    ::= { cqlloadBalanceGroupEntry 4 }
+
+cqllbgAvailableBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Kbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the available bandwidth in Kbps. This may
+        be calculated as (TotalBandwidth - (QamRsvBandwidth +
+        IpRsvBandwith))." 
+    ::= { cqlloadBalanceGroupEntry 5 }
+ 
+
+
+cqllbgrouteTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CqllbgrouteEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the route parameters such as
+        QP id,destination ip, low and high udp range, reserved and
+        allocated bandwidth."
+    ::= { ciscoQpLbgObjects 3 }
+
+cqllbgrouteEntry OBJECT-TYPE
+    SYNTAX          CqllbgrouteEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry corresponds to the parameters of a route."
+    INDEX           {
+                        entPhysicalIndex,
+                        cqllbgRouteIndex
+                    } 
+    ::= { cqllbgrouteTable 1 }
+
+CqllbgrouteEntry ::= SEQUENCE {
+        cqllbgRouteIndex         Unsigned32,
+        cqllbgQpId               Unsigned32,
+        cqllbgDstIpAddrType      InetAddressType,
+        cqllbgDstIpAddr          InetAddress,
+        cqllbgUdpPortRangeMin    Unsigned32,
+        cqllbgUdpPortRangeMax    Unsigned32,
+        cqllbgGqiIngressPort     Unsigned32,
+        cqllbgRsvBandwidth       Unsigned32,
+        cqllbgAllocatedBandwidth Unsigned32,
+        cqllbgNumFlows           Unsigned32
+}
+
+cqllbgRouteIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The table index. This is the index which uniquely identifies
+        the
+        route within the LBG group." 
+    ::= { cqllbgrouteEntry 1 }
+
+cqllbgQpId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the QP ID. The range of the QP is between
+        1 and 50." 
+    ::= { cqllbgrouteEntry 2 }
+
+cqllbgDstIpAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The type of the destination address as defined inetAddressType.
+        The supported address types are IPv4 and IPv6."
+    DEFVAL          { ipv4 } 
+    ::= { cqllbgrouteEntry 3 }
+
+cqllbgDstIpAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Destination IP address of the route to which the incoming
+        packets are routed to." 
+    ::= { cqllbgrouteEntry 4 }
+
+cqllbgUdpPortRangeMin OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The lowest UDP port of the UDP port range that can be used." 
+    ::= { cqllbgrouteEntry 5 }
+
+cqllbgUdpPortRangeMax OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The highest UDP port of the UDP port range that can be used." 
+    ::= { cqllbgrouteEntry 6 }
+
+cqllbgGqiIngressPort OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Ingress port of a QP, applicable only for GQI protocol." 
+    ::= { cqllbgrouteEntry 7 }
+
+cqllbgRsvBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Kbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reserved bandwidth is the total bitrate reserved on
+        this route in Kbps." 
+    ::= { cqllbgrouteEntry 8 }
+
+cqllbgAllocatedBandwidth OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "Kbps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The total bandwidth being used by sessions using this route in
+        Kbps." 
+    ::= { cqllbgrouteEntry 9 }
+
+cqllbgNumFlows OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of sessions currently use this route to forward this
+        traffic in Kbps." 
+    ::= { cqllbgrouteEntry 10 }
+ 
+
+
+cqlQpNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system generates
+        cqlQpStateChange notifications. A false value will prevent
+        cqlQpStateChange notifications from being generated by this
+        system."
+    DEFVAL          { false } 
+    ::= { ciscoQpLbgObjects 4 }
+
+cqlQamNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system generates cqlQamAdd or
+        cqlQamDelete notifications. A false value will prevent cqlQamAdd
+        or cqlQamDelete notifications from being generated by this
+        system."
+    DEFVAL          { false } 
+    ::= { ciscoQpLbgObjects 5 }
+
+cqlRouteNotifyEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system produces cqlRouteAdd
+        or cqlRouteDelete notifications. A false value will prevent 
+        cqlRouteAdd or cqlRouteDelete notifications  from being
+        generated by this system."
+    DEFVAL          { false } 
+    ::= { ciscoQpLbgObjects 6 }
+
+cqlQamOverSubscribedEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether the system produces
+        cqlQamOverSubscribedAlert notifications. A false value will 
+        prevent cqlQamOverSubscribedAlert notifications from being
+        generated by the system."
+    DEFVAL          { false } 
+    ::= { ciscoQpLbgObjects 7 }
+ciscoQpLbgCompliances  OBJECT IDENTIFIER
+    ::= { ciscoQpLbgConform 1 }
+
+ciscoQpLbgGroups  OBJECT IDENTIFIER
+    ::= { ciscoQpLbgConform 2 }
+
+
+cqlciscoQpLbgCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "These objects describe the support level
+        for QP and LBG."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cqlciscoLbgRouteObjectGroup }
+
+    GROUP           cqlciscoQpNotifsGroup
+    DESCRIPTION
+        "The cqlciscoQpNotifsGroup is unconditionally
+        optional."
+
+    GROUP           cqlciscoQpObjectGroup
+    DESCRIPTION
+        "The cqlciscoQpObjectGroup is unconditionally
+        optional."
+
+    GROUP           cqlciscoQpLbgNotifsControlGroup
+    DESCRIPTION
+        "The cqlciscoQpLbgNotifsControlGroup is unconditionally
+        optional."
+
+    GROUP           cqlciscoLbgNotifsGroup
+    DESCRIPTION
+        "The cqlciscoLbgNotifsGroup is uncondionally
+        optional."
+
+    GROUP           cqlciscoLbgObjectGroup
+    DESCRIPTION
+        "The cqlciscoLbgObjectGroup is unconditionally
+        optional."
+    ::= { ciscoQpLbgCompliances 1 }
+
+cqlciscoQpLbgCompliance1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "These objects describe the support level
+        for QP and LBG."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cqlciscoLbgRouteObjectGroup }
+
+    GROUP           cqlciscoLbgNotifsGroup
+    DESCRIPTION
+        "The cqlciscoLBGNotifsGroup is unconditionally
+        optional"
+
+    GROUP           cqlciscoLbgObjectGroup
+    DESCRIPTION
+        "The cqlciscoLbgObjectGroup is unconditionally
+        optional."
+
+    GROUP           cqlciscoQpNotifsGroup1
+    DESCRIPTION
+        "The cqlciscoQpNotifsGroup1 is unconditionally
+        optional."
+
+    GROUP           cqlciscoQpObjectGroup1
+    DESCRIPTION
+        "The cqlciscoQpObjectGroup1 is unconditionally
+        optional."
+
+    GROUP           cqlciscoQpLbgNotifsControlGroup1
+    DESCRIPTION
+        "The cqlciscoQpLbgNotifsControlGroup1 is unconditionally
+        optional."
+    ::= { ciscoQpLbgCompliances 2 }
+
+cqlciscoQpNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cqlQpStateChange,
+                        cqlQamAdd,
+                        cqlQamDelete
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of QP notifications that may 
+        optionally be implemented.
+        cqlciscoQpNotifsGroup object is 
+        superseded by cqlciscoQpNotifsGroup1."
+    ::= { ciscoQpLbgGroups 1 }
+
+cqlciscoLbgNotifsGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cqlLbgRouteAdd,
+                        cqlLbgRouteDelete
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of LBG notifications
+        that may optionally be implemented."
+    ::= { ciscoQpLbgGroups 2 }
+
+cqlciscoQpObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cqlqpId,
+                        cqlqpMgmtIp,
+                        cqlqpState,
+                        cqlqpProtocol,
+                        cqlqpKeepAliveTime,
+                        cqlqpGqiResetInterval,
+                        cqlqpServerIp,
+                        cqlqpServerState,
+                        cqlqpGqiMacAddr,
+                        cqlqpNumQams,
+                        cqlqpQamCarrrierList,
+                        cqlqpNumRoutes,
+                        cqlqpRouteDetails,
+                        cqlqpErmiErrpComponentName,
+                        cqlqpErmiErrpStreamingZone,
+                        cqlqpErmiErrpConnectRetry,
+                        cqlqpErmiErrpConnnectTime,
+                        cqlqpErmiErrpHoldTime,
+                        cqlqpErmiRtspConnectRetry,
+                        cqlqpErmiRtspConnectTime,
+                        cqlqpErmiRtspKeepAliveTime,
+                        cqlqpErmiRtspSessionTimeout,
+                        cqlqpMgmtIpAddrType,
+                        cqlqpServerIpAddrType
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing information 
+        about the QP parameters.
+        cqlciscoQpObjectGroup object is 
+        superseded by cqlciscoQpObjectGroup1."
+    ::= { ciscoQpLbgGroups 3 }
+
+cqlciscoLbgObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cqllbgTotalBandwidth,
+                        cqllbgQamRsvBandwidth,
+                        cqllbgIpRsvBandwidth,
+                        cqllbgAvailableBandwidth
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing
+        information about the LBG parameters."
+    ::= { ciscoQpLbgGroups 4 }
+
+cqlciscoLbgRouteObjectGroup OBJECT-GROUP
+    OBJECTS         {
+                        cqllbgQpId,
+                        cqllbgDstIpAddr,
+                        cqllbgUdpPortRangeMin,
+                        cqllbgUdpPortRangeMax,
+                        cqllbgGqiIngressPort,
+                        cqllbgAllocatedBandwidth,
+                        cqllbgRsvBandwidth,
+                        cqllbgNumFlows,
+                        cqllbgDstIpAddrType
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about the LBG
+        route parameters."
+    ::= { ciscoQpLbgGroups 5 }
+
+cqlciscoQpLbgNotifsControlGroup OBJECT-GROUP
+    OBJECTS         {
+                        cqlQpNotifyEnable,
+                        cqlQamNotifyEnable,
+                        cqlRouteNotifyEnable
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+        "A collection of objects providing information
+        about the notification enables.
+        cqlciscoQpLbgNotifsControlGroup object is 
+        superseded by cqlciscoQpLbgNotifsControlGroup1."
+    ::= { ciscoQpLbgGroups 6 }
+
+cqlciscoQpNotifsGroup1 NOTIFICATION-GROUP
+   NOTIFICATIONS    {
+                        cqlQpStateChange,
+                        cqlQamAdd,
+                        cqlQamDelete,
+                        cqlQamOverSubscribedAlert
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of QP notifications that may
+        optionally be implemented."
+    ::= { ciscoQpLbgGroups 7 }
+
+cqlciscoQpObjectGroup1 OBJECT-GROUP
+    OBJECTS         {
+                        cqlqpId,
+                        cqlqpMgmtIpAddrType,
+                        cqlqpMgmtIp,
+                        cqlqpServerIpAddrType,
+                        cqlqpServerIp,
+                        cqlqpState,
+                        cqlqpProtocol,
+                        cqlqpKeepAliveTime,
+                        cqlqpServerState,
+                        cqlqpGqiMacAddr,
+                        cqlqpGqiResetInterval,
+                        cqlqpNumQams,
+                        cqlqpQamCarrrierList,
+                        cqlqpNumRoutes,
+                        cqlqpRouteDetails,
+                        cqlqpErmiErrpComponentName,
+                        cqlqpErmiErrpStreamingZone,
+                        cqlqpErmiErrpHoldTime,
+                        cqlqpErmiErrpConnnectTime,
+                        cqlqpErmiErrpConnectRetry,
+                        cqlqpErmiRtspConnectTime,
+                        cqlqpErmiRtspConnectRetry,
+                        cqlqpErmiRtspKeepAliveTime,
+                        cqlqpErmiRtspSessionTimeout,
+                        cqlqpQamOversubscribedStatus,
+                        cqlqpServerIpList
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        about the QP parameters."
+    ::= { ciscoQpLbgGroups 8 }
+
+cqlciscoQpLbgNotifsControlGroup1 OBJECT-GROUP
+    OBJECTS         {
+                        cqlQpNotifyEnable,
+                        cqlQamNotifyEnable,
+                        cqlRouteNotifyEnable,
+                        cqlQamOverSubscribedEnable
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information
+        about the notification enables."
+    ::= { ciscoQpLbgGroups 9 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

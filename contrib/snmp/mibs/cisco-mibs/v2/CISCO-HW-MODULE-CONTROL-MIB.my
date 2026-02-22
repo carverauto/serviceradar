@@ -1,0 +1,509 @@
+-- ******************************************************************
+-- CISCO-HW-MODULE-CONTROL-MIB.my: Cisco Hardware Module Control MIB.
+--   
+-- November 2009, Guichuan Tang
+--   
+-- Copyright (c) 2009, 2010 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- ******************************************************************
+
+CISCO-HW-MODULE-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    CiscoInterfaceIndexList
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoHwModuleControlMIB MODULE-IDENTITY
+    LAST-UPDATED    "201008090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The MIB module providing configuration and control
+        information for management of hardware modules and
+        components on Cisco devices.
+
+        The following features are managed: bandwidth 
+        oversubscription, clearing of HoL(Head of Line) 
+        blocking, etc.
+
+        Bandwidth oversubscription: a group of ports are
+        said to be operating in bandwidth oversubscription 
+        mode if the amount of internal forwarding fabric 
+        bandwidth allocated to the group of ports on a 
+        switching or routing device is less than the aggregate 
+        maximum connection speeds of these ports.
+
+        Clearing of HoL blocking: refers to the process
+        in which if any port of a port group receives a
+        pause frame from the remote side, it will block 
+        packet transmission on all ports of the port group 
+        till a packet is delivered to the flow controlled 
+        port. If the clearing of HoL blocking feature is 
+        disabled, the device will drop packets destined 
+        for the jammed ports and continue delivering 
+        packets for the other ports."
+    REVISION        "201008090000Z"
+    DESCRIPTION
+        "Added ciscoHmcMIBOperModeGroup."
+    REVISION        "200911120000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 714 }
+
+
+ciscoHwModuleControlMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoHwModuleControlMIB 0 }
+
+ciscoHwModuleControlMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoHwModuleControlMIB 1 }
+
+ciscoHwModuleControlMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoHwModuleControlMIB 2 }
+
+chmcOversubscription  OBJECT IDENTIFIER
+    ::= { ciscoHwModuleControlMIBObjects 1 }
+
+chmcOperationalMode   OBJECT IDENTIFIER
+    ::= { ciscoHwModuleControlMIBObjects 2 }
+
+-- The hw-module oversubscription group
+
+chmcOversubModuleTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ChmcOversubModuleEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Contains information for managing bandwidth
+        oversubscription feature for physical modules 
+        capable of providing such feature."
+    ::= { chmcOversubscription 1 }
+
+chmcOversubModuleEntry OBJECT-TYPE
+    SYNTAX          ChmcOversubModuleEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry provides management information for a
+        specific physical module as indicated by the value
+        of entPhysicalIndex, which is capable of providing
+        bandwidth oversubscription feature."
+    INDEX           { entPhysicalIndex } 
+    ::= { chmcOversubModuleTable 1 }
+
+ChmcOversubModuleEntry ::= SEQUENCE {
+        chmcOversubModuleCapabilities BITS,
+        chmcOversubModOversubStatus   INTEGER
+}
+
+chmcOversubModuleCapabilities OBJECT-TYPE
+    SYNTAX          BITS {
+                        oversubConfigModuleLevel(0),
+                        oversubConfigPortGroupLevel(1),
+                        clearblockConfigPortGroupLevel(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the attributes of this module with
+        respective to the bandwidth oversubscription feature.
+
+        oversubConfigModuleLevel(0) -
+              This bit is set if configuration of bandwidth
+              oversubscription is supported at module level.
+
+        oversubConfigPortGroupLevel(1) -
+              This bit is set if configuration of bandwidth
+              oversubscription is supported at port group
+              level.
+
+        clearblockConfigPortGroupLevel(2) -
+              This bit is set if configuration of clearing
+              of HoL blocking is supported at port group
+              level." 
+    ::= { chmcOversubModuleEntry 1 }
+
+chmcOversubModOversubStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        enabledOnAllPortGroups(1),
+                        disabledOnAllPortGroups(2),
+                        portGroupSpecific(3) -- read-only                        
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the state of the bandwidth oversubscription
+        feature for this module.
+
+        enabledOnAllPortGroups -- 
+                           the bandwidth oversubscription feature
+                           is enabled on all port groups of this
+                           module.
+
+        disabledOnAllPortGroups -- 
+                           the bandwidth oversubscription feature
+                           is disabled on all port groups of this
+                           module.
+
+        portGroupSpecific -- 
+                           the bandwidth oversubscription feature
+                           is enabled on some port groups of this 
+                           module while being disabled at the
+                           remaining port groups of this module.
+                           This value is a read-only value and
+                           can not be set on any instance of
+                           this object. 
+
+        This object will only be configurable when the 
+        instance value of chmcOversubModuleCapabilities of this
+        entry has the 'oversubConfigModuleLevel' bit set to 1." 
+    ::= { chmcOversubModuleEntry 2 }
+ 
+
+
+chmcOversubPortGroupTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ChmcOversubPortGroupEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Contains information for managing bandwidth
+        oversubscription and clearing of HoL blocking
+        features for port groups of the physical modules
+        capable of providing bandwidth oversubscription
+        feature."
+    ::= { chmcOversubscription 2 }
+
+chmcOversubPortGroupEntry OBJECT-TYPE
+    SYNTAX          ChmcOversubPortGroupEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains management information for a
+        specific port group on a specific physical module as
+        indicated by the value of entPhysicalIndex, which is
+        capable of providing bandwidth oversubscription feature."
+    INDEX           {
+                        entPhysicalIndex,
+                        chmcOversubPortGrpIndex
+                    } 
+    ::= { chmcOversubPortGroupTable 1 }
+
+ChmcOversubPortGroupEntry ::= SEQUENCE {
+        chmcOversubPortGrpIndex          Unsigned32,
+        chmcOversubPortGrpIfIndexList    CiscoInterfaceIndexList,
+        chmcOversubPortGrpOversubStatus  INTEGER,
+        chmcOversubPortGrpClearBlkStatus INTEGER
+}
+
+chmcOversubPortGrpIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique value assigned to a specific port group on a
+        module." 
+    ::= { chmcOversubPortGroupEntry 1 }
+
+chmcOversubPortGrpIfIndexList OBJECT-TYPE
+    SYNTAX          CiscoInterfaceIndexList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Contains ifIndex values for the list of the ports in
+        the port group." 
+    ::= { chmcOversubPortGroupEntry 2 }
+
+chmcOversubPortGrpOversubStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1), -- read-only
+                        enabled(2),
+                        disabled(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the state of the bandwidth oversubscription
+        feature on this port group.
+
+        other     - none of the following. This value is a
+                    read-only value and can not be set on
+                    any instance of this object.
+
+        enabled   - this port group is enabled to operate
+                    in bandwidth oversubscription mode.
+
+        disabled  - this port group is disabled to operate
+                    in bandwidth oversubscription mode. The
+                    first port indicated by the first four
+                    bytes of the value of
+                    chmcOversubPortGrpIfIndexList of this
+                    port group will keep its administrative
+                    status and the remaining ports of this port
+                    group will be administratively shut down.
+
+        This object will only be configurable when the instance value
+        of chmcOversubModuleCapabilities for the corresponding module
+        has the 'oversubConfigPortGroupLevel' bit set to 1." 
+    ::= { chmcOversubPortGroupEntry 3 }
+
+chmcOversubPortGrpClearBlkStatus OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1), -- read-only
+                        enabled(2),
+                        disabled(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the state of the clearing of HoL blocking
+        feature on this port group.
+
+        other     - none of the following. This value is a 
+                    read-only value and can not be set on
+                    any instance of this object.
+
+        enabled   - the clearing of HoL blocking feature is
+                    enabled.
+
+        disabled  - the clearing of HoL blocking feature 
+                    is disabled.
+
+        This object will only take effect when the instance value
+        of chmcOversubPortGrpOversubStatus of this entry is 'enabled'.
+
+        This object will only be configurable when the instance 
+        value of chmcOversubPortGrpOversubStatus of this entry is 
+        'enabled' and the instance value of 
+        chmcOversubModuleCapabilities for the corresponding module
+        has the 'clearblockConfigPortGroupLevel' bit set to 1." 
+    ::= { chmcOversubPortGroupEntry 4 }
+
+-- The hw-module operational mode group
+
+chmcOperModePortGroupTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF ChmcOperModePortGroupEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Contains information for managing operational mode 
+        features for port groups of the physical modules
+        capable of providing operational mode configuration."
+    ::= { chmcOperationalMode 1 }
+
+chmcOperModePortGroupEntry OBJECT-TYPE
+    SYNTAX          ChmcOperModePortGroupEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Each entry contains operational mode information for a
+        specific port group on a specific physical module as
+        indicated by the value of entPhysicalIndex, which is
+        capable of providing operational mode configuration."
+    INDEX           {
+                        entPhysicalIndex,
+                        chmcOperModePortGrpIndex
+                    } 
+    ::= { chmcOperModePortGroupTable 1 }
+
+ChmcOperModePortGroupEntry ::= SEQUENCE {
+        chmcOperModePortGrpIndex          Unsigned32,
+        chmcOperModePortGrpOperMode       INTEGER,
+        chmcOperModePortGrpIfIndexList    CiscoInterfaceIndexList
+}
+
+chmcOperModePortGrpIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A unique value assigned to a specific port group on a
+        module." 
+    ::= { chmcOperModePortGroupEntry 1 }
+
+chmcOperModePortGrpOperMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1), -- read-only
+                        tenGigabitEthernet(2),
+                        fortyGigabitEthernet(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Specifies the operational mode of the port group. 
+
+        other     - none of the following. This value is a
+                    read-only value and can not be set on
+                    any instance of this object.
+
+        tenGigabitEthernet   - this port group is operated with 
+                               10 Gigibit Ethernet port mode.
+
+        forthGigabitEthernet - this port group is operated with 
+                               40 Gigabit Ethernet port mode.
+
+        Modification on the instance value of this object may cause
+        the corresponding module to be reset."
+    ::= { chmcOperModePortGroupEntry 2 }
+
+chmcOperModePortGrpIfIndexList OBJECT-TYPE
+    SYNTAX          CiscoInterfaceIndexList
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Contains ifIndex values for the list of the ports in
+        the port group. The instance value of this object may be 
+        changed  after modification on the corresponding instance 
+        value of chmcOperModePortGrpOperMode." 
+    ::= { chmcOperModePortGroupEntry 3 }
+
+
+-- Conformance information
+
+chmcHwModuleControlMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoHwModuleControlMIBConform 1 }
+
+chmcHwModuleControlMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoHwModuleControlMIBConform 2 }
+
+
+-- Compliance statements
+
+chmcHwModuleControlMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "The compliance statement for CISCO-HW-MODULE-CONTROL-MIB."
+    MODULE          -- this module
+    GROUP           ciscoHmcMIBOversubBaseGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support either
+        the bandwidth oversubscription feature alone or both the
+        bandwidth oversubscription and the clearing of HoL 
+        blocking feature."
+
+    GROUP           ciscoHmcMIBOversubPgClearBlkGrp
+    DESCRIPTION
+        "This group is mandatory for devices that support the
+        clearing of HoL blocking feature."
+
+    OBJECT          chmcOversubModOversubStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          chmcOversubPortGrpOversubStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          chmcOversubPortGrpClearBlkStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+    ::= { chmcHwModuleControlMIBCompliances 1 }
+
+chmcHwModuleControlMIBCompliance1 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for CISCO-HW-MODULE-CONTROL-MIB."
+    MODULE          -- this module
+    GROUP           ciscoHmcMIBOversubBaseGroup
+    DESCRIPTION
+        "This group is mandatory for devices that support either
+        the bandwidth oversubscription feature alone or both the
+        bandwidth oversubscription and the clearing of HoL 
+        blocking feature."
+
+    GROUP           ciscoHmcMIBOversubPgClearBlkGrp
+    DESCRIPTION
+        "This group is mandatory for devices that support the
+        clearing of HoL blocking feature."
+
+    GROUP           ciscoHmcMIBOperModeGroup
+    DESCRIPTION
+        "This group is mandatory for devices that supports the 
+        port group operational mode feature."  
+
+    OBJECT          chmcOversubModOversubStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          chmcOversubPortGrpOversubStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          chmcOversubPortGrpClearBlkStatus
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    OBJECT          chmcOperModePortGrpOperMode
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is not required."
+
+    ::= { chmcHwModuleControlMIBCompliances 2 }
+
+-- Units of Conformance
+
+ciscoHmcMIBOversubBaseGroup OBJECT-GROUP
+    OBJECTS         {
+                        chmcOversubModuleCapabilities,
+                        chmcOversubModOversubStatus,
+                        chmcOversubPortGrpIfIndexList,
+                        chmcOversubPortGrpOversubStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information about
+        the bandwidth oversubscription and/or clearing of HoL
+        blocking features for hardware modules capable of 
+        providing such features."
+    ::= { chmcHwModuleControlMIBGroups 1 }
+
+ciscoHmcMIBOversubPgClearBlkGrp OBJECT-GROUP
+    OBJECTS         { chmcOversubPortGrpClearBlkStatus }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects describing the clearing
+        of HoL blocking support at port group level for 
+        each hardware module capable of providing such
+        feature."
+    ::= { chmcHwModuleControlMIBGroups 2 }
+
+ciscoHmcMIBOperModeGroup OBJECT-GROUP
+    OBJECTS         { 
+                        chmcOperModePortGrpOperMode,
+                        chmcOperModePortGrpIfIndexList 
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the operational
+        mode information at port group level for each 
+        physical module capable of providing such feature."
+    ::= { chmcHwModuleControlMIBGroups 3 }
+
+END

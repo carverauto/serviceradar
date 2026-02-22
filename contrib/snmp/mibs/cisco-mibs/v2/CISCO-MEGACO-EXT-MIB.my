@@ -1,0 +1,4044 @@
+
+-- ********************************************************************
+-- CISCO-MEGACO-EXT-MIB
+
+-- This MIB is extended from CISCO-IETF-MEGACO-MIB
+
+-- May 2004, Margaret Hsieh
+
+-- Copyright (c) 2003, 2004, 2005, 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- ********************************************************************
+
+CISCO-MEGACO-EXT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    TimeTicks,
+    Integer32,
+    Gauge32,
+    Counter32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    TruthValue,
+    RowStatus,
+    TimeStamp
+        FROM SNMPv2-TC
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InetAddress,
+    InetAddressType
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    CiscoPort
+        FROM CISCO-TC
+    ciscoExperiment
+        FROM CISCO-SMI
+    CMgcGroupIndex
+        FROM CISCO-MGC-MIB
+    CvcSpeechCoderRate
+        FROM CISCO-VOICE-COMMON-DIAL-CONTROL-MIB
+    CCallControlProfileIndex,
+    CCallControlProfileIndexOrZero
+        FROM CISCO-MEDIA-GATEWAY-MIB
+    Counter32SinceReset
+        FROM CISCO-ATM-TRUNK-MIB
+    cmedGatewayId,
+    cmedGatewayLinkId,
+    cmedTerminationsEntry,
+    cmedGatewayConfigEntry,
+    cmedGatewayStatsEntry
+        FROM CISCO-IETF-MEGACO-MIB;
+
+
+ciscoMegacoExtMIB MODULE-IDENTITY
+    LAST-UPDATED    "200608291200Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+            Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+            Tel: +1 800 553-NETS
+            E-mail: cs-voice-gateway@cisco.com"
+    DESCRIPTION
+            "The MIB module is an extension of CISCO-IETF-MEGACO-MIB.
+            It defines the attributes of ITU H.248 protocol."
+    REVISION        "200608291200Z"
+    DESCRIPTION
+            "
+            Added new objects to cmedxGatewayConfigTable
+                cmedxGatewayDomainName,
+                cmedxGatewayCmbDnAndPortInMID."
+    REVISION        "200604211200Z"
+    DESCRIPTION
+            "Deprecated the following object:
+            cmedxGatewayProvisionRespTime
+
+            Added new objects to cmedxGatewayConfigTable
+            cmedxGatewayMgProvisionRspTime,
+            cmedxGatewayMgcProvisionRspTime,
+            cmedxGatewayMgOrigPendLimit,
+            cmedxGatewayMgcOrigPendLimit
+            for ETSI TISPAN compliance.     
+
+            Added new objects to cmedxCommandStatsTable
+            cmedxCmdNumAddPendings,
+            cmedxCmdNumSubtractPendings,
+            cmedxCmdNumMovePendings,
+            cmedxCmdNumModifyPendings,
+            cmedxCmdNumAuditValPendings,
+            cmedxCmdNumAuditCapPendings,
+            cmedxCmdNumNotifyPendings,
+            cmedxCmdNumSrvChgFromMgcPendings,
+            cmedxCmdNumSrvChgFromMgPendings,
+            cmedxCmdTotalPendings.
+            "
+    REVISION        "200511031200Z"
+    DESCRIPTION
+            "Added new values from pkgGRI to pkgXnq to
+            CH248Packages.
+
+            Added new objects to cmedxCallReduceControlTable
+                cmedxCrrNotifyState,
+                cmedxCrrNotifyEnabled.
+                cmedxCurrentCallState
+
+            Added new objects to cmedxProfileTable
+                cmedxProfileComfortNoiseGenerate
+
+            Added new objects to cmedxCommandStatsTable
+                cmedxCmdTotalFails,
+                cmedxCmdTotalSucceeds,
+                cmedxCmdTotal.
+
+            Added the following tables -
+                cmedxOverloadControlTable,
+                cmedxCommandProcStatsTable,
+                cmedxOverloadStatsTable,
+                cmedxOverloadResourceStatsTable
+
+            Added the following objects to cmedxGatewayConfigTable:   
+                cmedxGatewaySctpAssocId,
+                cmedxGatewaySrvChgProfile,
+                cmedxGatewaySrvChgProfileVer,
+                cmedxGatewayMsgTokenType."
+    REVISION        "200504251200Z"
+    DESCRIPTION
+            "Added 6 more packet ids in CH248Packages:
+            pkgBCAS      (20),
+            pkgRBS       (21),
+            pkgOSES      (22),
+            pkgAMET      (23),
+            pkgBCASAddr  (24),
+            pkgCASBlock  (25)
+            to handle the CAS state of the gateway link."
+    REVISION        "200406031200Z"
+    DESCRIPTION
+            "(a) Note: There is a typo in the MIB.
+            The UNITS of the object cmedxGatewayInactivityTime
+            has been changed to '10 milliseconds'. 
+            (b) Added two new objects, 
+               cmedxGatewayAdminAction 
+               cmedxGatewayServiceState
+            to handle the service state of the gateway link.
+            (c) Added four new objects, 
+               cmedxProfileOriginatingCotTx
+               cmedxProfileOriginatingCotRx
+               cmedxProfileTerminatingCotTx
+               cmedxProfileTerminatingCotRx
+            to handle COT.
+            (d) Added pktLLTR(19) to CH248Packages TC.
+            (e) Added 3 new objects, 
+               cmedxGatewayDynamicTpktVersion
+               cmedxGatewayMaxCommandMsgSize
+               cmedxGatewayMaxReplyMsgSize
+            for TCP layer and the maximum size of command and reply
+            message of H248.
+            "
+    REVISION        "200310131200Z"
+    DESCRIPTION
+            "Initial version of this MIB module."
+          ::= { ciscoExperiment 104 }
+
+
+-- ********************************************************************
+
+-- OID For the MIB
+
+-- ********************************************************************
+ciscoMegacoExtMIBNotifications  OBJECT IDENTIFIER
+    ::= { ciscoMegacoExtMIB 0 }
+
+ciscoMegacoExtMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoMegacoExtMIB 1 }
+
+cmedxConfig  OBJECT IDENTIFIER
+    ::= { ciscoMegacoExtMIBObjects 1 }
+
+cmedxStats  OBJECT IDENTIFIER
+    ::= { ciscoMegacoExtMIBObjects 2 }
+
+-- *****************************************************************
+-- Abbreviations/Terminologies
+
+-- ATM - Asynchronous Transfer Mode
+
+-- DTMF - Dual Tone Multi-Frequency
+
+-- Media Gateway ID - An unique identifier specifies a logical media
+-- gateway. It is defined by object cmedGatewayId
+-- in CISCO-IETF-MEGACO-MIB and has the same
+-- meaning with cmgwIndex in
+-- CISCO-MEDIA-GATEWAY-MIB.
+
+-- Media Gateway Link - A signaling channels that is identified by an
+-- IP address and a UDP port of a media gateway.
+-- A media gateway can have one or more links
+-- (one or more signaling channels). It is
+-- represented by cmedGatewayLinkId in
+-- CISCO-IETF-MEGACO-MIB.
+
+-- H.248 Association - A media gateway communicates with a group of
+-- MGCs by a media gateway link. This media
+-- gateway and the MGC group form an H.248
+-- association.
+
+-- MG   - Media Gateway
+
+-- MGC  - Media Gateway Controller
+
+-- PSTN - Public Switched Telephone Network
+
+-- PDN - Packet Data Network
+
+-- RTP - Real-time Transport Protocol
+
+-- SCN - Switched Circuit Network
+
+-- DS  - Digital Subscriber
+
+-- MID - Media Gateway ID
+
+-- DNS - Domain Name Server
+
+-- *****************************************************************
+
+-- ********************************************************************
+
+-- Textual conventions
+
+-- ********************************************************************
+
+CH248Packages ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+            "This textual convention defines all possible packages in
+            H.248 protocol."
+    SYNTAX          BITS {
+                        pkgG(0),
+                        pkgRoot(1),
+                        pkgToneGen(2),
+                        pkgToneDet(3),
+                        pkgDG(4),
+                        pkgDD(5),
+                        pkgCG(6),
+                        pkgCD(7),
+                        pkgCT(8),
+                        pkgNT(9),
+                        pkgRTP(10),
+                        pkgTDMC(11),
+                        pkgAN(12),
+                        pkgBCG(13),
+                        pkgXCG(14),
+                        pkgSrvTn(15),
+                        pkgXsrvTn(16),
+                        pkgChp(17),
+                        pkgIT(18),
+                        pkgLLTR(19),
+                        pkgBCAS(20),
+                        pkgRBS(21),
+                        pkgOSES(22),
+                        pkgAMET(23),
+                        pkgBCASAddr(24),
+                        pkgCASBlock(25),
+                        pkgGRI(26),
+                        rtcpxr(27),
+                        xrbm(28),
+                        qac(29),
+                        pkgDS(30),
+                        pkgETerm(31),
+                        pkgXnq(32),
+                        pkgCTYP(33),
+                        pkgIPFAX(34)
+                    }
+
+CMedxCotTones ::= TEXTUAL-CONVENTION
+    STATUS          current
+    DESCRIPTION
+            "This textual convention defines the tones to be used
+            between originating gateway and terminating gateway in 
+            the COT (Continuity Test).
+            co1 (1) - CO1 is either 2000Hz or 2010Hz depending on
+                      the region/country regulation.
+            co2 (2) - CO2 is always 1780Hz."
+    SYNTAX          INTEGER  {
+                        co1(1),
+                        co2(2)
+                    }
+-- *********************************************************************
+
+-- cmedxGatewayConfigTable
+
+-- This table is extended from cmedGatewayConfigTable of
+-- CISCO-IETF-MEGACO-MIB.
+
+-- *********************************************************************
+
+cmedxGatewayConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxGatewayConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The Cisco media gateway configuration extended table defines
+            the parameters related to the configuration of the media
+            gateway in H.248 protocol.
+
+            Each entry represents an instance of an H.248 Gateway Link."
+    ::= { cmedxConfig 1 }
+
+cmedxGatewayConfigEntry OBJECT-TYPE
+    SYNTAX          CmedxGatewayConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "An entry containing additional H.248 protocol related
+            configuration applicable to a media gateway.
+            The following objects must be provided when the entry
+            is created, and they can not be modified after the entry 
+            becomes active:
+                cmedxGatewayMgcGroupIndex,
+                cmedxGatewayIpAddressIndex."
+    AUGMENTS           { cmedGatewayConfigEntry  } 
+ 
+    ::= { cmedxGatewayConfigTable 1 }
+
+CmedxGatewayConfigEntry ::= SEQUENCE {
+        cmedxGatewayMgcGroupIndex       CMgcGroupIndex,
+        cmedxGatewayIpAddressIndex      Unsigned32,
+        cmedxGatewayAssociationId       Unsigned32,
+        cmedxGatewayMaxContexts         Unsigned32,
+        cmedxGatewayMaxTermsInContext   Unsigned32,
+        cmedxGatewayMgExecTime          Unsigned32,
+        cmedxGatewayMgcExecTime         Unsigned32,
+        cmedxGatewayProvisionRespTime   Unsigned32,
+        cmedxGatewayNumConnRetries      Unsigned32,
+        cmedxGatewayMaxWaitingDelay     Unsigned32,
+        cmedxGatewayRestartDelay        Unsigned32,
+        cmedxGatewayRespRetentionTime   Unsigned32,
+        cmedxGatewayInitialRtt          Unsigned32,
+        cmedxGatewayInactivityTime      Unsigned32,
+        cmedxGatewayHeaderAddrType      InetAddressType,
+        cmedxGatewayDownServiceDelay    Integer32,
+        cmedxGatewayActiveMgcAddress    InetAddress,
+        cmedxGatewayActiveMgcDomain     SnmpAdminString,
+        cmedxGatewayActiveMgcPortNum    CiscoPort,
+        cmedxGatewayStateChangeReason   INTEGER ,
+        cmedxGatewayStateChangeMethod   INTEGER ,
+        cmedxGatewayAdminAction         INTEGER ,
+        cmedxGatewayServiceState        INTEGER ,
+        cmedxGatewayDynamicTpktVersion  TruthValue,
+        cmedxGatewayMaxCommandMsgSize   Unsigned32,
+        cmedxGatewayMaxReplyMsgSize     Unsigned32,
+        cmedxGatewaySctpAssocId         Unsigned32,
+        cmedxGatewaySrvChgProfile       SnmpAdminString,
+        cmedxGatewaySrvChgProfileVer    Unsigned32,
+        cmedxGatewayMsgTokenType        INTEGER ,
+        cmedxGatewayMgProvisionRspTime  Unsigned32,
+        cmedxGatewayMgcProvisionRspTime Unsigned32,
+        cmedxGatewayMgOrigPendLimit     Unsigned32,
+        cmedxGatewayMgcOrigPendLimit    Unsigned32,
+        cmedxGatewayDomainName          SnmpAdminString,
+        cmedxGatewayCmbDnAndPortInMID   TruthValue
+}
+
+cmedxGatewayMgcGroupIndex OBJECT-TYPE
+    SYNTAX          CMgcGroupIndex
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the MGC group parameters associated
+            with MGC group index. Those parameters are for the 
+            communication between this media gateway and the MGCs 
+            in the group. 
+            The value of this object is the same as cMgcGrpIndex
+            of cMgcGrpParamTable." 
+    ::= { cmedxGatewayConfigEntry 1 }
+
+cmedxGatewayIpAddressIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..64 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the media gateway IP address.
+            It is the index of the entry in cMediaGwIpConfigTable
+            which defines the media gateway address over control
+            type PVC." 
+    ::= { cmedxGatewayConfigEntry 2 }
+
+cmedxGatewayAssociationId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the unique identification of the
+            H.248 association assigned by the H.248 Stack." 
+    ::= { cmedxGatewayConfigEntry 3 }
+
+cmedxGatewayMaxContexts OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "Maximum number of contexts is allowed in this media
+            gateway link."
+    DEFVAL          { 100 } 
+    ::= { cmedxGatewayConfigEntry 4 }
+
+cmedxGatewayMaxTermsInContext OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "Maximum number of terminations per context in this media
+            gateway link."
+    DEFVAL          { 10 } 
+    ::= { cmedxGatewayConfigEntry 5 }
+
+cmedxGatewayMgExecTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the interval within which the MGC
+            expects a response to any transaction from the MG (exclusive
+            of network delay specified by the object 
+            cmedxGatewayInitialRtt)."
+    REFERENCE       "RFC2885, E.2.1 Properties."
+    DEFVAL          { 5000 } 
+    ::= { cmedxGatewayConfigEntry 6 }
+
+cmedxGatewayMgcExecTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the interval within which the MG
+            should expects a response to any transaction from the MGC
+            (exclusive of network delay specified by the object
+            cmedxGatewayInitalRtt)."
+    REFERENCE       "RFC2885, E.2.1 Properties."
+    DEFVAL          { 5000 } 
+    ::= { cmedxGatewayConfigEntry 7 }
+
+cmedxGatewayProvisionRespTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          deprecated
+    DESCRIPTION
+            "This object specifies the time within which to expect a
+            Pending Response if a transaction cannot be completed in
+            the media gateway and in the MGCs of the media gateway 
+            link.
+
+            The value of this object should be less than
+            the value of cmedxGatewayMgExecTime and the value
+            of cmedxGatewayMgcExecTime.
+
+            This object is depricated due to the object name,
+            default value and description are wrong.  This object 
+            is replaced by 'cmedxGatewayMgProvisionRspTime'."
+    DEFVAL          { 2000 } 
+    ::= { cmedxGatewayConfigEntry 8 }
+
+cmedxGatewayNumConnRetries OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100 )
+    UNITS           "times"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The number of times the media gateway retries to
+            connect to MGC before it sends out disconnect command."
+    DEFVAL          { 11 } 
+    ::= { cmedxGatewayConfigEntry 9 }
+
+cmedxGatewayMaxWaitingDelay OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..600000 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "When a media gateway is powered on, it should initiate
+            a restart timer to a random value, uniformly distributed 
+            between 0 and the value specified in this object (the
+            maximum waiting delay, MWD). After restart timer timeout,
+            the media gateway can initiate the ServiceChange 
+            transaction. This is a way to prevent the MGC is swamped
+            by many gateways powered up at the same time."
+    DEFVAL          { 3000 } 
+    ::= { cmedxGatewayConfigEntry 10 }
+
+cmedxGatewayRestartDelay OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..600 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies The time delay before the media
+            gateway accept any call from MGC after it sends 
+            the command 'ServiceChange' with a 'Restart'."
+    DEFVAL          { 200 } 
+    ::= { cmedxGatewayConfigEntry 11 }
+
+cmedxGatewayRespRetentionTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the time till which the responses
+            should be retained before they are sent if they receive 
+            a repetition of a transaction that is still being 
+            executed."
+    DEFVAL          { 30 } 
+    ::= { cmedxGatewayConfigEntry 12 }
+
+cmedxGatewayInitialRtt OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "Initial round-trip time for the H.248 transaction to
+            be responded. It reflects the network delay time."
+    DEFVAL          { 1000 } 
+    ::= { cmedxGatewayConfigEntry 13 }
+
+cmedxGatewayInactivityTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    UNITS           "10 milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the the period of silence
+            between messages from MGC. If the period of silence
+            exceeds the value of this object, then a Notify command 
+            with inactive MGC event is generated from the media gateway.
+
+            The value of 0 is to disable the inactivity detection
+            on the media gateway."
+    REFERENCE
+            "H.248 Gateway Control Protocol,  Version 2
+                     Inactivity Timer Package (IT)."
+    DEFVAL          { 1000 } 
+    ::= { cmedxGatewayConfigEntry 14 }
+
+cmedxGatewayHeaderAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION     "The address type in the H.248 message header."
+    DEFVAL          { ipv4 } 
+    ::= { cmedxGatewayConfigEntry 15 }
+
+cmedxGatewayDownServiceDelay OBJECT-TYPE
+    SYNTAX          Integer32 (-1..65535 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the grace period before the media
+            gateway link to be taken out of service.
+
+            The value of 0 means to take the media gateway link out
+            of service forcefully without any delay.
+            The value of -1 means not to take the media gateway link
+            out of service until all currently active contexts have
+            been cleared."
+    DEFVAL          { 0 } 
+    ::= { cmedxGatewayConfigEntry 16 }
+
+cmedxGatewayActiveMgcAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The address of the currently active MGC in this media
+            gateway link." 
+    ::= { cmedxGatewayConfigEntry 17 }
+
+cmedxGatewayActiveMgcDomain OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..64))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The domain name of the currently active MGC in this media
+            gateway link." 
+    ::= { cmedxGatewayConfigEntry 18 }
+
+cmedxGatewayActiveMgcPortNum OBJECT-TYPE
+    SYNTAX          CiscoPort
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The transport layer port number of the currently active
+            MGC in this media gateway link." 
+    ::= { cmedxGatewayConfigEntry 19 }
+
+cmedxGatewayStateChangeReason OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        mgcDirected(1),
+                        mgDirected(2),
+                        mgcNotReachable(3),
+                        numRetriesExpired(4)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the reason for the operational state
+            change (cmedGatewayOperStatus) in the media gateway link.
+
+            mgcDirected (1) - The state change is directed from MGC.
+            mgDirected  (2) - The state change is directed from MG.
+            mgcNotReachable (3) - The transport address of MGC is not
+                                  reachable.
+            numRetriesExpired (4) - The number of retires for connecting
+                          MGC has exhausted (cmedxGatewayNumConnRetries)." 
+    ::= { cmedxGatewayConfigEntry 20 }
+
+cmedxGatewayStateChangeMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        graceful(2),
+                        forced(3),
+                        handoff(4),
+                        failover(5),
+                        restart(6),
+                        disconnect(7),
+                        cancelGraceful(8)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the method for the operational state
+            change (cmedGatewayOperStatus) in the media gateway link.
+
+            other    (1) - None of the methods listed below.
+            graceful (2) - The state change to 'down(2)' is by the way 
+                           of graceful out of service.
+            forced   (3) - The state change to 'down(2)' is by the way
+                           of forced out of service. 
+            handoff  (4) - The state change is by the way that the MGC
+                           hands off to another MGC.
+            failover (5) - The state change is by the way that MG 
+                           reconnects to current MGC because of the 
+                           failure of previous MGC. 
+            restart  (6) - The state change is by the way that MG or MGC
+                           restarts.
+            disconnect (7) - The state change is by the way that MG 
+                           brings down the service because of the MG port
+                           has been modified, the number of retries
+                           has exhausted, or the inactivity timer has
+                           expired.
+            cancelGraceful (8) - After issuing graceful out of service 
+                           with a delay (cmedxGatewayDownServiceDelay>0),
+                           MG then sends an in-service command before the
+                           delay has been expired." 
+    ::= { cmedxGatewayConfigEntry 21 }
+
+cmedxGatewayAdminAction OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        up(1),
+                        downForceful(2),
+                        downGraceful(3),
+                        cancelGraceful(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the action that users used to
+            change the service state of the media gateway link.
+            This object can be modified while the entry is active.
+
+            up            (1) - Bring the service state up. The value
+                                of cmedxGatewayDownServiceDelay will be
+                                ignored.
+            downForceful  (2) - Bring the service state down without any
+                                delay. All current active calls will be
+                                torn down forcefully. The value of 
+                                cmedxGatewayDownServiceDelay must be 0.
+            downGraceful  (3) - Bring the service state down but wait 
+                                until currently active calls are 
+                                terminated by users. The value of
+                                cmedxGatewayDownServiceDelay must be
+                                greater than 0.
+            cancelGraceful(4) - While waiting for all currently active
+                                calls to be terminated by users during
+                                the downGraceful action, this 
+                                value can be used to cancel the previous
+                                action 'downGraceful(3)'.
+                                The value of cmedxGatewayDownServiceDelay
+                                will be ignored.
+            "
+    DEFVAL          { downForceful } 
+    ::= { cmedxGatewayConfigEntry 22 }
+
+cmedxGatewayServiceState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        inService(1),
+                        pendingIs(2),
+                        outOfService(3),
+                        pendingFoos(4),
+                        pendingGoos(5),
+                        mgcDirectOos(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates current operation status of the media
+            gateway link.
+
+            inService    (1) - The media gateway link is in-service.
+            pendingIs    (2) - The media gateway link is in the process
+                               of establishing the service between MG 
+                               and MGC. 
+            outOfService (3) - The service of the media gateway link is
+                               completely down due to the action of
+                               setting cmedxGAtewayAdminAction to 
+                               'downForceful(2)' or to 'downGraceful(3)'. 
+            pendingFoos  (4) - The media gateway link is in the process
+                               of bringing down the service in response to
+                               the action of setting object 
+                               cmedxGAtewayAdminAction to 
+                               'downForceful(2)'.
+            pendingGoos  (5) - The media gateway link is in the process
+                               of bringing down the service in response to
+                               the action of setting object
+                               cmedxGAtewayAdminAction to 
+                               'downGraceful(3)'.
+            mgcDirectOos (6) - The media gateway link is out-of-service
+                               due to MGC disable the link. 
+                               This state should occur very rarely,
+                               the way to recover from this state is to set
+                               cmedxGAtewayAdminAction to 'up(1)' or
+                               'downForceful(2)'
+            " 
+    ::= { cmedxGatewayConfigEntry 23 }
+
+cmedxGatewayDynamicTpktVersion OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the TPKT header version that is
+            dynamically assigned based on the size of the packet 
+            presented to TCP layer.
+            The TPKT header version is set to 3 when the size of packet
+            is represented by 2 octets of packet length field for 
+            the message (TPDU) sizes less than or equal to 65531 octets.
+
+            If this object is set to 'true':
+            - The TPKT header version is set to 4 when the size of packet 
+              is represented by 4 octets of packet length field for
+              the message (TPDU) sizes greater than 65531 octets.
+
+            If this object is set to 'false':
+            - An error in message is sent to MGC if the TPDU
+              size exceeds 65531 octets indicating that response size 
+              exceeded maximum PDU size.
+            "
+    REFERENCE       "RFC1006"
+    DEFVAL          { true } 
+    ::= { cmedxGatewayConfigEntry 24 }
+
+cmedxGatewayMaxCommandMsgSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4096 )
+    UNITS           "Kbyte"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the maximum message size on
+            this gateway link for a H248 transaction containing
+            the media gateway initiated commands. 
+            For example, this object would limit the size of a
+            H248 transaction containing the media gateway 
+            initiated ServiceChange command message.
+
+            The value of the object cannot be modified if
+            the entry is active."
+    DEFVAL          { 2 } 
+    ::= { cmedxGatewayConfigEntry 25 }
+
+cmedxGatewayMaxReplyMsgSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4096 )
+    UNITS           "Kbyte"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the maximum message size on
+            this gateway link for a H248 transaction containing
+            the media gateway reply messages to MGC. 
+            For example, this object would limit the size of a
+            H248 transaction containing the media gateway 
+            reply message to the MGC initiated AuditValue command. 
+
+            The value of the object cannot be modified if
+            the entry is active."
+    DEFVAL          { 250 } 
+    ::= { cmedxGatewayConfigEntry 26 }
+
+cmedxGatewaySctpAssocId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the SCTP association ID associated
+            with the H.248 association. This SCTP association ID 
+            is the index (cSctpAssocId) of the entry in cSctpAssocTable.
+            If the SCTP ID value is 0, it indicates no SCTP association." 
+    ::= { cmedxGatewayConfigEntry 27 }
+
+cmedxGatewaySrvChgProfile OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..16))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the profile name used in the profile
+            parameter of ServiceChange message to specify the attributes
+            and behaviors of the media gateway."
+    DEFVAL          { "CISCO_TGW" } 
+    ::= { cmedxGatewayConfigEntry 28 }
+
+cmedxGatewaySrvChgProfileVer OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..99 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the version of the profile indicated
+            in cmedxGatewaySrvChgProfile."
+    DEFVAL          { 1 } 
+    ::= { cmedxGatewayConfigEntry 29 }
+
+cmedxGatewayMsgTokenType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        shortFormat(1),
+                        longFormat(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the H248 message is in short formatted
+            PDU or long formatted PDU."
+    REFERENCE       "Annex B of H.248.1"
+    DEFVAL          { shortFormat } 
+    ::= { cmedxGatewayConfigEntry 30 }
+
+cmedxGatewayMgProvisionRspTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the time within which to expect a
+            Pending Response if a transaction cannot be completed in
+            the media gateway and in the MGCs of the media gateway 
+            link.
+
+            The value of this object should be greater than the value 
+            of cmedxGatewayMgExecTime."
+    REFERENCE       "Annex E.2 of H.248.1 version 2"
+    DEFVAL          { 3000 } 
+    ::= { cmedxGatewayConfigEntry 31 }
+
+cmedxGatewayMgcProvisionRspTime OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the time within which to expect a
+            Pending Response from the MGC if a transaction cannot be 
+            completed.
+
+            The value of this object should be greater than the value
+            of cmedxGatewayMgcExecTime."
+    REFERENCE       "Annex E.2 of H.248.1 version 2"
+    DEFVAL          { 3000 } 
+    ::= { cmedxGatewayConfigEntry 32 }
+
+cmedxGatewayMgOrigPendLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the number of TransactionPendings
+            that MG will send.  Once this limit is exceeded, MG will
+            send a TransactionReply with Error 506."
+    REFERENCE       "Annex E.2 of H.248.1 version 2"
+    DEFVAL          { 3 } 
+    ::= { cmedxGatewayConfigEntry 33 }
+
+cmedxGatewayMgcOrigPendLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the number of TransactionPendings
+            that MG expects to receive.  Once this limit is exceeded, 
+            MG will assume a TransactionReply with Error 506."
+    REFERENCE       "Annex E.2 of H.248.1 version 2"
+    DEFVAL          { 3 } 
+    ::= { cmedxGatewayConfigEntry 34 }
+
+cmedxGatewayDomainName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (0..255))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the unique domain name to be
+            used for each gateway link. This object is relevant    
+            only if cmedxGatewayHeaderAddrType is set to 'dns'.
+            The agent won't allow any attempt to set this value 
+            for other address types. This domain name is expected
+            to be resolved to a valid IP address through the use of
+            a DNS located in the network. The default value of this 
+            object is NULL string."
+    DEFVAL          { "" } 
+    ::= { cmedxGatewayConfigEntry 35 }
+
+cmedxGatewayCmbDnAndPortInMID OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies whether the MID should be a
+            combination of the transport port number and the  
+            domain name represented by cmedGatewayPort and  
+            cmedxGatewayDomainName respectively, when   
+            cmedxGatewayHeaderAddrType is 'dns' .    
+
+            A value of 'true' indicates that the MID will be a  
+            combination of the domain name and the transport port  
+            number.  
+
+            A value of 'false' indicates that MID will contain  
+            only the domain name and not the port number.    
+
+            The agent won't allow any attempt to set this object  
+            for other address types. "
+    REFERENCE
+            "(1) Annex B.2 of H.248.1 version 2
+                     (2) cmedGatewayPort, CISCO-IETF-MEGACO-MIB. "
+    DEFVAL          { true } 
+    ::= { cmedxGatewayConfigEntry 36 }
+ 
+
+-- *********************************************************************
+
+-- cmedxTerminationTypeTable
+
+-- *********************************************************************
+
+cmedxTerminationTypeTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxTerminationTypeEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table defines the attributes of a termination type
+            for a group of ephemeral terminations."
+    ::= { cmedxConfig 2 }
+
+cmedxTerminationTypeEntry OBJECT-TYPE
+    SYNTAX          CmedxTerminationTypeEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry represents one termination type for a group
+            of ephemeral terminations in H.248.
+            When creating an entry, the object cmedxTermType have to be 
+            provided."
+    INDEX           {
+                        cmedGatewayId,
+                        cmedxTermTypeId
+                    } 
+    ::= { cmedxTerminationTypeTable 1 }
+
+CmedxTerminationTypeEntry ::= SEQUENCE {
+        cmedxTermTypeId        Unsigned32,
+        cmedxTermType          INTEGER ,
+        cmedxTermTypeProfileId CCallControlProfileIndexOrZero,
+        cmedxTermTypePkgIds    CH248Packages,
+        cmedxTermTypeRowStatus RowStatus
+}
+
+cmedxTermTypeId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "An unique identification number that is assigned to
+            the termination type by the manager" 
+    ::= { cmedxTerminationTypeEntry 1 }
+
+cmedxTermType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        scn(2),
+                        pdnRtp(3),
+                        pdnAtmAal1(4),
+                        pdnAtmAal2(5)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the type of a group of ephemeral
+            terminations.
+                unknown    (1) - none of the types listed below. 
+                scn        (2) - SCN/DS terminations
+                pdnRtp     (3) - PDN terminations of RTP type.
+                pdnAtmAal1 (4) - PDN terminations of ATM type with
+                                 AAL1 adaptation layer.
+                pdnAtmAal2 (5) - PDN terminations of ATM type with
+                                 AAL2 adaptation layer.
+            If the value of this object is set to scn(2) or pdnRtp(3),
+            the value of cmedxProfileAtmAalType for the profile of this
+            termination type should be other(1).
+            If the value of this object is set to pdnAtmAal1(4),
+            the value of cmedxProfileAtmAalType for the profile of this
+            termination type should be aal1(2), aal1Sdt(3), or 
+            aal1Udt(4).
+            If the value of this object is set to pdnAtmAal2(5),
+            the value of cmedxProfileAtmAalType for the profile of this
+            termination type should be aal2(5)."
+    DEFVAL          { pdnRtp } 
+    ::= { cmedxTerminationTypeEntry 2 }
+
+cmedxTermTypeProfileId OBJECT-TYPE
+    SYNTAX          CCallControlProfileIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The property profile identifier with which the terminations
+            within this termination type will be associated."
+    DEFVAL          { 0 } 
+    ::= { cmedxTerminationTypeEntry 3 }
+
+cmedxTermTypePkgIds OBJECT-TYPE
+    SYNTAX          CH248Packages
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The H.248 packages applied to this termination type." 
+    ::= { cmedxTerminationTypeEntry 4 }
+
+cmedxTermTypeRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object is used to create new rows, modify existing rows
+            and to delete existing rows." 
+    ::= { cmedxTerminationTypeEntry 5 }
+ 
+
+-- *********************************************************************
+
+-- cmedxProfileTable
+
+-- *********************************************************************
+
+cmedxProfileTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxProfileEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains a list of the configurable
+            properties in the H.248 profile supported in 
+            a media gateway.  
+            A property profile can be applied to a termination,
+            a group of termination, or a termination type."
+    ::= { cmedxConfig 3 }
+
+cmedxProfileEntry OBJECT-TYPE
+    SYNTAX          CmedxProfileEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry represents all possible configurable
+            properties supported by Cisco media gateway
+            in an H.248 profile."
+    INDEX           {
+                        cmedGatewayId,
+                        cmedxProfileIndex
+                    } 
+    ::= { cmedxProfileTable 1 }
+
+CmedxProfileEntry ::= SEQUENCE {
+        cmedxProfileIndex                CCallControlProfileIndex,
+        cmedxProfilePlayCpToneInterDur   Unsigned32,
+        cmedxProfileDtmfDigitOnDur       Unsigned32,
+        cmedxProfileDtmfPauseDur         Unsigned32,
+        cmedxProfileCot1Frequency        Unsigned32,
+        cmedxProfileCot2Frequency        Unsigned32,
+        cmedxProfileInitiateCotDur       Unsigned32,
+        cmedxProfileRespCotMethod        INTEGER ,
+        cmedxProfileDetectLongCpToneDur  Unsigned32,
+        cmedxProfileDetectLongDigitDur   Unsigned32,
+        cmedxProfileEchoCancelEnabled    TruthValue,
+        cmedxProfileEchoCancelTail       INTEGER ,
+        cmedxProfileInGainControl        Integer32,
+        cmedxProfileOutAttnControl       Unsigned32,
+        cmedxProfileVoIpVadEnabled       TruthValue,
+        cmedxProfileVoIpVadTimer         Unsigned32,
+        cmedxProfileVoAal2VadTimer       Unsigned32,
+        cmedxProfileAtmBearerType        INTEGER ,
+        cmedxProfileAtmAalPartialFill    Unsigned32,
+        cmedxProfileAtmAalType           INTEGER ,
+        cmedxProfileSuppressBearerDigit  TruthValue,
+        cmedxProfileRowStatus            RowStatus,
+        cmedxProfileOriginatingCotTx     CMedxCotTones,
+        cmedxProfileOriginatingCotRx     CMedxCotTones,
+        cmedxProfileTerminatingCotTx     CMedxCotTones,
+        cmedxProfileTerminatingCotRx     CMedxCotTones,
+        cmedxProfileComfortNoiseGenerate INTEGER 
+}
+
+cmedxProfileIndex OBJECT-TYPE
+    SYNTAX          CCallControlProfileIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object uniquely identifies the H.248 profile." 
+    ::= { cmedxProfileEntry 1 }
+
+cmedxProfilePlayCpToneInterDur OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the duration for playing
+            a list of call progressing tones between two call 
+            progressing signals.
+            The value of 0 indicates there is no wait between 
+            two call progressing signals."
+    REFERENCE
+            "H.248 Gateway Control Protocol,  Version 2
+                     Call Progress Tones Generator Package (CG)."
+    DEFVAL          { 60 } 
+    ::= { cmedxProfileEntry 2 }
+
+cmedxProfileDtmfDigitOnDur OBJECT-TYPE
+    SYNTAX          Unsigned32 (40..4294967295 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the duration of the active DTMF
+            digit during DTMF playout from the gateway. 
+            A complete DTMF digit is characterized by DTMF on 
+            with duration specified by this object followed by a 
+            pause (signal off) duration specified by the object
+            cmedxProfileDtmfPauseDuration."
+    REFERENCE       "Q.23, Q.24, EIA/TIA-464"
+    DEFVAL          { 100 } 
+    ::= { cmedxProfileEntry 3 }
+
+cmedxProfileDtmfPauseDur OBJECT-TYPE
+    SYNTAX          Unsigned32 (40..4294967295 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the duration of the pause after an
+            active DTMF digit during DTMF playout from the gateway. 
+            For playout of multiple DTMF digits, the sum of the 
+            digit-on and pause (signaling velocity) should not be
+            shorter than the time specified in Q.23, Q.24 and 
+            EIA/TIA-464. For example, 93ms/digit for AT&T,
+            120ms/digit for NTT, 100ms/digit for Danish 
+            Administration."
+    REFERENCE       "Q.23, Q.24, EIA/TIA-464"
+    DEFVAL          { 100 } 
+    ::= { cmedxProfileEntry 4 }
+
+cmedxProfileCot1Frequency OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4000 )
+    UNITS           "Hz"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the tone frequency to be
+            transmit between gateways in the continuity test."
+    DEFVAL          { 2010 } 
+    ::= { cmedxProfileEntry 5 }
+
+cmedxProfileCot2Frequency OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4000 )
+    UNITS           "Hz"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the tone frequency to be
+            received between gateways in the continuity test."
+    DEFVAL          { 1780 } 
+    ::= { cmedxProfileEntry 6 }
+
+cmedxProfileInitiateCotDur OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the duration for the continuity
+            test tone to be played when the gateway initiates a COT.
+            The value of 0 indicates that the tone will be played 
+            infinitely unless interrupted."
+    REFERENCE
+            "H.248 Gateway Control Protocol,  Version 2
+                     Basic Continuity Package (CT)."
+    DEFVAL          { 500 } 
+    ::= { cmedxProfileEntry 7 }
+
+cmedxProfileRespCotMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        loopback(1),
+                        transponder(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the method for responding to COT
+            (Continuity Test Tone) when the gateway detects a  
+            the continuity test signal.
+               loopback    (1) - The gateway loops back the received 
+                                 continuity test signal.
+               transponder (2) - The gateway responds with another 
+                                 continuity test signal upon detecting
+                                 a continuity test signal.
+            When this object is set to loopback(1), the originating
+            gateway transmits the frequency specified in the value of
+            cmedxProfileCot1Frequency, the terminating gateway loops
+            back whatever it receives. 
+            When this object is set to transponder(2), the originating
+            gateway transmit the frequency specified in the value of
+            cmedxProfileCot1Frequency, and the terminating gateway 
+            responds the frequency specified in the value of
+            cmedxProfileCot2Frequency."
+    REFERENCE
+            "H.248 Gateway Control Protocol,  Version 2
+                     Basic Continuity Package (CT)."
+    DEFVAL          { loopback } 
+    ::= { cmedxProfileEntry 8 }
+
+cmedxProfileDetectLongCpToneDur OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the duration for detecting a
+            long call progressing tone."
+    REFERENCE
+            "H.248 Gateway Control Protocol,  Version 2
+                     Call Progress Tones Detection Package (CD)."
+    DEFVAL          { 7000 } 
+    ::= { cmedxProfileEntry 9 }
+
+cmedxProfileDetectLongDigitDur OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the duration for detecting a
+            long digit tone signal."
+    REFERENCE
+            "H.248 Gateway Control Protocol,  Version 2
+                     DTMF Detection Package (DD)."
+    DEFVAL          { 7000 } 
+    ::= { cmedxProfileEntry 10 }
+
+cmedxProfileEchoCancelEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies whether or not the Echo
+            Cancellation is enabled or not."
+    REFERENCE
+            "H.248 Gateway Control Protocol,  Version 2
+                     TDM Circuit Package (TDMC)."
+    DEFVAL          { true } 
+    ::= { cmedxProfileEntry 11 }
+
+cmedxProfileEchoCancelTail OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        echoCanceller8ms(1),
+                        echoCanceller16ms(2),
+                        echoCanceller24ms(3),
+                        echoCanceller32ms(4),
+                        echoCanceller64ms(5),
+                        echoCanceller128ms(6)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the Echo Canceler coverage.
+            This object is valid if the cmedxProfileEchoCancelEnabled
+            object is 'true'.
+            echoCanceller8ms  -  8 ms echo canceler coverage.
+            echoCanceller16ms - 16 ms echo canceler coverage.
+            echoCanceller24ms - 24 ms echo canceler coverage.
+            echoCanceller32ms - 32 ms echo canceler coverage.
+            echoCanceller64ms - 64 ms echo canceler coverage.
+            echoCanceller128ms- 128 ms echo canceler coverage."
+    DEFVAL          { echoCanceller8ms } 
+    ::= { cmedxProfileEntry 12 }
+
+cmedxProfileInGainControl OBJECT-TYPE
+    SYNTAX          Integer32 (-6..14 )
+    UNITS           "dB"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object contains the amount of gain inserted at the
+            receiver side of the interface. The input gain settings
+            only define a gain/loss relative to the 0 dB setting.
+            The absolute loss at the 0 dB setting could be
+            implementation dependent based on the desired network
+            loss plan."
+    REFERENCE
+            "H.248 Gateway Control Protocol,  Version 2
+                     TDM Circuit Package (TDMC)."
+    DEFVAL          { 0 } 
+    ::= { cmedxProfileEntry 13 }
+
+cmedxProfileOutAttnControl OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..14 )
+    UNITS           "dB"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object contains the amount of attenuation inserted
+            at the transmit side of the interface.
+            The output attenuation settings only define a loss
+            relative to the 0 dB setting.
+            The absolute loss at the 0 dB setting could be
+            implementation dependent based on the desired network
+            loss plan."
+    DEFVAL          { 0 } 
+    ::= { cmedxProfileEntry 14 }
+
+cmedxProfileVoIpVadEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies VAD (Voice Activity Detection)
+            is enabled for the compression DSPs of this interface
+            when the application is VoIP."
+    DEFVAL          { true } 
+    ::= { cmedxProfileEntry 15 }
+
+cmedxProfileVoIpVadTimer OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the hangover time for VAD in the
+            VoIP application.
+            Once the voice inactivity is detected, the media gateway
+            waits for the duration of this value before activating 
+            silence suppression. 
+            This object is not applicable if cmedxProfileVoIpVadEnabled
+            is set to 'false'."
+    DEFVAL          { 100 } 
+    ::= { cmedxProfileEntry 16 }
+
+cmedxProfileVoAal2VadTimer OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295 )
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the hangover time for VAD in the
+            VoATM over AAL2 application.
+            Once the voice inactivity is detected, the media gateway
+            waits for the duration of this value before activating 
+            silence suppression. 
+            This object is not applicable if cvapAal2ProfVad 
+            is set to 'vadOff'."
+    DEFVAL          { 100 } 
+    ::= { cmedxProfileEntry 17 }
+
+cmedxProfileAtmBearerType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        bearerSvc(1),
+                        bearerPvc(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies ATM bearer type.
+            bearerSvc (1) - the ATM bearer type is SVC (Switched
+                            Virtual Circuit).
+            bearerPvc (1) - the ATM bearer type is PVC (Permanent
+                            Virtual Circuit)."
+    DEFVAL          { bearerSvc } 
+    ::= { cmedxProfileEntry 18 }
+
+cmedxProfileAtmAalPartialFill OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..48 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the fill level of cells in case of
+            AAL adaptation .
+            The value of this object will be used if the MGC does
+            not specify partial fill in the commands.
+            ATM cell size is 53 bytes, 5 bytes for header, 48 bytes
+            for data. If the data are not enough to fill 48 bytes of one
+            ATM cell, the system can fill in the value of this object to
+            the padding bytes."
+    DEFVAL          { 47 } 
+    ::= { cmedxProfileEntry 19 }
+
+cmedxProfileAtmAalType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        aal1(2),
+                        aal1Sdt(3),
+                        aal1Udt(4),
+                        aal2(5)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the adaptation layer of ATM.
+            other   (1) - None of the types listed below.
+            aal1    (2) - ATM AAL1 adaptation layer
+            aal1Sdt (3) - ATM AAL1 with SDT (Structured Data 
+                          Transfer)
+            aal1Udt (4) - ATM AAL1 with UDT (Unstructured Data 
+                          Transfer). 
+            aal2    (5) - ATM AAL2 adaptation layer."
+    DEFVAL          { aal1Sdt } 
+    ::= { cmedxProfileEntry 20 }
+
+cmedxProfileSuppressBearerDigit OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object controls if the digits should be suppressed
+            from voice media stream. When MGC has requested digits,
+            if this object is set to 'true', the digits will be 
+            reported to MGC only, the digits will not be sent as
+            regular voice or peer-to-peer packets in the bearer.
+
+            When MGC has requested digits, if this object is set to
+            'false', the digits will be reported to MGC as well as 
+            be sent in the bearer according to the value of 
+            cvapCodecConfigDtmfRelay in cvapCodecConfigTable.
+
+            When MGC has not requested digits, this object will be
+            ignored. The digits will be sent in the bearer according
+            to the value of cvapCodecConfigDtmfRelay in 
+            cvapCodecConfigTable."
+    DEFVAL          { false } 
+    ::= { cmedxProfileEntry 21 }
+
+cmedxProfileRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "When an entry is created, at least one of the objects
+            in the entry has to be provided and the default value
+            will be assigned to the rest of the objects." 
+    ::= { cmedxProfileEntry 22 }
+
+cmedxProfileOriginatingCotTx OBJECT-TYPE
+    SYNTAX          CMedxCotTones
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the COT tone to be transmitted
+            from originating gateway in the continuity test." 
+    ::= { cmedxProfileEntry 23 }
+
+cmedxProfileOriginatingCotRx OBJECT-TYPE
+    SYNTAX          CMedxCotTones
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the COT tone to be received
+            in originating gateway in the continuity test." 
+    ::= { cmedxProfileEntry 24 }
+
+cmedxProfileTerminatingCotTx OBJECT-TYPE
+    SYNTAX          CMedxCotTones
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the COT tone to be transmitted
+            from terminating gateway in the continuity test." 
+    ::= { cmedxProfileEntry 25 }
+
+cmedxProfileTerminatingCotRx OBJECT-TYPE
+    SYNTAX          CMedxCotTones
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the COT tone to be received
+            in terminating gateway in the continuity test." 
+    ::= { cmedxProfileEntry 26 }
+
+cmedxProfileComfortNoiseGenerate OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        simple(2),
+                        g711A2(3)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the type of comfort noise generation:
+
+            (1) none: No comfort noise generation applied
+            (2) simple: Cisco Proprietary comfort noise generation
+            (3) g711A2: ITU G.711 Appendix II compliant
+
+            "
+    DEFVAL          { simple } 
+    ::= { cmedxProfileEntry 27 }
+ 
+
+-- *********************************************************************
+
+-- cmedxCallReduceControlTable
+
+-- *********************************************************************
+
+cmedxCallReduceControlTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxCallReduceControlEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The MIB objects in this table are used to control
+            the rate at which call attempts are made by Media 
+            gateway controller on this Media Gateway.
+            "
+    ::= { cmedxConfig 4 }
+
+cmedxCallReduceControlEntry OBJECT-TYPE
+    SYNTAX          CmedxCallReduceControlEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "An entry in this table contains the control parameters that
+            indicate the frequency and number of notifications sent to
+            MGC in the event congestion is detected on MG.
+            "
+    INDEX           { cmedGatewayId } 
+    ::= { cmedxCallReduceControlTable 1 }
+
+CmedxCallReduceControlEntry ::= SEQUENCE {
+        cmedxCallCongEnabled     TruthValue,
+        cmedxCallRenotifInterval Unsigned32,
+        cmedxCRRNumOfLevel       Unsigned32,
+        cmedxCurrentCRR          Unsigned32,
+        cmedxCrrNotifyState      TruthValue,
+        cmedxCrrNotifyEnabled    OCTET STRING,
+        cmedxCurrentCallState    INTEGER 
+}
+
+cmedxCallCongEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object controls if the H.248 congestion package
+            (H.248.10) and its associated features should be enabled
+            for the media gateway.
+
+            If this object is set to 'false', then the following MIB
+            objects and MIB table will be ignored:
+                cmedxCallRenotifInterval
+                cmedxCRRNumOfLevel
+                cmedxCurrentCRR
+                cmedxCrrNotifyState
+                cmedxCrrNotifyEnabled
+                cmedxCallReduceLevelTable. "
+    DEFVAL          { false } 
+    ::= { cmedxCallReduceControlEntry 1 }
+
+cmedxCallRenotifInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100 )
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the interval of the congestion
+            renotification from the media gateway to the MGC.
+
+            In the event of congestion on the Media Gateway, gateway 
+            generates an event towards MGC. Using this message, MG 
+            requests percentage reduction in the rate of calls that 
+            MGC is attempting towards MG.
+            After sending this indication, MG starts a timer based on 
+            'cmedxCallRenotifInterval'. At this timer expires, MG will 
+            re-send the message to MGC indicating that it is still in 
+            congested state. If MGC does not receive another 
+            notification, MGC will resume to the original call rate.
+            If MGC requires re-notifications, it is user's 
+            responsibility to set the value of this MIB object on 
+            MG appropriately.
+            The value of this object should be set such that it factors 
+            into the network delay and re-notification timer 
+            (similar to this MIB object) configured on MGC.
+            The zero means MGC does not require re-notifications, 
+            MGC will keep CallReduceRate until receive another 
+            notification from the Media Gateway. "
+    DEFVAL          { 0 } 
+    ::= { cmedxCallReduceControlEntry 2 }
+
+cmedxCRRNumOfLevel OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..16 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This objects specifies the number of level corresponding to
+            which a different call reduction rate notification is 
+            generated towards MGC. 
+
+            Each level has a different call reduction rate, the CRR 
+            information is stored on cmedxCallReduceLevelTabl.
+            And The table size equals to the value of 
+            'cmedxCRRNumOfLevel'. "
+    DEFVAL          { 6 } 
+    ::= { cmedxCallReduceControlEntry 3 }
+
+cmedxCurrentCRR OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100 )
+    UNITS           "percent"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the current percentage reduction in
+            the rate of calls that MGC is attempting towards MG.
+            " 
+    ::= { cmedxCallReduceControlEntry 4 }
+
+cmedxCrrNotifyState OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the current gateway congestion
+            notification state.
+            The value of 'true' means the gateway will notify
+            MGC when the gateway is congested.
+            The value of 'false' means the gateway won't notify
+            MGC when the gateway is congested.
+            This object is 'true' when cmedxCallCongEnabled is 
+            set to 'true' and at least one of MGCs enabled the
+            CRR notification (cmedxCrrNotifyEnabled is not 0)." 
+    ::= { cmedxCallReduceControlEntry 5 }
+
+cmedxCrrNotifyEnabled OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (4))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the bit map of the H248 association
+            index (cmedGatewayLinkId) in which the gateway congestion 
+            notification is enabled.
+            The MSB (most significant bit) is the association index 1.
+            A 1-bit indicates the gateway congestion notification is
+            enabled in this H248 association. A 0-bit indicates it is
+            disabled." 
+    ::= { cmedxCallReduceControlEntry 6 }
+
+cmedxCurrentCallState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        acceptCall(1),
+                        dropCall(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the state of the gateway in
+            accepting the incoming new call.
+
+            acceptCall - the incoming new call will be processed.
+            dropCall   - the incoming new call will be droped due
+                         to the resources congested." 
+    ::= { cmedxCallReduceControlEntry 7 }
+ 
+
+-- *********************************************************************
+
+-- cmedxCallReduceLevelTable
+
+-- *********************************************************************
+
+cmedxCallReduceLevelTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxCallReduceLevelEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The table presents mapping between a level and corresponding
+            call reduction rate."
+    ::= { cmedxConfig 5 }
+
+cmedxCallReduceLevelEntry OBJECT-TYPE
+    SYNTAX          CmedxCallReduceLevelEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The number of entry on this table is determined by the MIB
+            object 'cmedxCRRNumOfLevel'."
+    INDEX           {
+                        cmedGatewayId,
+                        cmedxCallReduceLevelNum
+                    } 
+    ::= { cmedxCallReduceLevelTable 1 }
+
+CmedxCallReduceLevelEntry ::= SEQUENCE {
+        cmedxCallReduceLevelNum Unsigned32,
+        cmedxCallReduceRate     Unsigned32
+}
+
+cmedxCallReduceLevelNum OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..16 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The index starts from 1, and the maximum index equals to
+            'cmedxCRRNumOfLevel'." 
+    ::= { cmedxCallReduceLevelEntry 1 }
+
+cmedxCallReduceRate OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..100 )
+    UNITS           "percent"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object indicates call reduction rate (CRR) for a given
+            call reduce rate level. 
+
+            The default value of this object is based on the formula:
+               level 1: 100 
+               other level: 100 - ((80/(nol - 1)) * (level - 1))
+
+            Here: 
+               nol  : number of level(cmedxCRRNumOfLevel)
+               level: specific level (cmedxCallReduceLevelNum)
+
+            User can configure this object, the rule is:
+               level x > level x+1 " 
+    ::= { cmedxCallReduceLevelEntry 2 }
+ 
+
+-- *********************************************************************
+
+-- cmedxOverloadControlTable
+
+-- *********************************************************************
+
+cmedxOverloadControlTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxOverloadControlEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table is used to configure the media gateway
+            overload control parameters specified in H.248.11 package."
+    ::= { cmedxConfig 7 }
+
+cmedxOverloadControlEntry OBJECT-TYPE
+    SYNTAX          CmedxOverloadControlEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "An entry in this table contains the overload control
+            parameters of the media gateway."
+    INDEX           { cmedGatewayId } 
+    ::= { cmedxOverloadControlTable 1 }
+
+CmedxOverloadControlEntry ::= SEQUENCE {
+        cmedxOverloadControlEnabled TruthValue,
+        cmedxOverloadNotifyState    TruthValue,
+        cmedxOverloadNotifyEnabled  OCTET STRING
+}
+
+cmedxOverloadControlEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object controls if the H.248 overload package
+            (H.248.11) and its associated features should be enabled
+            for the media gateway.
+
+            If this object is set to 'false', then the following MIB
+            objects and MIB table will be ignored:
+                cmedxOverloadNotifyState
+                cmedxOverloadNotifyEnabled."
+    DEFVAL          { true } 
+    ::= { cmedxOverloadControlEntry 1 }
+
+cmedxOverloadNotifyState OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the current gateway overload
+            notification state.
+            The value of 'true' means the gateway will notify
+            MGC when the gateway is overloaded.
+            The value of 'false' means the gateway won't notify
+            MGC when the gateway is overloaded. 
+            This object is 'true' when cmedxOverloadControlEnabled
+            is set to 'true' and at least one of MGCs enabled 
+            gateway overload notification (cmedxOverloadNotifyEnabled
+            is not 0)." 
+    ::= { cmedxOverloadControlEntry 2 }
+
+cmedxOverloadNotifyEnabled OBJECT-TYPE
+    SYNTAX          OCTET STRING (SIZE  (4))
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the bit map of the H248 association
+            index (cmedGatewayLinkId) in which the gateway overload 
+            notification is enabled.
+            The MSB (most significant bit) is the association index 1.
+            A 1-bit indicates the gateway overload notification is
+            enabled in this H248 association. A 0-bit indicates it is
+            disabled." 
+    ::= { cmedxOverloadControlEntry 3 }
+ 
+
+
+cmedxCodecNegotiationTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxCodecNegotiationEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains configuration information for different
+            type of CODEC negotiation of calls which include voice call 
+            over adaptation layer AAL1 and AAL5.
+            If the value lclLcoRcd(5), lclRcdLco(6) of 
+            cvapCodecNegotiationOption is used as CODEC negotiation 
+            option, the CODEC list configuration information in this   
+            table will be used for CODEC negotiation."
+    ::= { cmedxConfig 6 }
+
+cmedxCodecNegotiationEntry OBJECT-TYPE
+    SYNTAX          CmedxCodecNegotiationEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "An entry represents a CODEC rate supported for VoIP or
+            VoATM with AAL1 or AAL5 application in the media gateway. 
+            A list of entries for all CODEC types supported in the media
+            gateway are created by the agent when a cmedxProfileEntry
+            is created."
+    INDEX           {
+                        cmedGatewayId,
+                        cmedxProfileIndex,
+                        cmedxCodecNegotiationCodec
+                    } 
+    ::= { cmedxCodecNegotiationTable 1 }
+
+CmedxCodecNegotiationEntry ::= SEQUENCE {
+        cmedxCodecNegotiationCodec      CvcSpeechCoderRate,
+        cmedxCodecNegotiationPreference Unsigned32
+}
+
+cmedxCodecNegotiationCodec OBJECT-TYPE
+    SYNTAX          CvcSpeechCoderRate
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the CODEC to be used in this
+            profile." 
+    ::= { cmedxCodecNegotiationEntry 1 }
+
+cmedxCodecNegotiationPreference OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..255 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "This object specified the preference configured by the
+            user for each CODEC. Lower the number, higher the 
+            preference of the CODEC.
+
+            If this object is set to 0, the corresponding CODEC will 
+            not be used in coded negotiation procedure.           
+
+            Initially, if the value of cmedxCodecNegotiationCodec is
+            g711u, this object is set to 1, else this object is set to 0.
+
+            For CODECs having the same preference, the entry with the 
+            lower index has higher precedence."
+    DEFVAL          { 1 } 
+    ::= { cmedxCodecNegotiationEntry 2 }
+ 
+
+-- *****************************************************************
+
+-- cmedxGatewayStatsTable
+
+-- This table is extended from cmedGatewayStatsTable which
+-- contains the control protocol related statistics of
+-- the media gateway link.
+
+-- *****************************************************************
+
+cmedxGatewayStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxGatewayStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table is extended from cmedGatewayStatsTable which
+            contains additional control protocol related statistics of
+            the media gateway link."
+    ::= { cmedxStats 1 }
+
+cmedxGatewayStatsEntry OBJECT-TYPE
+    SYNTAX          CmedxGatewayStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Entry holding statistics about a group of
+            media Gateway/signaling link pair"
+    AUGMENTS           { cmedGatewayStatsEntry  } 
+ 
+    ::= { cmedxGatewayStatsTable 1 }
+
+CmedxGatewayStatsEntry ::= SEQUENCE {
+        cmedxGatewayLastEvent Unsigned32
+}
+
+cmedxGatewayLastEvent OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..1000 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The event code of the last event occurred on the link." 
+    ::= { cmedxGatewayStatsEntry 1 }
+ 
+
+-- ********************************************************************
+
+-- cmedxCommandStatsTable
+
+-- ********************************************************************
+
+cmedxCommandStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxCommandStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table provides the H.248 Command related statistics
+            for the media gateway link.
+
+            The H.248 protocol provides commands for manipulating the
+            logical entities of the protocol connection model, 
+            Contexts and Terminations.
+            For example, Commands exist to add Terminations to a Context, 
+            modify Terminations, subtract Terminations from a Context,
+            and audit properties of Contexts or Terminations.
+
+            Most commands are for the specific use of the Media Gateway
+            Controller (MGC) as command initiator in controlling Media 
+            Gateways (MG) as command responders.  The exceptions are the 
+            Notify and ServiceChange commands: 
+            Notify is sent from Media Gateway to Media Gateway Controller, 
+            and ServiceChange may be sent by either entity."
+    ::= { cmedxStats 2 }
+
+cmedxCommandStatsEntry OBJECT-TYPE
+    SYNTAX          CmedxCommandStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The system creates one entry for each media gateway link
+            when it is created."
+    INDEX           {
+                        cmedGatewayId,
+                        cmedGatewayLinkId
+                    } 
+    ::= { cmedxCommandStatsTable 1 }
+
+CmedxCommandStatsEntry ::= SEQUENCE {
+        cmedxCmdNumAddFails              Counter32,
+        cmedxCmdNumAddSucceeds           Counter32,
+        cmedxCmdNumSubtractFails         Counter32,
+        cmedxCmdNumSubtractSucceeds      Counter32,
+        cmedxCmdNumMoveFails             Counter32,
+        cmedxCmdNumMoveSucceeds          Counter32,
+        cmedxCmdNumModifyFails           Counter32,
+        cmedxCmdNumModifySucceeds        Counter32,
+        cmedxCmdNumAuditValFails         Counter32,
+        cmedxCmdNumAuditValSucceeds      Counter32,
+        cmedxCmdNumAuditCapFails         Counter32,
+        cmedxCmdNumAuditCapSucceeds      Counter32,
+        cmedxCmdNumNotifyFails           Counter32,
+        cmedxCmdNumNotifySucceeds        Counter32,
+        cmedxCmdNumSrvChgFromMgcFails    Counter32,
+        cmedxCmdNumSrvChgFromMgcSucceeds Counter32,
+        cmedxCmdNumSrvChgFromMgFails     Counter32,
+        cmedxCmdNumSrvChgFromMgSucceeds  Counter32,
+        cmedxCmdTotalFails               Counter32,
+        cmedxCmdTotalSucceeds            Counter32,
+        cmedxCmdTotal                    Counter32,
+        cmedxCmdNumAddPendings           Counter32,
+        cmedxCmdNumSubtractPendings      Counter32,
+        cmedxCmdNumMovePendings          Counter32,
+        cmedxCmdNumModifyPendings        Counter32,
+        cmedxCmdNumAuditValPendings      Counter32,
+        cmedxCmdNumAuditCapPendings      Counter32,
+        cmedxCmdNumNotifyPendings        Counter32,
+        cmedxCmdNumSrvChgFromMgcPendings Counter32,
+        cmedxCmdNumSrvChgFromMgPendings  Counter32,
+        cmedxCmdTotalPendings            Counter32
+}
+
+cmedxCmdNumAddFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative ADD commands failed in
+            the media gateway link." 
+    ::= { cmedxCommandStatsEntry 1 }
+
+cmedxCmdNumAddSucceeds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative ADD command succeeded
+            in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 2 }
+
+cmedxCmdNumSubtractFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative SUBTRACT commands failed
+            in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 3 }
+
+cmedxCmdNumSubtractSucceeds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative SUBTRACT commands succeeded
+            in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 4 }
+
+cmedxCmdNumMoveFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative MOVE commands failed in
+            the media gateway link." 
+    ::= { cmedxCommandStatsEntry 5 }
+
+cmedxCmdNumMoveSucceeds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative MOVE commands succeeded
+            in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 6 }
+
+cmedxCmdNumModifyFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative MODIFY commands failed
+            in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 7 }
+
+cmedxCmdNumModifySucceeds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative MODIFY commands succeeded
+            in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 8 }
+
+cmedxCmdNumAuditValFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative AUDIT VALUE commands failed
+            in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 9 }
+
+cmedxCmdNumAuditValSucceeds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative AUDIT VALUE commands succeeded
+            in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 10 }
+
+cmedxCmdNumAuditCapFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative AUDIT CAPABILITY commands
+            failed in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 11 }
+
+cmedxCmdNumAuditCapSucceeds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative AUDIT CAPABILITY commands
+            succeeded in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 12 }
+
+cmedxCmdNumNotifyFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative NOTIFY commands failed to
+            respond from MGC." 
+    ::= { cmedxCommandStatsEntry 13 }
+
+cmedxCmdNumNotifySucceeds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative NOTIFY commands successfully
+            responded from the MGC." 
+    ::= { cmedxCommandStatsEntry 14 }
+
+cmedxCmdNumSrvChgFromMgcFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative ServiceChange commands from
+            MGC to MG failed in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 15 }
+
+cmedxCmdNumSrvChgFromMgcSucceeds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative ServiceChange commands from
+            MGC to MG succeeded in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 16 }
+
+cmedxCmdNumSrvChgFromMgFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative ServiceChange commands from
+            MG to MGC failed in MGC." 
+    ::= { cmedxCommandStatsEntry 17 }
+
+cmedxCmdNumSrvChgFromMgSucceeds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative ServiceChange commands from MG
+            to MGC succeeded in MGC." 
+    ::= { cmedxCommandStatsEntry 18 }
+
+cmedxCmdTotalFails OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of commands failed in the media gateway
+            link.
+            " 
+    ::= { cmedxCommandStatsEntry 19 }
+
+cmedxCmdTotalSucceeds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of commands succeeded in the media gateway
+            link.
+            " 
+    ::= { cmedxCommandStatsEntry 20 }
+
+cmedxCmdTotal OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of failed and successful commands in the
+            media gateway link.
+            " 
+    ::= { cmedxCommandStatsEntry 21 }
+
+cmedxCmdNumAddPendings OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative ADD commands
+            remain pending in the media gateway link.
+            " 
+    ::= { cmedxCommandStatsEntry 22 }
+
+cmedxCmdNumSubtractPendings OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative SUBTRACT commands
+            remain pending in the media gateway link.
+            " 
+    ::= { cmedxCommandStatsEntry 23 }
+
+cmedxCmdNumMovePendings OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative MOVE commands
+            remain pending in the media gateway link.
+            " 
+    ::= { cmedxCommandStatsEntry 24 }
+
+cmedxCmdNumModifyPendings OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative MODIFY commands
+            remain pending in the media gateway link.
+            " 
+    ::= { cmedxCommandStatsEntry 25 }
+
+cmedxCmdNumAuditValPendings OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative AUDIT VALUE commands
+            remain pending in the media gateway link.
+            " 
+    ::= { cmedxCommandStatsEntry 26 }
+
+cmedxCmdNumAuditCapPendings OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative AUDIT CAPABILITY commands
+            remain pending in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 27 }
+
+cmedxCmdNumNotifyPendings OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative NOTIFY commands
+            remain pending in response from MGC." 
+    ::= { cmedxCommandStatsEntry 28 }
+
+cmedxCmdNumSrvChgFromMgcPendings OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative ServiceChange commands from
+            MGC to MG remain pending in the media gateway link." 
+    ::= { cmedxCommandStatsEntry 29 }
+
+cmedxCmdNumSrvChgFromMgPendings OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of cumulative ServiceChange commands from
+            MG to MGC remain pending in MGC." 
+    ::= { cmedxCommandStatsEntry 30 }
+
+cmedxCmdTotalPendings OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of commands remain pending
+            in the media gateway link.
+            " 
+    ::= { cmedxCommandStatsEntry 31 }
+ 
+
+-- ********************************************************************
+
+-- cmedxContextStatsTable
+
+-- ********************************************************************
+
+cmedxContextStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxContextStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table provides the H.248 Context related statistics
+            for the media gateway link."
+    ::= { cmedxStats 3 }
+
+cmedxContextStatsEntry OBJECT-TYPE
+    SYNTAX          CmedxContextStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The system creates one entry for each media gateway link
+            when it is created."
+    INDEX           {
+                        cmedGatewayId,
+                        cmedGatewayLinkId
+                    } 
+    ::= { cmedxContextStatsTable 1 }
+
+CmedxContextStatsEntry ::= SEQUENCE {
+        cmedxCntxNumActiveContexts     Gauge32,
+        cmedxCntxPeakNumActiveContexts Gauge32,
+        cmedxCntxNumContextAllocated   Counter32,
+        cmedxCntxNumContextFreed       Counter32,
+        cmedxCntxShortestContextLife   TimeTicks,
+        cmedxCntxAverageContextLife    TimeTicks,
+        cmedxCntxLongestContextLife    TimeTicks,
+        cmedxCntxNumCntxMoreThan2Terms Gauge32
+}
+
+cmedxCntxNumActiveContexts OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The current number of active contexts in the media
+            gateway link." 
+    ::= { cmedxContextStatsEntry 1 }
+
+cmedxCntxPeakNumActiveContexts OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Peak number of active contexts in the media gateway link." 
+    ::= { cmedxContextStatsEntry 2 }
+
+cmedxCntxNumContextAllocated OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of contexts has been allocated in
+            the media gateway link." 
+    ::= { cmedxContextStatsEntry 3 }
+
+cmedxCntxNumContextFreed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of contexts has been freed in the
+            media gateway link." 
+    ::= { cmedxContextStatsEntry 4 }
+
+cmedxCntxShortestContextLife OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The shortest life span for the contexts in the
+            media gateway link." 
+    ::= { cmedxContextStatsEntry 5 }
+
+cmedxCntxAverageContextLife OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The average life span for the contexts in the media
+            gateway link." 
+    ::= { cmedxContextStatsEntry 6 }
+
+cmedxCntxLongestContextLife OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The longest life span for the contexts in the media
+            gateway link." 
+    ::= { cmedxContextStatsEntry 7 }
+
+cmedxCntxNumCntxMoreThan2Terms OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of contexts having more than 2 terminations
+            in the media gateway link." 
+    ::= { cmedxContextStatsEntry 8 }
+ 
+
+-- *****************************************************************
+
+-- cmedxPhysicalTermStatsTable
+
+-- *****************************************************************
+
+cmedxPhysicalTermStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxPhysicalTermStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains statistics related to physical
+            terminations in a media gateway."
+    ::= { cmedxStats 4 }
+
+cmedxPhysicalTermStatsEntry OBJECT-TYPE
+    SYNTAX          CmedxPhysicalTermStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry contains the statistics for a physical
+            termination in the media gateway."
+    AUGMENTS           { cmedTerminationsEntry  } 
+ 
+    ::= { cmedxPhysicalTermStatsTable 1 }
+
+CmedxPhysicalTermStatsEntry ::= SEQUENCE {
+        cmedxPhyTermStatsNumAdds     Counter32,
+        cmedxPhyTermStatsNumFailures Counter32,
+        cmedxPhyTermStatsOosFromMgcs Counter32,
+        cmedxPhyTermStatsOosFromOams Counter32
+}
+
+cmedxPhyTermStatsNumAdds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of total ADD commands on this physical
+            termination." 
+    ::= { cmedxPhysicalTermStatsEntry 1 }
+
+cmedxPhyTermStatsNumFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of total command failures on this
+            physical termination." 
+    ::= { cmedxPhysicalTermStatsEntry 2 }
+
+cmedxPhyTermStatsOosFromMgcs OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of total out of service initiated from MGC on
+            this physical termination." 
+    ::= { cmedxPhysicalTermStatsEntry 3 }
+
+cmedxPhyTermStatsOosFromOams OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of total out of service initiated from OAM
+            (Operation Administration Management, either MG or NMS) 
+            on this physical termination." 
+    ::= { cmedxPhysicalTermStatsEntry 4 }
+ 
+
+-- *****************************************************************
+
+-- cmedxEphemeralTermStatsTable
+
+-- *****************************************************************
+
+cmedxEphemeralTermStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxEphemeralTermStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains statistics related to ephemeral
+            terminations."
+    ::= { cmedxStats 5 }
+
+cmedxEphemeralTermStatsEntry OBJECT-TYPE
+    SYNTAX          CmedxEphemeralTermStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry contains the statistics of all ephemeral
+            terminations for the termination type."
+    INDEX           {
+                        cmedGatewayId,
+                        cmedxEphTermStatsType
+                    } 
+    ::= { cmedxEphemeralTermStatsTable 1 }
+
+CmedxEphemeralTermStatsEntry ::= SEQUENCE {
+        cmedxEphTermStatsType        INTEGER ,
+        cmedxEphTermStatsNumAdds     Counter32,
+        cmedxEphTermStatsNumFailures Counter32
+}
+
+cmedxEphTermStatsType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        all(1),
+                        scn(2),
+                        pdnRtp(3),
+                        pdnAtmAal1(4),
+                        pdnAtmAal2(5)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object specifies the statistics of the termination type
+            to be retrieved.
+                all        (1) - Statistics for all ephemeral termination
+                                 types.
+                scn        (2) - Statistics for SCN/DS terminations
+                pdnRtp     (3) - Statistics for PDN terminations of RTP
+                                 type.
+                pdnAtmAal1 (4) - Statistics for PDN terminations of 
+                                 ATM type with AAL1 adaptation layer.
+                pdnAtmAal2 (5) - Statistics for PDN terminations of
+                                 ATM type with AAL2 adaptation layer." 
+    ::= { cmedxEphemeralTermStatsEntry 1 }
+
+cmedxEphTermStatsNumAdds OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of total ADD commands has been initiated
+            on this termination type." 
+    ::= { cmedxEphemeralTermStatsEntry 2 }
+
+cmedxEphTermStatsNumFailures OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Number of total command failures on this
+            termination type." 
+    ::= { cmedxEphemeralTermStatsEntry 3 }
+ 
+
+-- *********************************************************************
+
+-- cmedxCommandProcStatsTable
+
+-- *********************************************************************
+
+cmedxCommandProcStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxCommandProcStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table provides the statistics related to H.248
+            command processing on a media gateway link.
+            "
+    ::= { cmedxStats 6 }
+
+cmedxCommandProcStatsEntry OBJECT-TYPE
+    SYNTAX          CmedxCommandProcStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The information in each entry is for a media gateway link.
+            "
+    INDEX           {
+                        cmedGatewayId,
+                        cmedGatewayLinkId
+                    } 
+    ::= { cmedxCommandProcStatsTable 1 }
+
+CmedxCommandProcStatsEntry ::= SEQUENCE {
+        cmedxCmdPhyTermAddRespTimeMin   Gauge32,
+        cmedxCmdPhyTermAddRespTimeMax   Gauge32,
+        cmedxCmdPhyTermAddRespTimeAvg   Gauge32,
+        cmedxCmdPhyTermAddRespTimeCount Gauge32,
+        cmedxCmdPhyTermModRespTimeMin   Gauge32,
+        cmedxCmdPhyTermModRespTimeMax   Gauge32,
+        cmedxCmdPhyTermModRespTimeAvg   Gauge32,
+        cmedxCmdPhyTermModRespTimeCount Gauge32,
+        cmedxCmdPhyTermSubRespTimeMin   Gauge32,
+        cmedxCmdPhyTermSubRespTimeMax   Gauge32,
+        cmedxCmdPhyTermSubRespTimeAvg   Gauge32,
+        cmedxCmdPhyTermSubRespTimeCount Gauge32,
+        cmedxCmdEphTermAddRespTimeMin   Gauge32,
+        cmedxCmdEphTermAddRespTimeMax   Gauge32,
+        cmedxCmdEphTermAddRespTimeAvg   Gauge32,
+        cmedxCmdEphTermAddRespTimeCount Gauge32,
+        cmedxCmdEphTermModRespTimeMin   Gauge32,
+        cmedxCmdEphTermModRespTimeMax   Gauge32,
+        cmedxCmdEphTermModRespTimeAvg   Gauge32,
+        cmedxCmdEphTermModRespTimeCount Gauge32,
+        cmedxCmdEphTermSubRespTimeMin   Gauge32,
+        cmedxCmdEphTermSubRespTimeMax   Gauge32,
+        cmedxCmdEphTermSubRespTimeAvg   Gauge32,
+        cmedxCmdEphTermSubRespTimeCount Gauge32,
+        cmedxCmdNumInProgCmds           Gauge32,
+        cmedxCmdMaxInProgCmds           Gauge32,
+        cmedxCmdSinceLastReset          Unsigned32
+}
+
+cmedxCmdPhyTermAddRespTimeMin OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The minimum add response time (ms) for physical
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 1 }
+
+cmedxCmdPhyTermAddRespTimeMax OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The maximum add response time (ms) for physical
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 2 }
+
+cmedxCmdPhyTermAddRespTimeAvg OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The average add response time (ms) for physical
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 3 }
+
+cmedxCmdPhyTermAddRespTimeCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of add responses for physical terminations
+            which have been sent during the statistics interval
+            on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 4 }
+
+cmedxCmdPhyTermModRespTimeMin OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The minimum modify response time (ms) for physical
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 5 }
+
+cmedxCmdPhyTermModRespTimeMax OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The maximum modify response time (ms) for physical
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 6 }
+
+cmedxCmdPhyTermModRespTimeAvg OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The average modify response time (ms) for physical
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 7 }
+
+cmedxCmdPhyTermModRespTimeCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of modify responses for physical terminations
+            which have been sent during the statistics interval
+            on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 8 }
+
+cmedxCmdPhyTermSubRespTimeMin OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The minimum subtract response time (ms) for physical
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 9 }
+
+cmedxCmdPhyTermSubRespTimeMax OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The maximum subtract response time (ms) for physical
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 10 }
+
+cmedxCmdPhyTermSubRespTimeAvg OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The average subtract response time (ms) for physical
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 11 }
+
+cmedxCmdPhyTermSubRespTimeCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of subtract responses for physical terminations
+            which have been sent during the statistics interval
+            on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 12 }
+
+cmedxCmdEphTermAddRespTimeMin OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The minimum add response time (ms) for ephemeral
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 13 }
+
+cmedxCmdEphTermAddRespTimeMax OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The maximum add response time (ms) for ephemeral
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 14 }
+
+cmedxCmdEphTermAddRespTimeAvg OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The average add response time (ms) for ephemeral
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 15 }
+
+cmedxCmdEphTermAddRespTimeCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of add responses for ephemeral terminations
+            which have been sent during the statistics interval
+            on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 16 }
+
+cmedxCmdEphTermModRespTimeMin OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The minimum modify response time (ms) for ephemeral
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 17 }
+
+cmedxCmdEphTermModRespTimeMax OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The maximum modify response time (ms) for ephemeral
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 18 }
+
+cmedxCmdEphTermModRespTimeAvg OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The average modify response time (ms) for ephemeral
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 19 }
+
+cmedxCmdEphTermModRespTimeCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of modify responses for ephemeral terminations
+            which have been sent during the statistics interval
+            on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 20 }
+
+cmedxCmdEphTermSubRespTimeMin OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The minimum subtract response time (ms) for ephemeral
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 21 }
+
+cmedxCmdEphTermSubRespTimeMax OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The maximum subtract response time (ms) for ephemeral
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 22 }
+
+cmedxCmdEphTermSubRespTimeAvg OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The average subtract response time (ms) for ephemeral
+            terminations on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 23 }
+
+cmedxCmdEphTermSubRespTimeCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of subtract responses for ephemeral terminations
+            which have been sent during the statistics interval
+            on a media gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 24 }
+
+cmedxCmdNumInProgCmds OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of in-progress commands on a media gateway link." 
+    ::= { cmedxCommandProcStatsEntry 25 }
+
+cmedxCmdMaxInProgCmds OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The maximum number of in-progress commands on a media
+            gateway link.
+            " 
+    ::= { cmedxCommandProcStatsEntry 26 }
+
+cmedxCmdSinceLastReset OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The elapsed time (in seconds) from the last periodic reset.
+
+            All (non-accumulator) statistic objects were zeroed on 
+            the last reset.
+            " 
+    ::= { cmedxCommandProcStatsEntry 27 }
+ 
+
+-- *****************************************************************
+
+-- cmedxOverloadStatsTable
+
+-- *****************************************************************
+
+cmedxOverloadStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxOverloadStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains statistics related to gateway overload
+            control (H.248.11)."
+    ::= { cmedxStats 7 }
+
+cmedxOverloadStatsEntry OBJECT-TYPE
+    SYNTAX          CmedxOverloadStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry contains the statistics of gateway overload
+            control."
+    INDEX           { cmedGatewayId } 
+    ::= { cmedxOverloadStatsTable 1 }
+
+CmedxOverloadStatsEntry ::= SEQUENCE {
+        cmedxOverloadEnterCounts   Counter32SinceReset,
+        cmedxOverloadExitCounts    Counter32SinceReset,
+        cmedxOverloadCurrentState  INTEGER ,
+        cmedxOverloadLastResetTime TimeStamp,
+        cmedxOverloadCountersClear TruthValue
+}
+
+cmedxOverloadEnterCounts OBJECT-TYPE
+    SYNTAX          Counter32SinceReset
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of times that the gateway enters the
+            overload condition because of any of CAC monitoring
+            resources has exceeded the medium threshold 
+            specified by the value of ccacSysRpMedThreshold
+            since the last counter reset." 
+    ::= { cmedxOverloadStatsEntry 1 }
+
+cmedxOverloadExitCounts OBJECT-TYPE
+    SYNTAX          Counter32SinceReset
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of times that the gateway exits the
+            overload condition when all of CAC monitoring
+            resources have fallen below the low threshold 
+            specified by the value of ccacSysRpLowThreshold
+            since the last counter reset." 
+    ::= { cmedxOverloadStatsEntry 2 }
+
+cmedxOverloadCurrentState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        normal(1),
+                        overload(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object indicates the current overload state
+            of the gateway.
+            normal   - In normal condition.
+            overload - In overload condition. " 
+    ::= { cmedxOverloadStatsEntry 3 }
+
+cmedxOverloadLastResetTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object contains the value of sysUpTime when
+            the last counter reset occurred by setting
+            cmedxOverloadCountersClear to 'true'.
+
+            If no counter reset has occurred since the last time
+            the media gateway reboot, this object will contain
+            value of zero." 
+    ::= { cmedxOverloadStatsEntry 4 }
+
+cmedxOverloadCountersClear OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "When this object is to set value of true(1), all
+            statistics counters in the table cmedxOverloadStatsTable
+            will be reset to zero.
+
+            Setting this object to a value of false(2) has no
+            implication.
+
+            This object will always return 'false' upon any SNMP get
+            operation." 
+    ::= { cmedxOverloadStatsEntry 5 }
+ 
+
+-- *****************************************************************
+
+-- cmedxOverloadResourceStatsTable
+
+-- *****************************************************************
+
+cmedxOverloadResourceStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxOverloadResourceStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains the statistics of the resource
+            utilization when the gateway enters overload condition."
+    ::= { cmedxStats 8 }
+
+cmedxOverloadResourceStatsEntry OBJECT-TYPE
+    SYNTAX          CmedxOverloadResourceStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry contains the utilization statistics of
+            the resource when the gateway is overloaded."
+    INDEX           {
+                        cmedGatewayId,
+                        cmedxOverloadRsResourceIndex
+                    } 
+    ::= { cmedxOverloadResourceStatsTable 1 }
+
+CmedxOverloadResourceStatsEntry ::= SEQUENCE {
+        cmedxOverloadRsResourceIndex   Unsigned32,
+        cmedxOverloadRsHighCounts      Counter32SinceReset,
+        cmedxOverloadRsMedCounts       Counter32SinceReset,
+        cmedxOverloadRsLowCounts       Counter32SinceReset,
+        cmedxOverloadContributorCounts Counter32SinceReset,
+        cmedxOverloadRsLastResetTime   TimeStamp,
+        cmedxOverloadRsCountersClear   TruthValue
+}
+
+cmedxOverloadRsResourceIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..1000 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object uniquely identifies the utilization
+            of the resource is monitored for the gateway overload.
+
+            The value of 0 is to sum the individual statistical 
+            counter for all the monitored resources." 
+    ::= { cmedxOverloadResourceStatsEntry 1 }
+
+cmedxOverloadRsHighCounts OBJECT-TYPE
+    SYNTAX          Counter32SinceReset
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The accumulated number of times that the utilization
+            of the resource is above the high threshold specified 
+            by ccacSysRpHighThreshold when the gateway enters 
+            the overload condition since the last counter reset." 
+    ::= { cmedxOverloadResourceStatsEntry 2 }
+
+cmedxOverloadRsMedCounts OBJECT-TYPE
+    SYNTAX          Counter32SinceReset
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The accumulated number of times that the utilization
+            of the resource is above the medium threshold specified
+            by ccacSysRpMedThreshold when the gateway enters the 
+            overload condition since the last counter reset." 
+    ::= { cmedxOverloadResourceStatsEntry 3 }
+
+cmedxOverloadRsLowCounts OBJECT-TYPE
+    SYNTAX          Counter32SinceReset
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The accumulated number of times that the utilization
+            of the resource is above the low threshold specified 
+            by ccacSysRpLowThreshold when the gateway enters 
+            the overload condition since the last counter reset." 
+    ::= { cmedxOverloadResourceStatsEntry 4 }
+
+cmedxOverloadContributorCounts OBJECT-TYPE
+    SYNTAX          Counter32SinceReset
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The accumulated number of times the CAC monitoring
+            resource causes the gateway entering the overload 
+            condition since the last counter reset." 
+    ::= { cmedxOverloadResourceStatsEntry 5 }
+
+cmedxOverloadRsLastResetTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object contains the value of sysUpTime when
+            the last counter reset occurred by setting
+            cmedxOverloadRsCountersClear to 'true'.
+
+            If no counter reset has occurred since the last time
+            the media gateway reboot, this object will contain
+            value of zero." 
+    ::= { cmedxOverloadResourceStatsEntry 6 }
+
+cmedxOverloadRsCountersClear OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "When this object is to set value of true(1), all
+            statistics counters in the table 
+            cmedxOverloadResourceStatsTable will be reset to zero.
+
+            Setting this object to a value of false(2) has no
+            implication.
+
+            This object will always return 'false' upon any SNMP get
+            operation." 
+    ::= { cmedxOverloadResourceStatsEntry 7 }
+ 
+
+-- *****************************************************************
+
+-- cmedxEphemeralTermStatsInfoTable
+
+-- *****************************************************************
+
+cmedxEphemeralTermStatsInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmedxEphemeralTermStatsInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This table contains statistics information related to
+            ephemeral terminations."
+    ::= { cmedxStats 9 }
+
+cmedxEphemeralTermStatsInfoEntry OBJECT-TYPE
+    SYNTAX          CmedxEphemeralTermStatsInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "Each entry contains the ephemeral termination statistics
+            inforamtion for a specific level.
+            "
+    INDEX           { cmedxEphTermInfoStatsIndex } 
+    ::= { cmedxEphemeralTermStatsInfoTable 1 }
+
+CmedxEphemeralTermStatsInfoEntry ::= SEQUENCE {
+        cmedxEphTermInfoStatsIndex     Unsigned32,
+        cmedxEphTermInfoStatsIndexType INTEGER ,
+        cmedxEphTermInfoNumTerm        Counter32SinceReset,
+        cmedxEphTermInfoNumInUsed      Gauge32,
+        cmedxEphTermInfoMaxNumInUsed   Gauge32,
+        cmedxEphTermInfoMinDuration    Gauge32,
+        cmedxEphTermInfoMaxDuration    Gauge32,
+        cmedxEphTermInfoAvgDuration    Gauge32,
+        cmedxEphTermInfoCounterClear   TruthValue,
+        cmedxEphTermInfoSinceLastClear Unsigned32,
+        cmedxEphTermInfoSinceLastReset Unsigned32,
+        cmedxEphTermIndexInfo          Unsigned32,
+        cmedxEphTermInfoNumFreed       Unsigned32
+}
+
+cmedxEphTermInfoStatsIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..2147483647 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "This object uniquely identifies the entry to store ephemeral
+            termination statistics information.
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 1 }
+
+cmedxEphTermInfoStatsIndexType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        bpvc(1),
+                        gw(2),
+                        vgw(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object is used to indicate index
+            ('cmedxEphTermInfoStatsIndex') type.
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 2 }
+
+cmedxEphTermInfoNumTerm OBJECT-TYPE
+    SYNTAX          Counter32SinceReset
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The accumulated number of ephemeral
+            termination.
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 3 }
+
+cmedxEphTermInfoNumInUsed OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The number of ephemeral termination currently
+            in use.
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 4 }
+
+cmedxEphTermInfoMaxNumInUsed OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The high watermark of number of ephemeral termination
+            in use.
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 5 }
+
+cmedxEphTermInfoMinDuration OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The minimum duration of ephemeral termination.
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 6 }
+
+cmedxEphTermInfoMaxDuration OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The maximum duration of ephemeral termination.
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 7 }
+
+cmedxEphTermInfoAvgDuration OBJECT-TYPE
+    SYNTAX          Gauge32
+    UNITS           "ms"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The average duration of ephemeral termination.
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 8 }
+
+cmedxEphTermInfoCounterClear OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+            "When this object is set to value of true(1), all statistics
+            counters with type of Counter32SinceReset in this table
+            will be reset to zero. 
+
+            Setting this object to a value of false(2) has no implication.
+
+            This object will always return 'false' upon any SNMP 
+            get operation. 
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 9 }
+
+cmedxEphTermInfoSinceLastClear OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "minutes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The elapsed time from the last counter clear.
+
+            The following objects are set to zero on the
+            last counter clear:
+
+                'cmedxEphTermInfoNumTerm'
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 10 }
+
+cmedxEphTermInfoSinceLastReset OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "seconds"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "The elapsed time from the last reset.
+
+            The following objects are set to zero on the
+            last reset:
+
+                'cmedxEphTermInfoNumInUsed'
+                'cmedxEphTermInfoMaxNumInUsed'
+                'cmedxEphTermInfoMinDuration'
+                'cmedxEphTermInfoMaxDuration'
+                'cmedxEphTermInfoNumFreed'
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 11 }
+
+cmedxEphTermIndexInfo OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..2147483647 )
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "This object is used to store the index
+            ('cmedxEphTermInfoStatsIndex') related information. 
+            Example: for bpvc ('cmedxEphTermInfoStatsIndexType'), 
+            the vpi and vci are stored in this object.
+            The value zero means this object should be ignored.
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 12 }
+
+cmedxEphTermInfoNumFreed OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+            "Total number of ephemeral terminations that have been
+            freed.
+            " 
+    ::= { cmedxEphemeralTermStatsInfoEntry 13 }
+ 
+
+-- *****************************************************************
+
+-- Conformance for the CiSCO-MEGACO-EXT-MIB
+
+-- *****************************************************************
+ciscoMegacoExtConformance  OBJECT IDENTIFIER
+    ::= { ciscoMegacoExtMIB 2 }
+
+cmedxCompliances  OBJECT IDENTIFIER
+    ::= { ciscoMegacoExtConformance 1 }
+
+cmedxGroups  OBJECT IDENTIFIER
+    ::= { ciscoMegacoExtConformance 2 }
+
+
+cmedxCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+            "Compliance statement for entities which implement
+            the CiSCO-MEGACO-EXT-MIB.
+            This has been replaced by cmedxComplianceRev1"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cmedxConfigGroup,
+                        cmedxStatsGroup,
+                        cmedxCallReduceRateGroup
+                    }
+
+    GROUP           cmedxCodecNegotiationGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports CODEC negotiation."
+    ::= { cmedxCompliances 1 }
+
+cmedxComplianceRev1 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+            "Compliance statement for entities which implement
+            the CiSCO-MEGACO-EXT-MIB.
+            This has been replaced by cmedxComplianceRev2."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cmedxConfigGroup,
+                        cmedxStatsGroup,
+                        cmedxCallReduceRateGroup
+                    }
+
+    GROUP           cmedxCodecNegotiationGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports CODEC negotiation."
+
+    GROUP           cmedxConfigExtGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports Megaco message size
+            provisioning and BellCore standard COT. "
+
+    GROUP           cmedxServiceStateGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports graceful out-of-service
+            and cancel graceful out-of-service."
+    ::= { cmedxCompliances 2 }
+
+cmedxComplianceRev2 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+            "Compliance statement for entities which implement
+            the CiSCO-MEGACO-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cmedxConfigGroupRev1,
+                        cmedxStatsGroup,
+                        cmedxCallReduceRateGroup
+                    }
+
+    GROUP           cmedxCodecNegotiationGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports CODEC negotiation."
+
+    GROUP           cmedxConfigExtGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports Megaco message size
+            provisioning and BellCore standard COT. "
+
+    GROUP           cmedxServiceStateGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports graceful out-of-service
+            and cancel graceful out-of-service."
+
+    GROUP           cmedxCallReduceRateNotifyGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports H.248.10 congestion
+            control notification."
+
+    GROUP           cmedxOverloadControlGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports H.248.11 overload
+            control package ."
+
+    GROUP           cmedxOverloadStatsGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports H.248.11 overload
+            control statistics."
+
+    GROUP           cmedxStatsExtGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports extended statistics."
+
+    GROUP           cmedxEphemeralTermStatsGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports ephemeral termination 
+            statistics."
+    ::= { cmedxCompliances 3 }
+
+cmedxComplianceRev3 MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+            "Compliance statement for entities which implement
+            the CiSCO-MEGACO-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cmedxConfigGroupRev2,
+                        cmedxStatsGroupRev1,
+                        cmedxCallReduceRateGroup
+                    }
+
+    GROUP           cmedxCodecNegotiationGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports CODEC negotiation."
+
+    GROUP           cmedxConfigExtGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports Megaco message size
+            provisioning and BellCore standard COT. "
+
+    GROUP           cmedxServiceStateGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports graceful out-of-service
+            and cancel graceful out-of-service."
+
+    GROUP           cmedxCallReduceRateNotifyGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports H.248.10 congestion
+            control notification."
+
+    GROUP           cmedxOverloadControlGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports H.248.11 overload
+            control package ."
+
+    GROUP           cmedxOverloadStatsGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports H.248.11 overload
+            control statistics."
+
+    GROUP           cmedxStatsExtGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports extended statistics."
+
+    GROUP           cmedxEphemeralTermStatsGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports ephemeral termination 
+            statistics."
+    ::= { cmedxCompliances 4 }
+
+cmedxComplianceRev4 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+            "Compliance statement for entities which implement
+            the CiSCO-MEGACO-EXT-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cmedxConfigGroupRev2,
+                        cmedxStatsGroupRev1,
+                        cmedxCallReduceRateGroup,
+                        cmedxConfigDomainInfoGroup
+                    }
+
+    GROUP           cmedxCodecNegotiationGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports CODEC negotiation."
+
+    GROUP           cmedxConfigExtGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports Megaco message size
+            provisioning and BellCore standard COT. "
+
+    GROUP           cmedxServiceStateGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports graceful out-of-service
+            and cancel graceful out-of-service."
+
+    GROUP           cmedxCallReduceRateNotifyGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports H.248.10 congestion
+            control notification."
+
+    GROUP           cmedxOverloadControlGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports H.248.11 overload
+            control package ."
+
+    GROUP           cmedxOverloadStatsGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports H.248.11 overload
+            control statistics."
+
+    GROUP           cmedxStatsExtGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports extended statistics."
+
+    GROUP           cmedxEphemeralTermStatsGroup
+    DESCRIPTION
+            "Implementation of this group is mandatory for the
+            media gateway if it supports ephemeral termination 
+            statistics."
+    ::= { cmedxCompliances 5 }
+
+-- Units of Conformance
+cmedxConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxGatewayMgcGroupIndex,
+                        cmedxGatewayIpAddressIndex,
+                        cmedxGatewayAssociationId,
+                        cmedxGatewayMaxContexts,
+                        cmedxGatewayMaxTermsInContext,
+                        cmedxGatewayMgExecTime,
+                        cmedxGatewayMgcExecTime,
+                        cmedxGatewayProvisionRespTime,
+                        cmedxGatewayNumConnRetries,
+                        cmedxGatewayMaxWaitingDelay,
+                        cmedxGatewayRestartDelay,
+                        cmedxGatewayRespRetentionTime,
+                        cmedxGatewayInitialRtt,
+                        cmedxGatewayInactivityTime,
+                        cmedxGatewayHeaderAddrType,
+                        cmedxGatewayDownServiceDelay,
+                        cmedxGatewayActiveMgcAddress,
+                        cmedxGatewayActiveMgcDomain,
+                        cmedxGatewayActiveMgcPortNum,
+                        cmedxGatewayStateChangeReason,
+                        cmedxGatewayStateChangeMethod,
+                        cmedxTermType,
+                        cmedxTermTypeProfileId,
+                        cmedxTermTypePkgIds,
+                        cmedxTermTypeRowStatus,
+                        cmedxProfilePlayCpToneInterDur,
+                        cmedxProfileDtmfDigitOnDur,
+                        cmedxProfileDtmfPauseDur,
+                        cmedxProfileCot1Frequency,
+                        cmedxProfileCot2Frequency,
+                        cmedxProfileInitiateCotDur,
+                        cmedxProfileRespCotMethod,
+                        cmedxProfileDetectLongCpToneDur,
+                        cmedxProfileDetectLongDigitDur,
+                        cmedxProfileEchoCancelEnabled,
+                        cmedxProfileEchoCancelTail,
+                        cmedxProfileInGainControl,
+                        cmedxProfileOutAttnControl,
+                        cmedxProfileVoIpVadEnabled,
+                        cmedxProfileVoIpVadTimer,
+                        cmedxProfileVoAal2VadTimer,
+                        cmedxProfileAtmBearerType,
+                        cmedxProfileAtmAalPartialFill,
+                        cmedxProfileAtmAalType,
+                        cmedxProfileSuppressBearerDigit,
+                        cmedxProfileRowStatus
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+            "This group contains of all the configuration extended
+            information for a media gateway."
+    ::= { cmedxGroups 1 }
+
+cmedxStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxGatewayLastEvent,
+                        cmedxCmdNumAddFails,
+                        cmedxCmdNumAddSucceeds,
+                        cmedxCmdNumSubtractFails,
+                        cmedxCmdNumSubtractSucceeds,
+                        cmedxCmdNumMoveFails,
+                        cmedxCmdNumMoveSucceeds,
+                        cmedxCmdNumModifyFails,
+                        cmedxCmdNumModifySucceeds,
+                        cmedxCmdNumAuditValFails,
+                        cmedxCmdNumAuditValSucceeds,
+                        cmedxCmdNumAuditCapFails,
+                        cmedxCmdNumAuditCapSucceeds,
+                        cmedxCmdNumNotifyFails,
+                        cmedxCmdNumNotifySucceeds,
+                        cmedxCmdNumSrvChgFromMgcFails,
+                        cmedxCmdNumSrvChgFromMgcSucceeds,
+                        cmedxCmdNumSrvChgFromMgFails,
+                        cmedxCmdNumSrvChgFromMgSucceeds,
+                        cmedxCntxNumActiveContexts,
+                        cmedxCntxPeakNumActiveContexts,
+                        cmedxCntxNumContextAllocated,
+                        cmedxCntxNumContextFreed,
+                        cmedxCntxShortestContextLife,
+                        cmedxCntxAverageContextLife,
+                        cmedxCntxLongestContextLife,
+                        cmedxCntxNumCntxMoreThan2Terms,
+                        cmedxPhyTermStatsNumAdds,
+                        cmedxPhyTermStatsNumFailures,
+                        cmedxPhyTermStatsOosFromMgcs,
+                        cmedxPhyTermStatsOosFromOams,
+                        cmedxEphTermStatsNumAdds,
+                        cmedxEphTermStatsNumFailures
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+            "This group contains of all the statistics information
+            for the statistics in a media gateway."
+    ::= { cmedxGroups 2 }
+
+cmedxCallReduceRateGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxCallCongEnabled,
+                        cmedxCallRenotifInterval,
+                        cmedxCRRNumOfLevel,
+                        cmedxCurrentCRR,
+                        cmedxCallReduceRate
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group contains objects used to manage and/or monitor
+            the rate at which call attempts are made by Media 
+            gateway controller on this Media Gateway. "
+    ::= { cmedxGroups 3 }
+
+cmedxCodecNegotiationGroup OBJECT-GROUP
+    OBJECTS         { cmedxCodecNegotiationPreference }
+    STATUS          current
+    DESCRIPTION
+            "This group contains objects used for CODEC
+            negotiation between MG and MGC."
+    ::= { cmedxGroups 4 }
+
+cmedxConfigExtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxGatewayDynamicTpktVersion,
+                        cmedxGatewayMaxCommandMsgSize,
+                        cmedxGatewayMaxReplyMsgSize,
+                        cmedxProfileOriginatingCotTx,
+                        cmedxProfileOriginatingCotRx,
+                        cmedxProfileTerminatingCotTx,
+                        cmedxProfileTerminatingCotRx
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group contains of the objects related to
+            Megaco message size provisioning and
+            BellCore standard COT a media gateway."
+    ::= { cmedxGroups 5 }
+
+cmedxServiceStateGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxGatewayAdminAction,
+                        cmedxGatewayServiceState
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group contains of the objects to change the
+            service state of a media gateway."
+    ::= { cmedxGroups 6 }
+
+cmedxConfigGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cmedxGatewayMgcGroupIndex,
+                        cmedxGatewayIpAddressIndex,
+                        cmedxGatewayAssociationId,
+                        cmedxGatewayMaxContexts,
+                        cmedxGatewayMaxTermsInContext,
+                        cmedxGatewayMgExecTime,
+                        cmedxGatewayMgcExecTime,
+                        cmedxGatewayProvisionRespTime,
+                        cmedxGatewayNumConnRetries,
+                        cmedxGatewayMaxWaitingDelay,
+                        cmedxGatewayRestartDelay,
+                        cmedxGatewayRespRetentionTime,
+                        cmedxGatewayInitialRtt,
+                        cmedxGatewayInactivityTime,
+                        cmedxGatewayHeaderAddrType,
+                        cmedxGatewayDownServiceDelay,
+                        cmedxGatewayActiveMgcAddress,
+                        cmedxGatewayActiveMgcDomain,
+                        cmedxGatewayActiveMgcPortNum,
+                        cmedxGatewayStateChangeReason,
+                        cmedxGatewayStateChangeMethod,
+                        cmedxTermType,
+                        cmedxTermTypeProfileId,
+                        cmedxTermTypePkgIds,
+                        cmedxTermTypeRowStatus,
+                        cmedxProfilePlayCpToneInterDur,
+                        cmedxProfileDtmfDigitOnDur,
+                        cmedxProfileDtmfPauseDur,
+                        cmedxProfileCot1Frequency,
+                        cmedxProfileCot2Frequency,
+                        cmedxProfileInitiateCotDur,
+                        cmedxProfileRespCotMethod,
+                        cmedxProfileDetectLongCpToneDur,
+                        cmedxProfileDetectLongDigitDur,
+                        cmedxProfileEchoCancelEnabled,
+                        cmedxProfileEchoCancelTail,
+                        cmedxProfileInGainControl,
+                        cmedxProfileOutAttnControl,
+                        cmedxProfileVoIpVadEnabled,
+                        cmedxProfileVoIpVadTimer,
+                        cmedxProfileVoAal2VadTimer,
+                        cmedxProfileAtmBearerType,
+                        cmedxProfileAtmAalPartialFill,
+                        cmedxProfileAtmAalType,
+                        cmedxProfileSuppressBearerDigit,
+                        cmedxProfileRowStatus,
+                        cmedxProfileComfortNoiseGenerate,
+                        cmedxGatewaySctpAssocId,
+                        cmedxGatewaySrvChgProfile,
+                        cmedxGatewaySrvChgProfileVer,
+                        cmedxGatewayMsgTokenType
+                    }
+    STATUS          deprecated
+    DESCRIPTION
+            "This group contains of all the configuration extended
+            information for a media gateway."
+    ::= { cmedxGroups 7 }
+
+cmedxCallReduceRateNotifyGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxCrrNotifyState,
+                        cmedxCrrNotifyEnabled,
+                        cmedxCurrentCallState
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group contains objects used for H.248.10 congestion
+            control notification."
+    ::= { cmedxGroups 8 }
+
+cmedxOverloadControlGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxOverloadControlEnabled,
+                        cmedxOverloadNotifyState,
+                        cmedxOverloadNotifyEnabled
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group contains objects used for H.248.11 overload
+            control package."
+    ::= { cmedxGroups 9 }
+
+cmedxOverloadStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxOverloadEnterCounts,
+                        cmedxOverloadExitCounts,
+                        cmedxOverloadCurrentState,
+                        cmedxOverloadLastResetTime,
+                        cmedxOverloadCountersClear,
+                        cmedxOverloadRsHighCounts,
+                        cmedxOverloadRsMedCounts,
+                        cmedxOverloadRsLowCounts,
+                        cmedxOverloadContributorCounts,
+                        cmedxOverloadRsLastResetTime,
+                        cmedxOverloadRsCountersClear
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group contains objects used for the statistics of
+            H.248.11 overload control."
+    ::= { cmedxGroups 10 }
+
+cmedxStatsExtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxCmdTotalFails,
+                        cmedxCmdTotalSucceeds,
+                        cmedxCmdTotal,
+                        cmedxCmdTotalPendings,
+                        cmedxCmdPhyTermAddRespTimeMin,
+                        cmedxCmdPhyTermAddRespTimeMax,
+                        cmedxCmdPhyTermAddRespTimeAvg,
+                        cmedxCmdPhyTermAddRespTimeCount,
+                        cmedxCmdPhyTermModRespTimeMin,
+                        cmedxCmdPhyTermModRespTimeMax,
+                        cmedxCmdPhyTermModRespTimeAvg,
+                        cmedxCmdPhyTermModRespTimeCount,
+                        cmedxCmdPhyTermSubRespTimeMin,
+                        cmedxCmdPhyTermSubRespTimeMax,
+                        cmedxCmdPhyTermSubRespTimeAvg,
+                        cmedxCmdPhyTermSubRespTimeCount,
+                        cmedxCmdEphTermAddRespTimeMin,
+                        cmedxCmdEphTermAddRespTimeMax,
+                        cmedxCmdEphTermAddRespTimeAvg,
+                        cmedxCmdEphTermAddRespTimeCount,
+                        cmedxCmdEphTermModRespTimeMin,
+                        cmedxCmdEphTermModRespTimeMax,
+                        cmedxCmdEphTermModRespTimeAvg,
+                        cmedxCmdEphTermModRespTimeCount,
+                        cmedxCmdEphTermSubRespTimeMin,
+                        cmedxCmdEphTermSubRespTimeMax,
+                        cmedxCmdEphTermSubRespTimeAvg,
+                        cmedxCmdEphTermSubRespTimeCount,
+                        cmedxCmdNumInProgCmds,
+                        cmedxCmdMaxInProgCmds,
+                        cmedxCmdSinceLastReset
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group contains objects related to the extended
+            statistics of H.248."
+    ::= { cmedxGroups 11 }
+
+cmedxEphemeralTermStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxEphTermInfoStatsIndexType,
+                        cmedxEphTermInfoNumTerm,
+                        cmedxEphTermInfoNumInUsed,
+                        cmedxEphTermInfoMaxNumInUsed,
+                        cmedxEphTermInfoMinDuration,
+                        cmedxEphTermInfoMaxDuration,
+                        cmedxEphTermInfoAvgDuration,
+                        cmedxEphTermInfoCounterClear,
+                        cmedxEphTermInfoSinceLastClear,
+                        cmedxEphTermInfoSinceLastReset,
+                        cmedxEphTermIndexInfo,
+                        cmedxEphTermInfoNumFreed
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group contains objects related to ephemeral
+            termination statistics of H.248."
+    ::= { cmedxGroups 12 }
+
+cmedxConfigGroupRev2 OBJECT-GROUP
+    OBJECTS         {
+                        cmedxGatewayMgcGroupIndex,
+                        cmedxGatewayIpAddressIndex,
+                        cmedxGatewayAssociationId,
+                        cmedxGatewayMaxContexts,
+                        cmedxGatewayMaxTermsInContext,
+                        cmedxGatewayMgExecTime,
+                        cmedxGatewayMgcExecTime,
+                        cmedxGatewayNumConnRetries,
+                        cmedxGatewayMaxWaitingDelay,
+                        cmedxGatewayRestartDelay,
+                        cmedxGatewayRespRetentionTime,
+                        cmedxGatewayInitialRtt,
+                        cmedxGatewayInactivityTime,
+                        cmedxGatewayHeaderAddrType,
+                        cmedxGatewayDownServiceDelay,
+                        cmedxGatewayActiveMgcAddress,
+                        cmedxGatewayActiveMgcDomain,
+                        cmedxGatewayActiveMgcPortNum,
+                        cmedxGatewayStateChangeReason,
+                        cmedxGatewayStateChangeMethod,
+                        cmedxTermType,
+                        cmedxTermTypeProfileId,
+                        cmedxTermTypePkgIds,
+                        cmedxTermTypeRowStatus,
+                        cmedxProfilePlayCpToneInterDur,
+                        cmedxProfileDtmfDigitOnDur,
+                        cmedxProfileDtmfPauseDur,
+                        cmedxProfileCot1Frequency,
+                        cmedxProfileCot2Frequency,
+                        cmedxProfileInitiateCotDur,
+                        cmedxProfileRespCotMethod,
+                        cmedxProfileDetectLongCpToneDur,
+                        cmedxProfileDetectLongDigitDur,
+                        cmedxProfileEchoCancelEnabled,
+                        cmedxProfileEchoCancelTail,
+                        cmedxProfileInGainControl,
+                        cmedxProfileOutAttnControl,
+                        cmedxProfileVoIpVadEnabled,
+                        cmedxProfileVoIpVadTimer,
+                        cmedxProfileVoAal2VadTimer,
+                        cmedxProfileAtmBearerType,
+                        cmedxProfileAtmAalPartialFill,
+                        cmedxProfileAtmAalType,
+                        cmedxProfileSuppressBearerDigit,
+                        cmedxProfileRowStatus,
+                        cmedxProfileComfortNoiseGenerate,
+                        cmedxGatewaySctpAssocId,
+                        cmedxGatewaySrvChgProfile,
+                        cmedxGatewaySrvChgProfileVer,
+                        cmedxGatewayMsgTokenType,
+                        cmedxGatewayMgProvisionRspTime,
+                        cmedxGatewayMgcProvisionRspTime,
+                        cmedxGatewayMgOrigPendLimit,
+                        cmedxGatewayMgcOrigPendLimit
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group contains of all the configuration extended
+            information for a media gateway."
+    ::= { cmedxGroups 13 }
+
+cmedxStatsGroupRev1 OBJECT-GROUP
+    OBJECTS         {
+                        cmedxGatewayLastEvent,
+                        cmedxCmdNumAddFails,
+                        cmedxCmdNumAddSucceeds,
+                        cmedxCmdNumSubtractFails,
+                        cmedxCmdNumSubtractSucceeds,
+                        cmedxCmdNumMoveFails,
+                        cmedxCmdNumMoveSucceeds,
+                        cmedxCmdNumModifyFails,
+                        cmedxCmdNumModifySucceeds,
+                        cmedxCmdNumAuditValFails,
+                        cmedxCmdNumAuditValSucceeds,
+                        cmedxCmdNumAuditCapFails,
+                        cmedxCmdNumAuditCapSucceeds,
+                        cmedxCmdNumNotifyFails,
+                        cmedxCmdNumNotifySucceeds,
+                        cmedxCmdNumSrvChgFromMgcFails,
+                        cmedxCmdNumSrvChgFromMgcSucceeds,
+                        cmedxCmdNumSrvChgFromMgFails,
+                        cmedxCmdNumSrvChgFromMgSucceeds,
+                        cmedxCntxNumActiveContexts,
+                        cmedxCntxPeakNumActiveContexts,
+                        cmedxCntxNumContextAllocated,
+                        cmedxCntxNumContextFreed,
+                        cmedxCntxShortestContextLife,
+                        cmedxCntxAverageContextLife,
+                        cmedxCntxLongestContextLife,
+                        cmedxCntxNumCntxMoreThan2Terms,
+                        cmedxPhyTermStatsNumAdds,
+                        cmedxPhyTermStatsNumFailures,
+                        cmedxPhyTermStatsOosFromMgcs,
+                        cmedxPhyTermStatsOosFromOams,
+                        cmedxEphTermStatsNumAdds,
+                        cmedxEphTermStatsNumFailures,
+                        cmedxCmdNumAddPendings,
+                        cmedxCmdNumSubtractPendings,
+                        cmedxCmdNumMovePendings,
+                        cmedxCmdNumModifyPendings,
+                        cmedxCmdNumAuditValPendings,
+                        cmedxCmdNumAuditCapPendings,
+                        cmedxCmdNumNotifyPendings,
+                        cmedxCmdNumSrvChgFromMgcPendings,
+                        cmedxCmdNumSrvChgFromMgPendings
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group contains of all the statistics information
+            for the statistics in a media gateway."
+    ::= { cmedxGroups 14 }
+
+cmedxConfigDomainInfoGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmedxGatewayDomainName,
+                        cmedxGatewayCmbDnAndPortInMID
+                    }
+    STATUS          current
+    DESCRIPTION
+            "This group specifies the domain name and port
+            configuration for a media gateway."
+    ::= { cmedxGroups 15 }
+
+END
+
+
+

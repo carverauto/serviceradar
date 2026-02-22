@@ -1,0 +1,750 @@
+CISCO-IETF-MPLS-TE-EXT-STD-03-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32,
+    Counter64,
+    Gauge32,
+    zeroDotZero,
+    NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    TruthValue,
+    RowStatus,
+    RowPointer,
+    StorageType
+        FROM SNMPv2-TC
+    mplsStdMIB,
+    MplsTunnelIndex,
+    MplsTunnelInstanceIndex
+        FROM MPLS-TC-STD-MIB
+    mplsTunnelIndex,
+    mplsTunnelInstance,
+    mplsTunnelIngressLSRId,
+    mplsTunnelEgressLSRId
+        FROM MPLS-TE-STD-MIB
+    CMplsLocalId,
+    CMplsGlobalId,
+    CMplsNodeId,
+    CMplsIccId
+        FROM CISCO-MPLS-TC-EXT-STD-MIB
+    ciscoExperiment
+        FROM CISCO-SMI;
+
+
+cmplsTeExtStdMIB MODULE-IDENTITY
+    LAST-UPDATED    "201206060000Z"
+    ORGANIZATION    "Multiprotocol Label Switching (MPLS) Working Group"
+    CONTACT-INFO
+            "Venkatesan Mahalingam
+            Dell Inc,
+            350 Holger way, San Jose, CA, USA
+            Email: venkat.mahalingams@gmail.com
+
+            Kannan KV Sampath
+            Aricent,
+            India
+            Email: Kannan.Sampath@aricent.com
+
+            Sam Aldrin
+            Huawei Technologies
+            2330 Central Express Way,
+            Santa Clara, CA 95051, USA
+            Email:  aldrin.ietf@gmail.com
+
+            Thomas D. Nadeau
+            Juniper Networks
+            10 Technology Park Drive, Westford, MA 01886
+            Email: tnadeau@juniper.net"
+    DESCRIPTION
+        "Copyright (c) 2012 IETF Trust and the persons identified
+        as the document authors.  All rights reserved.
+        This MIB module contains generic object definitions for
+        MPLS Traffic Engineering in transport networks.This module is a
+        cisco-ized version of the IETF draft:
+        draft-ietf-mpls-tp-te-mib-03"
+    REVISION        "201204080000Z"
+    DESCRIPTION
+        "MPLS TE mib objects extension"
+    ::= { ciscoExperiment 146 }
+
+
+-- Top level components of this MIB module.
+--   
+-- traps
+
+cmplsTeExtNotifications  OBJECT IDENTIFIER
+    ::= { cmplsTeExtStdMIB 0 }
+
+-- tables, scalars
+
+cmplsTeExtObjects  OBJECT IDENTIFIER
+    ::= { cmplsTeExtStdMIB 1 }
+
+-- conformance
+
+cmplsTeExtConformance  OBJECT IDENTIFIER
+    ::= { cmplsTeExtStdMIB 2 }
+
+-- Start of MPLS Transport Profile Node configuration table
+
+cmplsNodeConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmplsNodeConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table allows the administrator to map a node or
+        LSR Identifier (IP compatible [Global_Node_ID] or ICC)
+        with a local identifier.
+
+
+        This table is created to reuse the existing
+        mplsTunnelTable for MPLS based transport network
+        tunnels also.
+        Since the MPLS tunnel's Ingress/Egress LSR identifiers'
+        size (Unsigned32) value is not compatible for
+        MPLS-TP tunnel i.e. Global_Node_Id of size 8 bytes and
+        ICC of size 6 bytes, there exists a need to map the
+        Global_Node_ID or ICC with the local identifier of size
+        4 bytes (Unsigned32) value in order
+        to index (Ingress/Egress LSR identifier)
+        the existing mplsTunnelTable."
+    ::= { cmplsTeExtObjects 1 }
+
+cmplsNodeConfigEntry OBJECT-TYPE
+    SYNTAX          CmplsNodeConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table represents a mapping
+        identification for the operator or service provider
+        with node or LSR.
+
+        As per [RFC6370], this mapping is
+
+        represented as Global_Node_ID or ICC.
+
+        Note: Each entry in this table should have a unique
+        Global_ID and Node_ID combination."
+    INDEX           { cmplsNodeConfigLocalId } 
+    ::= { cmplsNodeConfigTable 1 }
+
+CmplsNodeConfigEntry ::= SEQUENCE {
+        cmplsNodeConfigLocalId     CMplsLocalId,
+        cmplsNodeConfigGlobalId    CMplsGlobalId,
+        cmplsNodeConfigNodeId      CMplsNodeId,
+        cmplsNodeConfigIccId       CMplsIccId,
+        cmplsNodeConfigRowStatus   RowStatus,
+        cmplsNodeConfigStorageType StorageType
+}
+
+cmplsNodeConfigLocalId OBJECT-TYPE
+    SYNTAX          CMplsLocalId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object allows the administrator to assign a unique
+        local identifier to map Global_Node_ID or ICC." 
+    ::= { cmplsNodeConfigEntry 1 }
+
+cmplsNodeConfigGlobalId OBJECT-TYPE
+    SYNTAX          CMplsGlobalId
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Global Operator Identifier.
+        This object value should be zero when
+        mplsNodeConfigIccId is configured with non-null value."
+    REFERENCE       "MPLS-TP Identifiers [RFC6370]." 
+    ::= { cmplsNodeConfigEntry 2 }
+
+cmplsNodeConfigNodeId OBJECT-TYPE
+    SYNTAX          CMplsNodeId
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Node_ID within the operator.
+        This object value should be zero when mplsNodeConfigIccId
+        is configured with non-null value."
+    REFERENCE       "MPLS-TP Identifiers [RFC6370]." 
+    ::= { cmplsNodeConfigEntry 3 }
+
+cmplsNodeConfigIccId OBJECT-TYPE
+    SYNTAX          CMplsIccId
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows the operator or service provider to
+        configure a unique MPLS-TP ITU-T Carrier Code (ICC)
+        either for Ingress ID or Egress ID.
+
+        This object value should be zero when
+        mplsNodeConfigGlobalId and mplsNodeConfigNodeId are
+        assigned with non-zero value."
+    REFERENCE       "MPLS-TP Identifiers [RFC6370]." 
+    ::= { cmplsNodeConfigEntry 4 }
+
+cmplsNodeConfigRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object allows the administrator to create, modify,
+        and/or delete a row in this table." 
+    ::= { cmplsNodeConfigEntry 5 }
+
+cmplsNodeConfigStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This variable indicates the storage type for this
+        object.
+        Conceptual rows having the value 'permanent'
+        need not allow write-access to any columnar
+        objects in the row."
+    DEFVAL          { volatile } 
+    ::= { cmplsNodeConfigEntry 6 }
+ 
+
+-- End of MPLS Transport Profile Node configuration table
+--   
+-- Start of MPLS Transport Profile Node IP compatible
+-- mapping table
+
+cmplsNodeIpMapTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmplsNodeIpMapEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This read-only table allows the administrator to retrieve
+        the local identifier for a given Global_Node_ID in an IP
+        compatible operator environment.
+
+        This table MAY be used in on-demand and/or proactive
+        OAM operations to get the Ingress/Egress LSR identifier
+        (Local Identifier) from Src-Global_Node_ID
+        or Dst-Global_Node_ID and the Ingress and Egress LSR
+        identifiers are used to retrieve the tunnel entry.
+
+        This table returns nothing when the associated entry
+        is not defined in mplsNodeConfigTable."
+    ::= { cmplsTeExtObjects 2 }
+
+cmplsNodeIpMapEntry OBJECT-TYPE
+    SYNTAX          CmplsNodeIpMapEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table represents a mapping of
+        Global_Node_ID with the local identifier.
+
+        An entry in this table is created automatically when
+        the Local identifier is associated with Global_ID and
+        Node_Id in the mplsNodeConfigTable.
+        Note: Each entry in this table should have a unique
+        Global_ID and Node_ID combination."
+    INDEX           {
+                        cmplsNodeIpMapGlobalId,
+                        cmplsNodeIpMapNodeId
+                    } 
+    ::= { cmplsNodeIpMapTable 1 }
+
+CmplsNodeIpMapEntry ::= SEQUENCE {
+        cmplsNodeIpMapGlobalId CMplsGlobalId,
+        cmplsNodeIpMapNodeId   CMplsNodeId,
+        cmplsNodeIpMapLocalId  CMplsLocalId
+}
+
+cmplsNodeIpMapGlobalId OBJECT-TYPE
+    SYNTAX          CMplsGlobalId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Global_ID." 
+    ::= { cmplsNodeIpMapEntry 1 }
+
+cmplsNodeIpMapNodeId OBJECT-TYPE
+    SYNTAX          CMplsNodeId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the Node_ID within the
+        operator." 
+    ::= { cmplsNodeIpMapEntry 2 }
+
+cmplsNodeIpMapLocalId OBJECT-TYPE
+    SYNTAX          CMplsLocalId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains an IP compatible local identifier
+        which is defined in mplsNodeConfigTable." 
+    ::= { cmplsNodeIpMapEntry 3 }
+ 
+
+-- End MPLS Transport Profile Node IP compatible table
+--   
+-- Start of MPLS Transport Profile Node ICC based table
+
+cmplsNodeIccMapTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmplsNodeIccMapEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This read-only table allows the administrator to retrieve
+        the local identifier for a given ICC operator in an ICC
+        operator environment.
+
+        This table MAY be used in on-demand and/or proactive
+        OAM operations to get the Ingress/Egress LSR
+        identifier (Local Identifier) from Src-ICC
+        or Dst-ICC and the Ingress and Egress LSR
+        identifiers are used to retrieve the tunnel entry.
+        This table returns nothing when the associated entry
+        is not defined in mplsNodeConfigTable."
+    ::= { cmplsTeExtObjects 3 }
+
+cmplsNodeIccMapEntry OBJECT-TYPE
+    SYNTAX          CmplsNodeIccMapEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table represents a mapping of ICC with
+        the local identifier.
+
+        An entry in this table is created automatically when
+        the Local identifier is associated with ICC in
+        the mplsNodeConfigTable."
+    INDEX           { cmplsNodeIccMapIccId } 
+    ::= { cmplsNodeIccMapTable 1 }
+
+CmplsNodeIccMapEntry ::= SEQUENCE {
+        cmplsNodeIccMapIccId   CMplsIccId,
+        cmplsNodeIccMapLocalId CMplsLocalId
+}
+
+cmplsNodeIccMapIccId OBJECT-TYPE
+    SYNTAX          CMplsIccId
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object allows the operator or service provider to
+        configure a unique MPLS-TP ITU-T Carrier Code (ICC)
+        either for Ingress or Egress LSR ID.
+
+        The ICC is a string of one to six characters, each
+        character being either alphabetic (i.e.  A-Z) or
+        numeric (i.e. 0-9) characters. Alphabetic characters
+        in the ICC should be represented with upper case
+        letters." 
+    ::= { cmplsNodeIccMapEntry 1 }
+
+cmplsNodeIccMapLocalId OBJECT-TYPE
+    SYNTAX          CMplsLocalId
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object contains an ICC based local identifier
+        which is defined in mplsNodeConfigTable." 
+    ::= { cmplsNodeIccMapEntry 2 }
+ 
+
+-- End MPLS Transport Profile Node ICC based table
+--   
+-- Start of MPLS Tunnel table extension
+
+cmplsTunnelExtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmplsTunnelExtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents MPLS-TP specific extensions to
+        mplsTunnelTable.
+
+        As per MPLS-TP Identifiers [RFC6370], LSP_ID for IP based
+        co-routed bidirectional tunnel,
+
+        A1-{Global_ID::Node_ID::Tunnel_Num}::Z9-{Global_ID::
+        Node_ID::Tunnel_Num}::LSP_Num
+
+        LSP_ID for IP based associated bidirectional tunnel,
+        A1-{Global_ID::Node_ID::Tunnel_Num::LSP_Num}::
+        Z9-{Global_ID::Node_ID::Tunnel_Num::LSP_Num}
+
+        mplsTunnelTable is reused for forming the LSP_ID
+        as follows,
+
+        Source Tunnel_Num is mapped with mplsTunnelIndex,
+        Source Node_ID is mapped with
+        mplsTunnelIngressLSRId, Destination Node_ID is
+        mapped with mplsTunnelEgressLSRId LSP_Num is mapped with
+        mplsTunnelInstance.
+
+        Source Global_Node_ID and/or ICC and Destination
+        Global_Node_ID and/or ICC are maintained in the
+        mplsNodeConfigTable and mplsNodeConfigLocalId is
+        used to create an entry in mplsTunnelTable."
+    REFERENCE       "MPLS-TP Identifiers [RFC6370]."
+    ::= { cmplsTeExtObjects 4 }
+
+cmplsTunnelExtEntry OBJECT-TYPE
+    SYNTAX          CmplsTunnelExtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table represents MPLS-TP
+        specific additional tunnel configurations."
+    INDEX           {
+                        mplsTunnelIndex,
+                        mplsTunnelInstance,
+                        mplsTunnelIngressLSRId,
+                        mplsTunnelEgressLSRId
+                    } 
+    ::= { cmplsTunnelExtTable 1 }
+
+CmplsTunnelExtEntry ::= SEQUENCE {
+        cmplsTunnelOppositeDirPtr         RowPointer,
+        cmplsTunnelExtOppositeDirTnlValid TruthValue,
+        cmplsTunnelExtDestTnlIndex        MplsTunnelIndex,
+        cmplsTunnelExtDestTnlLspIndex     MplsTunnelInstanceIndex,
+        cmplsTunnelExtDestTnlValid        TruthValue
+}
+
+cmplsTunnelOppositeDirPtr OBJECT-TYPE
+    SYNTAX          RowPointer
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is applicable only for the bidirectional
+        tunnel that has the forward and reverse LSPs in the
+        same tunnel or in the different tunnels.
+
+        This object holds the opposite direction tunnel entry
+        if the bidirectional tunnel is setup by configuring two
+        tunnel entries in mplsTunnelTable.
+
+        The value of zeroDotZero indicates single tunnel entry
+        is used for bidirectional tunnel setup."
+    DEFVAL          { zeroDotZero } 
+    ::= { cmplsTunnelExtEntry 1 }
+
+cmplsTunnelExtOppositeDirTnlValid OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Denotes whether or not this tunnel uses
+        mplsTunnelOppositeDirPtr for identifying the opposite
+        direction tunnel information. Note that if this variable
+        is set to true then the mplsTunnelOppositeDirPtr should
+        point to the first accessible row of the opposite
+        direction tunnel."
+    DEFVAL          { false } 
+    ::= { cmplsTunnelExtEntry 2 }
+
+cmplsTunnelExtDestTnlIndex OBJECT-TYPE
+    SYNTAX          MplsTunnelIndex
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is applicable only for the bidirectional
+        tunnel that has the forward and reverse LSPs in the
+        same tunnel or in the different tunnels.
+
+        This object holds the same value as that of the
+        mplsTunnelIndex of mplsTunnelEntry if the forward and
+        reverse LSPs are in the same tunnel. Otherwise,
+        this object holds the value of the other direction
+        associated LSP's mplsTunnelIndex from a different
+        tunnel.
+
+        The values of this object and the
+        mplsTunnelExtDestTnlLspIndex object together can be used
+        to identify an opposite direction LSP i.e. if the
+        mplsTunnelIndex and mplsTunnelInstance hold the value
+        for forward LSP, this object and
+        mplsTunnelExtDestTnlLspIndex can be used to retrieve
+        the reverse direction LSP and vice versa.
+
+        This object and mplsTunnelExtDestTnlLspIndex values
+        provide the first two indices of tunnel entry and
+        the remaining indices can be derived as follows,
+        if both the forward and reverse LSPs are present in
+        the same tunnel, the opposite direction LSP's Ingress
+        and Egress Identifier will be same for both the LSPs,
+        else the Ingress and Egress Identifiers should be
+        swapped in order to index the other direction tunnel." 
+    ::= { cmplsTunnelExtEntry 3 }
+
+cmplsTunnelExtDestTnlLspIndex OBJECT-TYPE
+    SYNTAX          MplsTunnelInstanceIndex
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is applicable only for the bidirectional
+        tunnel that has the forward and reverse LSPs in the
+        same tunnel or in the different tunnels.
+
+        This object should contain different value if both the
+        forward and reverse LSPs present in the same tunnel.
+
+        This object can contain same value or different values
+        if the forward and reverse LSPs present in the different
+        tunnels." 
+    ::= { cmplsTunnelExtEntry 4 }
+
+cmplsTunnelExtDestTnlValid OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Denotes whether or not this tunnel uses
+        mplsTunnelExtDestTnlIndex and
+        mplsTunnelExtDestTnlLspIndex for identifying
+        the opposite direction tunnel information. Note that if
+        this variable is set to true then the
+        mplsTunnelExtDestTnlIndex and
+        mplsTunnelExtDestTnlLspIndex objects should have
+        the valid opposite direction tunnel indices."
+    DEFVAL          { false } 
+    ::= { cmplsTunnelExtEntry 5 }
+ 
+
+-- End of MPLS Tunnel table extension
+
+cmplsTunnelReversePerfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CmplsTunnelReversePerfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table extends the mplsTunnelTable to provide
+        per-tunnel packet performance information for the reverse
+        direction of a bidirectional tunnel.  It can be seen as
+        supplementing the mplsTunnelPerfTable, which augments the
+        mplsTunnelTable.
+
+        For links that do not transport packets, these packet
+        counters cannot be maintained.  For such links, attempts
+        to read the objects in this table will return
+        noSuchInstance."
+    REFERENCE
+        "1. Multiprotocol Label Switching (MPLS) Traffic
+         Engineering (TE)Management Information Base (MIB),
+         RFC 3812."
+    ::= { cmplsTeExtObjects 5 }
+
+cmplsTunnelReversePerfEntry OBJECT-TYPE
+    SYNTAX          CmplsTunnelReversePerfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in this table is created by the LSR for every
+        bidirectional MPLS tunnel where packets are visible to the
+        LSR."
+    INDEX           {
+                        mplsTunnelIndex,
+                        mplsTunnelInstance,
+                        mplsTunnelIngressLSRId,
+                        mplsTunnelEgressLSRId
+                    } 
+    ::= { cmplsTunnelReversePerfTable 1 }
+
+CmplsTunnelReversePerfEntry ::= SEQUENCE {
+        cmplsTunnelReversePerfPackets   Counter32,
+        cmplsTunnelReversePerfHCPackets Counter64,
+        cmplsTunnelReversePerfErrors    Counter32,
+        cmplsTunnelReversePerfBytes     Counter32,
+        cmplsTunnelReversePerfHCBytes   Counter64
+}
+
+cmplsTunnelReversePerfPackets OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of packets forwarded on the tunnel in the reverse
+        direction if it is bidirectional.
+
+        This object represents the 32-bit value of the least
+        significant part of the 64-bit value if both
+        mplsTunnelReversePerfHCPackets and this object
+        are returned.
+
+        For links that do not transport packets, this packet
+        counter cannot be maintained.  For such links, this value
+        will return noSuchInstance." 
+    ::= { cmplsTunnelReversePerfEntry 1 }
+
+cmplsTunnelReversePerfHCPackets OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "High-capacity counter for number of packets forwarded on
+        the tunnel in the reverse direction if it is
+        bidirectional.
+
+        For links that do not transport packets, this packet
+        counter cannot be maintained.  For such links, this value
+        will return noSuchInstance." 
+    ::= { cmplsTunnelReversePerfEntry 2 }
+
+cmplsTunnelReversePerfErrors OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of errored packets received on the tunnel in
+        the reverse direction if it is bidirectional.  For links
+        that do not transport packets, this packet counter cannot
+        be maintained.  For such links, this value will return
+        noSuchInstance." 
+    ::= { cmplsTunnelReversePerfEntry 3 }
+
+cmplsTunnelReversePerfBytes OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Number of bytes forwarded on the tunnel in the reverse
+        direction if it is bidirectional.
+
+        This object represents the 32-bit value of the least
+        significant part of the 64-bit value if both
+        mplsTunnelReversePerfHCBytes and this object are returned.
+
+        For links that do not transport packets, this packet
+        counter cannot be maintained.  For such links, this value
+        will return noSuchInstance." 
+    ::= { cmplsTunnelReversePerfEntry 4 }
+
+cmplsTunnelReversePerfHCBytes OBJECT-TYPE
+    SYNTAX          Counter64
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "High-capacity counter for number of bytes forwarded on the
+        tunnel in the reverse direction if it is bidirectional.
+
+        For links that do not transport packets, this packet
+        counter cannot be maintained.  For such links, this value
+        will return noSuchInstance." 
+    ::= { cmplsTunnelReversePerfEntry 5 }
+ 
+
+-- Notifications.
+-- Notifications objects need to be added here.
+-- End of notifications.
+--   
+-- Module compliance.
+
+cmplsTeExtGroups  OBJECT IDENTIFIER
+    ::= { cmplsTeExtConformance 1 }
+
+cmplsTeExtCompliances  OBJECT IDENTIFIER
+    ::= { cmplsTeExtConformance 2 }
+
+
+-- Compliance requirement for fully compliant implementations.
+
+cmplsTeExtModuleFullCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance statement for agents that provide full
+        support the MPLS-TE-EXT-STD-MIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cmplsTunnelExtGroup }
+
+    GROUP           cmplsTunnelExtIpOperatorGroup
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        configuration of IP based identifier tunnels."
+
+    GROUP           cmplsTunnelExtIccOperatorGroup
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        configuration of ICC based tunnels."
+    ::= { cmplsTeExtCompliances 1 }
+
+-- Compliance requirement for read-only implementations.
+
+cmplsTeExtModuleReadOnlyCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "Compliance statement for agents that provide full
+        support the MPLS-TE-EXT-STD-MIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cmplsTunnelExtGroup }
+
+    GROUP           cmplsTunnelExtIpOperatorGroup
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        configuration of IP based identifier tunnels."
+
+    GROUP           cmplsTunnelExtIccOperatorGroup
+    DESCRIPTION
+        "This group is mandatory for devices which support
+        configuration of ICC based tunnels."
+    ::= { cmplsTeExtCompliances 2 }
+
+-- Units of conformance.
+
+cmplsTunnelExtGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmplsTunnelOppositeDirPtr,
+                        cmplsTunnelExtOppositeDirTnlValid,
+                        cmplsTunnelExtDestTnlIndex,
+                        cmplsTunnelExtDestTnlLspIndex,
+                        cmplsTunnelExtDestTnlValid,
+                        cmplsTunnelReversePerfPackets,
+                        cmplsTunnelReversePerfHCPackets,
+                        cmplsTunnelReversePerfErrors,
+                        cmplsTunnelReversePerfBytes,
+                        cmplsTunnelReversePerfHCBytes
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Necessary, but not sufficient, set of objects to
+        implement tunnels.  In addition, depending on the
+        operating environment, the following groups are
+        mandatory."
+    ::= { cmplsTeExtGroups 1 }
+
+cmplsTunnelExtIpOperatorGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmplsNodeConfigGlobalId,
+                        cmplsNodeConfigNodeId,
+                        cmplsNodeConfigRowStatus,
+                        cmplsNodeConfigStorageType,
+                        cmplsNodeIpMapLocalId
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Object(s) needed to implement IP compatible tunnels."
+    ::= { cmplsTeExtGroups 2 }
+
+cmplsTunnelExtIccOperatorGroup OBJECT-GROUP
+    OBJECTS         {
+                        cmplsNodeConfigIccId,
+                        cmplsNodeConfigRowStatus,
+                        cmplsNodeConfigStorageType,
+                        cmplsNodeIccMapLocalId
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Object(s) needed to implement ICC based tunnels."
+    ::= { cmplsTeExtGroups 3 }
+
+END
+
+
+
+
+
+

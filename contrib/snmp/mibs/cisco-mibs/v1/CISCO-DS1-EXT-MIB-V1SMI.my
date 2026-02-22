@@ -1,0 +1,1982 @@
+-- MIB file created 08-Sep-2004 19:11:27, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-DS1-EXT-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-DS1-EXT-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    ConfigIterator, BulkConfigResult
+            FROM CISCO-TC
+    OwnerString
+            FROM RMON-MIB
+    ifIndex
+            FROM IF-MIB
+    dsx1LineIndex, dsx1CurrentIndex, dsx1TotalIndex, 
+    dsx1FarEndCurrentIndex, dsx1FarEndIntervalIndex, 
+    dsx1FarEndIntervalNumber, dsx1FarEndTotalIndex, 
+    dsx1IntervalIndex, dsx1IntervalNumber
+            FROM DS1-MIB
+    PerfCurrentCount, PerfIntervalCount, PerfTotalCount
+            FROM PerfHist-TC-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoDs1ExtMIB OBJECT IDENTIFIER ::= { ciscoMgmt 229 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200302250000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    Postal: 170 W Tasman Drive
+--     San Jose, CA  95134
+--     USA
+--     Tel: +1 800 553-NETS
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The MIB module to describe DS1/E1 interface objects. This is
+--     an extension to the standard DS1/E1 MIB (RFC 2495).
+--    
+--     Unless mentioned, the DS1 interface refers to both 
+--     T1/E1 interfaces.
+--    
+--     Terminology ( Taken From RFC2495)
+--    
+--     AIS - Alarm Indication Signal
+--    
+--     LOS - Loss Of Signal
+--    
+--     LOF - Loss Of Frame
+--     
+--     Yellow Alarm - Far End LOF.
+--       
+--     Red Alarm    - Near End LOF.
+--    
+--     BPV - Bipolar Violation for an AMI-coded signal is the 
+--           occurrence of a pulse of the same polarity as the 
+--           previous pulse.
+--           A BPV error event for a B8ZS- or HDB3- coded signal
+--           is the occurrence of a pulse of the same polarity as 
+--           the previous pulse without being part of the zero
+--           substitution code. (See TR-TSV-000773 Section 3.5.1.1)
+--    
+--     EXZ - An Excessive Zeroes error event for an AMI-coded
+--           signal is the occurrence of more than fifteen
+--           contiguous zeroes. For a B8ZS coded signal, 
+--           the defect occurs when more than seven contiguous 
+--           zeroes are detected.
+--    
+--     LCV - Line Coding Violation is the occurrence of either
+--           Bipolar Violation (BPV) or Excessive Zeroes (EXZ)
+--           error event.
+--     
+--     PCV - A Path Coding Violation error event is a frame
+--           synchronization bit error in the D4 and E1-noCRC formats,
+--           or a CRC or frame synch. bit error in the ESF and E1-CRC 
+--           formats. (Also known as CV-P; See T1.231 Section 6.5.2.1)
+--    
+--     CS - A Controlled Slip is the replication or deletion of the 
+--          payload bits of a DS1 frame. (See T1.231 Section 6.1.1.2.3)
+--          A Controlled Slip may be performed when there is a 
+--          difference between the timing of a synchronous 
+--          receiving terminal and the received signal.  A Controlled 
+--          Slip does not cause an Out of Frame defect.
+--    
+--     LES  - Line Errored Seconds. A LES is a second in which one or
+--            more LCV error events are detected. (See TR-TSV-000773 
+--            Section 3.5.1.1)
+--    
+--     ES   - Errored Seconds (ES). For ESF and E1-CRC links an ES
+--            is a second with one or more PCV or one or more OOF 
+--            defects OR one or more CS events OR a detected AIS
+--            defect. (See TR-TSV-000773 Section 3.5.1.1)
+--    
+--            For D4 and EN-noCRC links, the presence of BPVs also 
+--            triggers an ES.
+--    
+--            This is not incremented during an UAS.
+--    
+--     BES  - Bursty Errored Seconds. A BES is a second with fewer
+--            than 1 PCV error events, no Severely Errored Frame 
+--            defects and no detected incoming AIS defects. The
+--            CS are not included in this parameter.
+--    
+--            This is not incremented during an UAS. It applies to 
+--            ESF signals only.
+--    
+--     SES  - Severely Errored Seconds. A SES for ESF signals is a 
+--            second with 320 or more PCV error events OR one or 
+--            more OOF defects OR a detected AIS defect.
+--            (See TR-TSV-000773 Section 3.5.1.1)
+--    
+--            For E1-CRC signals, a SES is a second with 832 or
+--            PCV error events OR one or more OOF defects.
+--    
+--            For E1-noCRC signals, a SES is a 2048 LCVs or more.
+--    
+--            For D4 signals, a SES is a count of one second
+--            intervals with Framing Error events, or an OOF defect,
+--            or 1544 LCVs or more.
+--    
+--     SEFS - Severely Errored Framing Second. An SESF is a second
+--            with one or more OOF defects OR a detected AIS defect.
+--            (Also known as SAS-P (SEF/AIS second).
+--            (See TR-TSV-000773 Section 3.5.1.1)
+--    
+--     DM   - Degraded Minutes. A DM is one in which the estimated
+--            error rate exceeds 1E-6 but does not exceed 1E-3.
+--    
+--     UAS  - Unavailable Seconds. The UAS are calculated by counting
+--            the number of seconds that the interface is unavailable.
+--     
+--     CSS  - Controlled Slip Seconds. A CSS is a one-second interval 
+--            containing one or more controlled slips. This is not
+--            incremented during an Unavailable Second.
+--    
+--     LSES - Line Severely Errored Seconds is defined as a count of
+--            1-second intervals with 1544 Bipolar Violations plus
+--            Excessive Zeros event or one or more LOS defects.
+--    
+--     PSAS - Path SEF/AIS (PSAS) encountered.
+--  RevDate
+--    200302250000Z
+--  RevDescr
+--    Add new table: cds1CallConfigTable
+--  RevDate
+--    200212300000Z
+--  RevDescr
+--    Add the following objects to cds1ConfigTable:
+--         cds1Repetition, 
+--         cds1RepetitionOwner, 
+--         cds1RepetitionResult. 
+--  RevDate
+--    200109130000Z
+--  RevDescr
+--    Initial version of the MIB module.
+
+ciscoDs1MIBObjects OBJECT IDENTIFIER ::= { ciscoDs1ExtMIB 1 }
+cds1Config      OBJECT IDENTIFIER ::= { ciscoDs1MIBObjects 1 }
+cds1Alarm       OBJECT IDENTIFIER ::= { ciscoDs1MIBObjects 2 }
+cds1Stats       OBJECT IDENTIFIER ::= { ciscoDs1MIBObjects 3 }
+cds1NotificationPrefix OBJECT IDENTIFIER ::= { ciscoDs1MIBObjects 4 }
+cds1Notifications OBJECT IDENTIFIER ::= { cds1NotificationPrefix 0 }
+ciscoDs1MIBConformance OBJECT IDENTIFIER ::= { ciscoDs1ExtMIB 3 }
+ciscoDs1MIBCompliances OBJECT IDENTIFIER ::= { ciscoDs1MIBConformance 1 }
+ciscoDs1MIBGroups OBJECT IDENTIFIER ::= { ciscoDs1MIBConformance 2 }
+
+PerfCurrent24HourCount ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A counter associated with a
+--    performance measurement in the current 24 
+--    hour measurement interval. The value
+--    of this counter starts from zero and is
+--    increased when associated events occur,
+--    until the end of the 24 hour interval.
+--    In case where the agent has no valid 
+--    data available for the current interval the
+--    corresponding object instance is not
+--    available and upon a retrieval request
+--    a corresponding error message shall be
+--    returned to indicate that this instance
+--    does not exist (for example, a noSuchName
+--    error for SNMPv1 and a noSuchInstance for
+--    SNMPv2 GET operation).
+
+PerfPrevious24HourCount ::= Gauge
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A counter associated with a
+--    performance measurement in the previous 24 
+--    hour measurement interval. The value
+--    of this counter starts from zero and is
+--    increased when associated events occur,
+--    until the end of the 24 hour interval.
+--    In case where the agent has no valid 
+--    data available for the current interval the
+--    corresponding object instance is not
+--    available and upon a retrieval request
+--    a corresponding error message shall be
+--    returned to indicate that this instance
+--    does not exist (for example, a noSuchName
+--    error for SNMPv1 and a noSuchInstance for
+--    SNMPv2 GET operation).
+
+cds1ConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1ConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 Configuration table. This table has objects
+        for configuring DS1 interfaces."
+    ::= { cds1Config 1 }
+
+cds1ConfigEntry OBJECT-TYPE
+    SYNTAX Cds1ConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the table. There is an entry for each available
+        DS1/E1 interface identified by ifType value of ds1(18).
+        By default, interfaces are disabled."
+    INDEX { dsx1LineIndex }
+-- Augments dsx1ConfigEntry FROM DS1-MIB
+    ::= { cds1ConfigTable 1 }
+
+Cds1ConfigEntry ::= SEQUENCE {
+    cds1LineType INTEGER,
+    cds1LoopbackCodeDetection TruthValue,
+    cds1Repetition ConfigIterator,
+    cds1RepetitionOwner OwnerString,
+    cds1RepetitionResult BulkConfigResult
+    }
+
+cds1LineType OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        dsx1ESF(2),
+        dsx1D4(3),
+        dsx1E1(4),
+        dsx1E1CRC(5),
+        dsx1E1MF(6),
+        dsx1E1CRCMF(7),
+        dsx1Unframed(8),
+        dsx1E1Unframed(9),
+        dsx1DS2M12(10),
+        dsx2E2(11),
+        dsx1E1Q50(20),
+        dsx1E1Q50CRC(21)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable indicates  the  variety  of  DS1
+        Line  implementing  this  circuit.  The type of
+        circuit affects the number of bits  per  second
+        that  the circuit can reasonably carry, as well
+        as the interpretation of the  usage  and  error
+        statistics.
+        
+        The reasons behind adding 'cds1Linetype' object (apart 
+        from 'dsx1LineType' in DS1-MIB.my) for 'line type', with 
+        enums from 'other(1)' to 'dsx2E2(11)' replicated,  are 
+        following: 
+        1) Addition of the two new enums (viz. 'dsx1E1Q50' and
+        'dsx1E1Q50CRC') in the standard DS1-MIB might not take 
+        place in near future; that's why it was decided to 
+        have a new object 'cds1LineType'. 
+        2) A way was needed to be provided to configure 'line type'
+        from CLI (Command Line Interface) for service modules 
+        supporting line type values from 'dsx1LineType' as well as 
+        'cds1LineType', without having to modify two separate 
+        parameters and at the same time, making sure that CLI 
+        parameter values directly map to the MIB values.
+        
+        Hence, enums from 'other(1)' to 'dsx2E2(11)' from object 
+        'dsx1LineType' are replicated, and the new enums are added 
+        as 'dsx1E1Q50(20)' and 'dsx1E1Q50CRC(21)'. The gap between 
+        'dsx2E2(11)' and 'dsx1E1Q50(20)' provides a safe margin 
+        in the case of modifications in 'dsx1LineType' in future; 
+        so the CLI can still have the same enums as the standard
+        MIB.
+        
+        It is to be noted that objects 'dsx1LineType' and 
+        'cds1LineType' are mutually exclusive. Setting both in a 
+        SET request (with the exception of value 'other(1)') 
+        should result into an 'INCONSISTENT VALUE' error.
+        
+        In the case of successive 'SET' requests, the value 
+        associated with the latest request should prevail
+        irrespective of the object ('dsx1LineType' or 
+        'cds1LineType') used.
+        
+        Following values reflect the corresponding values
+        in 'dsx1LineType' object in DS1-MIB.
+        
+        dsx1ESF         Extended SuperFrame DS1 (T1.107)
+        dsx1D4          AT&T D4 format DS1 (T1.107)
+        dsx1E1          ITU-T Recommendation G.704 (Table 4a)
+        dsx1E1-CRC      ITU-T Recommendation G.704 (Table 4b)
+        dsxE1-MF        G.704 (Table 4a) with TS16
+                        multiframing enabled
+        dsx1E1-CRC-MF   G.704 (Table 4b) with TS16
+                        multiframing enabled
+        dsx1Unframed    DS1 with No Framing
+        dsx1E1Unframed  E1 with No Framing (G.703)
+        dsx1DS2M12      DS2 frame format (T1.107)
+        dsx1E2          E2 frame format (G.704)
+        
+        The recommended value for 'dsx1LineType' object is 
+        'other'(1) for following values.
+        
+        dsx1E1Q50(20)  ITU-T G.704 with TS16 bits 5,7,8 set to
+                       101. In all the other cases TS16 bits 5,7,8
+                       set to 111.(Table 14)
+        dsx1E1Q50CRC(21): dsx1E1Q50 with CRC.
+        
+        For clarification, the capacity for each E1 type
+        is as listed below:
+        dsx1E1Unframed - E1, no framing = 32 x 64k = 2048k
+        dsx1E1 or dsx1E1CRC - E1, with framing,
+        no signalling = 31 x 64k = 1984k
+        dsx1E1MF or dsx1E1CRCMF - E1, with framing,
+        signalling = 30 x 64k = 1920k
+        
+        For further information See ITU-T Recomm G.704"
+    REFERENCE
+        "ITU-T G.704."
+    ::= { cds1ConfigEntry 1 }
+
+cds1LoopbackCodeDetection OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to enable or disable the detection
+         of far end loop back requests (inband or 
+         out-of-band (ESF)).
+         The loopback detection is enabled by setting this object 
+         to 'true' and loopback detection is disabled by setting
+         this object to 'false'. The value of this object does not 
+         have any impact on the way dsx1LoopbackConfig object is
+         implemented."
+    DEFVAL { false }
+    ::= { cds1ConfigEntry 2 }
+
+cds1Repetition OBJECT-TYPE
+    SYNTAX ConfigIterator
+--    Rsyntax Gauge(1..4294967295)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to repeatedly apply the writable objects
+         of dsx1ConfigTable and cds1ConfigTable specified in the same
+         SNMP PDU starting from the row indicated by the index of the
+         instance for the number of rows specified in this object.
+        
+         The order of operation is iterated through the logical
+         order of the DS1 lines. Whether the iteration will be applied
+         across the physical boundary or not is depended on the
+         system implmentation.
+        
+         The GET operation on this object will always return 1."
+    DEFVAL { 1 }
+    ::= { cds1ConfigEntry 3 }
+
+cds1RepetitionOwner OBJECT-TYPE
+    SYNTAX OwnerString
+--    Rsyntax OCTET STRING
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for error checking of the operation
+         specified in cds1Repetition.
+        
+         The value of this object is set by the SNMP manager
+         for its own identifier at the same time as issuing the bulk
+         operation by setting cds1Repetition.
+         Later on, the SNMP manager should check the value of this
+         object, if it is the same with the SNMP manager name,
+         then the value of cds1RepetitionResult indicates the
+         result of bulk operation initiated by this SNMP manager."
+    ::= { cds1ConfigEntry 4 }
+
+cds1RepetitionResult OBJECT-TYPE
+    SYNTAX BulkConfigResult
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used for error checking of the operation
+         specified in cds1Repetition.
+        
+         This object indicates the result of bulk configuraton
+         initiated by the SNMP manager specified in the value of
+         cds1RepetitionOwner."
+    ::= { cds1ConfigEntry 5 }
+
+cds1CallConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1CallConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 Configuration table for call related parameters."
+    ::= { cds1Config 2 }
+
+cds1CallConfigEntry OBJECT-TYPE
+    SYNTAX Cds1CallConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The entry in this table is for DS1/E1 interface which
+         need call related configuraton."
+    INDEX { dsx1LineIndex }
+-- Augments dsx1ConfigEntry FROM DS1-MIB
+    ::= { cds1CallConfigTable 1 }
+
+Cds1CallConfigEntry ::= SEQUENCE {
+    cds1CallTrunkConditionEnable TruthValue
+    }
+
+cds1CallTrunkConditionEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies whether trunk-condition is enabled.
+         The value 'true' means trunk-condition enable and the
+         value 'false'  means trunk-condition disable.
+         If this object is set to 'true', gateway will apply 
+         trunk conditioning on the DS0's of this DS1 interface
+         that are in alarm. 
+         Trunk Conditioning - gateway will transmit idle code pattern 
+         for the first 2.5 secs and then transmit seized code, both
+         idle code and seized code are specified by the 'ds0IdleCode'
+         and 'ds0SeizedCode' MIB objects in the CISCO-CAS-IF-EXT-MIB.
+        
+         This object is applicable for trunking applications only."
+    DEFVAL { false }
+    ::= { cds1CallConfigEntry 1 }
+
+cds1CurrentTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1CurrentEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 current table contains various statistics
+        being collected for the current 15 minute interval."
+    ::= { cds1Stats 1 }
+
+cds1CurrentEntry OBJECT-TYPE
+    SYNTAX Cds1CurrentEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the DS1 current table. An entry in
+         this table is automatically created when a line activated."
+    INDEX { dsx1CurrentIndex }
+-- Augments dsx1CurrentEntry FROM DS1-MIB
+    ::= { cds1CurrentTable 1 }
+
+Cds1CurrentEntry ::= SEQUENCE {
+    cds1CurrentLSESs PerfCurrentCount,
+    cds1CurrentPSASs PerfCurrentCount
+    }
+
+cds1CurrentLSESs OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of LSES (Line Severely Errored Seconds) 
+         encountered by the interface."
+    REFERENCE
+        "ANSI T1.231-1997 Section 6.5.1.3"
+    ::= { cds1CurrentEntry 1 }
+
+cds1CurrentPSASs OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Path SEF/AIS (PSAS) encountered
+         by the ds1 interface."
+    REFERENCE
+        "ANSI T1.231-1997 Section 6.5.1.3"
+    ::= { cds1CurrentEntry 2 }
+
+cds1IntervalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1IntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 interval table contains various statistics
+        collected by each DS1 interface over the previous 24
+        hours of operation. The past 24 hours are broken into
+        96 completed 15 minute intervals. Each row in this
+        table represents one such interval (identified by
+        dsx1IntervalNumber) for one specific instance
+        (identified by ifIndex)."
+    ::= { cds1Stats 2 }
+
+cds1IntervalEntry OBJECT-TYPE
+    SYNTAX Cds1IntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the DS1 interval table."
+    INDEX { dsx1IntervalIndex, dsx1IntervalNumber }
+-- Augments dsx1IntervalEntry FROM DS1-MIB
+    ::= { cds1IntervalTable 1 }
+
+Cds1IntervalEntry ::= SEQUENCE {
+    cds1IntervalLSESs PerfIntervalCount,
+    cds1IntervalPSASs PerfIntervalCount
+    }
+
+cds1IntervalLSESs OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of LSES (Line Severely Errored Seconds)
+        encountered by the interface."
+    REFERENCE
+        "ANSI T1.231-1997 Section 6.5.1.3"
+    ::= { cds1IntervalEntry 1 }
+
+cds1IntervalPSASs OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of PSAS encountered by the interface."
+    ::= { cds1IntervalEntry 2 }
+
+cds1TotalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1TotalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 Total Table contains the cumulative sum
+        of the various statistics collected for the 96 fifteen
+        minutes intervals preceding the current interval."
+    ::= { cds1Stats 3 }
+
+cds1TotalEntry OBJECT-TYPE
+    SYNTAX Cds1TotalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the DS1 Total table."
+    INDEX { dsx1TotalIndex }
+-- Augments dsx1TotalEntry FROM DS1-MIB
+    ::= { cds1TotalTable 1 }
+
+Cds1TotalEntry ::= SEQUENCE {
+    cds1TotalLSESs PerfTotalCount,
+    cds1TotalPSASs PerfTotalCount
+    }
+
+cds1TotalLSESs OBJECT-TYPE
+    SYNTAX PerfTotalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of Line Severely Errored Seconds (LSES)
+        encountered by a DS1 interface in the previous
+        96 fifteen minutes intervals."
+    ::= { cds1TotalEntry 1 }
+
+cds1TotalPSASs OBJECT-TYPE
+    SYNTAX PerfTotalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The sum of Path SEF/AIS (PSAS) encountered by a
+        DS1 interface in the previous 96 fifteen minutes 
+        intervals"
+    ::= { cds1TotalEntry 2 }
+
+cds1FarEndCurrentTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1FarEndCurrentEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 Far End Current Table contains various statistics 
+        collected for the current 15 minute interval. The
+        statistics are collected from the far end messages 
+        on the Facilities Data Link (FDL)."
+    ::= { cds1Stats 4 }
+
+cds1FarEndCurrentEntry OBJECT-TYPE
+    SYNTAX Cds1FarEndCurrentEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cds1FarEndCurrentTable."
+    INDEX { dsx1FarEndCurrentIndex }
+-- Augments dsx1FarEndCurrentEntry FROM DS1-MIB
+    ::= { cds1FarEndCurrentTable 1 }
+
+Cds1FarEndCurrentEntry ::= SEQUENCE {
+    cds1FarEndCurrentLOFCs PerfCurrentCount
+    }
+
+cds1FarEndCurrentLOFCs OBJECT-TYPE
+    SYNTAX PerfCurrentCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Loss Of Frame Counts in the current
+        15 minute interval."
+    ::= { cds1FarEndCurrentEntry 1 }
+
+cds1FarEndIntervalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1FarEndIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 Far End Interval Table contains various
+        statistics collected by each DS1 interface over
+        the previous 24 hours of operation.  The past 24
+        hours are broken into 96 completed 15 minute
+        intervals. Each row in this table represents one
+        such interval (identified by
+        dsx1FarEndIntervalNumber) for one specific
+        instance (identified by ifIndex)."
+    ::= { cds1Stats 5 }
+
+cds1FarEndIntervalEntry OBJECT-TYPE
+    SYNTAX Cds1FarEndIntervalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the DS1 Far End Interval table."
+    INDEX { dsx1FarEndIntervalIndex, dsx1FarEndIntervalNumber }
+-- Augments dsx1FarEndIntervalEntry FROM DS1-MIB
+    ::= { cds1FarEndIntervalTable 1 }
+
+Cds1FarEndIntervalEntry ::= SEQUENCE {
+    cds1FarEndIntervalLOFCs PerfIntervalCount
+    }
+
+cds1FarEndIntervalLOFCs OBJECT-TYPE
+    SYNTAX PerfIntervalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Loss Of Frame Counts encountered
+        by the interface."
+    ::= { cds1FarEndIntervalEntry 1 }
+
+cds1FarEndTotalTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1FarEndTotalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 Far End Total Table contains the
+        cumulative sum of the various statistics for the
+        96 fifteen minutes intervals preceding the current 
+        interval."
+    ::= { cds1Stats 6 }
+
+cds1FarEndTotalEntry OBJECT-TYPE
+    SYNTAX Cds1FarEndTotalEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the DS1 Far End Total table."
+    INDEX { dsx1FarEndTotalIndex }
+-- Augments dsx1FarEndTotalEntry FROM DS1-MIB
+    ::= { cds1FarEndTotalTable 1 }
+
+Cds1FarEndTotalEntry ::= SEQUENCE {
+    cds1FarEndTotalLOFCs PerfTotalCount
+    }
+
+cds1FarEndTotalLOFCs OBJECT-TYPE
+    SYNTAX PerfTotalCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Loss Of Frame Counts encountered
+        by the interface in the previous 96 fifteen minutes 
+        interval."
+    ::= { cds1FarEndTotalEntry 1 }
+
+cds1AlarmThresholdGroupTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1AlarmThresholdGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 alarm threshold configuration table. This table
+        contains the objects associated with threshold
+        values for different statistics.
+        
+        The thresholds may be configured for:
+        
+               BES  - Bursty Errored Seconds
+               CSS  - Controlled Slip Seconds
+               DM   - Degraded Minutes
+               ES   - Errored Seconds
+               LCV  - Line Code Violations
+               LES  - Line Errored Seconds
+               LSES - Line Severely Errored Seconds
+               PCV  - Path Coding Violations
+               PSAS - Path SEF/AIS Second
+               SES  - Severely Errored Seconds
+               SEFS - Severely Errored Framing Seconds
+               UAS  - Unavailable Seconds"
+    ::= { cds1Alarm 1 }
+
+cds1AlarmThresholdGroupEntry OBJECT-TYPE
+    SYNTAX Cds1AlarmThresholdGroupEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This identifies the unique threshold entry in
+        cds1AlarmThresholdGroupTable.
+        The number of entries allowed is implementation 
+        specific.
+        The values set in the respective threshold objects
+        determine the values which when exceeded in a 15 
+        minute or 24 hour window, will raise alarm by 
+        generating 'cds1StatThresholdAlarm' trap.
+        
+        An entry is created by setting 
+        'cds1AlarmThresholdGroupRowStatus' to 'createAndGo(4)' 
+        and is deleted by setting it to 'destroy(6)'."
+    INDEX { cds1AlarmThresholdGroupIndex }
+    ::= { cds1AlarmThresholdGroupTable 1 }
+
+Cds1AlarmThresholdGroupEntry ::= SEQUENCE {
+    cds1AlarmThresholdGroupIndex INTEGER,
+    cds1Current15MinBESsThreshold INTEGER,
+    cds1Current24HrBESsThreshold INTEGER,
+    cds1Current15MinCSSsThreshold INTEGER,
+    cds1Current24HrCSSsThreshold INTEGER,
+    cds1Current15MinDMsThreshold INTEGER,
+    cds1Current24HrDMsThreshold INTEGER,
+    cds1Current15MinESsThreshold INTEGER,
+    cds1Current24HrESsThreshold INTEGER,
+    cds1Current15MinLCVsThreshold INTEGER,
+    cds1Current24HrLCVsThreshold INTEGER,
+    cds1Current15MinLESsThreshold INTEGER,
+    cds1Current24HrLESsThreshold INTEGER,
+    cds1Current15MinLSESsThreshold INTEGER,
+    cds1Current24HrLSESsThreshold INTEGER,
+    cds1Current15MinPCVsThreshold INTEGER,
+    cds1Current24HrPCVsThreshold INTEGER,
+    cds1Current15MinPSASsThreshold INTEGER,
+    cds1Current24HrPSASsThreshold INTEGER,
+    cds1Current15MinSESsThreshold INTEGER,
+    cds1Current24HrSESsThreshold INTEGER,
+    cds1Current15MinSEFSsThreshold INTEGER,
+    cds1Current24HrSEFSsThreshold INTEGER,
+    cds1Current15MinUASsThreshold INTEGER,
+    cds1Current24HrUASsThreshold INTEGER,
+    cds1AlarmThresholdGroupRowStatus RowStatus
+    }
+
+cds1AlarmThresholdGroupIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An unique value identifying an entry in 
+        cds1AlarmThresholdGroupTable."
+    ::= { cds1AlarmThresholdGroupEntry 1 }
+
+cds1Current15MinBESsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for BES."
+    REFERENCE
+        "RFC2495"
+    DEFVAL { 2147483647 }
+    ::= { cds1AlarmThresholdGroupEntry 2 }
+
+cds1Current24HrBESsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for BES."
+    REFERENCE
+        "RFC2495"
+    DEFVAL { 2147483647 }
+    ::= { cds1AlarmThresholdGroupEntry 3 }
+
+cds1Current15MinCSSsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for CSS."
+    REFERENCE
+        "RFC2495"
+    DEFVAL { 2147483647 }
+    ::= { cds1AlarmThresholdGroupEntry 4 }
+
+cds1Current24HrCSSsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for CSS."
+    REFERENCE
+        "RFC2495"
+    DEFVAL { 2147483647 }
+    ::= { cds1AlarmThresholdGroupEntry 5 }
+
+cds1Current15MinDMsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for DM."
+    REFERENCE
+        "RFC2495"
+    DEFVAL { 2147483647 }
+    ::= { cds1AlarmThresholdGroupEntry 6 }
+
+cds1Current24HrDMsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for DM."
+    REFERENCE
+        "RFC2495"
+    DEFVAL { 2147483647 }
+    ::= { cds1AlarmThresholdGroupEntry 7 }
+
+cds1Current15MinESsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for ES."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 12 }
+    ::= { cds1AlarmThresholdGroupEntry 8 }
+
+cds1Current24HrESsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for ES."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 121 }
+    ::= { cds1AlarmThresholdGroupEntry 9 }
+
+cds1Current15MinLCVsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for LCV."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 14 }
+    ::= { cds1AlarmThresholdGroupEntry 10 }
+
+cds1Current24HrLCVsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for LCV."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 134 }
+    ::= { cds1AlarmThresholdGroupEntry 11 }
+
+cds1Current15MinLESsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for LES."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 12 }
+    ::= { cds1AlarmThresholdGroupEntry 12 }
+
+cds1Current24HrLESsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for LES."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 121 }
+    ::= { cds1AlarmThresholdGroupEntry 13 }
+
+cds1Current15MinLSESsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for LSES."
+    REFERENCE
+        "ANSI T1.231-1997 Section 6.5.1.3"
+    DEFVAL { 10 }
+    ::= { cds1AlarmThresholdGroupEntry 14 }
+
+cds1Current24HrLSESsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for LSES."
+    REFERENCE
+        "ANSI T1.231-1997 Section 6.5.1.3"
+    DEFVAL { 100 }
+    ::= { cds1AlarmThresholdGroupEntry 15 }
+
+cds1Current15MinPCVsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for PCV."
+    REFERENCE
+        "RFC2495"
+    DEFVAL { 2147483647 }
+    ::= { cds1AlarmThresholdGroupEntry 16 }
+
+cds1Current24HrPCVsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for PCV."
+    REFERENCE
+        "RFC2495"
+    DEFVAL { 2147483647 }
+    ::= { cds1AlarmThresholdGroupEntry 17 }
+
+cds1Current15MinPSASsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for PSAS."
+    REFERENCE
+        "RFC2495"
+    DEFVAL { 2147483647 }
+    ::= { cds1AlarmThresholdGroupEntry 18 }
+
+cds1Current24HrPSASsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for PSAS."
+    REFERENCE
+        "RFC2495"
+    DEFVAL { 2147483647 }
+    ::= { cds1AlarmThresholdGroupEntry 19 }
+
+cds1Current15MinSESsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for SES."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 10 }
+    ::= { cds1AlarmThresholdGroupEntry 20 }
+
+cds1Current24HrSESsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for SES."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 100 }
+    ::= { cds1AlarmThresholdGroupEntry 21 }
+
+cds1Current15MinSEFSsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for SEFS."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 2 }
+    ::= { cds1AlarmThresholdGroupEntry 22 }
+
+cds1Current24HrSEFSsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for SEFS."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 17 }
+    ::= { cds1AlarmThresholdGroupEntry 23 }
+
+cds1Current15MinUASsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 15 minute threshold for UAS."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 10 }
+    ::= { cds1AlarmThresholdGroupEntry 24 }
+
+cds1Current24HrUASsThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies 24 hour threshold for UAS."
+    REFERENCE
+        "RFC2495, Bellcore TR-TSV-000773"
+    DEFVAL { 10 }
+    ::= { cds1AlarmThresholdGroupEntry 25 }
+
+cds1AlarmThresholdGroupRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.  This object is 
+         used for creating, modifying and deleting entries 
+         from cds1AlarmThresholdGroupTable.
+         To create a row in this table, a manager must set 
+         this object to 'createAndGo(4)'.
+         An entry can be deleted by setting this object to 
+         destroy'(6)'.
+         An entry in this table may be modified after 
+         creation.
+         The active threshold configuration is indicated 
+         by the object 'cds1AlarmThresholdActiveGroup'."
+    ::= { cds1AlarmThresholdGroupEntry 26 }
+
+cds1AlarmConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1AlarmConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 alarm configuration table. This table
+        contains the objects associated with detecting 
+        and declaring alarms for the DS1/E1 interfaces."
+    ::= { cds1Alarm 2 }
+
+cds1AlarmConfigEntry OBJECT-TYPE
+    SYNTAX Cds1AlarmConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Alarm configuration information for a particular DS1/E1 
+         interface. The thresholds for different statistics is
+         identified by an entry in cds1AlarmThresholdGroupTable.
+         Once the thresholds configured in cds1AlarmThresholdGroupTable
+         are exceeded, minor or major alarms are raised depending on 
+         the values configured in cds1StatisticalAlarmSeverity.
+         Triggering of an alarm is indicated by generating a trap 
+         and also through the CLI (Command Line Interface)."
+    INDEX { dsx1LineIndex }
+-- Augments dsx1ConfigEntry FROM DS1-MIB
+    ::= { cds1AlarmConfigTable 1 }
+
+Cds1AlarmConfigEntry ::= SEQUENCE {
+    cds1StatisticalAlarmSeverity INTEGER,
+    cds1StatisticalAlarmState OCTET STRING,
+    cds1AlarmUpCount INTEGER,
+    cds1AlarmDownCount INTEGER,
+    cds1AlarmThreshold INTEGER,
+    cds1AlarmThresholdActiveGroup INTEGER
+    }
+
+cds1StatisticalAlarmSeverity OBJECT-TYPE
+    SYNTAX INTEGER {
+        minor(1),
+        major(2),
+        none(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable is used to setup the severity of any of the
+         Statistical alarms. So when a Statistical Counter exceeds its
+         specified threshold, the system will send the alarm with
+         appropriate severity. A value of none(3) indicates that no
+         alarm will be raised."
+    DEFVAL { minor }
+    ::= { cds1AlarmConfigEntry 1 }
+
+cds1StatisticalAlarmState OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..3))
+        -- BITS are:
+        --   cds1BES15Min(0)
+        --   cds1BES24Hr(1)
+        --   cds1CSS15Min(2)
+        --   cds1CSS24Hr(3)
+        --   cds1DM15Min(4)
+        --   cds1DM24Hr(5)
+        --   cds1ES15Min(6)
+        --   cds1ES24Hr(7)
+        --   cds1PCV15Min(8)
+        --   cds1PCV24Hr(9)
+        --   cds1LCV15Min(10)
+        --   cds1LCV24Hr(11)
+        --   cds1LES15Min(12)
+        --   cds1LES24Hr(13)
+        --   cds1LSES15Min(14)
+        --   cds1LSES24Hr(15)
+        --   cds1PSAS15Min(16)
+        --   cds1PSAS24Hr(17)
+        --   cds1SES15Min(18)
+        --   cds1SES24Hr(19)
+        --   cds1SEFS15Min(20)
+        --   cds1SEFS24Hr(21)
+        --   cds1UAS15Min(22)
+        --   cds1UAS24Hr(23)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is a bitmap of the DS1 Line Statistical alarms.
+         A clear bitmap (i.e. no bit is set) will indicate that
+         no alarms are present.
+         
+         The values of individual bits mean: 
+        
+             cds1BES15Min
+                BES current 15 minute threshold exceeded
+             cds1BES24Hr
+                BES 24 hour threshold exceeded
+             cds1CSS15Min
+                CSS current 15 minute threshold exceeded
+             cds1CSS24Hr
+                CSS 24 hour threshold exceeded
+             cds1DM15Min
+                DM current 15 minute threshold exceeded
+             cds1DM24Hr
+                DM 24 hour threshold exceeded
+             cds1ES15Min
+                ES current 15 minute threshold exceeded
+             cds1ES24Hr
+                ES 24 hour threshold exceeded
+             cds1PCV15Min
+                PCV current 15 minute threshold exceeded
+             cds1PCV24Hr
+                PCV 24 hour threshold exceeded
+             cds1LCV15Min
+                LCV current 15 minute threshold exceeded
+             cds1LCV24Hr
+                LCV 24 hour threshold exceeded
+             cds1LES15Min
+                LES current 15 minute threshold exceeded
+             cds1LES24Hr
+                LES 24 hour threshold exceeded
+             cds1LSES15Min
+                LSES current 15 minute threshold exceeded
+             cds1LSES24Hr
+                LSES 24 hour threshold exceeded
+             cds1PSAS15Min
+                PSAS current 15 minute threshold exceeded
+             cds1PSAS24Hr
+                PSAS 24 Hour threshold exceeded
+             cds1SES15Min
+                SES current 15 minute threshold exceeded
+             cds1SES24Hr
+                SES 24 hour threshold exceeded
+             cds1SEFS15Min
+                SEFS current 15 minute threshold exceeded
+             cds1SEFS24Hr
+                SEFS 24 hour  threshold exceeded
+             cds1UAS15Min
+                UAS current 15 minute threshold exceeded
+             cds1UAS24Hr
+                UAS 24 hour threshold exceeded"
+    ::= { cds1AlarmConfigEntry 2 }
+
+cds1AlarmUpCount OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This parameter specifies the increment to the Near
+        End alarm integration counters. The local alarms are
+        LOS and LOF. The integration counter is incremented by
+        this value every 100 ms while the alarm persists. When 
+        the integration counter exceeds 'cds1AlarmThreshold' 
+        an Alarm of the severity specified for the particular 
+        alarm is declared.
+        The integration counter is an internal counter specific
+        to the implementation and dictates the slope of 
+        integration."
+    DEFVAL { 6 }
+    ::= { cds1AlarmConfigEntry 3 }
+
+cds1AlarmDownCount OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This parameter specifies the decrement to the Near
+        End alarm integration counters. The  alarms are LOS 
+        and LOF. The integration counter is decremented by
+        this value every 100 ms while no alarm persists. The 
+        counter does not decrement below zero. When the 
+        integration counter reaches zero any Alarm previously 
+        declared is removed."
+    DEFVAL { 1 }
+    ::= { cds1AlarmConfigEntry 4 }
+
+cds1AlarmThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value set in this object determines the value that
+        the alarm integration counter must reach for an near end
+        alarm to be declared. If the up count is 6, and the 
+        threshold 150, an Alarm is integrated in 2.5 seconds.
+        If the down count is 1, then alarm will be cleared in
+        15 seconds."
+    DEFVAL { 150 }
+    ::= { cds1AlarmConfigEntry 5 }
+
+cds1AlarmThresholdActiveGroup OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object identifies the row in the
+        cds1AlarmThresholdGroupTable which contains the 
+        threshold values for different statistics, and
+        is currently active."
+    ::= { cds1AlarmConfigEntry 6 }
+
+cds1Current24HrStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1Current24HrStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 24 hour Statistics table. A 24 hour interval 
+        starts at twelve mid-night with reference to node time. 
+        In case of a manual change in node time all the counters
+        in this table get reset to 0."
+    ::= { cds1Stats 7 }
+
+cds1Current24HrStatsEntry OBJECT-TYPE
+    SYNTAX Cds1Current24HrStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the DS1 current 24 hour table. An entry is 
+        created automatically for each DS1 interface that is
+        activated.
+        ifEntries with ifType=ds1(18) will have an entry in this 
+        table."
+    INDEX { ifIndex }
+    ::= { cds1Current24HrStatsTable 1 }
+
+Cds1Current24HrStatsEntry ::= SEQUENCE {
+    cds1Current24HrESs PerfCurrent24HourCount,
+    cds1Current24HrSESs PerfCurrent24HourCount,
+    cds1Current24HrSEFSs PerfCurrent24HourCount,
+    cds1Current24HrUASs PerfCurrent24HourCount,
+    cds1Current24HrCSSs PerfCurrent24HourCount,
+    cds1Current24HrPCVs PerfCurrent24HourCount,
+    cds1Current24HrLESs PerfCurrent24HourCount,
+    cds1Current24HrBESs PerfCurrent24HourCount,
+    cds1Current24HrDMs PerfCurrent24HourCount,
+    cds1Current24HrLCVs PerfCurrent24HourCount
+    }
+
+cds1Current24HrESs OBJECT-TYPE
+    SYNTAX PerfCurrent24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ESs encountered in current 24 hour interval."
+    ::= { cds1Current24HrStatsEntry 1 }
+
+cds1Current24HrSESs OBJECT-TYPE
+    SYNTAX PerfCurrent24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SESs encountered in current 24 hour interval."
+    ::= { cds1Current24HrStatsEntry 2 }
+
+cds1Current24HrSEFSs OBJECT-TYPE
+    SYNTAX PerfCurrent24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SEFSs encountered in current 24 hour interval."
+    ::= { cds1Current24HrStatsEntry 3 }
+
+cds1Current24HrUASs OBJECT-TYPE
+    SYNTAX PerfCurrent24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of UASs encountered in current 24 hour interval."
+    ::= { cds1Current24HrStatsEntry 4 }
+
+cds1Current24HrCSSs OBJECT-TYPE
+    SYNTAX PerfCurrent24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of CSSs encountered in current 24 hour interval."
+    ::= { cds1Current24HrStatsEntry 5 }
+
+cds1Current24HrPCVs OBJECT-TYPE
+    SYNTAX PerfCurrent24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of PCVs encountered in current 24 hour interval."
+    ::= { cds1Current24HrStatsEntry 6 }
+
+cds1Current24HrLESs OBJECT-TYPE
+    SYNTAX PerfCurrent24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of LESs encountered in current 24 hour interval."
+    ::= { cds1Current24HrStatsEntry 7 }
+
+cds1Current24HrBESs OBJECT-TYPE
+    SYNTAX PerfCurrent24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of BESs encountered in current 24 hour interval."
+    ::= { cds1Current24HrStatsEntry 8 }
+
+cds1Current24HrDMs OBJECT-TYPE
+    SYNTAX PerfCurrent24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of DMs encountered in current 24 hour interval."
+    ::= { cds1Current24HrStatsEntry 9 }
+
+cds1Current24HrLCVs OBJECT-TYPE
+    SYNTAX PerfCurrent24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of LCVs encountered in current 24 hour interval."
+    ::= { cds1Current24HrStatsEntry 10 }
+
+cds1Previous24HrStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1Previous24HrStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Contains DS1 previous 24 hour Statistics table.
+         A 24 hour interval starts at twelve midnight with 
+         reference to node time."
+    ::= { cds1Stats 8 }
+
+cds1Previous24HrStatsEntry OBJECT-TYPE
+    SYNTAX Cds1Previous24HrStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in DS1 previous 24 hour table.
+         ifEntries with ifType=ds1(18) will have an entry in 
+         this table."
+    INDEX { ifIndex }
+    ::= { cds1Previous24HrStatsTable 1 }
+
+Cds1Previous24HrStatsEntry ::= SEQUENCE {
+    cds1Previous24HrESs PerfPrevious24HourCount,
+    cds1Previous24HrSESs PerfPrevious24HourCount,
+    cds1Previous24HrSEFSs PerfPrevious24HourCount,
+    cds1Previous24HrUASs PerfPrevious24HourCount,
+    cds1Previous24HrCSSs PerfPrevious24HourCount,
+    cds1Previous24HrPCVs PerfPrevious24HourCount,
+    cds1Previous24HrLESs PerfPrevious24HourCount,
+    cds1Previous24HrBESs PerfPrevious24HourCount,
+    cds1Previous24HrDMs PerfPrevious24HourCount,
+    cds1Previous24HrLCVs PerfPrevious24HourCount,
+    cds1Previous24HrLSESs PerfPrevious24HourCount
+    }
+
+cds1Previous24HrESs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of ESs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 1 }
+
+cds1Previous24HrSESs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SESs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 2 }
+
+cds1Previous24HrSEFSs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of SEFSs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 3 }
+
+cds1Previous24HrUASs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of UASs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 4 }
+
+cds1Previous24HrCSSs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of CSSs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 5 }
+
+cds1Previous24HrPCVs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of PCVs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 6 }
+
+cds1Previous24HrLESs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of LESs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 7 }
+
+cds1Previous24HrBESs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of BESs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 8 }
+
+cds1Previous24HrDMs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of DMs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 9 }
+
+cds1Previous24HrLCVs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of LCVs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 10 }
+
+cds1Previous24HrLSESs OBJECT-TYPE
+    SYNTAX PerfPrevious24HourCount
+--    Rsyntax Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Number of LSESs encountered in previous 24 hour interval."
+    ::= { cds1Previous24HrStatsEntry 11 }
+
+cds1ErrStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Cds1ErrStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The DS1 error statistics table. This table contains
+        the statistics since the systems was up or last
+        re-initialized."
+    ::= { cds1Stats 9 }
+
+cds1ErrStatsEntry OBJECT-TYPE
+    SYNTAX Cds1ErrStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the DS1 Error Stats Table.
+         ifEntries with ifType=ds1(18) will have an entry in 
+         this table."
+    INDEX { ifIndex }
+    ::= { cds1ErrStatsTable 1 }
+
+Cds1ErrStatsEntry ::= SEQUENCE {
+    cds1LOSCounts Counter,
+    cds1OOFCounts Counter,
+    cds1RAICounts Counter,
+    cds1FECounts Counter
+    }
+
+cds1LOSCounts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times the Loss Of Signal defect was detected
+        with or without integrating to LOS alarm."
+    ::= { cds1ErrStatsEntry 1 }
+
+cds1OOFCounts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times the Out of Frame (OOF) was detected
+        with or without integrating to OOF alarm."
+    ::= { cds1ErrStatsEntry 2 }
+
+cds1RAICounts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times Yellow Alarms was detected
+        with or without integrating to RAI alarm."
+    ::= { cds1ErrStatsEntry 3 }
+
+cds1FECounts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of Framing Pattern Errors encountered
+        by the DS1 interface."
+    ::= { cds1ErrStatsEntry 4 }
+
+cds1StatThresholdAlarm TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE cds1NotificationPrefix
+    VARIABLES {
+        cds1StatisticalAlarmState }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "A cds1StatThresholdAlarm trap is sent by an agent to 
+        notify the NMS about a statistical alarm condition.
+        Such an alarm condition exists when a statistical counter 
+        exceeds its specified threshold.
+        
+        For example : If value in object dsx1CurrentBESs exceeds 
+        the value in the object cds1Current15MinBESsThreshold, a  
+        cds1StatThresholdAlarm trap will be generated."
+    ::= 1
+
+ciscoDs1ConfMIBGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of DS1/E1 interface related 
+--     configuration parameters.
+--  objects
+--    cds1LineType, cds1LoopbackCodeDetection
+
+ciscoDs1CurrentMIBGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing statistics
+--    information for current 15 minute.
+--  objects
+--    cds1CurrentLSESs, cds1CurrentPSASs
+
+ciscoDs1IntervalMIBGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing statistics
+--    information for each DS1 interface over the
+--    previous 24 hour of operation.
+--  objects
+--    cds1IntervalLSESs, cds1IntervalPSASs
+
+ciscoDs1TotalMIBGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing statistics
+--    information applicable to all DS1 interfaces
+--    for the 24 hour period preceding the current
+--    interval.
+--  objects
+--    cds1TotalLSESs, cds1TotalPSASs
+
+ciscoDs1FarEndStatsMIBGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing statistics
+--    information for the remote end.
+--  objects
+--    cds1FarEndCurrentLOFCs, cds1FarEndIntervalLOFCs, 
+--    cds1FarEndTotalLOFCs
+
+ciscoDs1AlarmConfigGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Statistical alarm configuration group for
+--    15 Minute thresholds.
+--  objects
+--    cds1StatisticalAlarmSeverity, cds1StatisticalAlarmState, 
+--    cds1AlarmUpCount, cds1AlarmDownCount, cds1AlarmThreshold, 
+--    cds1AlarmThresholdActiveGroup
+
+ciscoDs1Alarm15MinThreshGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 7 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Threshold configuration group for stats collected
+--    in 15 minute intervals.
+--  objects
+--    cds1Current15MinLCVsThreshold, cds1Current15MinLESsThreshold, 
+--    cds1Current15MinPCVsThreshold, cds1Current15MinSEFSsThreshold, 
+--    cds1Current15MinUASsThreshold, cds1Current15MinLSESsThreshold, 
+--    cds1Current15MinSESsThreshold, cds1Current15MinBESsThreshold, 
+--    cds1Current15MinDMsThreshold, cds1Current15MinESsThreshold, 
+--    cds1Current15MinCSSsThreshold, cds1Current15MinPSASsThreshold, 
+--    cds1AlarmThresholdGroupRowStatus
+
+ciscoDs1Alarm24HrThreshGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 8 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Threshold configuration group for stats collected
+--    in 24 minute intervals.
+--  objects
+--    cds1Current24HrLCVsThreshold, cds1Current24HrLESsThreshold, 
+--    cds1Current24HrPCVsThreshold, cds1Current24HrSEFSsThreshold, 
+--    cds1Current24HrUASsThreshold, cds1Current24HrLSESsThreshold, 
+--    cds1Current24HrSESsThreshold, cds1Current24HrBESsThreshold, 
+--    cds1Current24HrCSSsThreshold, cds1Current24HrDMsThreshold, 
+--    cds1Current24HrESsThreshold, cds1Current24HrPSASsThreshold, 
+--    cds1AlarmThresholdGroupRowStatus
+
+ciscoDs1Current24HrMIBGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 9 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Group of current 24 hour performance counters.
+--  objects
+--    cds1Current24HrESs, cds1Current24HrSESs, cds1Current24HrSEFSs, 
+--    cds1Current24HrUASs, cds1Current24HrCSSs, cds1Current24HrPCVs, 
+--    cds1Current24HrLESs, cds1Current24HrBESs, cds1Current24HrDMs, 
+--    cds1Current24HrLCVs
+
+ciscoDs1Previous24HrMIBGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 10 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing statistics
+--    for previous 24 hour.
+--  objects
+--    cds1Previous24HrESs, cds1Previous24HrSESs, 
+--    cds1Previous24HrSEFSs, cds1Previous24HrUASs, 
+--    cds1Previous24HrCSSs, cds1Previous24HrPCVs, 
+--    cds1Previous24HrLESs, cds1Previous24HrBESs, 
+--    cds1Previous24HrDMs, cds1Previous24HrLCVs, 
+--    cds1Previous24HrLSESs
+
+ciscoDs1StatsMIBGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 11 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects related to DS1 statistics.
+--  objects
+--    cds1LOSCounts, cds1OOFCounts, cds1RAICounts, cds1FECounts
+
+ciscoDs1BulkConfGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 13 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Bulk provisioning parameters for DS1/E1 interface.
+--  objects
+--    cds1Repetition, cds1RepetitionOwner, cds1RepetitionResult
+
+ciscoDs1AlarmThreshGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 14 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The common group for DS1 alarm threshold configuration.
+--    
+--     Note:
+--       If this group is supported, at least one of 
+--       ciscoDs1Alarm15MinThreshGroupRev1
+--       and ciscoDs1Alarm24HrThreshGroupRev1
+--       should be supported.
+--  objects
+--    cds1AlarmThresholdGroupRowStatus
+
+ciscoDs1Alarm15MinThreshGroupRev1 OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 15 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Threshold configuration group for stats collected
+--    in 15 minute intervals.
+--  objects
+--    cds1Current15MinLCVsThreshold, cds1Current15MinLESsThreshold, 
+--    cds1Current15MinPCVsThreshold, cds1Current15MinSEFSsThreshold, 
+--    cds1Current15MinUASsThreshold, cds1Current15MinLSESsThreshold, 
+--    cds1Current15MinSESsThreshold, cds1Current15MinBESsThreshold, 
+--    cds1Current15MinDMsThreshold, cds1Current15MinESsThreshold, 
+--    cds1Current15MinCSSsThreshold, cds1Current15MinPSASsThreshold
+
+ciscoDs1Alarm24HrThreshGroupRev1 OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 16 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Threshold configuration group for stats collected
+--    in 24 minute intervals.
+--  objects
+--    cds1Current24HrLCVsThreshold, cds1Current24HrLESsThreshold, 
+--    cds1Current24HrPCVsThreshold, cds1Current24HrSEFSsThreshold, 
+--    cds1Current24HrUASsThreshold, cds1Current24HrLSESsThreshold, 
+--    cds1Current24HrSESsThreshold, cds1Current24HrBESsThreshold, 
+--    cds1Current24HrCSSsThreshold, cds1Current24HrDMsThreshold, 
+--    cds1Current24HrESsThreshold, cds1Current24HrPSASsThreshold
+
+ciscoDs1CallGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 17 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Call related parameters for DS1/E1
+--     interface.
+--  objects
+--    cds1CallTrunkConditionEnable
+
+cds1NEOptionalNotificationsGroup OBJECT IDENTIFIER ::= { ciscoDs1MIBGroups 12 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notifications that may be
+--     implemented on DS1/E1 interfaces.
+--  notifications
+--    cds1StatThresholdAlarm
+
+ciscoDs1MIBCompliance OBJECT IDENTIFIER ::= { ciscoDs1MIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    Compliance statement for Cisco DS1 Extension MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDs1ConfMIBGroup
+--   MandGroup
+--    ciscoDs1CurrentMIBGroup
+--   MandGroup
+--    ciscoDs1AlarmConfigGroup
+--   MandGroup
+--    ciscoDs1Alarm15MinThreshGroup
+--   MandGroup
+--    ciscoDs1Alarm24HrThreshGroup
+--   MandGroup
+--    ciscoDs1Current24HrMIBGroup
+--   MandGroup
+--    ciscoDs1Previous24HrMIBGroup
+--   OptGroup
+--    ciscoDs1IntervalMIBGroup
+--   OptGroup
+--    ciscoDs1TotalMIBGroup
+--   OptGroup
+--    ciscoDs1StatsMIBGroup
+--   OptGroup
+--    ciscoDs1FarEndStatsMIBGroup
+
+ciscoDs1MIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoDs1MIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    Compliance statement for Cisco DS1 Extension MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDs1ConfMIBGroup
+--   MandGroup
+--    ciscoDs1CurrentMIBGroup
+--   MandGroup
+--    ciscoDs1AlarmConfigGroup
+--   MandGroup
+--    ciscoDs1Alarm15MinThreshGroup
+--   MandGroup
+--    ciscoDs1Alarm24HrThreshGroup
+--   MandGroup
+--    ciscoDs1Current24HrMIBGroup
+--   MandGroup
+--    ciscoDs1Previous24HrMIBGroup
+--   OptGroup
+--    ciscoDs1IntervalMIBGroup
+--   OptGroup
+--    ciscoDs1TotalMIBGroup
+--   OptGroup
+--    ciscoDs1StatsMIBGroup
+--   OptGroup
+--    ciscoDs1FarEndStatsMIBGroup
+--   OptGroup
+--    ciscoDs1BulkConfGroup
+
+ciscoDs1MIBComplianceRev2 OBJECT IDENTIFIER ::= { ciscoDs1MIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    Compliance statement for Cisco DS1 Extension MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDs1ConfMIBGroup
+--   MandGroup
+--    ciscoDs1CurrentMIBGroup
+--   MandGroup
+--    ciscoDs1AlarmConfigGroup
+--   MandGroup
+--    ciscoDs1AlarmThreshGroup
+--   MandGroup
+--    ciscoDs1Alarm15MinThreshGroupRev1
+--   MandGroup
+--    ciscoDs1Alarm24HrThreshGroupRev1
+--   MandGroup
+--    ciscoDs1Current24HrMIBGroup
+--   MandGroup
+--    ciscoDs1Previous24HrMIBGroup
+--   OptGroup
+--    ciscoDs1IntervalMIBGroup
+--   OptGroup
+--    ciscoDs1TotalMIBGroup
+--   OptGroup
+--    ciscoDs1StatsMIBGroup
+--   OptGroup
+--    ciscoDs1FarEndStatsMIBGroup
+--   OptGroup
+--    ciscoDs1BulkConfGroup
+
+ciscoDs1MIBComplianceRev3 OBJECT IDENTIFIER ::= { ciscoDs1MIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Compliance statement for Cisco DS1 Extension MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoDs1ConfMIBGroup
+--   MandGroup
+--    ciscoDs1CurrentMIBGroup
+--   MandGroup
+--    ciscoDs1AlarmConfigGroup
+--   MandGroup
+--    ciscoDs1AlarmThreshGroup
+--   MandGroup
+--    ciscoDs1Alarm15MinThreshGroupRev1
+--   MandGroup
+--    ciscoDs1Alarm24HrThreshGroupRev1
+--   MandGroup
+--    ciscoDs1Current24HrMIBGroup
+--   MandGroup
+--    ciscoDs1Previous24HrMIBGroup
+--   OptGroup
+--    ciscoDs1IntervalMIBGroup
+--   OptGroup
+--    ciscoDs1TotalMIBGroup
+--   OptGroup
+--    ciscoDs1StatsMIBGroup
+--   OptGroup
+--    ciscoDs1FarEndStatsMIBGroup
+--   OptGroup
+--    ciscoDs1BulkConfGroup
+--   OptGroup
+--    ciscoDs1CallGroup
+--   OptGroup
+--    cds1NEOptionalNotificationsGroup
+
+
+END
+

@@ -1,0 +1,307 @@
+
+-- CISCO-DIAMETER-SG-MIB.my : This MIB describes the SNMP MIB objects
+-- that are supported in order to provide
+-- the ability to fetch/configure the
+-- Diameter Server Groups.
+--   
+-- July 2006, Subash T. Comerica
+--   
+-- Copyright (c) 2006, 2009 by cisco Systems, Inc.
+-- All rights reserved.
+
+CISCO-DIAMETER-SG-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    StorageType,
+    RowStatus
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoExperiment
+        FROM CISCO-SMI;
+
+-- [RFC2580]
+
+ciscoDiameterSGMIB MODULE-IDENTITY
+    LAST-UPDATED    "200609060000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-aaa@cisco.com"
+    DESCRIPTION
+            "The MIB module for Cisco's Diameter Server Group
+            Entities. This MIB describes the SNMP MIB objects
+            that are supported in order to provide the ability
+            to fetch/configure the Diameter Server Groups."
+    REVISION        "200609060000Z"
+    DESCRIPTION
+            "Initial version of this MIB module."
+          ::= { ciscoExperiment 132 }
+
+
+-- Top-Level Components of this MIB.
+ciscoDiameterSGMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoDiameterSGMIB 0 }
+
+ciscoDiameterSGMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoDiameterSGMIB 1 }
+
+ciscoDiameterSGMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoDiameterSGMIB 2 }
+
+cdsgHostCfgs  OBJECT IDENTIFIER
+    ::= { ciscoDiameterSGMIBObjects 1 }
+
+
+cdsgServerGroupTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdsgServerGroupEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The table listing the Diameter server group information.
+            Entries are added to this table via cdsgServerGroupRowStatus in
+            accordance with the RowStatus convention."
+    ::= { cdsgHostCfgs 1 }
+
+cdsgServerGroupEntry OBJECT-TYPE
+    SYNTAX          CdsgServerGroupEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A row entry representing a Diameter server group entry."
+    INDEX           { cdsgServerGroupIndex } 
+    ::= { cdsgServerGroupTable 1 }
+
+CdsgServerGroupEntry ::= SEQUENCE {
+        cdsgServerGroupIndex       Unsigned32,
+        cdsgServerGroupName        SnmpAdminString,
+        cdsgServerGroupStorageType StorageType,
+        cdsgServerGroupRowStatus   RowStatus
+}
+
+cdsgServerGroupIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A number uniquely identifying each Diameter
+            Server Group. An index that uniquely represents
+            a Server Group.  This index is assigned arbitrarily
+            by the SNMP engine and is not saved over reloads." 
+    ::= { cdsgServerGroupEntry 1 }
+
+cdsgServerGroupName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The Server Group Name.
+            It has to be unique and not an empty string." 
+    ::= { cdsgServerGroupEntry 2 }
+
+cdsgServerGroupStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The storage type for this conceptual row. An agent
+            implementing the table must allow adding cdsgServerGroupName
+            into the table. None of the columnar objects is writable
+            when the conceptual row is permanent."
+    REFERENCE       "Textual Conventions for SMIv2, Section 2."
+    DEFVAL          { nonVolatile } 
+    ::= { cdsgServerGroupEntry 3 }
+
+cdsgServerGroupRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The status of this conceptual row.
+
+            To create a row in this table, a manager must
+            set this object to either createAndGo(4) or
+            createAndWait(5).
+
+            Until instances of all corresponding columns are
+            appropriately configured, the value of the
+            corresponding instance of the cdsgServerGroupRowStatus
+            column is 'notReady'.
+
+            In particular, a newly created row cannot be made
+            active until the corresponding
+            cdsgServerGroupName has been set.
+
+            cdsgServerGroupName may not be modified while the
+            value of this object is active(1):
+            An attempt to set these objects while the value of
+            cdsgServerGroupRowStatus is active(1) will result in
+            an inconsistentValue error.
+
+            Entries in this table with cdsgServerGroupRowStatus equal to
+            active(1) remain in the table until destroyed.  
+
+            Entries in this table with cdsgServerGroupRowStatus equal to
+            values other than active(1) will be destroyed after timeout
+            (5 minutes).
+
+            Upon reload, cdsgServerGroupIndex values may be changed." 
+    ::= { cdsgServerGroupEntry 4 }
+ 
+
+
+cdsgServerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdsgServerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "The table listing information regarding the server
+            which are part of the Diameter server groups.
+            Entries are added to this table via cdsgServerRowStatus
+            in accordance with the RowStatus convention. "
+    ::= { cdsgHostCfgs 2 }
+
+cdsgServerEntry OBJECT-TYPE
+    SYNTAX          CdsgServerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION     "A row entry representing a Diameter server group."
+    INDEX           {
+                        cdsgServerGroupIndex,
+                        cdsgServerIndex
+                    } 
+    ::= { cdsgServerTable 1 }
+
+CdsgServerEntry ::= SEQUENCE {
+        cdsgServerIndex       Unsigned32,
+        cdsgServerName        SnmpAdminString,
+        cdsgServerStorageType StorageType,
+        cdsgServerRowStatus   RowStatus
+}
+
+cdsgServerIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+            "A number uniquely identifying each Diameter Server.
+            An index that uniquely represents a Server within a
+            Server Group. This index is assigned arbitrarily
+            by the SNMP engine and is not saved over reloads." 
+    ::= { cdsgServerEntry 1 }
+
+cdsgServerName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The Server Name.
+            It has to be unique and not an empty string." 
+    ::= { cdsgServerEntry 2 }
+
+cdsgServerStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The storage type for this conceptual row. An agent
+            implementing the table must allow adding cdsgServerName
+            into the table. None of the columnar objects is writable
+            when the conceptual row is permanent."
+    REFERENCE       "Textual Conventions for SMIv2, Section 2."
+    DEFVAL          { nonVolatile } 
+    ::= { cdsgServerEntry 3 }
+
+cdsgServerRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+            "The status of this conceptual row.
+
+            To create a row in this table, a manager must
+            set this object to either createAndGo(4) or
+            createAndWait(5).
+
+            This table is an extended table to the cdsgServerGroupTable
+            and so an entry here must have a corresponding parent entry
+            in the cdsgServerGroupTable as well. This would map all such
+            entries with the same cdsgServerEntry under one single
+            cdsgServerGroupEntry i.e these servers are under the server
+            group represented by the cdsgServerGroupEntry.
+
+            Until instances of all corresponding columns are
+            appropriately configured, the value of the
+            corresponding instance of the cdsgServerRowStatus column is
+            'notReady'.
+
+            In particular, a newly created row cannot be made
+            active until the corresponding
+            cdsgServerName has been set.
+
+            cdsgServerName may not be modified while the
+            value of this object is active(1):
+            An attempt to set these objects while the value of
+            cdsgServerRowStatus is active(1) will result in 
+            an inconsistentValue error.
+            Entries in this table with cdsgServerRowStatus equal to
+            active(1) remain in the table until destroyed.  
+
+            Entries in this table with cdsgServerRowStatus equal to 
+            values other than active(1) will be destroyed after timeout
+            (5 minutes).
+
+            Upon reload, cdsgServerIndex values may be changed." 
+    ::= { cdsgServerEntry 4 }
+ 
+
+-- Conformance
+ciscoDiameterSGMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoDiameterSGMIBConform 1 }
+
+ciscoDiameterSGMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoDiameterSGMIBConform 2 }
+
+
+-- Compliance Statements
+ciscoDiameterSGMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+            "The compliance statement for Diameter Server Group
+            entities."
+    MODULE          -- this module
+    MANDATORY-GROUPS { ciscoDiameterSGHostCfgGroup }
+    ::= { ciscoDiameterSGMIBCompliances 1 }
+
+-- Units of Conformance
+ciscoDiameterSGHostCfgGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdsgServerGroupName,
+                        cdsgServerGroupRowStatus,
+                        cdsgServerGroupStorageType,
+                        cdsgServerName,
+                        cdsgServerRowStatus,
+                        cdsgServerStorageType
+                    }
+    STATUS          current
+    DESCRIPTION
+            "A collection of objects providing configuration common
+            to the server."
+    ::= { ciscoDiameterSGMIBGroups 1 }
+
+END

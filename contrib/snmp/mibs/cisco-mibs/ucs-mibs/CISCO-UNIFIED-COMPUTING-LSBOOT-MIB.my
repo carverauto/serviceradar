@@ -1,0 +1,2502 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-LSBOOT-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- LSBOOT management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-LSBOOT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsLsbootADefBootMode,
+    CucsLsbootAccessType,
+    CucsLsbootDefaultLocalImageType,
+    CucsLsbootEFIShellAccess,
+    CucsLsbootEFIShellType,
+    CucsLsbootEmbeddedLocalDiskImagePathType,
+    CucsLsbootEmbeddedLocalDiskImageType,
+    CucsLsbootEmbeddedLocalLunImageType,
+    CucsLsbootIScsiAccess,
+    CucsLsbootIScsiImagePathType,
+    CucsLsbootIScsiType,
+    CucsLsbootLanAccess,
+    CucsLsbootLanBootProt,
+    CucsLsbootLanImagePathType,
+    CucsLsbootLanType,
+    CucsLsbootLocalDiskImagePathType,
+    CucsLsbootLocalDiskImageType,
+    CucsLsbootLocalHddImageType,
+    CucsLsbootLocalLunImagePathType,
+    CucsLsbootNvmeDiskSsdType,
+    CucsLsbootNvmePciSsdType,
+    CucsLsbootNvmeType,
+    CucsLsbootPurpose,
+    CucsLsbootSanAccess,
+    CucsLsbootSanCatSanImagePathType,
+    CucsLsbootSanCatSanImageType,
+    CucsLsbootSanImagePathType,
+    CucsLsbootSanImageType,
+    CucsLsbootSanType,
+    CucsLsbootStorageAccess,
+    CucsLsbootStorageType,
+    CucsLsbootUsbExternalImageType,
+    CucsLsbootUsbFlashStorageImageType,
+    CucsLsbootUsbInternalImageType,
+    CucsLsbootVirtualMediaType,
+    CucsPolicyPolicyOwner
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsLsbootObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        LSBOOT management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 27 }
+
+cucsLsbootBootSecurityTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootBootSecurityEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:BootSecurity managed object table"
+    ::= { cucsLsbootObjects 12 }
+
+cucsLsbootBootSecurityEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootBootSecurityEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootBootSecurityTable table."
+    INDEX { cucsLsbootBootSecurityInstanceId }
+    ::= { cucsLsbootBootSecurityTable 1 }
+
+CucsLsbootBootSecurityEntry ::= SEQUENCE {
+    cucsLsbootBootSecurityInstanceId                                 CucsManagedObjectId,
+    cucsLsbootBootSecurityDn                                         CucsManagedObjectDn,
+    cucsLsbootBootSecurityRn                                         SnmpAdminString,
+    cucsLsbootBootSecuritySecureBoot                                 TruthValue
+}
+
+cucsLsbootBootSecurityInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootBootSecurityEntry 1 }
+
+cucsLsbootBootSecurityDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:BootSecurity:dn managed object property"
+    ::= { cucsLsbootBootSecurityEntry 2 }
+
+cucsLsbootBootSecurityRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:BootSecurity:rn managed object property"
+    ::= { cucsLsbootBootSecurityEntry 3 }
+
+cucsLsbootBootSecuritySecureBoot OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:BootSecurity:secureBoot managed object property"
+    ::= { cucsLsbootBootSecurityEntry 4 }
+
+cucsLsbootDefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def managed object table"
+    ::= { cucsLsbootObjects 1 }
+
+cucsLsbootDefEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootDefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootDefTable table."
+    INDEX { cucsLsbootDefInstanceId }
+    ::= { cucsLsbootDefTable 1 }
+
+CucsLsbootDefEntry ::= SEQUENCE {
+    cucsLsbootDefInstanceId                                          CucsManagedObjectId,
+    cucsLsbootDefDn                                                  CucsManagedObjectDn,
+    cucsLsbootDefRn                                                  SnmpAdminString,
+    cucsLsbootDefDescr                                               SnmpAdminString,
+    cucsLsbootDefEnforceVnicName                                     TruthValue,
+    cucsLsbootDefIntId                                               SnmpAdminString,
+    cucsLsbootDefName                                                SnmpAdminString,
+    cucsLsbootDefPurpose                                             CucsLsbootPurpose,
+    cucsLsbootDefRebootOnUpdate                                      TruthValue,
+    cucsLsbootDefPolicyLevel                                         Gauge32,
+    cucsLsbootDefPolicyOwner                                         CucsPolicyPolicyOwner,
+    cucsLsbootDefAdvBootOrderApplicable                              TruthValue,
+    cucsLsbootDefBootMode                                            CucsLsbootADefBootMode
+}
+
+cucsLsbootDefInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootDefEntry 1 }
+
+cucsLsbootDefDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:dn managed object property"
+    ::= { cucsLsbootDefEntry 2 }
+
+cucsLsbootDefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:rn managed object property"
+    ::= { cucsLsbootDefEntry 3 }
+
+cucsLsbootDefDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:descr managed object property"
+    ::= { cucsLsbootDefEntry 4 }
+
+cucsLsbootDefEnforceVnicName OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:enforceVnicName managed object property"
+    ::= { cucsLsbootDefEntry 5 }
+
+cucsLsbootDefIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:intId managed object property"
+    ::= { cucsLsbootDefEntry 6 }
+
+cucsLsbootDefName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:name managed object property"
+    ::= { cucsLsbootDefEntry 7 }
+
+cucsLsbootDefPurpose OBJECT-TYPE
+    SYNTAX       CucsLsbootPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:purpose managed object property"
+    ::= { cucsLsbootDefEntry 8 }
+
+cucsLsbootDefRebootOnUpdate OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:rebootOnUpdate managed object property"
+    ::= { cucsLsbootDefEntry 9 }
+
+cucsLsbootDefPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:policyLevel managed object property"
+    ::= { cucsLsbootDefEntry 10 }
+
+cucsLsbootDefPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:policyOwner managed object property"
+    ::= { cucsLsbootDefEntry 11 }
+
+cucsLsbootDefAdvBootOrderApplicable OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:advBootOrderApplicable managed
+        object property"
+    ::= { cucsLsbootDefEntry 12 }
+
+cucsLsbootDefBootMode OBJECT-TYPE
+    SYNTAX       CucsLsbootADefBootMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Def:bootMode managed object property"
+    ::= { cucsLsbootDefEntry 13 }
+
+cucsLsbootDefaultLocalImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootDefaultLocalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:DefaultLocalImage managed object table"
+    ::= { cucsLsbootObjects 13 }
+
+cucsLsbootDefaultLocalImageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootDefaultLocalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootDefaultLocalImageTable table."
+    INDEX { cucsLsbootDefaultLocalImageInstanceId }
+    ::= { cucsLsbootDefaultLocalImageTable 1 }
+
+CucsLsbootDefaultLocalImageEntry ::= SEQUENCE {
+    cucsLsbootDefaultLocalImageInstanceId                            CucsManagedObjectId,
+    cucsLsbootDefaultLocalImageDn                                    CucsManagedObjectDn,
+    cucsLsbootDefaultLocalImageRn                                    SnmpAdminString,
+    cucsLsbootDefaultLocalImageOrder                                 Gauge32,
+    cucsLsbootDefaultLocalImageType                                  CucsLsbootDefaultLocalImageType,
+    cucsLsbootDefaultLocalImagePropAcl                               Unsigned64
+}
+
+cucsLsbootDefaultLocalImageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootDefaultLocalImageEntry 1 }
+
+cucsLsbootDefaultLocalImageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:DefaultLocalImage:dn managed object property"
+    ::= { cucsLsbootDefaultLocalImageEntry 2 }
+
+cucsLsbootDefaultLocalImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:DefaultLocalImage:rn managed object property"
+    ::= { cucsLsbootDefaultLocalImageEntry 3 }
+
+cucsLsbootDefaultLocalImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:DefaultLocalImage:order managed object property"
+    ::= { cucsLsbootDefaultLocalImageEntry 6 }
+
+cucsLsbootDefaultLocalImageType OBJECT-TYPE
+    SYNTAX       CucsLsbootDefaultLocalImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:DefaultLocalImage:type managed object property"
+    ::= { cucsLsbootDefaultLocalImageEntry 7 }
+
+cucsLsbootDefaultLocalImagePropAcl OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:DefaultLocalImage:propAcl managed
+        object property"
+    ::= { cucsLsbootDefaultLocalImageEntry 8 }
+
+cucsLsbootEFIShellTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootEFIShellEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:EFIShell managed object table"
+    ::= { cucsLsbootObjects 29 }
+
+cucsLsbootEFIShellEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootEFIShellEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootEFIShellTable table."
+    INDEX { cucsLsbootEFIShellInstanceId }
+    ::= { cucsLsbootEFIShellTable 1 }
+
+CucsLsbootEFIShellEntry ::= SEQUENCE {
+    cucsLsbootEFIShellInstanceId                                     CucsManagedObjectId,
+    cucsLsbootEFIShellDn                                             CucsManagedObjectDn,
+    cucsLsbootEFIShellRn                                             SnmpAdminString,
+    cucsLsbootEFIShellAccess                                         CucsLsbootEFIShellAccess,
+    cucsLsbootEFIShellOrder                                          Gauge32,
+    cucsLsbootEFIShellType                                           CucsLsbootEFIShellType
+}
+
+cucsLsbootEFIShellInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootEFIShellEntry 1 }
+
+cucsLsbootEFIShellDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EFIShell:dn managed object property"
+    ::= { cucsLsbootEFIShellEntry 2 }
+
+cucsLsbootEFIShellRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EFIShell:rn managed object property"
+    ::= { cucsLsbootEFIShellEntry 3 }
+
+cucsLsbootEFIShellAccess OBJECT-TYPE
+    SYNTAX       CucsLsbootEFIShellAccess
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EFIShell:access managed object property"
+    ::= { cucsLsbootEFIShellEntry 4 }
+
+cucsLsbootEFIShellOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EFIShell:order managed object property"
+    ::= { cucsLsbootEFIShellEntry 5 }
+
+cucsLsbootEFIShellType OBJECT-TYPE
+    SYNTAX       CucsLsbootEFIShellType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EFIShell:type managed object property"
+    ::= { cucsLsbootEFIShellEntry 6 }
+
+cucsLsbootEmbeddedLocalDiskImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootEmbeddedLocalDiskImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalDiskImage managed object table"
+    ::= { cucsLsbootObjects 25 }
+
+cucsLsbootEmbeddedLocalDiskImageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootEmbeddedLocalDiskImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootEmbeddedLocalDiskImageTable table."
+    INDEX { cucsLsbootEmbeddedLocalDiskImageInstanceId }
+    ::= { cucsLsbootEmbeddedLocalDiskImageTable 1 }
+
+CucsLsbootEmbeddedLocalDiskImageEntry ::= SEQUENCE {
+    cucsLsbootEmbeddedLocalDiskImageInstanceId                       CucsManagedObjectId,
+    cucsLsbootEmbeddedLocalDiskImageDn                               CucsManagedObjectDn,
+    cucsLsbootEmbeddedLocalDiskImageRn                               SnmpAdminString,
+    cucsLsbootEmbeddedLocalDiskImageOrder                            Gauge32,
+    cucsLsbootEmbeddedLocalDiskImageType                             CucsLsbootEmbeddedLocalDiskImageType
+}
+
+cucsLsbootEmbeddedLocalDiskImageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootEmbeddedLocalDiskImageEntry 1 }
+
+cucsLsbootEmbeddedLocalDiskImageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalDiskImage:dn managed
+        object property"
+    ::= { cucsLsbootEmbeddedLocalDiskImageEntry 2 }
+
+cucsLsbootEmbeddedLocalDiskImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalDiskImage:rn managed
+        object property"
+    ::= { cucsLsbootEmbeddedLocalDiskImageEntry 3 }
+
+cucsLsbootEmbeddedLocalDiskImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalDiskImage:order
+        managed object property"
+    ::= { cucsLsbootEmbeddedLocalDiskImageEntry 4 }
+
+cucsLsbootEmbeddedLocalDiskImageType OBJECT-TYPE
+    SYNTAX       CucsLsbootEmbeddedLocalDiskImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalDiskImage:type managed
+        object property"
+    ::= { cucsLsbootEmbeddedLocalDiskImageEntry 5 }
+
+cucsLsbootEmbeddedLocalDiskImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootEmbeddedLocalDiskImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalDiskImagePath managed object table"
+    ::= { cucsLsbootObjects 26 }
+
+cucsLsbootEmbeddedLocalDiskImagePathEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootEmbeddedLocalDiskImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootEmbeddedLocalDiskImagePathTable table."
+    INDEX { cucsLsbootEmbeddedLocalDiskImagePathInstanceId }
+    ::= { cucsLsbootEmbeddedLocalDiskImagePathTable 1 }
+
+CucsLsbootEmbeddedLocalDiskImagePathEntry ::= SEQUENCE {
+    cucsLsbootEmbeddedLocalDiskImagePathInstanceId                   CucsManagedObjectId,
+    cucsLsbootEmbeddedLocalDiskImagePathDn                           CucsManagedObjectDn,
+    cucsLsbootEmbeddedLocalDiskImagePathRn                           SnmpAdminString,
+    cucsLsbootEmbeddedLocalDiskImagePathSlotNumber                   Gauge32,
+    cucsLsbootEmbeddedLocalDiskImagePathType                         CucsLsbootEmbeddedLocalDiskImagePathType
+}
+
+cucsLsbootEmbeddedLocalDiskImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootEmbeddedLocalDiskImagePathEntry 1 }
+
+cucsLsbootEmbeddedLocalDiskImagePathDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalDiskImagePath:dn
+        managed object property"
+    ::= { cucsLsbootEmbeddedLocalDiskImagePathEntry 2 }
+
+cucsLsbootEmbeddedLocalDiskImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalDiskImagePath:rn
+        managed object property"
+    ::= { cucsLsbootEmbeddedLocalDiskImagePathEntry 3 }
+
+cucsLsbootEmbeddedLocalDiskImagePathSlotNumber OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalDiskImagePath:slotNumber
+        managed object property"
+    ::= { cucsLsbootEmbeddedLocalDiskImagePathEntry 4 }
+
+cucsLsbootEmbeddedLocalDiskImagePathType OBJECT-TYPE
+    SYNTAX       CucsLsbootEmbeddedLocalDiskImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalDiskImagePath:type
+        managed object property"
+    ::= { cucsLsbootEmbeddedLocalDiskImagePathEntry 5 }
+
+cucsLsbootEmbeddedLocalLunImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootEmbeddedLocalLunImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalLunImage managed object table"
+    ::= { cucsLsbootObjects 27 }
+
+cucsLsbootEmbeddedLocalLunImageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootEmbeddedLocalLunImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootEmbeddedLocalLunImageTable table."
+    INDEX { cucsLsbootEmbeddedLocalLunImageInstanceId }
+    ::= { cucsLsbootEmbeddedLocalLunImageTable 1 }
+
+CucsLsbootEmbeddedLocalLunImageEntry ::= SEQUENCE {
+    cucsLsbootEmbeddedLocalLunImageInstanceId                        CucsManagedObjectId,
+    cucsLsbootEmbeddedLocalLunImageDn                                CucsManagedObjectDn,
+    cucsLsbootEmbeddedLocalLunImageRn                                SnmpAdminString,
+    cucsLsbootEmbeddedLocalLunImageOrder                             Gauge32,
+    cucsLsbootEmbeddedLocalLunImageType                              CucsLsbootEmbeddedLocalLunImageType
+}
+
+cucsLsbootEmbeddedLocalLunImageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootEmbeddedLocalLunImageEntry 1 }
+
+cucsLsbootEmbeddedLocalLunImageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalLunImage:dn managed
+        object property"
+    ::= { cucsLsbootEmbeddedLocalLunImageEntry 2 }
+
+cucsLsbootEmbeddedLocalLunImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalLunImage:rn managed
+        object property"
+    ::= { cucsLsbootEmbeddedLocalLunImageEntry 3 }
+
+cucsLsbootEmbeddedLocalLunImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalLunImage:order managed
+        object property"
+    ::= { cucsLsbootEmbeddedLocalLunImageEntry 4 }
+
+cucsLsbootEmbeddedLocalLunImageType OBJECT-TYPE
+    SYNTAX       CucsLsbootEmbeddedLocalLunImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:EmbeddedLocalLunImage:type managed
+        object property"
+    ::= { cucsLsbootEmbeddedLocalLunImageEntry 5 }
+
+cucsLsbootIScsiTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootIScsiEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsi managed object table"
+    ::= { cucsLsbootObjects 10 }
+
+cucsLsbootIScsiEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootIScsiEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootIScsiTable table."
+    INDEX { cucsLsbootIScsiInstanceId }
+    ::= { cucsLsbootIScsiTable 1 }
+
+CucsLsbootIScsiEntry ::= SEQUENCE {
+    cucsLsbootIScsiInstanceId                                        CucsManagedObjectId,
+    cucsLsbootIScsiDn                                                CucsManagedObjectDn,
+    cucsLsbootIScsiRn                                                SnmpAdminString,
+    cucsLsbootIScsiAccess                                            CucsLsbootIScsiAccess,
+    cucsLsbootIScsiOrder                                             Gauge32,
+    cucsLsbootIScsiType                                              CucsLsbootIScsiType
+}
+
+cucsLsbootIScsiInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootIScsiEntry 1 }
+
+cucsLsbootIScsiDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsi:dn managed object property"
+    ::= { cucsLsbootIScsiEntry 2 }
+
+cucsLsbootIScsiRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsi:rn managed object property"
+    ::= { cucsLsbootIScsiEntry 3 }
+
+cucsLsbootIScsiAccess OBJECT-TYPE
+    SYNTAX       CucsLsbootIScsiAccess
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsi:access managed object property"
+    ::= { cucsLsbootIScsiEntry 4 }
+
+cucsLsbootIScsiOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsi:order managed object property"
+    ::= { cucsLsbootIScsiEntry 5 }
+
+cucsLsbootIScsiType OBJECT-TYPE
+    SYNTAX       CucsLsbootIScsiType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsi:type managed object property"
+    ::= { cucsLsbootIScsiEntry 6 }
+
+cucsLsbootIScsiImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootIScsiImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsiImagePath managed object table"
+    ::= { cucsLsbootObjects 11 }
+
+cucsLsbootIScsiImagePathEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootIScsiImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootIScsiImagePathTable table."
+    INDEX { cucsLsbootIScsiImagePathInstanceId }
+    ::= { cucsLsbootIScsiImagePathTable 1 }
+
+CucsLsbootIScsiImagePathEntry ::= SEQUENCE {
+    cucsLsbootIScsiImagePathInstanceId                               CucsManagedObjectId,
+    cucsLsbootIScsiImagePathDn                                       CucsManagedObjectDn,
+    cucsLsbootIScsiImagePathRn                                       SnmpAdminString,
+    cucsLsbootIScsiImagePathISCSIVnicName                            SnmpAdminString,
+    cucsLsbootIScsiImagePathType                                     CucsLsbootIScsiImagePathType,
+    cucsLsbootIScsiImagePathVnicName                                 SnmpAdminString
+}
+
+cucsLsbootIScsiImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootIScsiImagePathEntry 1 }
+
+cucsLsbootIScsiImagePathDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsiImagePath:dn managed object property"
+    ::= { cucsLsbootIScsiImagePathEntry 2 }
+
+cucsLsbootIScsiImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsiImagePath:rn managed object property"
+    ::= { cucsLsbootIScsiImagePathEntry 3 }
+
+cucsLsbootIScsiImagePathISCSIVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsiImagePath:iSCSIVnicName
+        managed object property"
+    ::= { cucsLsbootIScsiImagePathEntry 4 }
+
+cucsLsbootIScsiImagePathType OBJECT-TYPE
+    SYNTAX       CucsLsbootIScsiImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsiImagePath:type managed object property"
+    ::= { cucsLsbootIScsiImagePathEntry 5 }
+
+cucsLsbootIScsiImagePathVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:IScsiImagePath:vnicName managed object property"
+    ::= { cucsLsbootIScsiImagePathEntry 6 }
+
+cucsLsbootLanTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootLanEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:Lan managed object table"
+    ::= { cucsLsbootObjects 2 }
+
+cucsLsbootLanEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootLanEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootLanTable table."
+    INDEX { cucsLsbootLanInstanceId }
+    ::= { cucsLsbootLanTable 1 }
+
+CucsLsbootLanEntry ::= SEQUENCE {
+    cucsLsbootLanInstanceId                                          CucsManagedObjectId,
+    cucsLsbootLanDn                                                  CucsManagedObjectDn,
+    cucsLsbootLanRn                                                  SnmpAdminString,
+    cucsLsbootLanAccess                                              CucsLsbootLanAccess,
+    cucsLsbootLanOrder                                               Gauge32,
+    cucsLsbootLanType                                                CucsLsbootLanType,
+    cucsLsbootLanProt                                                CucsLsbootLanBootProt
+}
+
+cucsLsbootLanInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootLanEntry 1 }
+
+cucsLsbootLanDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Lan:dn managed object property"
+    ::= { cucsLsbootLanEntry 2 }
+
+cucsLsbootLanRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Lan:rn managed object property"
+    ::= { cucsLsbootLanEntry 3 }
+
+cucsLsbootLanAccess OBJECT-TYPE
+    SYNTAX       CucsLsbootLanAccess
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Lan:access managed object property"
+    ::= { cucsLsbootLanEntry 4 }
+
+cucsLsbootLanOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Lan:order managed object property"
+    ::= { cucsLsbootLanEntry 5 }
+
+cucsLsbootLanType OBJECT-TYPE
+    SYNTAX       CucsLsbootLanType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Lan:type managed object property"
+    ::= { cucsLsbootLanEntry 6 }
+
+cucsLsbootLanProt OBJECT-TYPE
+    SYNTAX       CucsLsbootLanBootProt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Lan:prot managed object property"
+    ::= { cucsLsbootLanEntry 7 }
+
+cucsLsbootLanImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootLanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:LanImagePath managed object table"
+    ::= { cucsLsbootObjects 3 }
+
+cucsLsbootLanImagePathEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootLanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootLanImagePathTable table."
+    INDEX { cucsLsbootLanImagePathInstanceId }
+    ::= { cucsLsbootLanImagePathTable 1 }
+
+CucsLsbootLanImagePathEntry ::= SEQUENCE {
+    cucsLsbootLanImagePathInstanceId                                 CucsManagedObjectId,
+    cucsLsbootLanImagePathDn                                         CucsManagedObjectDn,
+    cucsLsbootLanImagePathRn                                         SnmpAdminString,
+    cucsLsbootLanImagePathType                                       CucsLsbootLanImagePathType,
+    cucsLsbootLanImagePathVnicName                                   SnmpAdminString,
+    cucsLsbootLanImagePathImgPolicyName                              SnmpAdminString,
+    cucsLsbootLanImagePathImgSecPolicyName                           SnmpAdminString,
+    cucsLsbootLanImagePathBootIpPolicyName                           SnmpAdminString,
+    cucsLsbootLanImagePathProvSrvPolicyName                          SnmpAdminString,
+    cucsLsbootLanImagePathISCSIVnicName                              SnmpAdminString
+}
+
+cucsLsbootLanImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootLanImagePathEntry 1 }
+
+cucsLsbootLanImagePathDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LanImagePath:dn managed object property"
+    ::= { cucsLsbootLanImagePathEntry 2 }
+
+cucsLsbootLanImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LanImagePath:rn managed object property"
+    ::= { cucsLsbootLanImagePathEntry 3 }
+
+cucsLsbootLanImagePathType OBJECT-TYPE
+    SYNTAX       CucsLsbootLanImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LanImagePath:type managed object property"
+    ::= { cucsLsbootLanImagePathEntry 4 }
+
+cucsLsbootLanImagePathVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LanImagePath:vnicName managed object property"
+    ::= { cucsLsbootLanImagePathEntry 5 }
+
+cucsLsbootLanImagePathImgPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LanImagePath:imgPolicyName managed
+        object property"
+    ::= { cucsLsbootLanImagePathEntry 6 }
+
+cucsLsbootLanImagePathImgSecPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LanImagePath:imgSecPolicyName
+        managed object property"
+    ::= { cucsLsbootLanImagePathEntry 7 }
+
+cucsLsbootLanImagePathBootIpPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LanImagePath:bootIpPolicyName
+        managed object property"
+    ::= { cucsLsbootLanImagePathEntry 8 }
+
+cucsLsbootLanImagePathProvSrvPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LanImagePath:provSrvPolicyName
+        managed object property"
+    ::= { cucsLsbootLanImagePathEntry 9 }
+
+cucsLsbootLanImagePathISCSIVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LanImagePath:iSCSIVnicName managed
+        object property"
+    ::= { cucsLsbootLanImagePathEntry 10 }
+
+cucsLsbootLocalDiskImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootLocalDiskImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalDiskImage managed object table"
+    ::= { cucsLsbootObjects 21 }
+
+cucsLsbootLocalDiskImageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootLocalDiskImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootLocalDiskImageTable table."
+    INDEX { cucsLsbootLocalDiskImageInstanceId }
+    ::= { cucsLsbootLocalDiskImageTable 1 }
+
+CucsLsbootLocalDiskImageEntry ::= SEQUENCE {
+    cucsLsbootLocalDiskImageInstanceId                               CucsManagedObjectId,
+    cucsLsbootLocalDiskImageDn                                       CucsManagedObjectDn,
+    cucsLsbootLocalDiskImageRn                                       SnmpAdminString,
+    cucsLsbootLocalDiskImageOrder                                    Gauge32,
+    cucsLsbootLocalDiskImageType                                     CucsLsbootLocalDiskImageType
+}
+
+cucsLsbootLocalDiskImageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootLocalDiskImageEntry 1 }
+
+cucsLsbootLocalDiskImageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalDiskImage:dn managed object property"
+    ::= { cucsLsbootLocalDiskImageEntry 2 }
+
+cucsLsbootLocalDiskImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalDiskImage:rn managed object property"
+    ::= { cucsLsbootLocalDiskImageEntry 3 }
+
+cucsLsbootLocalDiskImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalDiskImage:order managed object property"
+    ::= { cucsLsbootLocalDiskImageEntry 4 }
+
+cucsLsbootLocalDiskImageType OBJECT-TYPE
+    SYNTAX       CucsLsbootLocalDiskImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalDiskImage:type managed object property"
+    ::= { cucsLsbootLocalDiskImageEntry 5 }
+
+cucsLsbootLocalDiskImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootLocalDiskImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalDiskImagePath managed object table"
+    ::= { cucsLsbootObjects 22 }
+
+cucsLsbootLocalDiskImagePathEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootLocalDiskImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootLocalDiskImagePathTable table."
+    INDEX { cucsLsbootLocalDiskImagePathInstanceId }
+    ::= { cucsLsbootLocalDiskImagePathTable 1 }
+
+CucsLsbootLocalDiskImagePathEntry ::= SEQUENCE {
+    cucsLsbootLocalDiskImagePathInstanceId                           CucsManagedObjectId,
+    cucsLsbootLocalDiskImagePathDn                                   CucsManagedObjectDn,
+    cucsLsbootLocalDiskImagePathRn                                   SnmpAdminString,
+    cucsLsbootLocalDiskImagePathSlotNumber                           Gauge32,
+    cucsLsbootLocalDiskImagePathType                                 CucsLsbootLocalDiskImagePathType
+}
+
+cucsLsbootLocalDiskImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootLocalDiskImagePathEntry 1 }
+
+cucsLsbootLocalDiskImagePathDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalDiskImagePath:dn managed object property"
+    ::= { cucsLsbootLocalDiskImagePathEntry 2 }
+
+cucsLsbootLocalDiskImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalDiskImagePath:rn managed object property"
+    ::= { cucsLsbootLocalDiskImagePathEntry 3 }
+
+cucsLsbootLocalDiskImagePathSlotNumber OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalDiskImagePath:slotNumber
+        managed object property"
+    ::= { cucsLsbootLocalDiskImagePathEntry 4 }
+
+cucsLsbootLocalDiskImagePathType OBJECT-TYPE
+    SYNTAX       CucsLsbootLocalDiskImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalDiskImagePath:type managed object property"
+    ::= { cucsLsbootLocalDiskImagePathEntry 5 }
+
+cucsLsbootLocalHddImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootLocalHddImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalHddImage managed object table"
+    ::= { cucsLsbootObjects 14 }
+
+cucsLsbootLocalHddImageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootLocalHddImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootLocalHddImageTable table."
+    INDEX { cucsLsbootLocalHddImageInstanceId }
+    ::= { cucsLsbootLocalHddImageTable 1 }
+
+CucsLsbootLocalHddImageEntry ::= SEQUENCE {
+    cucsLsbootLocalHddImageInstanceId                                CucsManagedObjectId,
+    cucsLsbootLocalHddImageDn                                        CucsManagedObjectDn,
+    cucsLsbootLocalHddImageRn                                        SnmpAdminString,
+    cucsLsbootLocalHddImageOrder                                     Gauge32,
+    cucsLsbootLocalHddImageType                                      CucsLsbootLocalHddImageType
+}
+
+cucsLsbootLocalHddImageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootLocalHddImageEntry 1 }
+
+cucsLsbootLocalHddImageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalHddImage:dn managed object property"
+    ::= { cucsLsbootLocalHddImageEntry 2 }
+
+cucsLsbootLocalHddImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalHddImage:rn managed object property"
+    ::= { cucsLsbootLocalHddImageEntry 3 }
+
+cucsLsbootLocalHddImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalHddImage:order managed object property"
+    ::= { cucsLsbootLocalHddImageEntry 6 }
+
+cucsLsbootLocalHddImageType OBJECT-TYPE
+    SYNTAX       CucsLsbootLocalHddImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalHddImage:type managed object property"
+    ::= { cucsLsbootLocalHddImageEntry 7 }
+
+cucsLsbootLocalLunImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootLocalLunImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalLunImagePath managed object table"
+    ::= { cucsLsbootObjects 23 }
+
+cucsLsbootLocalLunImagePathEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootLocalLunImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootLocalLunImagePathTable table."
+    INDEX { cucsLsbootLocalLunImagePathInstanceId }
+    ::= { cucsLsbootLocalLunImagePathTable 1 }
+
+CucsLsbootLocalLunImagePathEntry ::= SEQUENCE {
+    cucsLsbootLocalLunImagePathInstanceId                            CucsManagedObjectId,
+    cucsLsbootLocalLunImagePathDn                                    CucsManagedObjectDn,
+    cucsLsbootLocalLunImagePathRn                                    SnmpAdminString,
+    cucsLsbootLocalLunImagePathLunName                               SnmpAdminString,
+    cucsLsbootLocalLunImagePathType                                  CucsLsbootLocalLunImagePathType
+}
+
+cucsLsbootLocalLunImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootLocalLunImagePathEntry 1 }
+
+cucsLsbootLocalLunImagePathDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalLunImagePath:dn managed object property"
+    ::= { cucsLsbootLocalLunImagePathEntry 2 }
+
+cucsLsbootLocalLunImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalLunImagePath:rn managed object property"
+    ::= { cucsLsbootLocalLunImagePathEntry 3 }
+
+cucsLsbootLocalLunImagePathLunName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalLunImagePath:lunName managed
+        object property"
+    ::= { cucsLsbootLocalLunImagePathEntry 4 }
+
+cucsLsbootLocalLunImagePathType OBJECT-TYPE
+    SYNTAX       CucsLsbootLocalLunImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalLunImagePath:type managed object property"
+    ::= { cucsLsbootLocalLunImagePathEntry 5 }
+
+cucsLsbootLocalStorageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootLocalStorageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalStorage managed object table"
+    ::= { cucsLsbootObjects 4 }
+
+cucsLsbootLocalStorageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootLocalStorageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootLocalStorageTable table."
+    INDEX { cucsLsbootLocalStorageInstanceId }
+    ::= { cucsLsbootLocalStorageTable 1 }
+
+CucsLsbootLocalStorageEntry ::= SEQUENCE {
+    cucsLsbootLocalStorageInstanceId                                 CucsManagedObjectId,
+    cucsLsbootLocalStorageDn                                         CucsManagedObjectDn,
+    cucsLsbootLocalStorageRn                                         SnmpAdminString,
+    cucsLsbootLocalStoragePropAcl                                    Unsigned64
+}
+
+cucsLsbootLocalStorageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootLocalStorageEntry 1 }
+
+cucsLsbootLocalStorageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalStorage:dn managed object property"
+    ::= { cucsLsbootLocalStorageEntry 2 }
+
+cucsLsbootLocalStorageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalStorage:rn managed object property"
+    ::= { cucsLsbootLocalStorageEntry 3 }
+
+cucsLsbootLocalStoragePropAcl OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:LocalStorage:propAcl managed object property"
+    ::= { cucsLsbootLocalStorageEntry 4 }
+
+cucsLsbootNvmeTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootNvmeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:Nvme managed object table"
+    ::= { cucsLsbootObjects 30 }
+
+cucsLsbootNvmeEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootNvmeEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootNvmeTable table."
+    INDEX { cucsLsbootNvmeInstanceId }
+    ::= { cucsLsbootNvmeTable 1 }
+
+CucsLsbootNvmeEntry ::= SEQUENCE {
+    cucsLsbootNvmeInstanceId                                         CucsManagedObjectId,
+    cucsLsbootNvmeDn                                                 CucsManagedObjectDn,
+    cucsLsbootNvmeRn                                                 SnmpAdminString,
+    cucsLsbootNvmeOrder                                              Gauge32,
+    cucsLsbootNvmeType                                               CucsLsbootNvmeType
+}
+
+cucsLsbootNvmeInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootNvmeEntry 1 }
+
+cucsLsbootNvmeDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Nvme:dn managed object property"
+    ::= { cucsLsbootNvmeEntry 2 }
+
+cucsLsbootNvmeRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Nvme:rn managed object property"
+    ::= { cucsLsbootNvmeEntry 3 }
+
+cucsLsbootNvmeOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Nvme:order managed object property"
+    ::= { cucsLsbootNvmeEntry 4 }
+
+cucsLsbootNvmeType OBJECT-TYPE
+    SYNTAX       CucsLsbootNvmeType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Nvme:type managed object property"
+    ::= { cucsLsbootNvmeEntry 5 }
+
+cucsLsbootNvmeDiskSsdTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootNvmeDiskSsdEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmeDiskSsd managed object table"
+    ::= { cucsLsbootObjects 31 }
+
+cucsLsbootNvmeDiskSsdEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootNvmeDiskSsdEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootNvmeDiskSsdTable table."
+    INDEX { cucsLsbootNvmeDiskSsdInstanceId }
+    ::= { cucsLsbootNvmeDiskSsdTable 1 }
+
+CucsLsbootNvmeDiskSsdEntry ::= SEQUENCE {
+    cucsLsbootNvmeDiskSsdInstanceId                                  CucsManagedObjectId,
+    cucsLsbootNvmeDiskSsdDn                                          CucsManagedObjectDn,
+    cucsLsbootNvmeDiskSsdRn                                          SnmpAdminString,
+    cucsLsbootNvmeDiskSsdOrder                                       Gauge32,
+    cucsLsbootNvmeDiskSsdSlotId                                      Gauge32,
+    cucsLsbootNvmeDiskSsdType                                        CucsLsbootNvmeDiskSsdType
+}
+
+cucsLsbootNvmeDiskSsdInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootNvmeDiskSsdEntry 1 }
+
+cucsLsbootNvmeDiskSsdDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmeDiskSsd:dn managed object property"
+    ::= { cucsLsbootNvmeDiskSsdEntry 2 }
+
+cucsLsbootNvmeDiskSsdRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmeDiskSsd:rn managed object property"
+    ::= { cucsLsbootNvmeDiskSsdEntry 3 }
+
+cucsLsbootNvmeDiskSsdOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmeDiskSsd:order managed object property"
+    ::= { cucsLsbootNvmeDiskSsdEntry 4 }
+
+cucsLsbootNvmeDiskSsdSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmeDiskSsd:slotId managed object property"
+    ::= { cucsLsbootNvmeDiskSsdEntry 5 }
+
+cucsLsbootNvmeDiskSsdType OBJECT-TYPE
+    SYNTAX       CucsLsbootNvmeDiskSsdType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmeDiskSsd:type managed object property"
+    ::= { cucsLsbootNvmeDiskSsdEntry 6 }
+
+cucsLsbootNvmePciSsdTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootNvmePciSsdEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmePciSsd managed object table"
+    ::= { cucsLsbootObjects 32 }
+
+cucsLsbootNvmePciSsdEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootNvmePciSsdEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootNvmePciSsdTable table."
+    INDEX { cucsLsbootNvmePciSsdInstanceId }
+    ::= { cucsLsbootNvmePciSsdTable 1 }
+
+CucsLsbootNvmePciSsdEntry ::= SEQUENCE {
+    cucsLsbootNvmePciSsdInstanceId                                   CucsManagedObjectId,
+    cucsLsbootNvmePciSsdDn                                           CucsManagedObjectDn,
+    cucsLsbootNvmePciSsdRn                                           SnmpAdminString,
+    cucsLsbootNvmePciSsdOrder                                        Gauge32,
+    cucsLsbootNvmePciSsdSlotId                                       Gauge32,
+    cucsLsbootNvmePciSsdType                                         CucsLsbootNvmePciSsdType
+}
+
+cucsLsbootNvmePciSsdInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootNvmePciSsdEntry 1 }
+
+cucsLsbootNvmePciSsdDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmePciSsd:dn managed object property"
+    ::= { cucsLsbootNvmePciSsdEntry 2 }
+
+cucsLsbootNvmePciSsdRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmePciSsd:rn managed object property"
+    ::= { cucsLsbootNvmePciSsdEntry 3 }
+
+cucsLsbootNvmePciSsdOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmePciSsd:order managed object property"
+    ::= { cucsLsbootNvmePciSsdEntry 4 }
+
+cucsLsbootNvmePciSsdSlotId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmePciSsd:slotId managed object property"
+    ::= { cucsLsbootNvmePciSsdEntry 5 }
+
+cucsLsbootNvmePciSsdType OBJECT-TYPE
+    SYNTAX       CucsLsbootNvmePciSsdType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:NvmePciSsd:type managed object property"
+    ::= { cucsLsbootNvmePciSsdEntry 6 }
+
+cucsLsbootPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy managed object table"
+    ::= { cucsLsbootObjects 5 }
+
+cucsLsbootPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootPolicyTable table."
+    INDEX { cucsLsbootPolicyInstanceId }
+    ::= { cucsLsbootPolicyTable 1 }
+
+CucsLsbootPolicyEntry ::= SEQUENCE {
+    cucsLsbootPolicyInstanceId                                       CucsManagedObjectId,
+    cucsLsbootPolicyDn                                               CucsManagedObjectDn,
+    cucsLsbootPolicyRn                                               SnmpAdminString,
+    cucsLsbootPolicyDescr                                            SnmpAdminString,
+    cucsLsbootPolicyEnforceVnicName                                  TruthValue,
+    cucsLsbootPolicyIntId                                            SnmpAdminString,
+    cucsLsbootPolicyName                                             SnmpAdminString,
+    cucsLsbootPolicyPurpose                                          CucsLsbootPurpose,
+    cucsLsbootPolicyRebootOnUpdate                                   TruthValue,
+    cucsLsbootPolicyPolicyLevel                                      Gauge32,
+    cucsLsbootPolicyPolicyOwner                                      CucsPolicyPolicyOwner,
+    cucsLsbootPolicyBootMode                                         CucsLsbootADefBootMode,
+    cucsLsbootPolicyPropAcl                                          Unsigned64
+}
+
+cucsLsbootPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootPolicyEntry 1 }
+
+cucsLsbootPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:dn managed object property"
+    ::= { cucsLsbootPolicyEntry 2 }
+
+cucsLsbootPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:rn managed object property"
+    ::= { cucsLsbootPolicyEntry 3 }
+
+cucsLsbootPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:descr managed object property"
+    ::= { cucsLsbootPolicyEntry 4 }
+
+cucsLsbootPolicyEnforceVnicName OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:enforceVnicName managed object property"
+    ::= { cucsLsbootPolicyEntry 5 }
+
+cucsLsbootPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:intId managed object property"
+    ::= { cucsLsbootPolicyEntry 6 }
+
+cucsLsbootPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:name managed object property"
+    ::= { cucsLsbootPolicyEntry 7 }
+
+cucsLsbootPolicyPurpose OBJECT-TYPE
+    SYNTAX       CucsLsbootPurpose
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:purpose managed object property"
+    ::= { cucsLsbootPolicyEntry 8 }
+
+cucsLsbootPolicyRebootOnUpdate OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:rebootOnUpdate managed object property"
+    ::= { cucsLsbootPolicyEntry 9 }
+
+cucsLsbootPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:policyLevel managed object property"
+    ::= { cucsLsbootPolicyEntry 10 }
+
+cucsLsbootPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:policyOwner managed object property"
+    ::= { cucsLsbootPolicyEntry 11 }
+
+cucsLsbootPolicyBootMode OBJECT-TYPE
+    SYNTAX       CucsLsbootADefBootMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:bootMode managed object property"
+    ::= { cucsLsbootPolicyEntry 12 }
+
+cucsLsbootPolicyPropAcl OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Policy:propAcl managed object property"
+    ::= { cucsLsbootPolicyEntry 13 }
+
+cucsLsbootSanTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootSanEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:San managed object table"
+    ::= { cucsLsbootObjects 15 }
+
+cucsLsbootSanEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootSanEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootSanTable table."
+    INDEX { cucsLsbootSanInstanceId }
+    ::= { cucsLsbootSanTable 1 }
+
+CucsLsbootSanEntry ::= SEQUENCE {
+    cucsLsbootSanInstanceId                                          CucsManagedObjectId,
+    cucsLsbootSanDn                                                  CucsManagedObjectDn,
+    cucsLsbootSanRn                                                  SnmpAdminString,
+    cucsLsbootSanAccess                                              CucsLsbootSanAccess,
+    cucsLsbootSanOrder                                               Gauge32,
+    cucsLsbootSanType                                                CucsLsbootSanType
+}
+
+cucsLsbootSanInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootSanEntry 1 }
+
+cucsLsbootSanDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:San:dn managed object property"
+    ::= { cucsLsbootSanEntry 2 }
+
+cucsLsbootSanRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:San:rn managed object property"
+    ::= { cucsLsbootSanEntry 3 }
+
+cucsLsbootSanAccess OBJECT-TYPE
+    SYNTAX       CucsLsbootSanAccess
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:San:access managed object property"
+    ::= { cucsLsbootSanEntry 4 }
+
+cucsLsbootSanOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:San:order managed object property"
+    ::= { cucsLsbootSanEntry 5 }
+
+cucsLsbootSanType OBJECT-TYPE
+    SYNTAX       CucsLsbootSanType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:San:type managed object property"
+    ::= { cucsLsbootSanEntry 6 }
+
+cucsLsbootSanCatSanImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootSanCatSanImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImage managed object table"
+    ::= { cucsLsbootObjects 16 }
+
+cucsLsbootSanCatSanImageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootSanCatSanImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootSanCatSanImageTable table."
+    INDEX { cucsLsbootSanCatSanImageInstanceId }
+    ::= { cucsLsbootSanCatSanImageTable 1 }
+
+CucsLsbootSanCatSanImageEntry ::= SEQUENCE {
+    cucsLsbootSanCatSanImageInstanceId                               CucsManagedObjectId,
+    cucsLsbootSanCatSanImageDn                                       CucsManagedObjectDn,
+    cucsLsbootSanCatSanImageRn                                       SnmpAdminString,
+    cucsLsbootSanCatSanImageType                                     CucsLsbootSanCatSanImageType,
+    cucsLsbootSanCatSanImageVnicName                                 SnmpAdminString
+}
+
+cucsLsbootSanCatSanImageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootSanCatSanImageEntry 1 }
+
+cucsLsbootSanCatSanImageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImage:dn managed object property"
+    ::= { cucsLsbootSanCatSanImageEntry 2 }
+
+cucsLsbootSanCatSanImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImage:rn managed object property"
+    ::= { cucsLsbootSanCatSanImageEntry 3 }
+
+cucsLsbootSanCatSanImageType OBJECT-TYPE
+    SYNTAX       CucsLsbootSanCatSanImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImage:type managed object property"
+    ::= { cucsLsbootSanCatSanImageEntry 4 }
+
+cucsLsbootSanCatSanImageVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImage:vnicName managed object property"
+    ::= { cucsLsbootSanCatSanImageEntry 5 }
+
+cucsLsbootSanCatSanImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootSanCatSanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImagePath managed object table"
+    ::= { cucsLsbootObjects 17 }
+
+cucsLsbootSanCatSanImagePathEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootSanCatSanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootSanCatSanImagePathTable table."
+    INDEX { cucsLsbootSanCatSanImagePathInstanceId }
+    ::= { cucsLsbootSanCatSanImagePathTable 1 }
+
+CucsLsbootSanCatSanImagePathEntry ::= SEQUENCE {
+    cucsLsbootSanCatSanImagePathInstanceId                           CucsManagedObjectId,
+    cucsLsbootSanCatSanImagePathDn                                   CucsManagedObjectDn,
+    cucsLsbootSanCatSanImagePathRn                                   SnmpAdminString,
+    cucsLsbootSanCatSanImagePathLun                                  SnmpAdminString,
+    cucsLsbootSanCatSanImagePathType                                 CucsLsbootSanCatSanImagePathType,
+    cucsLsbootSanCatSanImagePathVnicName                             SnmpAdminString,
+    cucsLsbootSanCatSanImagePathWwn                                  Unsigned64
+}
+
+cucsLsbootSanCatSanImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootSanCatSanImagePathEntry 1 }
+
+cucsLsbootSanCatSanImagePathDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImagePath:dn managed object property"
+    ::= { cucsLsbootSanCatSanImagePathEntry 2 }
+
+cucsLsbootSanCatSanImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImagePath:rn managed object property"
+    ::= { cucsLsbootSanCatSanImagePathEntry 3 }
+
+cucsLsbootSanCatSanImagePathLun OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImagePath:lun managed object property"
+    ::= { cucsLsbootSanCatSanImagePathEntry 4 }
+
+cucsLsbootSanCatSanImagePathType OBJECT-TYPE
+    SYNTAX       CucsLsbootSanCatSanImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImagePath:type managed object property"
+    ::= { cucsLsbootSanCatSanImagePathEntry 5 }
+
+cucsLsbootSanCatSanImagePathVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImagePath:vnicName managed
+        object property"
+    ::= { cucsLsbootSanCatSanImagePathEntry 6 }
+
+cucsLsbootSanCatSanImagePathWwn OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanCatSanImagePath:wwn managed object property"
+    ::= { cucsLsbootSanCatSanImagePathEntry 7 }
+
+cucsLsbootSanImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootSanImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImage managed object table"
+    ::= { cucsLsbootObjects 6 }
+
+cucsLsbootSanImageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootSanImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootSanImageTable table."
+    INDEX { cucsLsbootSanImageInstanceId }
+    ::= { cucsLsbootSanImageTable 1 }
+
+CucsLsbootSanImageEntry ::= SEQUENCE {
+    cucsLsbootSanImageInstanceId                                     CucsManagedObjectId,
+    cucsLsbootSanImageDn                                             CucsManagedObjectDn,
+    cucsLsbootSanImageRn                                             SnmpAdminString,
+    cucsLsbootSanImageType                                           CucsLsbootSanImageType,
+    cucsLsbootSanImageVnicName                                       SnmpAdminString
+}
+
+cucsLsbootSanImageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootSanImageEntry 1 }
+
+cucsLsbootSanImageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImage:dn managed object property"
+    ::= { cucsLsbootSanImageEntry 2 }
+
+cucsLsbootSanImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImage:rn managed object property"
+    ::= { cucsLsbootSanImageEntry 3 }
+
+cucsLsbootSanImageType OBJECT-TYPE
+    SYNTAX       CucsLsbootSanImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImage:type managed object property"
+    ::= { cucsLsbootSanImageEntry 4 }
+
+cucsLsbootSanImageVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImage:vnicName managed object property"
+    ::= { cucsLsbootSanImageEntry 5 }
+
+cucsLsbootSanImagePathTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootSanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImagePath managed object table"
+    ::= { cucsLsbootObjects 7 }
+
+cucsLsbootSanImagePathEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootSanImagePathEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootSanImagePathTable table."
+    INDEX { cucsLsbootSanImagePathInstanceId }
+    ::= { cucsLsbootSanImagePathTable 1 }
+
+CucsLsbootSanImagePathEntry ::= SEQUENCE {
+    cucsLsbootSanImagePathInstanceId                                 CucsManagedObjectId,
+    cucsLsbootSanImagePathDn                                         CucsManagedObjectDn,
+    cucsLsbootSanImagePathRn                                         SnmpAdminString,
+    cucsLsbootSanImagePathLun                                        SnmpAdminString,
+    cucsLsbootSanImagePathType                                       CucsLsbootSanImagePathType,
+    cucsLsbootSanImagePathVnicName                                   SnmpAdminString,
+    cucsLsbootSanImagePathWwn                                        Unsigned64
+}
+
+cucsLsbootSanImagePathInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootSanImagePathEntry 1 }
+
+cucsLsbootSanImagePathDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImagePath:dn managed object property"
+    ::= { cucsLsbootSanImagePathEntry 2 }
+
+cucsLsbootSanImagePathRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImagePath:rn managed object property"
+    ::= { cucsLsbootSanImagePathEntry 3 }
+
+cucsLsbootSanImagePathLun OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImagePath:lun managed object property"
+    ::= { cucsLsbootSanImagePathEntry 4 }
+
+cucsLsbootSanImagePathType OBJECT-TYPE
+    SYNTAX       CucsLsbootSanImagePathType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImagePath:type managed object property"
+    ::= { cucsLsbootSanImagePathEntry 5 }
+
+cucsLsbootSanImagePathVnicName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImagePath:vnicName managed object property"
+    ::= { cucsLsbootSanImagePathEntry 6 }
+
+cucsLsbootSanImagePathWwn OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:SanImagePath:wwn managed object property"
+    ::= { cucsLsbootSanImagePathEntry 7 }
+
+cucsLsbootStorageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootStorageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:Storage managed object table"
+    ::= { cucsLsbootObjects 8 }
+
+cucsLsbootStorageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootStorageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootStorageTable table."
+    INDEX { cucsLsbootStorageInstanceId }
+    ::= { cucsLsbootStorageTable 1 }
+
+CucsLsbootStorageEntry ::= SEQUENCE {
+    cucsLsbootStorageInstanceId                                      CucsManagedObjectId,
+    cucsLsbootStorageDn                                              CucsManagedObjectDn,
+    cucsLsbootStorageRn                                              SnmpAdminString,
+    cucsLsbootStorageAccess                                          CucsLsbootStorageAccess,
+    cucsLsbootStorageOrder                                           Gauge32,
+    cucsLsbootStorageType                                            CucsLsbootStorageType,
+    cucsLsbootStoragePropAcl                                         Unsigned64
+}
+
+cucsLsbootStorageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootStorageEntry 1 }
+
+cucsLsbootStorageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Storage:dn managed object property"
+    ::= { cucsLsbootStorageEntry 2 }
+
+cucsLsbootStorageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Storage:rn managed object property"
+    ::= { cucsLsbootStorageEntry 3 }
+
+cucsLsbootStorageAccess OBJECT-TYPE
+    SYNTAX       CucsLsbootStorageAccess
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Storage:access managed object property"
+    ::= { cucsLsbootStorageEntry 4 }
+
+cucsLsbootStorageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Storage:order managed object property"
+    ::= { cucsLsbootStorageEntry 5 }
+
+cucsLsbootStorageType OBJECT-TYPE
+    SYNTAX       CucsLsbootStorageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Storage:type managed object property"
+    ::= { cucsLsbootStorageEntry 6 }
+
+cucsLsbootStoragePropAcl OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:Storage:propAcl managed object property"
+    ::= { cucsLsbootStorageEntry 7 }
+
+cucsLsbootUEFIBootParamTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootUEFIBootParamEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:UEFIBootParam managed object table"
+    ::= { cucsLsbootObjects 24 }
+
+cucsLsbootUEFIBootParamEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootUEFIBootParamEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootUEFIBootParamTable table."
+    INDEX { cucsLsbootUEFIBootParamInstanceId }
+    ::= { cucsLsbootUEFIBootParamTable 1 }
+
+CucsLsbootUEFIBootParamEntry ::= SEQUENCE {
+    cucsLsbootUEFIBootParamInstanceId                                CucsManagedObjectId,
+    cucsLsbootUEFIBootParamDn                                        CucsManagedObjectDn,
+    cucsLsbootUEFIBootParamRn                                        SnmpAdminString,
+    cucsLsbootUEFIBootParamBootDescription                           SnmpAdminString,
+    cucsLsbootUEFIBootParamBootLoaderName                            SnmpAdminString,
+    cucsLsbootUEFIBootParamBootLoaderPath                            SnmpAdminString
+}
+
+cucsLsbootUEFIBootParamInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootUEFIBootParamEntry 1 }
+
+cucsLsbootUEFIBootParamDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UEFIBootParam:dn managed object property"
+    ::= { cucsLsbootUEFIBootParamEntry 2 }
+
+cucsLsbootUEFIBootParamRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UEFIBootParam:rn managed object property"
+    ::= { cucsLsbootUEFIBootParamEntry 3 }
+
+cucsLsbootUEFIBootParamBootDescription OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UEFIBootParam:bootDescription
+        managed object property"
+    ::= { cucsLsbootUEFIBootParamEntry 4 }
+
+cucsLsbootUEFIBootParamBootLoaderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UEFIBootParam:bootLoaderName
+        managed object property"
+    ::= { cucsLsbootUEFIBootParamEntry 5 }
+
+cucsLsbootUEFIBootParamBootLoaderPath OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UEFIBootParam:bootLoaderPath
+        managed object property"
+    ::= { cucsLsbootUEFIBootParamEntry 6 }
+
+cucsLsbootUsbExternalImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootUsbExternalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbExternalImage managed object table"
+    ::= { cucsLsbootObjects 18 }
+
+cucsLsbootUsbExternalImageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootUsbExternalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootUsbExternalImageTable table."
+    INDEX { cucsLsbootUsbExternalImageInstanceId }
+    ::= { cucsLsbootUsbExternalImageTable 1 }
+
+CucsLsbootUsbExternalImageEntry ::= SEQUENCE {
+    cucsLsbootUsbExternalImageInstanceId                             CucsManagedObjectId,
+    cucsLsbootUsbExternalImageDn                                     CucsManagedObjectDn,
+    cucsLsbootUsbExternalImageRn                                     SnmpAdminString,
+    cucsLsbootUsbExternalImageOrder                                  Gauge32,
+    cucsLsbootUsbExternalImageType                                   CucsLsbootUsbExternalImageType
+}
+
+cucsLsbootUsbExternalImageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootUsbExternalImageEntry 1 }
+
+cucsLsbootUsbExternalImageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbExternalImage:dn managed object property"
+    ::= { cucsLsbootUsbExternalImageEntry 2 }
+
+cucsLsbootUsbExternalImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbExternalImage:rn managed object property"
+    ::= { cucsLsbootUsbExternalImageEntry 3 }
+
+cucsLsbootUsbExternalImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbExternalImage:order managed object property"
+    ::= { cucsLsbootUsbExternalImageEntry 6 }
+
+cucsLsbootUsbExternalImageType OBJECT-TYPE
+    SYNTAX       CucsLsbootUsbExternalImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbExternalImage:type managed object property"
+    ::= { cucsLsbootUsbExternalImageEntry 7 }
+
+cucsLsbootUsbFlashStorageImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootUsbFlashStorageImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbFlashStorageImage managed object table"
+    ::= { cucsLsbootObjects 19 }
+
+cucsLsbootUsbFlashStorageImageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootUsbFlashStorageImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootUsbFlashStorageImageTable table."
+    INDEX { cucsLsbootUsbFlashStorageImageInstanceId }
+    ::= { cucsLsbootUsbFlashStorageImageTable 1 }
+
+CucsLsbootUsbFlashStorageImageEntry ::= SEQUENCE {
+    cucsLsbootUsbFlashStorageImageInstanceId                         CucsManagedObjectId,
+    cucsLsbootUsbFlashStorageImageDn                                 CucsManagedObjectDn,
+    cucsLsbootUsbFlashStorageImageRn                                 SnmpAdminString,
+    cucsLsbootUsbFlashStorageImageOrder                              Gauge32,
+    cucsLsbootUsbFlashStorageImageType                               CucsLsbootUsbFlashStorageImageType
+}
+
+cucsLsbootUsbFlashStorageImageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootUsbFlashStorageImageEntry 1 }
+
+cucsLsbootUsbFlashStorageImageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbFlashStorageImage:dn managed object property"
+    ::= { cucsLsbootUsbFlashStorageImageEntry 2 }
+
+cucsLsbootUsbFlashStorageImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbFlashStorageImage:rn managed object property"
+    ::= { cucsLsbootUsbFlashStorageImageEntry 3 }
+
+cucsLsbootUsbFlashStorageImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbFlashStorageImage:order managed
+        object property"
+    ::= { cucsLsbootUsbFlashStorageImageEntry 6 }
+
+cucsLsbootUsbFlashStorageImageType OBJECT-TYPE
+    SYNTAX       CucsLsbootUsbFlashStorageImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbFlashStorageImage:type managed
+        object property"
+    ::= { cucsLsbootUsbFlashStorageImageEntry 7 }
+
+cucsLsbootUsbInternalImageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootUsbInternalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbInternalImage managed object table"
+    ::= { cucsLsbootObjects 20 }
+
+cucsLsbootUsbInternalImageEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootUsbInternalImageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootUsbInternalImageTable table."
+    INDEX { cucsLsbootUsbInternalImageInstanceId }
+    ::= { cucsLsbootUsbInternalImageTable 1 }
+
+CucsLsbootUsbInternalImageEntry ::= SEQUENCE {
+    cucsLsbootUsbInternalImageInstanceId                             CucsManagedObjectId,
+    cucsLsbootUsbInternalImageDn                                     CucsManagedObjectDn,
+    cucsLsbootUsbInternalImageRn                                     SnmpAdminString,
+    cucsLsbootUsbInternalImageOrder                                  Gauge32,
+    cucsLsbootUsbInternalImageType                                   CucsLsbootUsbInternalImageType
+}
+
+cucsLsbootUsbInternalImageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootUsbInternalImageEntry 1 }
+
+cucsLsbootUsbInternalImageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbInternalImage:dn managed object property"
+    ::= { cucsLsbootUsbInternalImageEntry 2 }
+
+cucsLsbootUsbInternalImageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbInternalImage:rn managed object property"
+    ::= { cucsLsbootUsbInternalImageEntry 3 }
+
+cucsLsbootUsbInternalImageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbInternalImage:order managed object property"
+    ::= { cucsLsbootUsbInternalImageEntry 6 }
+
+cucsLsbootUsbInternalImageType OBJECT-TYPE
+    SYNTAX       CucsLsbootUsbInternalImageType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:UsbInternalImage:type managed object property"
+    ::= { cucsLsbootUsbInternalImageEntry 7 }
+
+cucsLsbootVirtualMediaTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsLsbootVirtualMediaEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS lsboot:VirtualMedia managed object table"
+    ::= { cucsLsbootObjects 9 }
+
+cucsLsbootVirtualMediaEntry OBJECT-TYPE
+    SYNTAX           CucsLsbootVirtualMediaEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsLsbootVirtualMediaTable table."
+    INDEX { cucsLsbootVirtualMediaInstanceId }
+    ::= { cucsLsbootVirtualMediaTable 1 }
+
+CucsLsbootVirtualMediaEntry ::= SEQUENCE {
+    cucsLsbootVirtualMediaInstanceId                                 CucsManagedObjectId,
+    cucsLsbootVirtualMediaDn                                         CucsManagedObjectDn,
+    cucsLsbootVirtualMediaRn                                         SnmpAdminString,
+    cucsLsbootVirtualMediaAccess                                     CucsLsbootAccessType,
+    cucsLsbootVirtualMediaOrder                                      Gauge32,
+    cucsLsbootVirtualMediaType                                       CucsLsbootVirtualMediaType,
+    cucsLsbootVirtualMediaLunId                                      SnmpAdminString,
+    cucsLsbootVirtualMediaMappingName                                SnmpAdminString,
+    cucsLsbootVirtualMediaPropAcl                                    Unsigned64
+}
+
+cucsLsbootVirtualMediaInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsLsbootVirtualMediaEntry 1 }
+
+cucsLsbootVirtualMediaDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:VirtualMedia:dn managed object property"
+    ::= { cucsLsbootVirtualMediaEntry 2 }
+
+cucsLsbootVirtualMediaRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:VirtualMedia:rn managed object property"
+    ::= { cucsLsbootVirtualMediaEntry 3 }
+
+cucsLsbootVirtualMediaAccess OBJECT-TYPE
+    SYNTAX       CucsLsbootAccessType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:VirtualMedia:access managed object property"
+    ::= { cucsLsbootVirtualMediaEntry 4 }
+
+cucsLsbootVirtualMediaOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:VirtualMedia:order managed object property"
+    ::= { cucsLsbootVirtualMediaEntry 5 }
+
+cucsLsbootVirtualMediaType OBJECT-TYPE
+    SYNTAX       CucsLsbootVirtualMediaType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:VirtualMedia:type managed object property"
+    ::= { cucsLsbootVirtualMediaEntry 6 }
+
+cucsLsbootVirtualMediaLunId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:VirtualMedia:lunId managed object property"
+    ::= { cucsLsbootVirtualMediaEntry 7 }
+
+cucsLsbootVirtualMediaMappingName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:VirtualMedia:mappingName managed
+        object property"
+    ::= { cucsLsbootVirtualMediaEntry 8 }
+
+cucsLsbootVirtualMediaPropAcl OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS lsboot:VirtualMedia:propAcl managed object property"
+    ::= { cucsLsbootVirtualMediaEntry 9 }
+
+END

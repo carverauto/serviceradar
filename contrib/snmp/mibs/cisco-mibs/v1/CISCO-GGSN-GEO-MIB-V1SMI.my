@@ -1,0 +1,185 @@
+-- MIB file created 15-Jun-2010 11:29:56, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-GGSN-GEO-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-GGSN-GEO-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+cggsnGeoMIB OBJECT IDENTIFIER ::= { ciscoMgmt 724 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201002190000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W. Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-gprs@cisco.com
+--  Descr
+--    This MIB provide additional information for passive interface
+--    configured for each OSPF process, independent of object creation
+--    in the corresponding OSPF MIB.
+--  RevDate
+--    201002190000Z
+--  RevDescr
+--    Initial version of the MIB module.
+
+cggsnGeoConformance OBJECT IDENTIFIER ::= { cggsnGeoMIB 2 }
+cggsnGeogroups  OBJECT IDENTIFIER ::= { cggsnGeoConformance 1 }
+cggsnGeoCompliances OBJECT IDENTIFIER ::= { cggsnGeoConformance 2 }
+
+cggsnGeoPassiveTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CggsnGeoPassiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains information about passive interfaces
+        configured in each OSPF process. Further this table provides  
+        information about passive interfaces
+        either enabled(active) or in standby mode."
+    ::= { cggsnGeoMIB 1 }
+
+cggsnGeoPassiveEntry OBJECT-TYPE
+    SYNTAX CggsnGeoPassiveEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry is created or removed whenever a interface
+        related configuation operation is performed 
+        under the OSPF process.      
+        For Example : Ethernet1/0 interface has ifIndex value as 5. The 
+        ifIndex of 5 is a passive interface of particular OSPF process 
+        which copies the name of the  particular interface to this 
+        object . Based on this example Ethernet1/0 is going copy
+        to the object. Otherwise ifIndex is not a 
+        passive interface  this object content will 
+        be NULL."
+    INDEX { ifIndex, cggsnGeoProcessNumber }
+    ::= { cggsnGeoPassiveTable 1 }
+
+CggsnGeoPassiveEntry ::= SEQUENCE {
+    cggsnGeoProcessNumber Gauge,
+    cggsnGeoPassiveStdbyIfName SnmpAdminString,
+    cggsnGeoPassiveIfOnStdby TruthValue,
+    cggsnGeoVRFEnabled TruthValue,
+    cggsnGeoRowStatus RowStatus
+    }
+
+cggsnGeoProcessNumber OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the process identifier for each
+        OSPF configured interface"
+    ::= { cggsnGeoPassiveEntry 1 }
+
+cggsnGeoPassiveStdbyIfName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..255))
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This variable specfies name of the passive interface
+        configured"
+    ::= { cggsnGeoPassiveEntry 2 }
+
+cggsnGeoPassiveIfOnStdby OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the passive interface
+        is configured in standby mode or not. 
+        The value of this object 'true' indicates, the standby mode is 
+        configured, otherwise the standby mode is not configured."
+    ::= { cggsnGeoPassiveEntry 3 }
+
+cggsnGeoVRFEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the  Current OSPF process
+        is bonded with VRF name of the router or not.
+        The value of this object 'true' indicates OSPF process 
+        is bonded with VRF name of the router,
+        otherwise the OSPF process is not bonded 
+        with VRF name of router."
+    ::= { cggsnGeoPassiveEntry 4 }
+
+cggsnGeoRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to manage creation and deletion of
+        rows in this table. Objects in this row cannot be 
+        modified when this entry is 'active'."
+    ::= { cggsnGeoPassiveEntry 5 }
+
+cggsnGeoPassiveGroup OBJECT IDENTIFIER ::= { cggsnGeogroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These objects are used to provide
+--    information about  passive standby 
+--    interface  configuration in OSPF interface
+--  objects
+--    cggsnGeoPassiveStdbyIfName, cggsnGeoPassiveIfOnStdby, 
+--    cggsnGeoVRFEnabled, cggsnGeoRowStatus
+
+cggsnGeoCompliance OBJECT IDENTIFIER ::= { cggsnGeoCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The Compilance Stament for the agent they support
+--    CISCO-GGSN-GEO-MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cggsnGeoPassiveGroup
+
+
+END
+

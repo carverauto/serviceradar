@@ -1,0 +1,640 @@
+-- *****************************************************************
+-- CISCO-DHCP-RELAY-MIB.my
+--   
+-- Copyright (c) 2016 by Cisco Systems, Inc.
+-- All rights reserved.
+--   
+-- *****************************************************************
+
+CISCO-DHCP-RELAY-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    InterfaceIndexOrZero
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoDhcpRelayMIB MODULE-IDENTITY
+    LAST-UPDATED    "201609160000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-snmp@cisco.com"
+    DESCRIPTION
+        "description"
+    REVISION        "201609160000Z"
+    DESCRIPTION
+        "Added the following IPv6 DHCP RELAY statistics support:
+        (1) cdrIPv6StatsGroup
+        (2) cdrIPv6DropStatsGroup"
+    REVISION        "201606090000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 833 }
+
+ciscoDhcpRelayMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoDhcpRelayMIB 0 }
+
+ciscoDhcpRelayMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoDhcpRelayMIB 1 }
+
+ciscoDhcpRelayMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoDhcpRelayMIB 2 }
+
+ciscoDhcpRelayStats  OBJECT IDENTIFIER
+    ::= { ciscoDhcpRelayMIBObjects 1 }
+
+cdrStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdrStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table holds the statistics of the DHCP RELAY
+        operations performed by the RELAY agent running on the device."
+    ::= { ciscoDhcpRelayStats 1 }
+
+cdrStatsEntry OBJECT-TYPE
+    SYNTAX          CdrStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry holds the statistics of the DHCP RELAY operations 
+        performed by the RELAY agent, based on the interface index 
+        and the type of the DHCP packet.  
+
+        A zero value of the interface index fetches the total 
+        statistics from all the interfaces."
+    INDEX           {
+                        cdrStatsIfIndex,
+                        cdrStatsPktType
+                    } 
+    ::= { cdrStatsTable 1 }
+
+CdrStatsEntry ::= SEQUENCE {
+        cdrStatsIfIndex         InterfaceIndexOrZero,
+        cdrStatsPktType         INTEGER,
+        cdrStatsPktsReceived    Counter32,
+        cdrStatsPktsForwarded   Counter32,
+        cdrStatsPktsDropped     Counter32
+}
+
+cdrStatsIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The inteface index of the interface on which the 
+        RELAY configurations exist. A zero index value 
+        refers to the global RELAY statistics." 
+    ::= { cdrStatsEntry 1 }
+
+cdrStatsPktType OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        discover(1),
+                        offer(2),
+                        request(3),
+                        ack(4),
+                        release(5),
+                        decline(6),
+                        inform(7),
+                        nack(8),
+                        dhcpL3Fwd(9),
+                        nonDhcp(10)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of the DHCP protocol packet based on 
+        which the statistics are fetched upon." 
+    ::= { cdrStatsEntry 2 }
+
+cdrStatsPktsReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets received by the DHCP RELAY agent." 
+    ::= { cdrStatsEntry 3 }
+
+cdrStatsPktsForwarded OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets forwarded by the DHCP RELAY agent." 
+    ::= { cdrStatsEntry 4 }
+
+cdrStatsPktsDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets dropped by the DHCP RELAY agent." 
+    ::= { cdrStatsEntry 5 }
+ 
+cdrDropStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdrDropStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table holds the statistics of the DHCP RELAY
+        packets dropped at an interface/globally in the device."
+    ::= { ciscoDhcpRelayStats 2 }
+
+cdrDropStatsEntry OBJECT-TYPE
+    SYNTAX          CdrDropStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cdrDropStatsTable."
+    INDEX           { cdrDropStatsIfIndex } 
+    ::= { cdrDropStatsTable 1 }
+
+CdrDropStatsEntry ::= SEQUENCE {
+        cdrDropStatsIfIndex                InterfaceIndexOrZero,
+        cdrDropStatsRelayNotEnabled        Counter32,
+        cdrDropStatsInvalidMsgType         Counter32,
+        cdrDropStatsInterfaceError         Counter32,
+        cdrDropStatsTxFailureServer        Counter32,
+        cdrDropStatsTxFailureClient        Counter32,
+        cdrDropStatsUnknownOpInterface     Counter32,
+        cdrDropStatsUnknownVrfOrInterface  Counter32,
+        cdrDropStatsMaxHopsExceeded        Counter32,
+        cdrDropStatsOpt82ValidationFailure Counter32,
+        cdrDropStatsMalformedPkts          Counter32,
+        cdrDropStatsUntrustablePort        Counter32,
+        cdrDropStatsReqDroppedOnMCT        Counter32
+}
+
+cdrDropStatsIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The statistcs are fetched based upon this index.
+        A zero index value refers to the global RELAY statistics."
+    ::= { cdrDropStatsEntry 1 }
+
+cdrDropStatsRelayNotEnabled OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent as the
+        relay feature was not enabled" 
+    ::= { cdrDropStatsEntry 2 }
+
+cdrDropStatsInvalidMsgType OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent as the
+        DHCP message type was invalid" 
+    ::= { cdrDropStatsEntry 3 }
+
+cdrDropStatsInterfaceError OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent,
+        as there was an interface related error." 
+    ::= { cdrDropStatsEntry 4 }
+
+cdrDropStatsTxFailureServer OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent 
+        as there was a transmission failure towards the Server." 
+    ::= { cdrDropStatsEntry 5 }
+
+cdrDropStatsTxFailureClient OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent as  there
+        was a transmission failure towards the Client." 
+    ::= { cdrDropStatsEntry 6 }
+
+cdrDropStatsUnknownOpInterface OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent 
+        as the output Interface was unknown." 
+    ::= { cdrDropStatsEntry 7 }
+
+cdrDropStatsUnknownVrfOrInterface OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent 
+        as the VRF or Interface towards the Server was unknown." 
+    ::= { cdrDropStatsEntry 8 }
+
+cdrDropStatsMaxHopsExceeded OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent,
+        as the maximum number of hops were exceeded." 
+    ::= { cdrDropStatsEntry 9 }
+
+cdrDropStatsOpt82ValidationFailure OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent,
+        as the Option 82 validation was failed." 
+    ::= { cdrDropStatsEntry 10 }
+
+cdrDropStatsMalformedPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent,
+        as the packets were malformed." 
+    ::= { cdrDropStatsEntry 11 }
+
+cdrDropStatsUntrustablePort OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent,
+        as the trusted port is not configured." 
+    ::= { cdrDropStatsEntry 12 }
+
+cdrDropStatsReqDroppedOnMCT OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the RELAY agent as the
+        DHCP Request was dropped on MCT." 
+    ::= { cdrDropStatsEntry 13 }
+ 
+----------------------------------
+-- cdrIPv6StatsTable definition --
+----------------------------------
+cdrIPv6StatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdrIPv6StatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table holds the statistics of the IPv6 DHCP RELAY
+        operations performed by the RELAY agent running on the device."
+    ::= { ciscoDhcpRelayStats 3 }
+
+cdrIPv6StatsEntry OBJECT-TYPE
+    SYNTAX          CdrIPv6StatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry holds the statistics of the 
+        IPv6 DHCP RELAY operations performed by the RELAY agent,
+        based on the interface index and the type of the DHCP packet.  
+
+         A zero value of the interface index fetches the total 
+         statistics from all the interfaces."
+    INDEX           {
+                        cdrIPv6StatsIfIndex,
+                        cdrIPv6StatsPktType
+                    } 
+    ::= { cdrIPv6StatsTable 1 }
+
+CdrIPv6StatsEntry ::= SEQUENCE {
+        cdrIPv6StatsIfIndex         InterfaceIndexOrZero,
+        cdrIPv6StatsPktType         INTEGER,
+        cdrIPv6StatsPktsReceived    Counter32,
+        cdrIPv6StatsPktsForwarded   Counter32,
+        cdrIPv6StatsPktsDropped     Counter32
+}
+
+cdrIPv6StatsIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The inteface index of the interface on which 
+        the RELAY configurations exist. A zero index value 
+        refers to the global RELAY statistics." 
+    ::= { cdrIPv6StatsEntry 1 }
+
+cdrIPv6StatsPktType OBJECT-TYPE
+    SYNTAX          INTEGER {
+                        solicit(1),
+                        advertise(2),
+                        request(3),
+                        confirm(4),
+                        renew(5),
+                        rebind(6),
+                        reply(7),
+                        release(8),
+                        decline(9),
+                        reconfigure(10),
+                        infoRequest(11),
+                        relayForward(12),
+                        relayReply(13),
+                        unknown(14)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The type of the IPv6 DHCP protocol packet based 
+        on which the statistics are fetched upon." 
+    ::= { cdrIPv6StatsEntry 2 }
+
+cdrIPv6StatsPktsReceived OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets received by the IPv6 DHCP RELAY agent."
+    ::= { cdrIPv6StatsEntry 3 }
+
+cdrIPv6StatsPktsForwarded OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets forwarded by the IPv6 DHCP RELAY agent." 
+    ::= { cdrIPv6StatsEntry 4 }
+
+cdrIPv6StatsPktsDropped OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of packets dropped by the IPv6 DHCP RELAY agent." 
+    ::= { cdrIPv6StatsEntry 5 }
+ 
+--------------------------------------
+-- cdrIPv6DropStatsTable definition --
+--------------------------------------
+cdrIPv6DropStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CdrIPv6DropStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table holds the statistics of the IPv6 DHCP RELAY
+         packets dropped at an interface/globally in the device."
+    ::= { ciscoDhcpRelayStats 4 }
+
+cdrIPv6DropStatsEntry OBJECT-TYPE
+    SYNTAX          CdrIPv6DropStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry (conceptual row) in the cdrIPv6DropStatsTable."
+    INDEX           { cdrIPv6DropStatsIfIndex } 
+    ::= { cdrIPv6DropStatsTable 1 }
+
+CdrIPv6DropStatsEntry ::= SEQUENCE {
+        cdrIPv6DropStatsIfIndex                InterfaceIndexOrZero,
+        cdrIPv6DropStatsRelayDisabled          Counter32,
+        cdrIPv6DropStatsMaxHopsExceeded        Counter32,
+        cdrIPv6DropStatsInvalidPkts            Counter32,
+        cdrIPv6DropStatsUnknownOpInterface     Counter32,
+        cdrIPv6DropStatsInvalidVRF             Counter32,
+        cdrIPv6DropStatsOptionInsertionFailed  Counter32,
+        cdrIPv6DropStatsDirectReplyFromServer  Counter32,
+        cdrIPv6DropStatsIPv6AddrNotConfigured  Counter32,
+        cdrIPv6DropStatsInterfaceError         Counter32,
+        cdrIPv6DropStatsVpnOptionDisabled      Counter32,
+        cdrIPv6DropStatsIpv6ExtnHeaderPresent  Counter32,
+        cdrIPv6DropStatsReqDroppedOnMCT        Counter32
+}
+
+cdrIPv6DropStatsIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The statistcs are fetched based upon this index.
+        A zero index value refers to the global RELAY statistics."
+    ::= { cdrIPv6DropStatsEntry 1 }
+
+cdrIPv6DropStatsRelayDisabled OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the 
+        IPv6 RELAY agent as the relay feature was not enabled" 
+    ::= { cdrIPv6DropStatsEntry 2 }
+
+cdrIPv6DropStatsMaxHopsExceeded OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent,
+        as the maximum number of hops were exceeded." 
+    ::= { cdrIPv6DropStatsEntry 3 }
+
+cdrIPv6DropStatsInvalidPkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent
+         as the DHCP packet was invalid" 
+    ::= { cdrIPv6DropStatsEntry 4 }
+
+cdrIPv6DropStatsUnknownOpInterface OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent 
+        as the output Interface was unknown." 
+    ::= { cdrIPv6DropStatsEntry 5 }
+
+cdrIPv6DropStatsInvalidVRF OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent 
+        as the VRF was invalid." 
+    ::= { cdrIPv6DropStatsEntry 6 }
+
+cdrIPv6DropStatsOptionInsertionFailed OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent,
+        as the option-insertion was failed." 
+    ::= { cdrIPv6DropStatsEntry 7 }
+
+cdrIPv6DropStatsDirectReplyFromServer OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent 
+        due to the direct reply from server (Reconfig/Advertise/Reply)."
+    ::= { cdrIPv6DropStatsEntry 8 }
+
+cdrIPv6DropStatsIPv6AddrNotConfigured OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent as 
+        the ipv6 address was not configured." 
+    ::= { cdrIPv6DropStatsEntry 9 }
+    
+cdrIPv6DropStatsInterfaceError OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent,
+        as there was an interface related error." 
+    ::= { cdrIPv6DropStatsEntry 10 }
+
+cdrIPv6DropStatsVpnOptionDisabled OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent,
+        as the VPN option was disabled."
+    ::= { cdrIPv6DropStatsEntry 11 }
+
+cdrIPv6DropStatsIpv6ExtnHeaderPresent OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent,
+         as the Ipv6 extension header was present."
+    ::= { cdrIPv6DropStatsEntry 12 }
+
+cdrIPv6DropStatsReqDroppedOnMCT OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of DHCP packets dropped by the IPv6 RELAY agent
+         as the DHCP Request was dropped on MCT." 
+    ::= { cdrIPv6DropStatsEntry 13 }
+ 
+
+ciscoDhcpRelayMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoDhcpRelayMIBConform 1 }
+
+ciscoDhcpRelayMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoDhcpRelayMIBConform 2 }
+
+ciscoDhcpRelayMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This is a default module-compliance
+         containing default object groups."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        cdrStatsGroup,
+                        cdrDropStatsGroup,
+                        cdrIPv6StatsGroup,
+                        cdrIPv6DropStatsGroup
+                    }
+    ::= { ciscoDhcpRelayMIBCompliances 1 }
+
+-- Units of Conformance
+
+cdrStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdrStatsPktsReceived,
+                        cdrStatsPktsForwarded,
+                        cdrStatsPktsDropped
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the DHCP RELAY related
+        packets statistics."
+    ::= { ciscoDhcpRelayMIBGroups 1 }
+
+cdrDropStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdrDropStatsRelayNotEnabled,
+                        cdrDropStatsInvalidMsgType,
+                        cdrDropStatsInterfaceError,
+                        cdrDropStatsTxFailureServer,
+                        cdrDropStatsTxFailureClient,
+                        cdrDropStatsUnknownOpInterface,
+                        cdrDropStatsUnknownVrfOrInterface,
+                        cdrDropStatsMaxHopsExceeded,
+                        cdrDropStatsOpt82ValidationFailure,
+                        cdrDropStatsMalformedPkts,
+                        cdrDropStatsUntrustablePort,
+                        cdrDropStatsReqDroppedOnMCT
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the statistics of 
+        the DHCP RELAY packets dropped by the DHCP relay agent."
+    ::= { ciscoDhcpRelayMIBGroups 2 }
+
+cdrIPv6StatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdrIPv6StatsPktsReceived,
+                        cdrIPv6StatsPktsForwarded,
+                        cdrIPv6StatsPktsDropped
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the DHCP IPv6 RELAY related
+        packets statistics."
+    ::= { ciscoDhcpRelayMIBGroups 3 }
+
+cdrIPv6DropStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cdrIPv6DropStatsRelayDisabled,
+                        cdrIPv6DropStatsMaxHopsExceeded,
+                        cdrIPv6DropStatsInvalidPkts,
+                        cdrIPv6DropStatsUnknownOpInterface,
+                        cdrIPv6DropStatsInvalidVRF,
+                        cdrIPv6DropStatsOptionInsertionFailed,
+                        cdrIPv6DropStatsDirectReplyFromServer,
+                        cdrIPv6DropStatsInterfaceError,
+                        cdrIPv6DropStatsIPv6AddrNotConfigured,
+                        cdrIPv6DropStatsVpnOptionDisabled,
+                        cdrIPv6DropStatsIpv6ExtnHeaderPresent,
+                        cdrIPv6DropStatsReqDroppedOnMCT
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing the statistics of 
+        the DHCP RELAY packets dropped by the IPv6 DHCP relay agent."
+    ::= { ciscoDhcpRelayMIBGroups 4 }
+
+END
+

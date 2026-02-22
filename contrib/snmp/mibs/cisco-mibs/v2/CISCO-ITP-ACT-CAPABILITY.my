@@ -1,0 +1,60 @@
+-- *****************************************************************
+-- CISCO-ITP-ACT-CAPABILITY.my: Itp Signalling Point Accounting 
+--                              Agent capability MIB
+--
+-- July 2001, John Linton
+--
+-- Copyright (c) 2001 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+CISCO-ITP-ACT-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+                
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+                
+        ciscoAgentCapability
+                FROM CISCO-SMI; 
+                
+
+ciscoItpActCapability MODULE-IDENTITY
+                LAST-UPDATED    "200110240000Z"
+                ORGANIZATION    "Cisco Systems, Inc."
+                CONTACT-INFO
+                        "       Cisco Systems
+                                Customer Service
+                        
+                        Postal: 170 West Tasman Drive
+                                San Jose, CA  95134
+                                USA
+                        
+                           Tel: +1 800 553-NETS
+                        
+                        E-mail: cs-ss7@cisco.com"
+                DESCRIPTION
+                        "Agent capabilities for the CISCO-ITP-ACT-MIB."
+                REVISION        "200110240000Z"
+                DESCRIPTION
+                        "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 219 }
+
+ciscoItpActCapabilityV12R024MB1 AGENT-CAPABILITIES
+
+PRODUCT-RELEASE "Cisco IOS 12.2(4)MB1"
+  STATUS          current
+  DESCRIPTION     "IOS 12.2(4)MB1 Cisco CISCO-ITP-ACT-MIB.my User Agent
+                   MIB capabilities."
+
+SUPPORTS        CISCO-ITP-ACT-MIB
+  INCLUDES      { 
+                    cItpActMtp3Group,
+                    cItpActGttGroup
+                }  
+                  
+
+::= { ciscoItpActCapability 1 }
+
+END

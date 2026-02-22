@@ -1,0 +1,382 @@
+-- *****************************************************************
+-- CISCO-WAN-CODEC-GEN-PARM-MIB.my:  CISCO WAN codec parm MIB file
+--
+-- March 2004, Rashmi Purandare 
+--
+-- Copyright (c) 2001, 2002, 2003, 2004 by Cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *****************************************************************
+
+CISCO-WAN-CODEC-GEN-PARM-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE
+                FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+                FROM SNMPv2-CONF
+    ciscoWan    FROM CISCOWAN-SMI;
+
+
+ciscoWanCodecGenParmMIB MODULE-IDENTITY
+    LAST-UPDATED "200403170000Z"
+    ORGANIZATION "Cisco Systems, Inc."
+    CONTACT-INFO
+            "       Cisco Systems
+                    Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA 95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-vism@cisco.com"
+
+    DESCRIPTION
+        "This MIB provides configuration of Jitter buffer mode
+         on a call and initial jitter delay value per Codec based. 
+         Prior to this, the configuration are specify on
+         a Card based. The Card level objects 
+         vismJitterDelayMode and vismJitterInitialDelay in 
+         CISCO-VISM-MODULE-MIB are now deprecated.   
+        "
+    REVISION    "200403170000Z"
+    DESCRIPTION "Add new enums to vismCodecJitterInitialDelay
+                 in order to support lossless codec.
+                 Updated vismCodecJitterInitialDelay description.
+                "
+    REVISION    "200401300000Z"
+    DESCRIPTION 
+        "1. Update descriptions in MIB.
+        
+         2. added jitter with fixed timestamp to
+            vismCodecJitterDelayMode. 
+        "
+    REVISION    "200305230000Z"
+    DESCRIPTION 
+        "added Lossless codec.
+        "
+    REVISION    "200109100000Z"
+    DESCRIPTION 
+        "added codec G723 family.
+        "
+    REVISION    "200108211500Z"
+    DESCRIPTION 
+        "added codecGenParmNotifications entry.
+        "
+    REVISION    "200108021500Z"
+    DESCRIPTION 
+        "description modification and LAST-UPDATED modify.
+        "
+    REVISION    "200106151500Z"
+    DESCRIPTION 
+        "changed the name to from 'codec jitter' to
+         'codec gen parm' so that this table can be used
+         for all non application specific per codec based
+         MIB objects.
+        "
+    REVISION    "200103201500Z"
+    DESCRIPTION 
+        "Initial draft.
+        "
+
+    ::= { ciscoWan 21 }
+
+ciscoWanCodecGenParmMIBObjects  OBJECT IDENTIFIER ::= 
+                                  { ciscoWanCodecGenParmMIB 1 }
+
+vismCodecGenParmGrp             OBJECT IDENTIFIER ::= 
+                                  { ciscoWanCodecGenParmMIBObjects 1 }
+
+
+--
+-- vismCodecGenParmTable
+
+-- All the entries in this table are created implicitly
+-- when the card is up, and their values are set to
+-- defaults upon creation.
+--
+
+
+vismCodecGenParmTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF VismCodecGenParmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "vismCodecGenParmTable contains configuration
+         information about per codec based general
+         parameters regardless of its application.
+        "
+    ::= { vismCodecGenParmGrp 1 }
+
+
+vismCodecGenParmEntry OBJECT-TYPE
+    SYNTAX      VismCodecGenParmEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+         "User can modify the parameters at any time. If there
+          are active calls going on, the new settings will
+          not take affect until the next call. The last
+          modified values are retained when VISM card reboots.
+         "
+    INDEX { vismCodecIndex }
+    ::= { vismCodecGenParmTable 1 }
+
+
+VismCodecGenParmEntry ::=
+    SEQUENCE {
+          vismCodecIndex                   INTEGER,
+          vismCodecJitterDelayMode         INTEGER,
+          vismCodecJitterInitialDelay      INTEGER
+       }
+
+vismCodecIndex  OBJECT-TYPE
+    SYNTAX      INTEGER {
+                                g711u        (1),
+                                g711a        (2),
+                                g726r32000   (3),
+                                g729a        (4),
+                                g729ab       (5),
+                                clearChannel (6),
+                                g726r16000   (7),
+                                g726r24000   (8),
+                                g726r40000   (9),
+                                g723h        (11),
+                                g723ah       (12),
+                                g723l        (13),
+                                g723al       (14),
+                                lossless     (15)
+                       }
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This is the index to this table.
+              
+              1   represents  G.711u
+              2   represents  G.711a
+              3   represents  G.726 at rate 32 kbps
+              4   represents  G.729a
+              5   represents  G.729ab
+              6   represents  clear channel
+              7   represents  G.726 at rate 16 kbps
+              8   represents  G.726 at rate 24 kbps
+              9   represents  G.726 at rate 40 kbps
+              10  is RESERVED 
+              11  represents  G.723.1-H
+              12  represents  G.723.1a-H
+              13  represents  G.723.1-L
+              14  represents  G.723.1a-L
+              15  represents  Lossless
+        "
+        ::= { vismCodecGenParmEntry 1 }
+
+vismCodecJitterDelayMode  OBJECT-TYPE
+     SYNTAX     INTEGER {
+                   fixed              (1),
+                   adaptive           (2),
+                   fixedWithTimeStamp (3)
+                }
+     MAX-ACCESS read-write
+     STATUS     current
+     DESCRIPTION
+         "This object is used to provision the jitter buffer mode
+          to be apply to a call connection.
+          The possible values are:
+          'fixed' : means use a constant jitter buffer size, which
+                    is defined by the vismJitterInitialDelay
+                    (specify in CISCO-VISM-MODULE-MIB MIB) variable.
+                    The DSP will be instructed to use fixed
+                    with no time-stamps mode.
+          'adaptive': means let the DSP pick the optimal value for
+                    the call connection.
+
+          'fixedWithTimeStamp': means use a constant jitter
+                    buffer size, which is defined by the
+                    vismJitterInitialDelay variable. The DSP
+                    will be instructed to use fixed with
+                    time-stamps mode.
+
+          For 'g711u', 'g711a', 'clearChannel', and 'lossless'
+               the default value is fixed.
+
+          For 'g726r32000', 'g729a', 'g729ab', 'g726r16000',
+              'g726r24000','g726r40000', 'g723h','g723l',
+              'g723ah' and 'g723al' the default value is adaptive.  
+         "
+        ::= { vismCodecGenParmEntry 2 }
+
+vismCodecJitterInitialDelay OBJECT-TYPE
+     SYNTAX   INTEGER {
+            zero        (1),
+            two         (2),
+            three       (3),
+            four        (4),
+            five        (5),
+            six         (6),
+            seven       (7),
+            eight       (8),
+            nine        (9),
+            ten         (10),
+            eleven      (11),
+            twelve      (12),
+            thirteen    (13),
+            fourteen    (14),
+            fifteen     (15),
+            sixteen     (16),
+            seventeen   (17),
+            eighteen    (18),
+            nineteen    (19),
+            twenty      (20),
+            twentyone   (21),
+            twentytwo   (22),
+            twentythree (23),
+            twentyfour  (24),
+            twentyfive  (25),
+            twentysix   (26),
+            twentyseven (27),
+            twentyeight (28),
+            twentynine  (29),
+            thirty      (30),
+            thirtyone   (31),
+            thirtytwo   (32),
+            thirtythree (33),
+            thirtyfour  (34),
+            thirtyfive  (35),
+            thirtysix   (36),
+            thirtyseven (37),
+            thirtyeight (38),
+            thirtynine  (39),
+            fourty      (40),
+            fortyone    (41),
+            fortytwo    (42),
+            fortythree  (43),
+            fortyfour   (44), 
+            fortyfive   (45),
+            fortysix    (46),
+            fortyseven  (47),
+            fortyeight  (48),
+            fortynine   (49),
+            fifty       (50),
+            fiftyfive   (55),
+            sixty       (60),
+            sixtyfive   (65),
+            seventy     (70),
+            seventyfive (75),
+            eighty      (80),
+            eightyfive  (85),
+            ninty       (90),
+            ninetyfive  (95),
+            hundred     (100)
+            }
+     MAX-ACCESS read-write
+     STATUS     current
+     DESCRIPTION
+         "This object defines the jitter buffer size in milliseconds. 
+          If the vismCodecJitterDelayMode is set to be 'fixed',
+          the jitter buffer is fixed at this value for the duration
+          of the call, if it is set to 'adaptive', the value of
+          this object is the initial jitter buffer size, and the
+          DSP will adapt to an optimal size dynamically.
+
+          For G.711u, G.711a, Clear Channel, the default value is 
+          100 ms.
+
+          For lossless the default value is 16ms.
+
+          For 'g726r32000', 'g729a', 'g729ab', 'g726r16000',
+              'g726r24000','g726r40000', 'g723h','g723l',
+              'g723ah' and 'g723al' the default value is 60 ms.
+
+          The jitter buffer size of this object differs for each set of
+          codecs supported on VISM card. A set of codecs supported
+          is identified by vismCodecTemplateNum object(defined in
+          CISCO-VISM-CODEC-MIB MIB).
+
+          For codecs in template number 1, 3, 4, and 5:
+          the jitter buffer size is as follow: 'zero', 'five', 'ten'
+          'fifteen', 'twenty', 'thirty', 'fourty', 'fifty', 'sixty',
+          'seventy', 'eighty', 'ninty', 'hundred'.
+
+          For codecs in template 2, the jitter buffer size 
+          is as follow: 'zero', 'five', 'ten', 'fifteen', 'twenty',
+          'twentyfive', 'thirty', 'thirtyfive', 'fourty', 'fortyfive',
+          'fifty', 'fiftyfive', 'sixty', 'sixtyfive', 'seventy',
+          'seventyfive', 'eighty', 'eightyfive', 'ninty', 'ninetyfive',
+          'hundred'.
+
+          When the codec template changes, the value of this
+          object will be implicitly set to the default value.
+         "
+        ::= { vismCodecGenParmEntry 3 }
+
+
+
+-- *****************************************************************
+-- vism codec jitter group notification
+-- *****************************************************************
+
+vismCodecGenParmNotificationPrefix OBJECT IDENTIFIER ::= 
+                               { ciscoWanCodecGenParmMIB 2 }
+
+vismCodecGenParmNotifications OBJECT IDENTIFIER      ::= 
+                               {vismCodecGenParmNotificationPrefix 0}
+
+
+-- ******************************************************************
+-- Conformance
+-- ******************************************************************
+
+--
+-- conformance information
+--
+
+vismCodecGenParmMIBConformance OBJECT IDENTIFIER  ::= 
+                                 { ciscoWanCodecGenParmMIB 3 }
+
+vismCodecGenParmMIBCompliances OBJECT IDENTIFIER ::= 
+                                 { vismCodecGenParmMIBConformance 1 }
+
+vismCodecGenParmMIBGroups      OBJECT IDENTIFIER ::= 
+                                 { vismCodecGenParmMIBConformance 2 }
+
+--
+-- Conformance and compliance statements statements
+--
+
+vismCodecGenParmMIBCompliance MODULE-COMPLIANCE
+    STATUS current
+    DESCRIPTION
+            "The complaince statement for VISM codec general
+             parameter group.
+            "
+    MODULE  -- this module
+        MANDATORY-GROUPS { vismCodecGenParmGroup 
+                         }
+    ::= { vismCodecGenParmMIBCompliances 1 }
+
+--
+-- units of conformance
+--
+-- MIB Groups
+--
+
+vismCodecGenParmGroup OBJECT-GROUP
+    OBJECTS {
+              vismCodecJitterDelayMode,   
+              vismCodecJitterInitialDelay
+            }
+    STATUS    current
+    DESCRIPTION
+            "This group contains objects that is per codec based and 
+             non application specific.
+            "
+    ::= { vismCodecGenParmMIBGroups 1 }
+
+END
+
+
+

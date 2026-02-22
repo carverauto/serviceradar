@@ -96,46 +96,42 @@ defmodule ServiceRadarWebNGWeb.OAuthController do
     if is_nil(username) or is_nil(password) do
       error_response(conn, 400, "invalid_request", "Missing username or password")
     else
-      # Try to authenticate the user
       actor = SystemActor.system(:oauth_token)
+      scopes = parse_scopes(params["scope"] || "read write")
+      scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
+      extra_claims = %{"scope" => Enum.join(scopes, " ")}
 
-      case ServiceRadar.Identity.User.authenticate(username, password, actor: actor) do
-        {:ok, user} ->
-          # Issue a token for the user directly
-          scopes = parse_scopes(params["scope"] || "read write")
-          scopes_atoms = Enum.map(scopes, &scope_to_atom/1)
-
-          extra_claims = %{
-            "scope" => Enum.join(scopes, " ")
-          }
-
-          case Guardian.create_api_token(user,
-                 scopes: scopes_atoms,
-                 claims: extra_claims,
-                 ttl: {@default_ttl_seconds, :second}
-               ) do
-            {:ok, token, _full_claims} ->
-              conn
-              |> put_resp_content_type("application/json")
-              |> put_resp_header("cache-control", "no-store")
-              |> put_resp_header("pragma", "no-cache")
-              |> send_resp(
-                200,
-                Jason.encode!(%{
-                  access_token: token,
-                  token_type: "Bearer",
-                  expires_in: @default_ttl_seconds,
-                  scope: Enum.join(scopes, " ")
-                })
-              )
-
-            {:error, reason} ->
-              Logger.error("Failed to create access token for user #{user.id}: #{inspect(reason)}")
-              error_response(conn, 500, "server_error", "Failed to generate access token")
-          end
-
-        {:error, _} ->
+      with {:ok, user} <-
+             ServiceRadar.Identity.User.authenticate(username, password, actor: actor),
+           {:ok, token, _full_claims} <-
+             Guardian.create_api_token(user,
+               scopes: scopes_atoms,
+               claims: extra_claims,
+               ttl: {@default_ttl_seconds, :second}
+             ) do
+        conn
+        |> put_resp_content_type("application/json")
+        |> put_resp_header("cache-control", "no-store")
+        |> put_resp_header("pragma", "no-cache")
+        |> send_resp(
+          200,
+          Jason.encode!(%{
+            access_token: token,
+            token_type: "Bearer",
+            expires_in: @default_ttl_seconds,
+            scope: Enum.join(scopes, " ")
+          })
+        )
+      else
+        {:error, reason} when reason in [:invalid_credentials, :authentication_failed] ->
           error_response(conn, 401, "invalid_grant", "Invalid username or password")
+
+        {:error, %Ash.Error.Invalid{}} ->
+          error_response(conn, 401, "invalid_grant", "Invalid username or password")
+
+        {:error, reason} ->
+          Logger.error("Failed to create password grant token: #{inspect(reason)}")
+          error_response(conn, 500, "server_error", "Failed to generate access token")
       end
     end
   end

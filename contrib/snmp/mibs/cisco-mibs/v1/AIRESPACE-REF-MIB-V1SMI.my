@@ -1,0 +1,38 @@
+-- MIB file created 13-Jun-2006 11:43:05, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+AIRESPACE-REF-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "AIRESPACE-REF-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    enterprises
+            FROM SNMPv2-SMI-v1;
+
+airespace OBJECT IDENTIFIER ::= { enterprises 14179 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200512190000Z
+--  OrgName
+--    Airespace, Inc.
+--  ContactInfo
+--            Cisco Systems,
+--             Customer Service
+--     Postal: 170 West Tasman Drive
+--             San Jose, CA  95134
+--             USA
+--        Tel: +1 800 553-NETS
+--    
+--      Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    The Structure of Management Information for the
+--     Airespace enterprise.
+--  RevDate
+--    200512190000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+
+END
+

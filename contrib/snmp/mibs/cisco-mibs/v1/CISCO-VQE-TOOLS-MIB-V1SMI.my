@@ -1,0 +1,126 @@
+-- MIB file created 18-Feb-2010 09:40:17, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VQE-TOOLS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VQE-TOOLS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge,Counter
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoVqeToolsMIB OBJECT IDENTIFIER ::= { ciscoMgmt 969 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200912181341Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    E-mail: bxb-iptv-team@cisco.com
+--  Descr
+--    This MIB module defines a set of objects for monitoring the
+--    VQE Client Channel Configuration Delivery Server (VCDS) 
+--    operational status: number of open connections, Real Time
+--    Streaming Protocol (RTSP) reqests received and responses 
+--    sent from the VCDS.
+--    
+--    Visual Quality Experience Tools Server(VQE-Tools) is
+--    responsible for the creation, maintenance, and distribution 
+--    of the channel information containing channel-lineup data.
+--  RevDate
+--    200912181341Z
+--  RevDescr
+--    Latest version of the MIB
+
+ciscoVqeToolsMIBNotifs OBJECT IDENTIFIER ::= { ciscoVqeToolsMIB 0 }
+ciscoVqeToolsMIBObjects OBJECT IDENTIFIER ::= { ciscoVqeToolsMIB 1 }
+ciscoVqeToolsMIBConform OBJECT IDENTIFIER ::= { ciscoVqeToolsMIB 2 }
+cvqtVcdsInfo    OBJECT IDENTIFIER ::= { ciscoVqeToolsMIBObjects 1 }
+cvqtMIBCompliances OBJECT IDENTIFIER ::= { ciscoVqeToolsMIBConform 1 }
+cvqtMIBGroups   OBJECT IDENTIFIER ::= { ciscoVqeToolsMIBConform 2 }
+
+cvqtNumberOfSessions OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    RTSP connections
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of open RTSP connections
+        between VCDS and RTSP clients."
+    ::= { cvqtVcdsInfo 1 }
+
+cvqtTotalReceivedRequests OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    RTSP requests
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of RTSP requests received
+        at VCDS."
+    ::= { cvqtVcdsInfo 2 }
+
+cvqtTotalSentResponses OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+--  Units
+--    RTSP responses
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of RTSP responses sent
+        from VCDS."
+    ::= { cvqtVcdsInfo 3 }
+
+cvqtRequestRate OBJECT-TYPE
+    SYNTAX Gauge
+--  Units
+--    requests per second
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the number of RTSP requests received
+        at VCDS per second."
+    ::= { cvqtVcdsInfo 4 }
+
+ciscoVqeToolsVcdsGroup OBJECT IDENTIFIER ::= { cvqtMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects providing the VCDS stats
+--    information.
+--  objects
+--    cvqtNumberOfSessions, cvqtTotalReceivedRequests, 
+--    cvqtTotalSentResponses, cvqtRequestRate
+
+cvqtMIBReadOnlyCompliance OBJECT IDENTIFIER ::= { cvqtMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement this MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoVqeToolsVcdsGroup
+
+
+END
+

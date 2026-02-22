@@ -1,0 +1,1214 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-EPQOS-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- EPQOS management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-EPQOS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsConditionRemoteInvRslt,
+    CucsEpqosDefinitionDelTaskFsmCurrentFsm,
+    CucsEpqosDefinitionDelTaskFsmStageName,
+    CucsEpqosDefinitionDelTaskFsmTaskItem,
+    CucsEpqosDefinitionFsmCurrentFsm,
+    CucsEpqosDefinitionFsmStageName,
+    CucsEpqosDefinitionFsmTaskItem,
+    CucsFsmCompletion,
+    CucsFsmFlags,
+    CucsFsmFsmStageStatus,
+    CucsPolicyPolicyOwner,
+    CucsQosHostControl,
+    CucsQosPriority
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsEpqosObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        EPQOS management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 14 }
+
+cucsEpqosDefinitionTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEpqosDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition managed object table"
+    ::= { cucsEpqosObjects 1 }
+
+cucsEpqosDefinitionEntry OBJECT-TYPE
+    SYNTAX           CucsEpqosDefinitionEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEpqosDefinitionTable table."
+    INDEX { cucsEpqosDefinitionInstanceId }
+    ::= { cucsEpqosDefinitionTable 1 }
+
+CucsEpqosDefinitionEntry ::= SEQUENCE {
+    cucsEpqosDefinitionInstanceId                                    CucsManagedObjectId,
+    cucsEpqosDefinitionDn                                            CucsManagedObjectDn,
+    cucsEpqosDefinitionRn                                            SnmpAdminString,
+    cucsEpqosDefinitionDescr                                         SnmpAdminString,
+    cucsEpqosDefinitionFsmDescr                                      SnmpAdminString,
+    cucsEpqosDefinitionFsmPrev                                       SnmpAdminString,
+    cucsEpqosDefinitionFsmProgr                                      Gauge32,
+    cucsEpqosDefinitionFsmRmtInvErrCode                              Gauge32,
+    cucsEpqosDefinitionFsmRmtInvErrDescr                             SnmpAdminString,
+    cucsEpqosDefinitionFsmRmtInvRslt                                 CucsConditionRemoteInvRslt,
+    cucsEpqosDefinitionFsmStageDescr                                 SnmpAdminString,
+    cucsEpqosDefinitionFsmStamp                                      DateAndTime,
+    cucsEpqosDefinitionFsmStatus                                     SnmpAdminString,
+    cucsEpqosDefinitionFsmTry                                        Gauge32,
+    cucsEpqosDefinitionIntId                                         SnmpAdminString,
+    cucsEpqosDefinitionName                                          SnmpAdminString,
+    cucsEpqosDefinitionPolicyLevel                                   Gauge32,
+    cucsEpqosDefinitionPolicyOwner                                   CucsPolicyPolicyOwner
+}
+
+cucsEpqosDefinitionInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEpqosDefinitionEntry 1 }
+
+cucsEpqosDefinitionDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:dn managed object property"
+    ::= { cucsEpqosDefinitionEntry 2 }
+
+cucsEpqosDefinitionRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:rn managed object property"
+    ::= { cucsEpqosDefinitionEntry 3 }
+
+cucsEpqosDefinitionDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:descr managed object property"
+    ::= { cucsEpqosDefinitionEntry 4 }
+
+cucsEpqosDefinitionFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:fsmDescr managed object property"
+    ::= { cucsEpqosDefinitionEntry 5 }
+
+cucsEpqosDefinitionFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:fsmPrev managed object property"
+    ::= { cucsEpqosDefinitionEntry 6 }
+
+cucsEpqosDefinitionFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:fsmProgr managed object property"
+    ::= { cucsEpqosDefinitionEntry 7 }
+
+cucsEpqosDefinitionFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:fsmRmtInvErrCode managed
+        object property"
+    ::= { cucsEpqosDefinitionEntry 8 }
+
+cucsEpqosDefinitionFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:fsmRmtInvErrDescr managed
+        object property"
+    ::= { cucsEpqosDefinitionEntry 9 }
+
+cucsEpqosDefinitionFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:fsmRmtInvRslt managed object property"
+    ::= { cucsEpqosDefinitionEntry 10 }
+
+cucsEpqosDefinitionFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:fsmStageDescr managed object property"
+    ::= { cucsEpqosDefinitionEntry 11 }
+
+cucsEpqosDefinitionFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:fsmStamp managed object property"
+    ::= { cucsEpqosDefinitionEntry 12 }
+
+cucsEpqosDefinitionFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:fsmStatus managed object property"
+    ::= { cucsEpqosDefinitionEntry 13 }
+
+cucsEpqosDefinitionFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:fsmTry managed object property"
+    ::= { cucsEpqosDefinitionEntry 14 }
+
+cucsEpqosDefinitionIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:intId managed object property"
+    ::= { cucsEpqosDefinitionEntry 15 }
+
+cucsEpqosDefinitionName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:name managed object property"
+    ::= { cucsEpqosDefinitionEntry 16 }
+
+cucsEpqosDefinitionPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:policyLevel managed object property"
+    ::= { cucsEpqosDefinitionEntry 17 }
+
+cucsEpqosDefinitionPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Definition:policyOwner managed object property"
+    ::= { cucsEpqosDefinitionEntry 18 }
+
+cucsEpqosDefinitionDelTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEpqosDefinitionDelTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask managed object table"
+    ::= { cucsEpqosObjects 2 }
+
+cucsEpqosDefinitionDelTaskEntry OBJECT-TYPE
+    SYNTAX           CucsEpqosDefinitionDelTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEpqosDefinitionDelTaskTable table."
+    INDEX { cucsEpqosDefinitionDelTaskInstanceId }
+    ::= { cucsEpqosDefinitionDelTaskTable 1 }
+
+CucsEpqosDefinitionDelTaskEntry ::= SEQUENCE {
+    cucsEpqosDefinitionDelTaskInstanceId                             CucsManagedObjectId,
+    cucsEpqosDefinitionDelTaskDn                                     CucsManagedObjectDn,
+    cucsEpqosDefinitionDelTaskRn                                     SnmpAdminString,
+    cucsEpqosDefinitionDelTaskDefIntId                               SnmpAdminString,
+    cucsEpqosDefinitionDelTaskDescr                                  SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmDescr                               SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmPrev                                SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmProgr                               Gauge32,
+    cucsEpqosDefinitionDelTaskFsmRmtInvErrCode                       Gauge32,
+    cucsEpqosDefinitionDelTaskFsmRmtInvErrDescr                      SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmRmtInvRslt                          CucsConditionRemoteInvRslt,
+    cucsEpqosDefinitionDelTaskFsmStageDescr                          SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmStamp                               DateAndTime,
+    cucsEpqosDefinitionDelTaskFsmStatus                              SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmTry                                 Gauge32,
+    cucsEpqosDefinitionDelTaskIntId                                  SnmpAdminString,
+    cucsEpqosDefinitionDelTaskName                                   SnmpAdminString,
+    cucsEpqosDefinitionDelTaskDefDn                                  SnmpAdminString,
+    cucsEpqosDefinitionDelTaskPolicyLevel                            Gauge32,
+    cucsEpqosDefinitionDelTaskPolicyOwner                            CucsPolicyPolicyOwner
+}
+
+cucsEpqosDefinitionDelTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEpqosDefinitionDelTaskEntry 1 }
+
+cucsEpqosDefinitionDelTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:dn managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 2 }
+
+cucsEpqosDefinitionDelTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:rn managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 3 }
+
+cucsEpqosDefinitionDelTaskDefIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:defIntId managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 4 }
+
+cucsEpqosDefinitionDelTaskDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:descr managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 5 }
+
+cucsEpqosDefinitionDelTaskFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:fsmDescr managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 6 }
+
+cucsEpqosDefinitionDelTaskFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:fsmPrev managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 7 }
+
+cucsEpqosDefinitionDelTaskFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:fsmProgr managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 8 }
+
+cucsEpqosDefinitionDelTaskFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:fsmRmtInvErrCode
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 9 }
+
+cucsEpqosDefinitionDelTaskFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:fsmRmtInvErrDescr
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 10 }
+
+cucsEpqosDefinitionDelTaskFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:fsmRmtInvRslt
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 11 }
+
+cucsEpqosDefinitionDelTaskFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:fsmStageDescr
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 12 }
+
+cucsEpqosDefinitionDelTaskFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:fsmStamp managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 13 }
+
+cucsEpqosDefinitionDelTaskFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:fsmStatus managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 14 }
+
+cucsEpqosDefinitionDelTaskFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:fsmTry managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 15 }
+
+cucsEpqosDefinitionDelTaskIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:intId managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 16 }
+
+cucsEpqosDefinitionDelTaskName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:name managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 17 }
+
+cucsEpqosDefinitionDelTaskDefDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:defDn managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 18 }
+
+cucsEpqosDefinitionDelTaskPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:policyLevel
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 19 }
+
+cucsEpqosDefinitionDelTaskPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTask:policyOwner
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskEntry 20 }
+
+cucsEpqosDefinitionDelTaskFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEpqosDefinitionDelTaskFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm managed object table"
+    ::= { cucsEpqosObjects 6 }
+
+cucsEpqosDefinitionDelTaskFsmEntry OBJECT-TYPE
+    SYNTAX           CucsEpqosDefinitionDelTaskFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEpqosDefinitionDelTaskFsmTable table."
+    INDEX { cucsEpqosDefinitionDelTaskFsmInstanceId }
+    ::= { cucsEpqosDefinitionDelTaskFsmTable 1 }
+
+CucsEpqosDefinitionDelTaskFsmEntry ::= SEQUENCE {
+    cucsEpqosDefinitionDelTaskFsmInstanceId                          CucsManagedObjectId,
+    cucsEpqosDefinitionDelTaskFsmDn                                  CucsManagedObjectDn,
+    cucsEpqosDefinitionDelTaskFsmRn                                  SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmCompletionTime                      DateAndTime,
+    cucsEpqosDefinitionDelTaskFsmCurrentFsm                          CucsEpqosDefinitionDelTaskFsmCurrentFsm,
+    cucsEpqosDefinitionDelTaskFsmDescrData                           SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmFsmStatus                           CucsFsmFsmStageStatus,
+    cucsEpqosDefinitionDelTaskFsmProgress                            Gauge32,
+    cucsEpqosDefinitionDelTaskFsmRmtErrCode                          Gauge32,
+    cucsEpqosDefinitionDelTaskFsmRmtErrDescr                         SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmRmtRslt                             CucsConditionRemoteInvRslt
+}
+
+cucsEpqosDefinitionDelTaskFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 1 }
+
+cucsEpqosDefinitionDelTaskFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm:dn managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 2 }
+
+cucsEpqosDefinitionDelTaskFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm:rn managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 3 }
+
+cucsEpqosDefinitionDelTaskFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm:completionTime
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 4 }
+
+cucsEpqosDefinitionDelTaskFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsEpqosDefinitionDelTaskFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm:currentFsm
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 5 }
+
+cucsEpqosDefinitionDelTaskFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm:descr managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 6 }
+
+cucsEpqosDefinitionDelTaskFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm:fsmStatus
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 7 }
+
+cucsEpqosDefinitionDelTaskFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm:progress
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 8 }
+
+cucsEpqosDefinitionDelTaskFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm:rmtErrCode
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 9 }
+
+cucsEpqosDefinitionDelTaskFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm:rmtErrDescr
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 10 }
+
+cucsEpqosDefinitionDelTaskFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsm:rmtRslt managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmEntry 11 }
+
+cucsEpqosDefinitionDelTaskFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEpqosDefinitionDelTaskFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmStage managed object table"
+    ::= { cucsEpqosObjects 7 }
+
+cucsEpqosDefinitionDelTaskFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsEpqosDefinitionDelTaskFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEpqosDefinitionDelTaskFsmStageTable table."
+    INDEX { cucsEpqosDefinitionDelTaskFsmStageInstanceId }
+    ::= { cucsEpqosDefinitionDelTaskFsmStageTable 1 }
+
+CucsEpqosDefinitionDelTaskFsmStageEntry ::= SEQUENCE {
+    cucsEpqosDefinitionDelTaskFsmStageInstanceId                     CucsManagedObjectId,
+    cucsEpqosDefinitionDelTaskFsmStageDn                             CucsManagedObjectDn,
+    cucsEpqosDefinitionDelTaskFsmStageRn                             SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmStageDescrData                      SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmStageLastUpdateTime                 DateAndTime,
+    cucsEpqosDefinitionDelTaskFsmStageName                           CucsEpqosDefinitionDelTaskFsmStageName,
+    cucsEpqosDefinitionDelTaskFsmStageOrder                          Gauge32,
+    cucsEpqosDefinitionDelTaskFsmStageRetry                          Gauge32,
+    cucsEpqosDefinitionDelTaskFsmStageStageStatus                    CucsFsmFsmStageStatus
+}
+
+cucsEpqosDefinitionDelTaskFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEpqosDefinitionDelTaskFsmStageEntry 1 }
+
+cucsEpqosDefinitionDelTaskFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmStage:dn managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmStageEntry 2 }
+
+cucsEpqosDefinitionDelTaskFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmStage:rn managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmStageEntry 3 }
+
+cucsEpqosDefinitionDelTaskFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmStage:descr
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmStageEntry 4 }
+
+cucsEpqosDefinitionDelTaskFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmStageEntry 5 }
+
+cucsEpqosDefinitionDelTaskFsmStageName OBJECT-TYPE
+    SYNTAX       CucsEpqosDefinitionDelTaskFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmStage:name
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmStageEntry 6 }
+
+cucsEpqosDefinitionDelTaskFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmStage:order
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmStageEntry 7 }
+
+cucsEpqosDefinitionDelTaskFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmStage:retry
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmStageEntry 8 }
+
+cucsEpqosDefinitionDelTaskFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmStage:stageStatus
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmStageEntry 9 }
+
+cucsEpqosDefinitionDelTaskFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEpqosDefinitionDelTaskFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmTask managed object table"
+    ::= { cucsEpqosObjects 3 }
+
+cucsEpqosDefinitionDelTaskFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsEpqosDefinitionDelTaskFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEpqosDefinitionDelTaskFsmTaskTable table."
+    INDEX { cucsEpqosDefinitionDelTaskFsmTaskInstanceId }
+    ::= { cucsEpqosDefinitionDelTaskFsmTaskTable 1 }
+
+CucsEpqosDefinitionDelTaskFsmTaskEntry ::= SEQUENCE {
+    cucsEpqosDefinitionDelTaskFsmTaskInstanceId                      CucsManagedObjectId,
+    cucsEpqosDefinitionDelTaskFsmTaskDn                              CucsManagedObjectDn,
+    cucsEpqosDefinitionDelTaskFsmTaskRn                              SnmpAdminString,
+    cucsEpqosDefinitionDelTaskFsmTaskCompletion                      CucsFsmCompletion,
+    cucsEpqosDefinitionDelTaskFsmTaskFlags                           CucsFsmFlags,
+    cucsEpqosDefinitionDelTaskFsmTaskItem                            CucsEpqosDefinitionDelTaskFsmTaskItem,
+    cucsEpqosDefinitionDelTaskFsmTaskSeqId                           Gauge32
+}
+
+cucsEpqosDefinitionDelTaskFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEpqosDefinitionDelTaskFsmTaskEntry 1 }
+
+cucsEpqosDefinitionDelTaskFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmTask:dn managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmTaskEntry 2 }
+
+cucsEpqosDefinitionDelTaskFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmTask:rn managed
+        object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmTaskEntry 3 }
+
+cucsEpqosDefinitionDelTaskFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmTask:completion
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmTaskEntry 4 }
+
+cucsEpqosDefinitionDelTaskFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmTask:flags
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmTaskEntry 5 }
+
+cucsEpqosDefinitionDelTaskFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsEpqosDefinitionDelTaskFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmTask:item
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmTaskEntry 6 }
+
+cucsEpqosDefinitionDelTaskFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionDelTaskFsmTask:seqId
+        managed object property"
+    ::= { cucsEpqosDefinitionDelTaskFsmTaskEntry 7 }
+
+cucsEpqosDefinitionFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEpqosDefinitionFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm managed object table"
+    ::= { cucsEpqosObjects 8 }
+
+cucsEpqosDefinitionFsmEntry OBJECT-TYPE
+    SYNTAX           CucsEpqosDefinitionFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEpqosDefinitionFsmTable table."
+    INDEX { cucsEpqosDefinitionFsmInstanceId }
+    ::= { cucsEpqosDefinitionFsmTable 1 }
+
+CucsEpqosDefinitionFsmEntry ::= SEQUENCE {
+    cucsEpqosDefinitionFsmInstanceId                                 CucsManagedObjectId,
+    cucsEpqosDefinitionFsmDn                                         CucsManagedObjectDn,
+    cucsEpqosDefinitionFsmRn                                         SnmpAdminString,
+    cucsEpqosDefinitionFsmCompletionTime                             DateAndTime,
+    cucsEpqosDefinitionFsmCurrentFsm                                 CucsEpqosDefinitionFsmCurrentFsm,
+    cucsEpqosDefinitionFsmDescrData                                  SnmpAdminString,
+    cucsEpqosDefinitionFsmFsmStatus                                  CucsFsmFsmStageStatus,
+    cucsEpqosDefinitionFsmProgress                                   Gauge32,
+    cucsEpqosDefinitionFsmRmtErrCode                                 Gauge32,
+    cucsEpqosDefinitionFsmRmtErrDescr                                SnmpAdminString,
+    cucsEpqosDefinitionFsmRmtRslt                                    CucsConditionRemoteInvRslt
+}
+
+cucsEpqosDefinitionFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEpqosDefinitionFsmEntry 1 }
+
+cucsEpqosDefinitionFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm:dn managed object property"
+    ::= { cucsEpqosDefinitionFsmEntry 2 }
+
+cucsEpqosDefinitionFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm:rn managed object property"
+    ::= { cucsEpqosDefinitionFsmEntry 3 }
+
+cucsEpqosDefinitionFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm:completionTime managed
+        object property"
+    ::= { cucsEpqosDefinitionFsmEntry 4 }
+
+cucsEpqosDefinitionFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsEpqosDefinitionFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm:currentFsm managed object property"
+    ::= { cucsEpqosDefinitionFsmEntry 5 }
+
+cucsEpqosDefinitionFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm:descr managed object property"
+    ::= { cucsEpqosDefinitionFsmEntry 6 }
+
+cucsEpqosDefinitionFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm:fsmStatus managed object property"
+    ::= { cucsEpqosDefinitionFsmEntry 7 }
+
+cucsEpqosDefinitionFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm:progress managed object property"
+    ::= { cucsEpqosDefinitionFsmEntry 8 }
+
+cucsEpqosDefinitionFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm:rmtErrCode managed object property"
+    ::= { cucsEpqosDefinitionFsmEntry 9 }
+
+cucsEpqosDefinitionFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm:rmtErrDescr managed
+        object property"
+    ::= { cucsEpqosDefinitionFsmEntry 10 }
+
+cucsEpqosDefinitionFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsm:rmtRslt managed object property"
+    ::= { cucsEpqosDefinitionFsmEntry 11 }
+
+cucsEpqosDefinitionFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEpqosDefinitionFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmStage managed object table"
+    ::= { cucsEpqosObjects 9 }
+
+cucsEpqosDefinitionFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsEpqosDefinitionFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEpqosDefinitionFsmStageTable table."
+    INDEX { cucsEpqosDefinitionFsmStageInstanceId }
+    ::= { cucsEpqosDefinitionFsmStageTable 1 }
+
+CucsEpqosDefinitionFsmStageEntry ::= SEQUENCE {
+    cucsEpqosDefinitionFsmStageInstanceId                            CucsManagedObjectId,
+    cucsEpqosDefinitionFsmStageDn                                    CucsManagedObjectDn,
+    cucsEpqosDefinitionFsmStageRn                                    SnmpAdminString,
+    cucsEpqosDefinitionFsmStageDescrData                             SnmpAdminString,
+    cucsEpqosDefinitionFsmStageLastUpdateTime                        DateAndTime,
+    cucsEpqosDefinitionFsmStageName                                  CucsEpqosDefinitionFsmStageName,
+    cucsEpqosDefinitionFsmStageOrder                                 Gauge32,
+    cucsEpqosDefinitionFsmStageRetry                                 Gauge32,
+    cucsEpqosDefinitionFsmStageStageStatus                           CucsFsmFsmStageStatus
+}
+
+cucsEpqosDefinitionFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEpqosDefinitionFsmStageEntry 1 }
+
+cucsEpqosDefinitionFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmStage:dn managed object property"
+    ::= { cucsEpqosDefinitionFsmStageEntry 2 }
+
+cucsEpqosDefinitionFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmStage:rn managed object property"
+    ::= { cucsEpqosDefinitionFsmStageEntry 3 }
+
+cucsEpqosDefinitionFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmStage:descr managed object property"
+    ::= { cucsEpqosDefinitionFsmStageEntry 4 }
+
+cucsEpqosDefinitionFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsEpqosDefinitionFsmStageEntry 5 }
+
+cucsEpqosDefinitionFsmStageName OBJECT-TYPE
+    SYNTAX       CucsEpqosDefinitionFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmStage:name managed object property"
+    ::= { cucsEpqosDefinitionFsmStageEntry 6 }
+
+cucsEpqosDefinitionFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmStage:order managed object property"
+    ::= { cucsEpqosDefinitionFsmStageEntry 7 }
+
+cucsEpqosDefinitionFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmStage:retry managed object property"
+    ::= { cucsEpqosDefinitionFsmStageEntry 8 }
+
+cucsEpqosDefinitionFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmStage:stageStatus
+        managed object property"
+    ::= { cucsEpqosDefinitionFsmStageEntry 9 }
+
+cucsEpqosDefinitionFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEpqosDefinitionFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmTask managed object table"
+    ::= { cucsEpqosObjects 4 }
+
+cucsEpqosDefinitionFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsEpqosDefinitionFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEpqosDefinitionFsmTaskTable table."
+    INDEX { cucsEpqosDefinitionFsmTaskInstanceId }
+    ::= { cucsEpqosDefinitionFsmTaskTable 1 }
+
+CucsEpqosDefinitionFsmTaskEntry ::= SEQUENCE {
+    cucsEpqosDefinitionFsmTaskInstanceId                             CucsManagedObjectId,
+    cucsEpqosDefinitionFsmTaskDn                                     CucsManagedObjectDn,
+    cucsEpqosDefinitionFsmTaskRn                                     SnmpAdminString,
+    cucsEpqosDefinitionFsmTaskCompletion                             CucsFsmCompletion,
+    cucsEpqosDefinitionFsmTaskFlags                                  CucsFsmFlags,
+    cucsEpqosDefinitionFsmTaskItem                                   CucsEpqosDefinitionFsmTaskItem,
+    cucsEpqosDefinitionFsmTaskSeqId                                  Gauge32
+}
+
+cucsEpqosDefinitionFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEpqosDefinitionFsmTaskEntry 1 }
+
+cucsEpqosDefinitionFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmTask:dn managed object property"
+    ::= { cucsEpqosDefinitionFsmTaskEntry 2 }
+
+cucsEpqosDefinitionFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmTask:rn managed object property"
+    ::= { cucsEpqosDefinitionFsmTaskEntry 3 }
+
+cucsEpqosDefinitionFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmTask:completion managed
+        object property"
+    ::= { cucsEpqosDefinitionFsmTaskEntry 4 }
+
+cucsEpqosDefinitionFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmTask:flags managed object property"
+    ::= { cucsEpqosDefinitionFsmTaskEntry 5 }
+
+cucsEpqosDefinitionFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsEpqosDefinitionFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmTask:item managed object property"
+    ::= { cucsEpqosDefinitionFsmTaskEntry 6 }
+
+cucsEpqosDefinitionFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:DefinitionFsmTask:seqId managed object property"
+    ::= { cucsEpqosDefinitionFsmTaskEntry 7 }
+
+cucsEpqosEgressTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsEpqosEgressEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS epqos:Egress managed object table"
+    ::= { cucsEpqosObjects 5 }
+
+cucsEpqosEgressEntry OBJECT-TYPE
+    SYNTAX           CucsEpqosEgressEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsEpqosEgressTable table."
+    INDEX { cucsEpqosEgressInstanceId }
+    ::= { cucsEpqosEgressTable 1 }
+
+CucsEpqosEgressEntry ::= SEQUENCE {
+    cucsEpqosEgressInstanceId                                        CucsManagedObjectId,
+    cucsEpqosEgressDn                                                CucsManagedObjectDn,
+    cucsEpqosEgressRn                                                SnmpAdminString,
+    cucsEpqosEgressBurst                                             Gauge32,
+    cucsEpqosEgressHostControl                                       CucsQosHostControl,
+    cucsEpqosEgressName                                              SnmpAdminString,
+    cucsEpqosEgressPrio                                              CucsQosPriority,
+    cucsEpqosEgressRate                                              Gauge32,
+    cucsEpqosEgressOperPrio                                          CucsQosPriority
+}
+
+cucsEpqosEgressInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsEpqosEgressEntry 1 }
+
+cucsEpqosEgressDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Egress:dn managed object property"
+    ::= { cucsEpqosEgressEntry 2 }
+
+cucsEpqosEgressRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Egress:rn managed object property"
+    ::= { cucsEpqosEgressEntry 3 }
+
+cucsEpqosEgressBurst OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Egress:burst managed object property"
+    ::= { cucsEpqosEgressEntry 4 }
+
+cucsEpqosEgressHostControl OBJECT-TYPE
+    SYNTAX       CucsQosHostControl
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Egress:hostControl managed object property"
+    ::= { cucsEpqosEgressEntry 5 }
+
+cucsEpqosEgressName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Egress:name managed object property"
+    ::= { cucsEpqosEgressEntry 6 }
+
+cucsEpqosEgressPrio OBJECT-TYPE
+    SYNTAX       CucsQosPriority
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Egress:prio managed object property"
+    ::= { cucsEpqosEgressEntry 7 }
+
+cucsEpqosEgressRate OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Egress:rate managed object property"
+    ::= { cucsEpqosEgressEntry 8 }
+
+cucsEpqosEgressOperPrio OBJECT-TYPE
+    SYNTAX       CucsQosPriority
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS epqos:Egress:operPrio managed object property"
+    ::= { cucsEpqosEgressEntry 9 }
+
+END

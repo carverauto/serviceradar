@@ -1,0 +1,532 @@
+-- MIB file created 04-Dec-2002 15:42:15, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-TELNET-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-TELNET-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, DisplayString
+            FROM SNMPv2-TC-v1
+    alStatsTelnet, alTelnetGroup
+            FROM ALTIGA-MIB
+    alTelnetMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge, IpAddress
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaTelnetStatsMibModule OBJECT IDENTIFIER ::= { alTelnetMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga TELNET Statistics MIB models counters and objects that are 
+--     of management interest for telnet sessions. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       MIB:        Management Information Base 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsTelnetGlobal OBJECT IDENTIFIER ::= { alStatsTelnet 1 }
+altigaTelnetStatsMibConformance OBJECT IDENTIFIER ::= { altigaTelnetStatsMibModule 1 }
+altigaTelnetStatsMibCompliances OBJECT IDENTIFIER ::= { altigaTelnetStatsMibConformance 1 }
+
+alTelnetStatsActiveSessions OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of active Telnet sessions."
+    ::= { alStatsTelnetGlobal 1 }
+
+alTelnetStatsAttemptedSessions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of attempts made to establish Telnet sessions."
+    ::= { alStatsTelnetGlobal 2 }
+
+alTelnetStatsSuccessfulSessions OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of successfully established Telnet sessions."
+    ::= { alStatsTelnetGlobal 3 }
+
+alTelnetStatsInNetPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet packets that were received from the network 
+         since the system was booted."
+    ::= { alStatsTelnetGlobal 4 }
+
+alTelnetStatsInNetOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet octets that were received from the network 
+         since the system was booted."
+    ::= { alStatsTelnetGlobal 5 }
+
+alTelnetStatsInNetCmdOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of octets that contained Telnet commands or options 
+        that were received from the network since the system was booted."
+    ::= { alStatsTelnetGlobal 6 }
+
+alTelnetStatsInNetDropPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet packets from the network that were  
+        dropped during input processing since the system was booted."
+    ::= { alStatsTelnetGlobal 7 }
+
+alTelnetStatsInNetDropOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet octets from the network that were  
+        dropped during input processing since the system was booted."
+    ::= { alStatsTelnetGlobal 8 }
+
+alTelnetStatsOutNetPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet packets that were transmitted to the network 
+         since the system was booted."
+    ::= { alStatsTelnetGlobal 9 }
+
+alTelnetStatsOutNetOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet octets that were transmitted to the network 
+         since the system was booted."
+    ::= { alStatsTelnetGlobal 10 }
+
+alTelnetStatsOutNetDropPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet packets destined for the network that were  
+        dropped during output processing since the system was booted."
+    ::= { alStatsTelnetGlobal 11 }
+
+alTelnetStatsOutNetDropOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet octets destined for the network that were  
+        dropped during output processing since the system was booted."
+    ::= { alStatsTelnetGlobal 12 }
+
+alTelnetStatsInShPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet packets that were received from the shell 
+         since the system was booted."
+    ::= { alStatsTelnetGlobal 13 }
+
+alTelnetStatsInShOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet octets that were received from the shell 
+         since the system was booted."
+    ::= { alStatsTelnetGlobal 14 }
+
+alTelnetStatsInShDropPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet packets from the shell that were  
+        dropped during input processing since the system was booted."
+    ::= { alStatsTelnetGlobal 15 }
+
+alTelnetStatsInShDropOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet octets from the shell that were  
+        dropped during input processing since the system was booted."
+    ::= { alStatsTelnetGlobal 16 }
+
+alTelnetStatsOutShPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet packets that were transmitted to the shell 
+         since the system was booted."
+    ::= { alStatsTelnetGlobal 17 }
+
+alTelnetStatsOutShOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet octets that were transmitted to the shell 
+         since the system was booted."
+    ::= { alStatsTelnetGlobal 18 }
+
+alTelnetStatsOutShDropPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet packets destined for the shell that were  
+        dropped during output processing since the system was booted."
+    ::= { alStatsTelnetGlobal 19 }
+
+alTelnetStatsOutShDropOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of Telnet octets destined for the shell that were  
+        dropped during output processing since the system was booted."
+    ::= { alStatsTelnetGlobal 20 }
+
+alTelnetStatsSessionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlTelnetStatsSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "List of active sessions."
+    ::= { alStatsTelnet 2 }
+
+alTelnetStatsSessionEntry OBJECT-TYPE
+    SYNTAX AlTelnetStatsSessionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alTelnetStatsSessionTable."
+    INDEX { alTelnetStatsSessionId }
+    ::= { alTelnetStatsSessionTable 1 }
+
+AlTelnetStatsSessionEntry ::= SEQUENCE {
+    alTelnetStatsSessionRowStatus RowStatus,
+    alTelnetStatsSessionId INTEGER,
+    alTelnetStatsSessionIpAddr IpAddress,
+    alTelnetStatsSessionSrcPort INTEGER,
+    alTelnetStatsSessionName DisplayString,
+    alTelnetStatsSessionInNetPackets Counter,
+    alTelnetStatsSessionInNetOctets Counter,
+    alTelnetStatsSessionInNetCmdOctets Counter,
+    alTelnetStatsSessionInNetDropPackets Counter,
+    alTelnetStatsSessionInNetDropOctets Counter,
+    alTelnetStatsSessionOutNetPackets Counter,
+    alTelnetStatsSessionOutNetOctets Counter,
+    alTelnetStatsSessionOutNetDropPackets Counter,
+    alTelnetStatsSessionOutNetDropOctets Counter,
+    alTelnetStatsSessionInShPackets Counter,
+    alTelnetStatsSessionInShOctets Counter,
+    alTelnetStatsSessionInShDropPackets Counter,
+    alTelnetStatsSessionInShDropOctets Counter,
+    alTelnetStatsSessionOutShPackets Counter,
+    alTelnetStatsSessionOutShOctets Counter,
+    alTelnetStatsSessionOutShDropPackets Counter,
+    alTelnetStatsSessionOutShDropOctets Counter
+    }
+
+alTelnetStatsSessionRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this row. Used to terminate the session, 
+        cannot be used to create a Session."
+    ::= { alTelnetStatsSessionEntry 1 }
+
+alTelnetStatsSessionId OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unique Telnet session process ID, used as the 
+         index for this row."
+    ::= { alTelnetStatsSessionEntry 2 }
+
+alTelnetStatsSessionIpAddr OBJECT-TYPE
+    SYNTAX IpAddress
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The IP address of the remote client."
+    ::= { alTelnetStatsSessionEntry 3 }
+
+alTelnetStatsSessionSrcPort OBJECT-TYPE
+    SYNTAX INTEGER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The TCP source port number of the remote client."
+    ::= { alTelnetStatsSessionEntry 4 }
+
+alTelnetStatsSessionName OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unique Telnet session process name, used as the 
+         index for this row."
+    ::= { alTelnetStatsSessionEntry 5 }
+
+alTelnetStatsSessionInNetPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet packets that were received from the network 
+         since the system was booted."
+    ::= { alTelnetStatsSessionEntry 6 }
+
+alTelnetStatsSessionInNetOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet octets that were received from the network 
+         since the system was booted."
+    ::= { alTelnetStatsSessionEntry 7 }
+
+alTelnetStatsSessionInNetCmdOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of octets that contained Telnet commands or options 
+        that were received from the network since the system was booted."
+    ::= { alTelnetStatsSessionEntry 8 }
+
+alTelnetStatsSessionInNetDropPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet packets from the network that were  
+        dropped during input processing since the system was booted."
+    ::= { alTelnetStatsSessionEntry 9 }
+
+alTelnetStatsSessionInNetDropOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet octets from the network that were  
+        dropped during input processing since the system was booted."
+    ::= { alTelnetStatsSessionEntry 10 }
+
+alTelnetStatsSessionOutNetPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet packets that were transmitted to the network 
+         since the system was booted."
+    ::= { alTelnetStatsSessionEntry 11 }
+
+alTelnetStatsSessionOutNetOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet octets that were transmitted to the network 
+         since the system was booted."
+    ::= { alTelnetStatsSessionEntry 12 }
+
+alTelnetStatsSessionOutNetDropPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet packets destined for the network that were  
+        dropped during output processing since the system was booted."
+    ::= { alTelnetStatsSessionEntry 13 }
+
+alTelnetStatsSessionOutNetDropOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet octets destined for the network that were  
+        dropped during output processing since the system was booted."
+    ::= { alTelnetStatsSessionEntry 14 }
+
+alTelnetStatsSessionInShPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet packets that were received from the shell 
+         since the system was booted."
+    ::= { alTelnetStatsSessionEntry 15 }
+
+alTelnetStatsSessionInShOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet octets that were received from the shell 
+         since the system was booted."
+    ::= { alTelnetStatsSessionEntry 16 }
+
+alTelnetStatsSessionInShDropPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet packets from the shell that were  
+        dropped during input processing since the system was booted."
+    ::= { alTelnetStatsSessionEntry 17 }
+
+alTelnetStatsSessionInShDropOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet octets from the shell that were  
+        dropped during input processing since the system was booted."
+    ::= { alTelnetStatsSessionEntry 18 }
+
+alTelnetStatsSessionOutShPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet packets that were transmitted to the shell 
+         since the system was booted."
+    ::= { alTelnetStatsSessionEntry 19 }
+
+alTelnetStatsSessionOutShOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet octets that were transmitted to the shell 
+         since the system was booted."
+    ::= { alTelnetStatsSessionEntry 20 }
+
+alTelnetStatsSessionOutShDropPackets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet packets destined for the shell that were  
+        dropped during output processing since the system was booted."
+    ::= { alTelnetStatsSessionEntry 21 }
+
+alTelnetStatsSessionOutShDropOctets OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The per session number of Telnet octets destined for the shell that were  
+        dropped during output processing since the system was booted."
+    ::= { alTelnetStatsSessionEntry 22 }
+
+altigaTelnetStatsGroup OBJECT IDENTIFIER ::= { alTelnetGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for the Telnet Server statistics.
+--  objects
+--    alTelnetStatsActiveSessions, alTelnetStatsAttemptedSessions, 
+--    alTelnetStatsSuccessfulSessions, alTelnetStatsInNetPackets, 
+--    alTelnetStatsInNetOctets, alTelnetStatsInNetCmdOctets, 
+--    alTelnetStatsInNetDropPackets, alTelnetStatsInNetDropOctets, 
+--    alTelnetStatsOutNetPackets, alTelnetStatsOutNetOctets, 
+--    alTelnetStatsOutNetDropPackets, alTelnetStatsOutNetDropOctets, 
+--    alTelnetStatsInShPackets, alTelnetStatsInShOctets, 
+--    alTelnetStatsInShDropPackets, alTelnetStatsInShDropOctets, 
+--    alTelnetStatsOutShPackets, alTelnetStatsOutShOctets, 
+--    alTelnetStatsOutShDropPackets, alTelnetStatsOutShDropOctets, 
+--    alTelnetStatsSessionRowStatus, alTelnetStatsSessionId, 
+--    alTelnetStatsSessionIpAddr, alTelnetStatsSessionSrcPort, 
+--    alTelnetStatsSessionName, alTelnetStatsSessionInNetPackets, 
+--    alTelnetStatsSessionInNetOctets, 
+--    alTelnetStatsSessionInNetCmdOctets, 
+--    alTelnetStatsSessionInNetDropPackets, 
+--    alTelnetStatsSessionInNetDropOctets, 
+--    alTelnetStatsSessionOutNetPackets, 
+--    alTelnetStatsSessionOutNetOctets, 
+--    alTelnetStatsSessionOutNetDropPackets, 
+--    alTelnetStatsSessionOutNetDropOctets, 
+--    alTelnetStatsSessionInShPackets, 
+--    alTelnetStatsSessionInShOctets, 
+--    alTelnetStatsSessionInShDropPackets, 
+--    alTelnetStatsSessionInShDropOctets, 
+--    alTelnetStatsSessionOutShPackets, 
+--    alTelnetStatsSessionOutShOctets, 
+--    alTelnetStatsSessionOutShDropPackets, 
+--    alTelnetStatsSessionOutShDropOctets
+
+altigaTelnetStatsMibCompliance OBJECT IDENTIFIER ::= { altigaTelnetStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga Telnet Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaTelnetStatsGroup
+
+
+END
+

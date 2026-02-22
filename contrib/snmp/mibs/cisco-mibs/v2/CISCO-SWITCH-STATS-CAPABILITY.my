@@ -1,0 +1,153 @@
+-- *****************************************************************
+-- CISCO-SWITCH-STATS-CAPABILITY.my:
+-- Cisco CISCO-SWITCH-STATS-MIB AGENT-CAPABILITIES
+--   
+-- Nov 2010, Jayakumar Kadirvelu
+--   
+-- Copyright (c) 2010-2013 by Cisco Systems Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-SWITCH-STATS-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    AGENT-CAPABILITIES
+        FROM SNMPv2-CONF
+    ciscoAgentCapability
+        FROM CISCO-SMI;
+
+
+ciscoSwitchStatsCapability MODULE-IDENTITY
+    LAST-UPDATED    "201309250000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "The capabilities description of
+        CISCO-SWITCH-STATS-MIB."
+    REVISION        "201309250000Z"
+    DESCRIPTION
+        "Added capability statement
+        csstCapV15R0102SYPCat6kPfc4 and
+        csstCapV15R0102SYPCat6kPfc3."
+    REVISION        "201307260000Z"
+    DESCRIPTION
+        "Add agent capability statement
+        csstCapNxOSV06R0104PN7k and csstCapNxOSV06R0201PMds."
+    REVISION        "201011110000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoAgentCapability 600 }
+
+
+
+csstCapV12R0250SYPCat6kPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 12.2(50)SY on Catalyst 6000/6500
+                    series devices with PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-STATS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-STATS-MIB
+    INCLUDES        {
+                        ciscoSwitchStatsConfOptionGroup,
+                        ciscoSwitchStatsConfMapGroup,
+                        ciscoSwitchStatsConfIfGroup,
+                        ciscoSwitchStatsVlanGroup,
+                        ciscoSwitchStatsL2Group,
+                        ciscoSwitchStatsL3Group
+                    }
+    VARIATION       csstConfigStatsMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoSwitchStatsCapability 1 }
+
+csstCapNxOSV06R0104PN7k AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.1(4) on Nexus 7000 series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-STATS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-STATS-MIB
+    INCLUDES        {
+                        ciscoSwitchStatsInternalStatsGroup,
+                        ciscoSwitchStatsInternalErrorGroup,
+                        ciscoSwitchStatsInternalInstanceGroup
+                    }
+    ::= { ciscoSwitchStatsCapability 2 }
+
+csstCapNxOSV06R0201PMds AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco NX-OS 6.2(1) on MDS series devices."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-STATS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-STATS-MIB
+    INCLUDES        {
+                        ciscoSwitchStatsInternalStatsGroup,
+                        ciscoSwitchStatsInternalErrorGroup,
+                        ciscoSwitchStatsInternalInstanceGroup
+                    }
+    ::= { ciscoSwitchStatsCapability 3 }
+
+csstCapV15R0102SYPCat6kPfc4 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(2)SY on Catalyst 6000/6500
+                    series devices with PFC4 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-STATS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-STATS-MIB
+    INCLUDES        {
+                        ciscoSwitchStatsConfOptionGroup,
+                        ciscoSwitchStatsConfMapGroup,
+                        ciscoSwitchStatsConfIfGroup,
+                        ciscoSwitchStatsVlanGroup,
+                        ciscoSwitchStatsL2Group,
+                        ciscoSwitchStatsLayer3Group,
+                        ciscoSwitchStatsLayer3ExtGroup,
+                        ciscoSwitchStatsTotalGroup,
+                        ciscoSwitchStatsRewriteEngineStatsGroup
+                    }
+    VARIATION       csstConfigStatsMap
+    ACCESS          read-only
+    DESCRIPTION
+        "Write access is not supported."
+
+    ::= { ciscoSwitchStatsCapability 4 }
+
+csstCapV15R0102SYPCat6kPfc3 AGENT-CAPABILITIES
+    PRODUCT-RELEASE "Cisco IOS 15.1(2)SY on Catalyst 6000/6500
+                    series devices with PFC3 card."
+    STATUS          current
+    DESCRIPTION
+        "CISCO-SWITCH-STATS-MIB capabilities."
+
+    SUPPORTS        CISCO-SWITCH-STATS-MIB
+    INCLUDES        {
+                        ciscoSwitchStatsL2Group,
+                        ciscoSwitchStatsLayer3ExtGroup,
+                        ciscoSwitchStatsTotalGroup,
+                        ciscoSwitchStatsRewriteEngineStatsGroup
+                    }
+    ::= { ciscoSwitchStatsCapability 5 }
+
+END
+
+
+
+
+

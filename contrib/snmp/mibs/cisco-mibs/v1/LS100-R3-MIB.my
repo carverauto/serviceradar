@@ -1,0 +1,1004 @@
+--
+-- Copyright (c) 1995-19966 by cisco Systems, Inc.
+-- All rights reserved.
+--
+--------------------------------------------------------------------
+
+
+LS100-MIB DEFINITIONS ::= BEGIN
+    IMPORTS
+        enterprises, Counter       FROM RFC1155-SMI
+        OBJECT-TYPE                FROM RFC-1212;
+
+-- ciscoLS100Mib MODULE-IDENTITY
+--         LAST-UPDATED    "9603120000Z"
+--         ORGANIZATION    "Cisco Systems, Inc."
+--         CONTACT-INFO
+--                 "       Cisco Systems
+--                         Customer Service
+--
+--                 Postal: 170 W Tasman Drive
+--                        San Jose, CA  95134
+--                        USA
+--
+--                   Tel: +1 800 553-NETS
+--
+--                E-mail: cs-atm@cisco.com"
+--        DESCRIPTION
+--                "The MIB for the Cisco/NEC LS100 ATM switch
+--                (formerly known as the A100)."
+--        REVISION        "9603120000Z"
+--        DESCRIPTION
+--                "Updated to support the LS100 V3.x software."
+--        REVISION        "9503200000Z"
+--        DESCRIPTION
+--                "Updated to support the LS100 V2.x software."
+--        REVISION        "9411170000Z"
+--        DESCRIPTION
+--                "Initial version of this MIB module."
+
+--        ::= { xxx }
+
+DisplayString ::= OCTET STRING (SIZE (0..255))   -- from RFC1213-MIB
+
+nec                OBJECT IDENTIFIER ::= { enterprises 119 }
+nec-mib            OBJECT IDENTIFIER ::= { nec 2 }
+necProductDepend   OBJECT IDENTIFIER ::= { nec-mib 3 }
+atomis-mib         OBJECT IDENTIFIER ::= { necProductDepend 14 }
+m5core-mib         OBJECT IDENTIFIER ::= { atomis-mib 3 }
+
+--     MIB Groups
+--
+--     Node group
+node               OBJECT IDENTIFIER ::= { m5core-mib 1 }
+--     Line interface group
+linf               OBJECT IDENTIFIER ::= { m5core-mib 2 }
+--     Connection group
+conn               OBJECT IDENTIFIER ::= { m5core-mib 3 }
+--     Performance group
+perf               OBJECT IDENTIFIER ::= { m5core-mib 4 }
+
+
+--    The Node Group
+
+nodeOperStatus OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  down(1),
+                  active(2),
+                  offLine(3),
+                  testing(4),
+                  initializing(5)
+              }
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Operational status of the LS100."
+    ::= { node 1 }
+
+nodeIfConfTable OBJECT-TYPE
+    SYNTAX    SEQUENCE OF NodeIfConfEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+              "The configuration of the line cards."
+    ::= { node 2 }
+
+nodeIfConfEntry OBJECT-TYPE
+    SYNTAX    NodeIfConfEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+              "The configuration of a line card."
+    INDEX    { nodeIfConfIndex }
+    ::= { nodeIfConfTable 1 }
+
+NodeIfConfEntry ::= SEQUENCE {
+        nodeIfConfIndex     INTEGER,
+        nodeIfConfPhysType  INTEGER,
+        nodeIfConfRev       DisplayString,
+        nodeIfConfStatus    INTEGER
+    }
+
+nodeIfConfIndex OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "The index of the table.  Same as ifIndex."
+    ::= { nodeIfConfEntry 1 }
+
+nodeIfConfPhysType OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  other(1),
+                  sar(2),
+                  taxi100M(3),
+                  oc3cSMF(4),
+                  oc3cMMF(5),
+                  ds3PlcpScramble(6),
+                  ds3PlcpNoScramble(7),
+                  relay6Mcell(8),
+                  ds3Scramble(9),
+                  ds3NoScramble(10),
+                  e3PlcpScramble(11),
+                  e3PlcpNoScramble(12),
+                  e3Scramble(13),
+                  e3NoScramble(14),
+                  utp5(15),
+                  leasedLine3M(16),
+                  leasedLine4M(17),
+                  leasedLine6M(18),
+                  utp5classB(19),
+                  oc3cSmfShaper(20),
+                  taxi140M(21),
+                  notInstalled(99)
+              }
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "The PMD/physical layer format of the line card."
+    ::= { nodeIfConfEntry 2 }
+
+nodeIfConfRev OBJECT-TYPE
+    SYNTAX    DisplayString
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "The revision of the line cards."
+    ::= { nodeIfConfEntry 3 }
+
+nodeIfConfStatus OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  other(1),
+                  inService(2),
+                  outOfService(3),
+                  testing(4),
+                  localLoopBack(5),
+                  remoteLoopBack(6),
+                  notInstalled(99)
+              }
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Operational status of the line card."
+    ::= { nodeIfConfEntry 4 }
+
+nodeFanStatus OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  up(1),
+                  down(2)
+              }
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Operational status of the Fan."
+    ::= { node 3 }
+
+nodeUpcWindowSize OBJECT-TYPE
+    SYNTAX    INTEGER (1..120)
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "UPC window size. Integer Wi represents Wi X 512 cell time. 
+              Wi=1 correspond to 1.4msec. Wi=120 correspond to 168msec.
+              It is not allowed to change window size when any PVC 
+              exists."
+    ::= { node 4 }
+
+nodeBestEffortBufferSize OBJECT-TYPE
+    SYNTAX    INTEGER (0..16)
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Input buffer capacity for Best Effort traffic(Bb). The
+              number of cells stored in the buffer is Bb X 128. The 
+              default value is 8. The sum of the buffer capacity is
+              2047 cells."
+    ::= { node 5 }
+
+nodeGuaranteedBufferSize OBJECT-TYPE
+    SYNTAX    INTEGER (0..16)
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Input buffer capacity for Guaranteed traffic(Bg). The
+              number of cells stored in the buffer is Bg X 128. The
+              default value is 0. The sum of the buffer capacity is
+              2047 cells."
+    ::= { node 6 }
+
+nodeBestEffortBufferThreshold OBJECT-TYPE
+    SYNTAX    INTEGER (0..16)
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Threshold buffer capacity for Best Effort traffic. If
+              the number of cells stored in the buffer exceeds this
+              threshold, cells with CLP=1 and traffic defined as UBR
+              will be discarded."
+    ::= { node 7 }
+
+nodeGuaranteedBufferThreshold OBJECT-TYPE
+    SYNTAX    INTEGER (0..16)
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Threshold buffer capacity for Guaranteed traffic. If
+              the number of cells stored in the buffer exceeds this
+              threshold, cells with CLP=1 and traffic defined as VBR
+              will be discarded."
+    ::= { node 8 }
+
+nodeSaveConf OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  save(1),
+                  noOperation(2)
+              }
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Save system configuration information including the PVC 
+              table to the non-volatile memory.  Writing a value of
+              save(1) saves the configiration data.  Writing the value
+              noOperation(2) has no effect.
+              When read, this object always has the value noOperation(2)."
+    ::= { node 9 }
+
+nodeSaveResult OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  temporaryFailure(1),            
+                  notReady(2),
+                  ready(3),
+                  success(4),
+                  nearend(5)
+              }
+    ACCESS    read-only
+    STATUS  mandatory
+    DESCRIPTION
+              "Indicates the result of the save command issued from NMS. 
+               The result is either success/temporary failure/notReady."
+    ::= { node 10 }
+
+nodeReset OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  reset(1),
+                  noOperation(2)
+              }
+    ACCESS    read-write
+    STATUS  mandatory
+    DESCRIPTION
+              "Writing the value reset(1) resets the system.  Writing
+              the value noOperation(2) has no effect. When read, this
+              object always has the value noOperation(2)."
+    ::= { node 11 }
+
+--    The Linf Group
+
+linfStatusTable OBJECT-TYPE
+    SYNTAX    SEQUENCE OF LinfStatusEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+              "Status of the line cards including ATM specific information."
+    ::= { linf 1 }
+
+linfStatusEntry OBJECT-TYPE
+    SYNTAX    LinfStatusEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+              "Status of a line card including ATM specific information."
+    INDEX    { linfIndex }
+    ::= { linfStatusTable 1 }
+
+LinfStatusEntry ::= SEQUENCE {
+        linfIndex                  INTEGER,
+        linfStatus                 INTEGER,
+        linfConf                   INTEGER,
+        linfFwdAvailableBandWidth  INTEGER,
+        linfBkwdAvailableBandWidth INTEGER
+    }
+
+linfIndex OBJECT-TYPE
+    SYNTAX    INTEGER(1..64)
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Same as ifIndex"
+    ::= { linfStatusEntry 1 }
+        
+linfStatus OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  normal(1),
+                  los(2),
+                  lof(3),
+                  loc(4),
+                  ais(5),
+                  yellowLine(6),
+                  yellowPath(7),
+                  lop(8),
+                  idle(9),
+                  yellowAlarm(10),
+                  plcpLOF(11),
+                  plcpYellow(12),
+                  maFERF(13),
+                  rai(14),
+                  payloadAllOnes(15),
+                  notInstalled(99)
+              }
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Status of line interface"
+    ::= { linfStatusEntry 2 }
+
+linfConf OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  publicUNI(1),
+                  privateUNI(2),
+                  privateNNI(3),
+                  others(99)
+              }
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Line card type."
+    ::= {  linfStatusEntry  3 }
+
+linfFwdAvailableBandWidth OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "The amount of bandwidth (Mbps) available/unallocated in
+              the forward (incoming) direction."
+    ::= {  linfStatusEntry  4 }
+
+linfBkwdAvailableBandWidth OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "The amount of bandwidth (Mbps) available/unallocated in
+              the backward (outgoing) direction."
+    ::= {  linfStatusEntry  5 }
+
+
+--    The Conn (Connection & Traffic for accounting) Group
+
+connPvcIndexNext    OBJECT-TYPE
+    SYNTAX    INTEGER (0..8191)
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "The next available index for a row of the connPvcTable."
+    ::= { conn 1 }
+
+connPvcIndexEnable    OBJECT-TYPE
+    SYNTAX    INTEGER (0..8191)
+    ACCESS    read-write
+    STATUS    deprecated
+    DESCRIPTION
+              "When read, this object is the current minimum value of
+              an index in the connPvcTable.  Writing this value has no
+              effect."
+    ::= { conn 2 }
+
+connPvcTable OBJECT-TYPE
+    SYNTAX    SEQUENCE OF ConnPvcEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+              "The table containing information on current PVC/SVCs.
+              Currently, only PVCs are represented in this table.
+              The table is also used to establish and delete PVCs.
+
+              1. PVC establishment procedure
+
+              (1) Read connPvcIndexNext. This value is used as the
+              value of connPvcIndex for the new connection.
+
+              (2) Determine the value of connPvcHighIfIndex.  When
+              creating a new point-to-multipoint connection,
+              connPvcHighIfIndex must identify the first leaf.
+              When creating a new point-to-point connection,
+              connPvcHighIfIndex normally identifies the interface
+              with the higher value of ifIndex.
+
+              (3) Set connPvcRowStatus to 'createAndWait' using the
+              values of connPvcIndex and connPvcHighIfIndex as indexes.
+              This causes the switch to create the new row with some
+              objects being set to default values.  The parameters for
+              which there is no reasonable default are set to 0xffffffff.
+
+                  Object                Default
+                  connPvcTopology       bidirectionalVCC(2)
+                  connPvcTrafficType    trafficUBR(4)
+                  connPvcLowIfIndex     0xffffffff
+                  connPvcLowVPI         0xffffffff
+                  connPvcLowVCI         0xffffffff
+                  connPvcLowUpcParam    512
+                  connPvcLowUpc         pass(1)
+                  connPvcLowThroughput  0
+                  connPvcHighVPI        0xffffffff
+                  connPvcHighVCI        0xffffffff
+                  connPvcHighUpcParam   512
+                  connPvcHighUpc        pass(1)
+                  connPvcHighThroughput 0
+
+              The switch then sets the value of connPvcRowStatus to
+              'notReady'.  The default values can be read by the NMS.
+
+              (4) The values of the above objects which are set to
+	      0xffffffff must be modified, and the values of any other
+	      objects can be changed.  When establishing a VP connection,
+	      connPvcLowVCI and connPvcHighVCI should be set to 0.
+              When connPvcTrafficType is set to trafficUBR, the values
+              of connPvcLowThroughput and connPvcHighThroughput are
+              ignored. When all parameters have acceptable values, the
+              switch sets connPvcRowStatus to 'notInService'.
+
+              (5) When the NMS sets connPvcRowStatus to 'active', the
+              switch validates each parameter's value, and tries to 
+              establish the connection.  If this operation fails, the
+              the cause of the failure is indicated by the value of
+              connPvcCause.
+
+              At present, the switch allows connPvcRowStatus to have a
+              value of notReady or notInService for only one row at a
+              time.
+
+              2. Adding a new leaf to an existing pt-to-mpt connection
+
+              (1) Determine the value of connPvcIndex for the existing
+              point-to-multipoint connection to which a new leaf is
+              to be added.  
+
+              (2) Determine the value of connPvcHighIfIndex as the
+              ifIndex value of the interface to be used for the new leaf.
+
+              (3) Set connPvcRowStatus to 'createAndWait' using the
+              values of connPvcIndex and connPvcHighIfIndex as indexes.
+              This causes the switch to create the new leaf with some
+              objects being set to default values.  The parameters for
+              which there is no reasonable default are set to 0xffffffff.
+ 
+                   Object                Default
+                   connPvcHighVPI        0xffffffff
+                   connPvcHighVCI        0xffffffff
+                   connPvcHighUpcParam   512
+                   connPvcHighUpc        pass(1)
+                   connPvcHighThroughput 0
+ 
+              The switch then sets the value of connPvcRowStatus to
+              'notReady'.  The default values can be read by the NMS.
+ 
+              (4) The NMS must modify the values of connPvcHighVPI and
+              connPvcHighVCI, and can modify the values of connPvcHighUpc,
+              connPvcHighUpcParam and connPvcHighThroughput.  When
+              establishing a VP connection, connPvcHighVCI should
+              be set to 0.  The NMS should not change the values of
+              the following objects:
+
+                   connPvcTopology
+                   connPvcTrafficType
+                   connPvcLowIfIndex
+                   connPvcLowVPI
+                   connPvcLowVCI
+                   connPvcLowUpcParam
+                   connPvcLowUpc
+                   connPvcLowThroughput
+
+	      When all parameters have acceptable values, the switch
+	      sets connPvcRowStatus to 'notInService'.
+
+	      (5) When the NMS sets connPvcRowStatus to 'active', the
+	      switch validates each parameter's value, and tries to add
+	      the new leaf to the original connection.  If this operation
+	      fails, the cause of the failure is indicated by the value
+	      of connPvcCause.
+
+              3. PVC deletion  procedure
+
+              (1) Set the connPvcRowStatus to 'destroy'.
+              If the row exists but is impossible to delete, the cause
+              of the failure is indicated by the value of connPvcCause.
+              If the deletion is successful, the row is deleted 
+              (including the instance of connPvcCause for that row).
+
+              Notes:
+               - a row representing a terminating VP will not have
+              instances of the following objects: connPvcLowUpc,
+              connPvcLowUpcParam, connPvcLowThroughput, connPvcHighUpc,
+              connPvcHighUpcParam, connPvcHighThroughput,
+              connPvcLowOutCells, connPvcHighInCells,
+              connPvcHighUpcViolatedCells, connPvcLowInCells,
+              connPvcHighOutCells, and connPvcLowUpcViolatedCells.
+
+               - a row representing a connection between the
+              gateway-PAD (the switch's internal port) and a line
+              interface will not have instances of the following
+              objects: connPvcLowUpc, connPvcLowUpcParam,
+              connPvcLowThroughput, connPvcHighUpc, connPvcHighUpcParam,
+              connPvcHighThroughput, connPvcHighOutCells,
+              connPvcHighInCells, and connPvcHighUpcViolatedCells."
+    ::= { conn 3 }
+
+connPvcEntry OBJECT-TYPE
+    SYNTAX    ConnPvcEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+              "A row in the table is used to show the current PVC/SVCs."
+    INDEX     { connPvcIndex, connPvcHighIfIndex }
+    ::= { connPvcTable 1 }
+
+ConnPvcEntry ::= SEQUENCE {
+        connPvcIndex                 INTEGER,
+        connPvcTopology              INTEGER,
+        connPvcTrafficType           INTEGER,
+        connPvcLowIfIndex            INTEGER,
+        connPvcLowVPI                INTEGER,
+        connPvcLowVCI                INTEGER,
+        connPvcLowUpcParam           INTEGER,
+        connPvcLowUpc                INTEGER,
+        connPvcLowThroughput         INTEGER,
+        connPvcHighIfIndex           INTEGER,
+        connPvcHighVPI               INTEGER,
+        connPvcHighVCI               INTEGER,
+        connPvcHighUpcParam          INTEGER,
+        connPvcHighUpc               INTEGER,
+        connPvcHighThroughput        INTEGER,
+        connPvcLowInCells            Counter,
+        connPvcHighOutCells          Counter,
+        connPvcHighInCells           Counter,
+        connPvcLowOutCells           Counter,
+        connPvcLowUpcViolatedCells   Counter,
+        connPvcHighUpcViolatedCells  Counter,
+        connPvcRowStatus             INTEGER,
+        connPvcCause                 INTEGER,
+        connPvcKind                  INTEGER
+    }
+
+connPvcIndex  OBJECT-TYPE
+    SYNTAX    INTEGER (0..8191)
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "A unique value to identify this point-to-point
+              or point-to-multipoint connection.
+              A point-to-multipoint connection has multiple
+              rows in this table, one for each leaf, each
+              one having the same value of this object."
+    ::= { connPvcEntry 1 }
+
+connPvcTopology OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  uniDirectionalVCC(1),
+                  biDirectionalVCC(2),
+                  uniDirectionalVPC(3),
+                  biDirectionalVPC(4),
+                  broadcastVPC(5),
+                  broadcastVCC(6),
+                  gateway(7),  -- connected to switch's internal port
+                  vpterm(8)
+              }
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Topology of the connection."
+    ::= { connPvcEntry 2 }
+
+connPvcTrafficType OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  trafficCBR(1),
+                  trafficVBR(2),
+                  trafficUBR(4)
+              }
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Traffic Type."
+    ::= { connPvcEntry 3 }
+
+connPvcLowIfIndex OBJECT-TYPE
+    SYNTAX    INTEGER (1..16)
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "The line interface number (ifIndex) of the low port.
+              Normally, the low port has a lower ifIndex value than
+              the high port.  However, for point-to-multipoint
+              connections, the root is always the low port, regardless
+              of whether it is greater or smaller than the port numbers
+              of individual leaves."
+    ::= { connPvcEntry 4 }
+
+connPvcLowVPI OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "VPI value of the connection on the low port."
+    ::= { connPvcEntry 5 }
+
+connPvcLowVCI OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "VCI value of the connection on the low port."
+    ::= { connPvcEntry 6 }
+
+connPvcLowUpcParam OBJECT-TYPE
+    SYNTAX    INTEGER (0..512)
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of cells allowed to be sent in the unit cell
+              time (512 cell times)."
+    ::= { connPvcEntry 7 }
+
+connPvcLowUpc OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  pass(1),
+                  discard(2),
+                  tagging(3)        -- notSupported
+              }
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "The action to take on a UPC violation for this connection
+              on the low port.  The tagging action is not supported by
+              current hardware."
+    ::= { connPvcEntry 8 }
+
+connPvcLowThroughput OBJECT-TYPE
+    SYNTAX    INTEGER (0..622)
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Average rate of the connection (Mbps). Direction is from
+              the low port to high port. This parameter is valid
+              for the connection whose traffic type is CBR or VBR."
+    ::= { connPvcEntry 9 }
+
+connPvcHighIfIndex OBJECT-TYPE
+    SYNTAX    INTEGER (1..17)
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "The line interface number (ifIndex) of the high port.
+              Normally, the high port has a higher ifIndex value than
+              the low port.  However, for point-to-multipoint
+              connections, the root is always the low port, regardless
+              of whether it is greater or smaller than the port numbers
+              of individual leaves.  Line interface number 17 
+              corresponds to gateway (the switch's internal port)."
+    ::= { connPvcEntry 10 }
+
+connPvcHighVPI OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "The VPI value of the connection on the high port."
+    ::= { connPvcEntry 11 }
+
+connPvcHighVCI OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "The VCI value of the connection on the high port."
+    ::= { connPvcEntry 12 }
+
+connPvcHighUpcParam OBJECT-TYPE
+    SYNTAX    INTEGER (0..512)
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of cells allowed to be sent in the unit cell
+              time (512 cell times)."
+    ::= { connPvcEntry 13 }
+
+connPvcHighUpc OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  pass(1),
+                  discard(2),
+                  tagging(3)        -- notSupported
+              }
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "The action to take on a UPC violation for this connection
+              on the high port.  The tagging action is not supported by
+              current hardware."
+    ::= { connPvcEntry 14 }
+
+connPvcHighThroughput OBJECT-TYPE
+    SYNTAX    INTEGER (0..622)
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "Average rate of the connection (Mbps). Direction is from
+              the high port to low port. This parameter is valid
+              for the connection whose traffic type is CBR or VBR."
+    ::= { connPvcEntry 15 }
+
+connPvcLowInCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of incoming cells on this connection on low port."
+    ::= { connPvcEntry 16 }
+
+connPvcHighOutCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of outgoing cells on this connection on the high
+              port."
+    ::= { connPvcEntry 17 }
+
+connPvcHighInCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of incoming cells on this connection on high port.
+              (Valid for bi-direction connections only)."
+    ::= { connPvcEntry 18 }
+
+connPvcLowOutCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of outgoing cells on this connection on the low.
+              port.  (Valid for bi-direction connections only)."
+    ::= { connPvcEntry 19 }
+
+connPvcLowUpcViolatedCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of UPC violation cells incoming from the low
+              port."
+    ::= { connPvcEntry 20 }
+
+connPvcHighUpcViolatedCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of UPC violation cells incoming from the high
+               port. (Valid for bi-direction connections only)."
+    ::= { connPvcEntry 21 }
+
+connPvcRowStatus OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  active(1),
+                  notInService(2),
+                  notReady(3),
+                  createAndWait(5),
+                  destroy(6)
+              }
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "The status of this row.
+
+               'active' indicates that the connection is in use.
+
+               'notInService' indicates that the row exists but
+                        the connection is not established.
+
+               'notReady' indicates that the row exists in the agent,
+                        but is missing information necessary in order
+                        to be established.
+
+               'createAndWait' supplied by a management station
+                        wishing to create a new row.
+
+               'destroy' supplied by a management station wishing to
+                        delete the row."
+    ::= { connPvcEntry 22 }
+
+connPvcCause OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  existing(1),
+                  vpivciBusy(2),
+                  vpivciOutOfRange(3),
+                  rateOverFlow(4),
+                  upvpOutOfRange(5),
+                  broadcastTableFull(6),
+                  inconsistentVPVC(7),
+                  lineDiagnosis(8)
+              }
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "The result of the PVC establishment/deletion."
+    ::= { connPvcEntry 23 }
+
+connPvcKind OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  pvc(1),
+                  svc(2)
+              }
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "This object identifies the connection is SVC or PVC."
+    ::= { connPvcEntry 24 }
+
+
+--    The Perf (Performance) Group
+
+perfTrapEnable OBJECT-TYPE
+    SYNTAX    INTEGER {
+                  enable(1),
+                  disable(2)
+              }
+    ACCESS    read-write
+    STATUS    mandatory
+    DESCRIPTION
+              "The status of performance monitoring traps.  Its value
+              does not affect other traps, such as coldStart."
+    ::= { perf 1 }
+
+perfIfTable OBJECT-TYPE
+    SYNTAX    SEQUENCE OF PerfIfEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+              "Table of performance monitoring information."
+    ::= { perf 2 }
+
+perfIfEntry OBJECT-TYPE
+    SYNTAX    PerfIfEntry
+    ACCESS    not-accessible
+    STATUS    mandatory
+    DESCRIPTION
+              "Performance monitoring information for a specific line."
+    INDEX    { perfIfIndex }
+    ::= { perfIfTable 1 }
+
+PerfIfEntry ::= SEQUENCE {
+        perfIfIndex            INTEGER,
+        perfIfLcvs             Counter,
+        perfIfParitySections   Counter,
+        perfIfParityLines      Counter,
+        perfIfParityPaths      Counter,
+        perfIfHecErrors        Counter,
+        perfIfMisDelivdCells   Counter,
+        perfIfOverFlowCells    Counter,
+        perfIfInCBRCells       Counter,
+        perfIfOutCBRCells      Counter,
+        perfIfInVBRCells       Counter,
+        perfIfOutVBRCells      Counter,
+        perfIfInUBRCells       Counter,
+        perfIfOutUBRCells      Counter
+    }
+
+perfIfIndex OBJECT-TYPE
+    SYNTAX    INTEGER
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Line interface number. Same as ifIndex."
+    ::= { perfIfEntry 1 }
+
+perfIfLcvs OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only    -- not available in current release
+    STATUS    mandatory
+    DESCRIPTION
+              "Line Code Violation. This object is valid only for
+               DS3/E3."
+    ::= { perfIfEntry 2 }
+
+perfIfParitySections OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only    -- not available in current release
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of B1 (BIP) errors(OC-3c, UTP-5),
+               Number of C-bit parity violation(DS3),
+               Number of CRC-6 violation(DS1)."
+    ::= { perfIfEntry 3 }
+
+perfIfParityLines OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only    -- not available in current release
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of B2 (BIP) errors(OC-3c, UTP-5),
+               Number of P-bit parity violation(DS3)."
+    ::= { perfIfEntry 4 }
+
+perfIfParityPaths OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only    -- not available in current release
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of B3 (BIP) errors(OC-3c, UTP-5),
+               Number of PLCP BIP violation(DS3)."
+    ::= { perfIfEntry 5 }
+
+perfIfHecErrors OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of HEC errors detected."
+    ::= { perfIfEntry 6 }
+
+perfIfMisDelivdCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of misdelivered cells."
+    ::= { perfIfEntry 7 }
+
+perfIfOverFlowCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of cells discarded due to buffer overflow."
+    ::= { perfIfEntry 8 }
+
+perfIfInCBRCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of received CBR cells."
+    ::= { perfIfEntry 9 }
+
+perfIfOutCBRCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of transmitted CBR cells."
+    ::= { perfIfEntry 10 }
+
+perfIfInVBRCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of received VBR cells."
+    ::= { perfIfEntry 11 }
+
+perfIfOutVBRCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of transmitted VBR cells."
+    ::= { perfIfEntry 12 }
+
+perfIfInUBRCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of received UBR cells."
+    ::= { perfIfEntry 15 }
+
+perfIfOutUBRCells OBJECT-TYPE
+    SYNTAX    Counter
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+              "Number of transmitted UBR cells."
+    ::= { perfIfEntry 16 }
+
+END

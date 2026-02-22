@@ -1,0 +1,302 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-SES-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- SES management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-SES-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsFsmLifecycle,
+    CucsSesScsiDriveStatus
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsSesObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        SES management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 80 }
+
+cucsSesDiskSlotEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSesDiskSlotEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp managed object table"
+    ::= { cucsSesObjects 1 }
+
+cucsSesDiskSlotEpEntry OBJECT-TYPE
+    SYNTAX           CucsSesDiskSlotEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSesDiskSlotEpTable table."
+    INDEX { cucsSesDiskSlotEpInstanceId }
+    ::= { cucsSesDiskSlotEpTable 1 }
+
+CucsSesDiskSlotEpEntry ::= SEQUENCE {
+    cucsSesDiskSlotEpInstanceId                                      CucsManagedObjectId,
+    cucsSesDiskSlotEpDn                                              CucsManagedObjectDn,
+    cucsSesDiskSlotEpRn                                              SnmpAdminString,
+    cucsSesDiskSlotEpEncId                                           Gauge32,
+    cucsSesDiskSlotEpId                                              Gauge32,
+    cucsSesDiskSlotEpSlotDn                                          SnmpAdminString,
+    cucsSesDiskSlotEpDiskDn                                          SnmpAdminString,
+    cucsSesDiskSlotEpDiskPresent                                     TruthValue,
+    cucsSesDiskSlotEpLc                                              CucsFsmLifecycle,
+    cucsSesDiskSlotEpModel                                           SnmpAdminString,
+    cucsSesDiskSlotEpRevision                                        SnmpAdminString,
+    cucsSesDiskSlotEpScsiDiskState                                   CucsSesScsiDriveStatus,
+    cucsSesDiskSlotEpSerial                                          SnmpAdminString,
+    cucsSesDiskSlotEpVendor                                          SnmpAdminString
+}
+
+cucsSesDiskSlotEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSesDiskSlotEpEntry 1 }
+
+cucsSesDiskSlotEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:dn managed object property"
+    ::= { cucsSesDiskSlotEpEntry 2 }
+
+cucsSesDiskSlotEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:rn managed object property"
+    ::= { cucsSesDiskSlotEpEntry 3 }
+
+cucsSesDiskSlotEpEncId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:encId managed object property"
+    ::= { cucsSesDiskSlotEpEntry 4 }
+
+cucsSesDiskSlotEpId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:id managed object property"
+    ::= { cucsSesDiskSlotEpEntry 5 }
+
+cucsSesDiskSlotEpSlotDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:slotDn managed object property"
+    ::= { cucsSesDiskSlotEpEntry 6 }
+
+cucsSesDiskSlotEpDiskDn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:diskDn managed object property"
+    ::= { cucsSesDiskSlotEpEntry 7 }
+
+cucsSesDiskSlotEpDiskPresent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:diskPresent managed object property"
+    ::= { cucsSesDiskSlotEpEntry 8 }
+
+cucsSesDiskSlotEpLc OBJECT-TYPE
+    SYNTAX       CucsFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:lc managed object property"
+    ::= { cucsSesDiskSlotEpEntry 9 }
+
+cucsSesDiskSlotEpModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:model managed object property"
+    ::= { cucsSesDiskSlotEpEntry 10 }
+
+cucsSesDiskSlotEpRevision OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:revision managed object property"
+    ::= { cucsSesDiskSlotEpEntry 11 }
+
+cucsSesDiskSlotEpScsiDiskState OBJECT-TYPE
+    SYNTAX       CucsSesScsiDriveStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:scsiDiskState managed object property"
+    ::= { cucsSesDiskSlotEpEntry 12 }
+
+cucsSesDiskSlotEpSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:serial managed object property"
+    ::= { cucsSesDiskSlotEpEntry 13 }
+
+cucsSesDiskSlotEpVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:DiskSlotEp:vendor managed object property"
+    ::= { cucsSesDiskSlotEpEntry 14 }
+
+cucsSesEnclosureTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsSesEnclosureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS ses:Enclosure managed object table"
+    ::= { cucsSesObjects 2 }
+
+cucsSesEnclosureEntry OBJECT-TYPE
+    SYNTAX           CucsSesEnclosureEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsSesEnclosureTable table."
+    INDEX { cucsSesEnclosureInstanceId }
+    ::= { cucsSesEnclosureTable 1 }
+
+CucsSesEnclosureEntry ::= SEQUENCE {
+    cucsSesEnclosureInstanceId                                       CucsManagedObjectId,
+    cucsSesEnclosureDn                                               CucsManagedObjectDn,
+    cucsSesEnclosureRn                                               SnmpAdminString,
+    cucsSesEnclosureDescr                                            SnmpAdminString,
+    cucsSesEnclosureElid                                             SnmpAdminString,
+    cucsSesEnclosureId                                               Gauge32,
+    cucsSesEnclosureLc                                               CucsFsmLifecycle
+}
+
+cucsSesEnclosureInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsSesEnclosureEntry 1 }
+
+cucsSesEnclosureDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:Enclosure:dn managed object property"
+    ::= { cucsSesEnclosureEntry 2 }
+
+cucsSesEnclosureRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:Enclosure:rn managed object property"
+    ::= { cucsSesEnclosureEntry 3 }
+
+cucsSesEnclosureDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:Enclosure:descr managed object property"
+    ::= { cucsSesEnclosureEntry 4 }
+
+cucsSesEnclosureElid OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:Enclosure:elid managed object property"
+    ::= { cucsSesEnclosureEntry 5 }
+
+cucsSesEnclosureId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:Enclosure:id managed object property"
+    ::= { cucsSesEnclosureEntry 6 }
+
+cucsSesEnclosureLc OBJECT-TYPE
+    SYNTAX       CucsFsmLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS ses:Enclosure:lc managed object property"
+    ::= { cucsSesEnclosureEntry 7 }
+
+END

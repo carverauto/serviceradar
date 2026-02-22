@@ -1,0 +1,653 @@
+-- MIB file created 09-Jan-2008 09:47:01, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-PORT-STORM-CONTROL-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-PORT-STORM-CONTROL-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ifIndex
+            FROM IF-MIB
+    TruthValue, TimeStamp
+            FROM SNMPv2-TC-v1
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    Counter
+            FROM RFC1155-SMI
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoPortStormControlMIB OBJECT IDENTIFIER ::= { ciscoMgmt 362 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200710190000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Services
+--    
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA 95134
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    E-mail: cs-lan-switch-snmp@cisco.com
+--  Descr
+--    The MIB module for managing Cisco Port Storm Control.
+--  RevDate
+--    200710190000Z
+--  RevDescr
+--    cpscEvent notification is deprecated and replaced by new
+--    notification cpscEventRev1.
+--  RevDate
+--    200307030000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoPortStormControlMIBNotifs OBJECT IDENTIFIER ::= { ciscoPortStormControlMIB 0 }
+ciscoPortStormControlMIBObjects OBJECT IDENTIFIER ::= { ciscoPortStormControlMIB 1 }
+ciscoPortStormControlMIBConform OBJECT IDENTIFIER ::= { ciscoPortStormControlMIB 2 }
+cpscConfigObjects OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBObjects 1 }
+cpscStatusObjects OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBObjects 2 }
+cpscNotificationsPrefix OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBNotifs 1 }
+ciscoPortStormControlMIBCompliances OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBConform 1 }
+ciscoPortStormControlMIBGroups OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBConform 2 }
+
+CPortStormControlTrafficType ::= INTEGER {
+        broadcast(1),
+        multicast(2),
+        unicast(3),
+        all(4)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of traffic that can be configured to be
+--    regulated per physical interface.
+
+CPortStormControlActionType ::= INTEGER {
+        filter(1),
+        shutdown(2)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The type of storm control action that is configured on
+--    a port.
+--    
+--    An action of filter indicates that packets should be 
+--    filtered if a storm event is detected on a port.
+--    
+--    An action of shutdown indicates that the port should be 
+--    shutdown if a storm event is detected on a port.
+
+CPortStormControlStatusType ::= INTEGER {
+        inactive(1),
+        forwarding(2),
+        trafficTypeFiltered(3),
+        allTrafficFiltered(4),
+        shutdown(5)
+        }
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    The current status of storm control on a given
+--    interface for a given traffic type.
+--    
+--    inactive - Indicates that storm control is not enabled
+--               for the given traffic type.
+--    
+--    forwarding - Indicates that storm control is monitoring
+--                 the traffic type, but no storm event has
+--                 been detected.
+--    
+--    trafficTypeFiltered - Indicates that a storm event has
+--                          has occurred and the particular
+--                          traffic type is being filtered
+--    
+--    allTrafficFiltered - Indicates that a storm event has 
+--                         occurred and all traffic received
+--                         on the interface is being filtered
+--    
+--    shutdown -  Indicates that the interface has been
+--                shutdown in response to a storm event.
+
+cpscThresholdTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPortSCThresholdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of storm control threshold configuration entries."
+    ::= { cpscConfigObjects 1 }
+
+cpscThresholdEntry OBJECT-TYPE
+    SYNTAX CPortSCThresholdEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of storm control threshold configuration
+        entries.
+        
+        Storm control can be configured for multiple traffic types
+        on a given interface. One entry is created for each
+        interface and the traffic type that can be monitored by
+        the device."
+    INDEX { ifIndex, cpscTrafficType }
+    ::= { cpscThresholdTable 1 }
+
+CPortSCThresholdEntry ::= SEQUENCE {
+    cpscTrafficType CPortStormControlTrafficType,
+    cpscUpperThreshold INTEGER,
+    cpscLowerThreshold INTEGER
+    }
+
+cpscTrafficType OBJECT-TYPE
+    SYNTAX CPortStormControlTrafficType
+--    Rsyntax INTEGER {
+--        broadcast(1),
+--        multicast(2),
+--        unicast(3),
+--        all(4)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies a particular traffic type
+        for which a management station desires to configure
+        storm control on the given interface (which is identified
+        by its ifIndex)."
+    ::= { cpscThresholdEntry 1 }
+
+cpscUpperThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..10000)
+--  Units
+--    0.01 Percentage
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the upper threshold of total
+        amount of a particular traffic type that can be seen
+        on a given interface, after which a storm event is
+        declared and storm control action is taken.
+        
+        The value represents the traffic as a percentage of
+        total bandwidth of the interface, in units of 0.01 %.
+        
+        For example, if a management station sets the value of
+        cpscUpperThreshold.3.1 as 4000, it means the 
+        following:
+            a) storm control is enabled on the interface with 
+               ifIndex = 3 for broadcast (1) packets
+            b) if the broadcast traffic received per second
+               on the interface is more than (4000*0.01 = 40%) of
+               the total interface bandwidth, then the system will
+               take storm control actions, as indicated by
+               cpscAction.3 .
+        
+        It should be noted that setting the upper threshold value
+        to anything other than 100% results in storm control being
+        automatically enabled on the given interface, for the
+        given traffic type.
+        
+        An implementation may not be able to support different
+        threshold values for different traffic types, in which
+        case changing the value for one traffic type will 
+        automatically result in the threshold value for other
+        types also modified.
+        
+        The default value of this object is implementation-
+        dependent."
+    ::= { cpscThresholdEntry 2 }
+
+cpscLowerThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..10000)
+--  Units
+--    0.01 Percentage
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the lower threshold of total
+        amount of a particular traffic type.
+        
+        When a filter action (see cpscAction) is
+        in effect on an interface because of a previous storm 
+        event, the value of this object determines when the 
+        system will stop the filter action. 
+        
+        The value represents traffic as percent of total bandwidth
+        of the interface, in units of 0.01 %.
+        For example, if a broadcast(1) storm occurred on an 
+        interface with ifIndex 3, and the value of 
+        cpscLowerThreshold.3.1 is 2500 (25%), then 
+        the system will stop filtering broadcast traffic on that
+        interface if it drops below 25% of the total bandwidth.
+        
+        This value will be ignored if a shutdown action is 
+        configured. The value of this object must be
+        equal to or less than the value of the upper threshold
+        specified by cpscUpperThreshold for the same entry.
+        
+        The default value of this object is implementation-
+        dependent.
+        
+        On platforms that only support one threshold level for 
+        this traffic type and interface,this object is read-only
+        and always has the same value of  the corresponding 
+        cpscUpperThreshold for the same entry."
+    ::= { cpscThresholdEntry 3 }
+
+cpscActionTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPortSCActionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of storm control action entries."
+    ::= { cpscConfigObjects 2 }
+
+cpscActionEntry OBJECT-TYPE
+    SYNTAX CPortSCActionEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry containing the storm control action
+        configuration information. An entry is created for each
+        interface that can support the storm control feature."
+    INDEX { ifIndex }
+    ::= { cpscActionTable 1 }
+
+CPortSCActionEntry ::= SEQUENCE {
+    cpscAction CPortStormControlActionType,
+    cpscNotificationControl INTEGER
+    }
+
+cpscAction OBJECT-TYPE
+    SYNTAX CPortStormControlActionType
+--    Rsyntax INTEGER {
+--        filter(1),
+--        shutdown(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the storm control action
+        taken when the traffic of a particular type exceeds
+        the configured upper threshold values."
+    ::= { cpscActionEntry 1 }
+
+cpscNotificationControl OBJECT-TYPE
+    SYNTAX INTEGER {
+        none(1),
+        stormOccurred(2),
+        stormCleared(3),
+        both(4)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object controls when a storm control notification
+        will be generated.
+        
+        If the object is set to none(1), no notifications will
+        be generated.
+        
+        A notification will be generated when a storm event is
+        detected or cleared when the object is set to
+        stormOccurred(2) or stormCleared(3) respectively.
+        
+        If the object is set to both(4), a notification will be
+        generated both when a storm event is detected and
+        cleared. 
+        
+        NOTE:
+            a) The default value of this object is none(1).
+            b) Irrespective of the value of this object, the
+            value of the global object cpscNotificationThreshold
+            controls whether or not a notification will be
+            generated at a given point."
+    ::= { cpscActionEntry 2 }
+
+cpscNotificationThreshold OBJECT-TYPE
+    SYNTAX INTEGER(0..1000)
+--  Units
+--    Notifications per Minute
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of object controls the global rate of storm
+        control notifications generated by an entity per minute. 
+        
+        A value of 0 indicates no limit, and the entity will
+        generate notifications for each storm event as governed by
+        the cpscNotificationControl for a given interface."
+    ::= { cpscConfigObjects 3 }
+
+cpscStatusTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPortSCStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table of storm control status entries."
+    ::= { cpscStatusObjects 1 }
+
+cpscStatusEntry OBJECT-TYPE
+    SYNTAX CPortSCStatusEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of storm control status entries, one per
+        interface and traffic type.
+        
+        An entry is created for each storm control capable
+        interface and the traffic type with the storm control
+        status information."
+    INDEX { ifIndex, cpscTrafficType }
+    ::= { cpscStatusTable 1 }
+
+CPortSCStatusEntry ::= SEQUENCE {
+    cpscStatus CPortStormControlStatusType,
+    cpscCurrentLevel INTEGER,
+    cpscSuppressedPacket Counter
+    }
+
+cpscStatus OBJECT-TYPE
+    SYNTAX CPortStormControlStatusType
+--    Rsyntax INTEGER {
+--        inactive(1),
+--        forwarding(2),
+--        trafficTypeFiltered(3),
+--        allTrafficFiltered(4),
+--        shutdown(5)
+--        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the status of storm control
+        on the interface (identified by ifIndex) corresponding
+        to a particular traffic type (identified by    
+        cpscTrafficType).
+        
+        A value of inactive indicates that no storm control
+        has been enabled on the interface for the traffic type."
+    ::= { cpscStatusEntry 1 }
+
+cpscCurrentLevel OBJECT-TYPE
+    SYNTAX INTEGER(0..10000)
+--  Units
+--    0.01 Percentage
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the current level of traffic of
+        a particular type on a given interface, as a percentage
+        of the total interface bandwidth.
+        
+        When storm control is inactive, the value is 10000,
+        indicating the maximum level (100% of the particular
+        traffic type is allowed to be received)."
+    ::= { cpscStatusEntry 2 }
+
+cpscSuppressedPacket OBJECT-TYPE
+    SYNTAX --?? syntax is not convertable to SMIv1
+           Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the total number of packets
+        of a particular traffic type that have been suppressed
+        on a given interface by storm control filter action."
+    ::= { cpscStatusEntry 3 }
+
+cpscHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CPortSCHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual table to represent the history
+        of storm events on an interface.
+        
+        Management station can use this to get 
+        information about the timeline of storm events as
+        to when each event occurred, and when it ended."
+    ::= { cpscStatusObjects 2 }
+
+cpscHistoryEntry OBJECT-TYPE
+    SYNTAX CPortSCHistoryEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A collection of storm control history entries
+        per interface and per traffic type. The number of such
+        entries available is implementation-dependent."
+    INDEX { ifIndex, cpscHistoryTrafficType, cpscHistoryIndex }
+    ::= { cpscHistoryTable 1 }
+
+CPortSCHistoryEntry ::= SEQUENCE {
+    cpscHistoryTrafficType CPortStormControlTrafficType,
+    cpscHistoryIndex INTEGER,
+    cpscHistoryStartTime TimeStamp,
+    cpscHistoryEndTime TimeStamp
+    }
+
+cpscHistoryTrafficType OBJECT-TYPE
+    SYNTAX CPortStormControlTrafficType
+--    Rsyntax INTEGER {
+--        broadcast(1),
+--        multicast(2),
+--        unicast(3),
+--        all(4)
+--        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The traffic type corresponding to this storm history
+        entry."
+    ::= { cpscHistoryEntry 1 }
+
+cpscHistoryIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..1024)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A number that uniquely identifies one storm control
+        history entry for a given interface. The index starts
+        at 1 and increases by 1. 
+        
+        Although this MIB specification stipulates a maximum of 
+        1K entries, the actual maximum number of history entries
+        returned per interface is implementation-dependent.
+        
+        When the value of this index reaches the actual maximum 
+        number of entries supported by an implementation, it will
+        wrap around to 1."
+    ::= { cpscHistoryEntry 2 }
+
+cpscHistoryStartTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the storm event was declared
+        on the interface for the particular traffic type, and 
+        storm control measures were taken."
+    ::= { cpscHistoryEntry 3 }
+
+cpscHistoryEndTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime when the storm ceased to exist
+        and the interface was set to its previous normal state.
+        
+        If the interface was shutdown due to user configuration,
+        then the value will be equal to the value of sysUpTime 
+        when the interface was shutdown.
+        
+        If the storm event continues to persist when this object
+        is queried, the value returned will be 0."
+    ::= { cpscHistoryEntry 4 }
+
+cpscEventRev1 TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoPortStormControlMIB
+    VARIABLES {
+        cpscStatus }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is sent by the implementation when
+        a storm event occurs on an interface with respect to
+        a particular traffic type.
+        cpscEventRev1 deprecates cpscEvent to make it RFC 2578
+        compliant. According to section 8.5 of RFC 2578, the next
+        to last sub-identifier in the name of any newly-defined
+        notification must have the value zero."
+    ::= 2
+
+cpscEvent TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE cpscNotificationsPrefix
+    VARIABLES {
+        cpscStatus }
+--  Status
+--    deprecated
+    DESCRIPTION
+        "This notification is sent by the implementation when
+        a storm event occurs on an interface with respect to
+        a particular traffic type.
+        cpscEvent is deprecated and replaced by cpscEventRev1."
+    ::= 1
+
+cpscConfigurationGroup OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to configure the Port Storm
+--    Control feature on a given interface.
+--  objects
+--    cpscUpperThreshold, cpscLowerThreshold, cpscAction
+
+cpscStatusGroup OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to provide storm control
+--    status on a given interface.
+--  objects
+--    cpscStatus, cpscCurrentLevel
+
+cpscNotifConfigurationGroup OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to configure notification
+--    information.
+--  objects
+--    cpscNotificationControl, cpscNotificationThreshold
+
+cpscStatisticsGroup OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to provide storm control
+--    statistics information.
+--  objects
+--    cpscSuppressedPacket
+
+cpscHistoryGroup OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBGroups 6 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects to provide storm control
+--    history information on a given interface.
+--  objects
+--    cpscHistoryStartTime, cpscHistoryEndTime
+
+cpscNotificationGroup OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    A collection of notification objects for user with
+--    the cisco port storm control mib.
+--  notifications
+--    cpscEvent
+
+cpscNotificationGroupRev1 OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBGroups 7 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of notification objects for user with
+--    the cisco port storm control mib.
+--  notifications
+--    cpscEventRev1
+
+ciscoPortStormControlMIBCompliance OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the cisco port storm
+--    control MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cpscConfigurationGroup
+--   OptGroup
+--    cpscNotifConfigurationGroup
+--   OptGroup
+--    cpscNotificationGroup
+--   OptGroup
+--    cpscStatusGroup
+--   OptGroup
+--    cpscStatisticsGroup
+--   OptGroup
+--    cpscHistoryGroup
+--   ObjVar
+--    cpscLowerThreshold
+--   ObjVar
+--    cpscAction
+
+ciscoPortStormControlMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoPortStormControlMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Please enter description here
+--  Module
+--    >>current<<
+--   MandGroup
+--    cpscConfigurationGroup
+--   OptGroup
+--    cpscNotifConfigurationGroup
+--   OptGroup
+--    cpscNotificationGroupRev1
+--   OptGroup
+--    cpscStatusGroup
+--   OptGroup
+--    cpscStatisticsGroup
+--   OptGroup
+--    cpscHistoryGroup
+--   ObjVar
+--    cpscLowerThreshold
+--   ObjVar
+--    cpscAction
+
+
+END
+

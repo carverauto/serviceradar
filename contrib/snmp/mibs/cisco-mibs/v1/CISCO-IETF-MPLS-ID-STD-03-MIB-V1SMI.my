@@ -1,0 +1,142 @@
+-- MIB file created 07-Jun-2012 13:16:53, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-IETF-MPLS-ID-STD-03-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-IETF-MPLS-ID-STD-03-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    mplsStdMIB
+            FROM MPLS-TC-STD-MIB
+    CMplsGlobalId, CMplsIccId, CMplsNodeId
+            FROM CISCO-MPLS-TC-EXT-STD-MIB
+    ciscoExperiment
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+cmplsIdStdMIB OBJECT IDENTIFIER ::= { ciscoExperiment 147 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201206070000Z
+--  OrgName
+--    Multiprotocol Label Switching (MPLS) Working Group
+--  ContactInfo
+--    Venkatesan Mahalingam
+--    Dell Inc,
+--    350 Holger way, San Jose, CA, USA
+--    Email: venkat.mahalingams@gmail.com
+--    
+--    Kannan KV Sampath
+--    Aricent,
+--    India
+--    Email: Kannan.Sampath@aricent.com
+--    
+--    Sam Aldrin
+--    Huawei Technologies
+--    2330 Central Express Way,
+--    Santa Clara, CA 95051, USA
+--    Email:  aldrin.ietf@gmail.com
+--    
+--    Thomas D. Nadeau
+--    Juniper Networks
+--    10 Technology Park Drive, Westford, MA 01886
+--    Email: tnadeau@juniper.net
+--  Descr
+--    Copyright (c) 2012 IETF Trust and the persons identified
+--    as the document authors.  All rights reserved.
+--    
+--    This MIB module contains generic object definitions for
+--    MPLS Traffic Engineering in transport networks. This module is a
+--    cisco-ized version of the IETF draft:
+--    draft-ietf-mpls-tp-te-mib-03.
+--  RevDate
+--    201204080000Z
+--  RevDescr
+--    MPLS identifiers mib object extension
+
+cmplsIdNotifications OBJECT IDENTIFIER ::= { cmplsIdStdMIB 0 }
+cmplsIdObjects  OBJECT IDENTIFIER ::= { cmplsIdStdMIB 1 }
+cmplsIdConformance OBJECT IDENTIFIER ::= { cmplsIdStdMIB 2 }
+cmplsIdGroups   OBJECT IDENTIFIER ::= { cmplsIdConformance 1 }
+cmplsIdCompliances OBJECT IDENTIFIER ::= { cmplsIdConformance 2 }
+
+cmplsGlobalId OBJECT-TYPE
+    SYNTAX CMplsGlobalId
+--    Rsyntax OCTET STRING(SIZE(4))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows the administrator to assign a unique
+        operator identifier also called MPLS-TP Global_ID."
+    REFERENCE
+        "MPLS-TP Identifiers [RFC6370]."
+    ::= { cmplsIdObjects 1 }
+
+cmplsIcc OBJECT-TYPE
+    SYNTAX CMplsIccId
+--    Rsyntax OCTET STRING(SIZE(1..6))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows the operator or service provider to
+        assign a unique MPLS-TP ITU-T Carrier Code (ICC) to a
+        network."
+    REFERENCE
+        "MPLS-TP Identifiers [RFC6370]."
+    ::= { cmplsIdObjects 2 }
+
+cmplsNodeId OBJECT-TYPE
+    SYNTAX CMplsNodeId
+--    Rsyntax Gauge
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object allows the operator or service provider to
+        assign a unique MPLS-TP Node_ID.
+        
+        The Node_ID is assigned within the scope of
+        the Global_ID."
+    REFERENCE
+        "MPLS-TP Identifiers [RFC6370]."
+    ::= { cmplsIdObjects 3 }
+
+cmplsIdScalarGroup OBJECT IDENTIFIER ::= { cmplsIdGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Scalar object needed to implement MPLS TP path.
+--  objects
+--    cmplsGlobalId, cmplsNodeId, cmplsIcc
+
+cmplsIdModuleFullCompliance OBJECT IDENTIFIER ::= { cmplsIdCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Compliance statement for agents that provide full
+--    support the MPLS-ID-STD-MIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmplsIdScalarGroup
+
+cmplsIdModuleReadOnlyCompliance OBJECT IDENTIFIER ::= { cmplsIdCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    Compliance statement for agents that provide full
+--    support the MPLS-ID-STD-MIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmplsIdScalarGroup
+
+
+END
+

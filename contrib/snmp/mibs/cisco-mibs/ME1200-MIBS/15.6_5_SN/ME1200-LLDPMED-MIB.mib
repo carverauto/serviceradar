@@ -1,0 +1,1524 @@
+-- *****************************************************************
+-- LLDPMED-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-LLDPMED-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200Integer64 FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200RowEditorState FROM ME1200-TC
+    ME1200Unsigned16 FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Integer32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200LldpmedMib MODULE-IDENTITY
+    LAST-UPDATED "201310080000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the LLDPMED MIB"
+    REVISION    "201310080000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 71 }
+
+
+ME1200lldpmedAltitudeType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumerations the altitude type."
+    SYNTAX      INTEGER { meters(1), floor(2) }
+
+ME1200lldpmedDatumType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumerations the datum (geodetic system)."
+    SYNTAX      INTEGER { wgs84(1), nad83navd88(2), nad83mllw(3) }
+
+ME1200lldpmedDeviceType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumerations the device type that the device shall operate as."
+    SYNTAX      INTEGER { connectivity(0), endpoint(1) }
+
+ME1200lldpmedRemoteDeviceType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumerations the remote neighbor's device type."
+    SYNTAX      INTEGER { notDefined(0), endpointClassI(1), endpointClassII(2), endpointClassIII(3), networkConnectivity(4), reserved(5) }
+
+ME1200lldpmedRemoteNetworkPolicyApplicationType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumerations the remote neighbor's network policy's application
+         type."
+    SYNTAX      INTEGER { voice(1), voiceSignaling(2), guestVoice(3), gustVoiceSignaling(4), softphoneVoice(5), videoConferencing(6), streamingVideo(7), videoSignaling(8) }
+
+me1200LldpmedMibObjects OBJECT IDENTIFIER
+    ::= { me1200LldpmedMib 1 }
+
+me1200LldpmedConfig OBJECT IDENTIFIER
+    ::= { me1200LldpmedMibObjects 2 }
+
+me1200LldpmedConfigGlobal OBJECT IDENTIFIER
+    ::= { me1200LldpmedConfig 1 }
+
+me1200LldpmedConfigGlobalFastRepeatCount OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (1..10)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Number of times to repeat LLDP frame transmission at fast start
+         
+         Rapid startup and Emergency Call Service Location Identification
+         Discovery of endpoints is a critically important aspect of VoIP systems
+         in general. In addition, it is best to advertise only those pieces of
+         information which are specifically relevant to particular endpoint
+         types (for example only advertise the voice network policy to permitted
+         voice-capable devices), both in order to conserve the limited LLDPU
+         space and to reduce security and system integrity issues that can come
+         with inappropriate knowledge of the network policy.
+         
+         With this in mind LLDP-MED defines an LLDP-MED Fast Start interaction
+         between the protocol and the application layers on top of the protocol,
+         in order to achieve these related properties. Initially, a Network
+         Connectivity Device will only transmit LLDP TLVs in an LLDPDU. Only
+         after an LLDP-MED Endpoint Device is detected, will an LLDP-MED capable
+         Network Connectivity Device start to advertise LLDP-MED TLVs in
+         outgoing LLDPDUs on the associated port. The LLDP-MED application will
+         temporarily speed up the transmission of the LLDPDU to start within a
+         second, when a new LLDP-MED neighbor has been detected in order share
+         LLDP-MED information as fast as possible to new neighbors.
+         
+         Because there is a risk of an LLDP frame being lost during transmission
+         between neighbors, it is recommended to repeat the fast start
+         transmission multiple times to increase the possibility of the
+         neighbors receiving the LLDP frame. With fast start repeat count it is
+         possible to specify the number of times the fast start transmission
+         would be repeated. The recommended value is 4 times, given that 4 LLDP
+         frames with a 1 second interval will be transmitted, when an LLDP frame
+         with new information is received.
+         
+         It should be noted that LLDP-MED and the LLDP-MED Fast Start mechanism
+         is only intended to run on links between LLDP-MED Network Connectivity
+         Devices and Endpoint Devices, and as such does not apply to links
+         between LAN infrastructure elements, including Network Connectivity
+         Devices, or other types of links."
+    ::= { me1200LldpmedConfigGlobal 1 }
+
+me1200LldpmedConfigGlobalLatitude OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Latitude degrees in 2s-complement as specified in RFC 3825. Positive
+         numbers are north of the equator and negative numbers are south of the
+         equator."
+    ::= { me1200LldpmedConfigGlobal 2 }
+
+me1200LldpmedConfigGlobalLongitude OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Longitude degrees in 2s-complement as specified in RFC 3825. Positive
+         values are East of the prime meridian and negative numbers are West of
+         the prime meridian."
+    ::= { me1200LldpmedConfigGlobal 3 }
+
+me1200LldpmedConfigGlobalAltitudeType OBJECT-TYPE
+    SYNTAX      ME1200lldpmedAltitudeType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Setting altitude type
+         
+         Possible to select between two altitude types (floors or meters).
+         Meters are representing meters of altitude defined by the vertical
+         datum specified. Floors are representing altitude in a form more
+         relevant in buildings which have different floor-to-floor dimensions.
+         An altitude = 0.0 is meaningful even outside a building, and represents
+         ground level at the given latitude and longitude. Inside a building,
+         0.0 represents the floor level associated with ground level at the main
+         entrance."
+    ::= { me1200LldpmedConfigGlobal 4 }
+
+me1200LldpmedConfigGlobalAltitude OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Altitude value in 2s-complement as specified in RFC 3825"
+    ::= { me1200LldpmedConfigGlobal 5 }
+
+me1200LldpmedConfigGlobalElinAddr OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..25))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Emergency Call Service ELIN identifier data format is defined to carry
+         the ELIN identifier as used during emergency call setup to a
+         traditional CAMA or ISDN trunk-based PSAP. This format consists of a
+         numerical digit string, corresponding to the ELIN to be used for
+         emergency calling. Maximum number of octets are 25."
+    ::= { me1200LldpmedConfigGlobal 6 }
+
+me1200LldpmedConfigGlobalDatum OBJECT-TYPE
+    SYNTAX      ME1200lldpmedDatumType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Setting datum to configure the datum (geodetic system) to use.
+         
+         The Map Datum is used for the coordinates given in these options:
+         
+         WGS84: (Geographical 3D) - World Geodesic System 1984, CRS Code 4327,
+         Prime Meridian Name: Greenwich.
+         
+         NAD83/NAVD88: North American Datum 1983, CRS Code 4269, Prime Meridian
+         Name: Greenwich;The associated vertical datum is the North American
+         Vertical Datum of 1988 (NAVD88).This datum pair is to be used when
+         referencing locations on land, not near tidal water(which would use
+         Datum = NAD83/MLLW).
+         
+         NAD83/MLLW: North American Datum 1983, CRS Code 4269, Prime Meridian
+         Name: Greenwich; The associated vertical datum is Mean Lower Low Water
+         (MLLW). This datum pair is to be used when referencing locations on
+         water/sea/ocean."
+    ::= { me1200LldpmedConfigGlobal 7 }
+
+me1200LldpmedConfigLocationInformation OBJECT IDENTIFIER
+    ::= { me1200LldpmedConfig 2 }
+
+me1200LldpmedConfigLocationInformationState OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "National subdivision"
+    ::= { me1200LldpmedConfigLocationInformation 1 }
+
+me1200LldpmedConfigLocationInformationCounty OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "County"
+    ::= { me1200LldpmedConfigLocationInformation 2 }
+
+me1200LldpmedConfigLocationInformationCity OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "City"
+    ::= { me1200LldpmedConfigLocationInformation 3 }
+
+me1200LldpmedConfigLocationInformationCityDistrict OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "City district"
+    ::= { me1200LldpmedConfigLocationInformation 4 }
+
+me1200LldpmedConfigLocationInformationBlock OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Block (Neighborhood)"
+    ::= { me1200LldpmedConfigLocationInformation 5 }
+
+me1200LldpmedConfigLocationInformationStreet OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Street"
+    ::= { me1200LldpmedConfigLocationInformation 6 }
+
+me1200LldpmedConfigLocationInformationLeadingStreetDirection OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Street Direction"
+    ::= { me1200LldpmedConfigLocationInformation 7 }
+
+me1200LldpmedConfigLocationInformationTrailingStreetSuffix OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Trailling Street"
+    ::= { me1200LldpmedConfigLocationInformation 8 }
+
+me1200LldpmedConfigLocationInformationStreetSuffix OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Street Suffix"
+    ::= { me1200LldpmedConfigLocationInformation 9 }
+
+me1200LldpmedConfigLocationInformationHouseNo OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "House No."
+    ::= { me1200LldpmedConfigLocationInformation 10 }
+
+me1200LldpmedConfigLocationInformationHouseNoSuffix OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "House No. Suffix"
+    ::= { me1200LldpmedConfigLocationInformation 11 }
+
+me1200LldpmedConfigLocationInformationLandmark OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Landmark"
+    ::= { me1200LldpmedConfigLocationInformation 12 }
+
+me1200LldpmedConfigLocationInformationAdditionalInfo OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Additional Location Info"
+    ::= { me1200LldpmedConfigLocationInformation 13 }
+
+me1200LldpmedConfigLocationInformationName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Name"
+    ::= { me1200LldpmedConfigLocationInformation 14 }
+
+me1200LldpmedConfigLocationInformationZipCode OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Zip Code"
+    ::= { me1200LldpmedConfigLocationInformation 15 }
+
+me1200LldpmedConfigLocationInformationBuilding OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Building"
+    ::= { me1200LldpmedConfigLocationInformation 16 }
+
+me1200LldpmedConfigLocationInformationApartment OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Unit"
+    ::= { me1200LldpmedConfigLocationInformation 17 }
+
+me1200LldpmedConfigLocationInformationFloor OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Floor"
+    ::= { me1200LldpmedConfigLocationInformation 18 }
+
+me1200LldpmedConfigLocationInformationRoomNumber OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Room No."
+    ::= { me1200LldpmedConfigLocationInformation 19 }
+
+me1200LldpmedConfigLocationInformationPlaceType OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Placetype"
+    ::= { me1200LldpmedConfigLocationInformation 20 }
+
+me1200LldpmedConfigLocationInformationPostalCommunityName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Postal Community Name"
+    ::= { me1200LldpmedConfigLocationInformation 21 }
+
+me1200LldpmedConfigLocationInformationPoBox OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "P.O. Box"
+    ::= { me1200LldpmedConfigLocationInformation 22 }
+
+me1200LldpmedConfigLocationInformationAdditionalCode OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Addination Code"
+    ::= { me1200LldpmedConfigLocationInformation 23 }
+
+me1200LldpmedConfigLocationInformationCountryCode OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..2))
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The two-letter ISO 3166 country code in capital ASCII letters -
+         Example: DK, DE or US."
+    ::= { me1200LldpmedConfigLocationInformation 24 }
+
+me1200LldpmedConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpmedConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to configure LLDP MEDIA configurations for a specific
+         interface."
+    ::= { me1200LldpmedConfig 3 }
+
+me1200LldpmedConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpmedConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of control parameters"
+    INDEX       { me1200LldpmedConfigIfIndex }
+    ::= { me1200LldpmedConfigTable 1 }
+
+ME1200LldpmedConfigEntry ::= SEQUENCE {
+    me1200LldpmedConfigIfIndex    ME1200InterfaceIndex,
+    me1200LldpmedConfigOptionalTlvs   ME1200Unsigned8,
+    me1200LldpmedConfigDeviceType     ME1200lldpmedDeviceType
+}
+
+me1200LldpmedConfigIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LldpmedConfigEntry 1 }
+
+me1200LldpmedConfigOptionalTlvs OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (0..15)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Enables/Disables the LLDP optional TLVs. Bit mask, where setting the
+         bit(1) to 1 means enable the optional TLV.
+         
+         Bit 0 represents the capabilities TLV.
+         
+         Bit 1 represents the network Policy TLV.
+         
+         Bit 2 represents the location TLV.
+         
+         Bit 3 represents the PoE TLV."
+    ::= { me1200LldpmedConfigEntry 3 }
+
+me1200LldpmedConfigDeviceType OBJECT-TYPE
+    SYNTAX      ME1200lldpmedDeviceType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Setting device type to configure the mode the device shall operate as."
+    ::= { me1200LldpmedConfigEntry 4 }
+
+me1200LldpmedConfigPolicyTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpmedConfigPolicyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to configure LLDP MED Policies for the device."
+    ::= { me1200LldpmedConfig 4 }
+
+me1200LldpmedConfigPolicyEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpmedConfigPolicyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Network Policy Discovery enables the efficient discovery and diagnosis
+         of mismatch issues with the VLAN configuration, along with the
+         associated Layer 2 and Layer 3 attributes, which apply for a set of
+         specific protocol applications on that port. Improper network policy
+         configurations are a very significant issue in VoIP environments that
+         frequently result in voice quality degradation or loss of service.
+         Policies are only intended for use with applications that have specific
+         'real-time' network policy requirements, such as interactive voice
+         and/or video services."
+    INDEX       { me1200LldpmedConfigPolicyLldpmedPolicy }
+    ::= { me1200LldpmedConfigPolicyTable 1 }
+
+ME1200LldpmedConfigPolicyEntry ::= SEQUENCE {
+    me1200LldpmedConfigPolicyLldpmedPolicy    Integer32,
+    me1200LldpmedConfigPolicyApplicationType      ME1200lldpmedRemoteNetworkPolicyApplicationType,
+    me1200LldpmedConfigPolicyTagged   TruthValue,
+    me1200LldpmedConfigPolicyVlanId   ME1200Unsigned16,
+    me1200LldpmedConfigPolicyL2Priority   ME1200Unsigned8,
+    me1200LldpmedConfigPolicyDscp     ME1200Unsigned8,
+    me1200LldpmedConfigPolicyAction   ME1200RowEditorState
+}
+
+me1200LldpmedConfigPolicyLldpmedPolicy OBJECT-TYPE
+    SYNTAX      Integer32 (0..31)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Policy index."
+    ::= { me1200LldpmedConfigPolicyEntry 1 }
+
+me1200LldpmedConfigPolicyApplicationType OBJECT-TYPE
+    SYNTAX      ME1200lldpmedRemoteNetworkPolicyApplicationType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLDP policy application type."
+    ::= { me1200LldpmedConfigPolicyEntry 2 }
+
+me1200LldpmedConfigPolicyTagged OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Defines if LLDP policy uses tagged VLAN."
+    ::= { me1200LldpmedConfigPolicyEntry 3 }
+
+me1200LldpmedConfigPolicyVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16 (1..4095)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policy VLAN ID. Only valid when policy 'Tagged' is TRUE."
+    ::= { me1200LldpmedConfigPolicyEntry 4 }
+
+me1200LldpmedConfigPolicyL2Priority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (0..7)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's policy L2 priority. Only valid when policy
+         'Tagged' is TRUE."
+    ::= { me1200LldpmedConfigPolicyEntry 5 }
+
+me1200LldpmedConfigPolicyDscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (0..63)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "LLDP policy DSCP."
+    ::= { me1200LldpmedConfigPolicyEntry 6 }
+
+me1200LldpmedConfigPolicyAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200LldpmedConfigPolicyEntry 100 }
+
+me1200LldpmedConfigPolicyListTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpmedConfigPolicyListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each interface can be mapped to multiple policies. Set to TRUE in order
+         to enable the corresponding policy to be transmitted at the interface.
+         It is a requirement that the policy is defined."
+    ::= { me1200LldpmedConfig 5 }
+
+me1200LldpmedConfigPolicyListEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpmedConfigPolicyListEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each location information has a control parameter"
+    INDEX       { me1200LldpmedConfigPolicyListIfIndex, me1200LldpmedConfigPolicyListPolicyIndex }
+    ::= { me1200LldpmedConfigPolicyListTable 1 }
+
+ME1200LldpmedConfigPolicyListEntry ::= SEQUENCE {
+    me1200LldpmedConfigPolicyListIfIndex      ME1200InterfaceIndex,
+    me1200LldpmedConfigPolicyListPolicyIndex      Integer32,
+    me1200LldpmedConfigPolicyListLldpmedPoliciesList      TruthValue
+}
+
+me1200LldpmedConfigPolicyListIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LldpmedConfigPolicyListEntry 1 }
+
+me1200LldpmedConfigPolicyListPolicyIndex OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical Policy index."
+    ::= { me1200LldpmedConfigPolicyListEntry 2 }
+
+me1200LldpmedConfigPolicyListLldpmedPoliciesList OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to TRUE assign the corresponding policy index to the interface."
+    ::= { me1200LldpmedConfigPolicyListEntry 3 }
+
+me1200LldpmedConfigPolicyRowEditor OBJECT IDENTIFIER
+    ::= { me1200LldpmedConfig 6 }
+
+me1200LldpmedConfigPolicyRowEditorLldpmedPolicy OBJECT-TYPE
+    SYNTAX      Integer32 (0..31)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Policy index."
+    ::= { me1200LldpmedConfigPolicyRowEditor 1 }
+
+me1200LldpmedConfigPolicyRowEditorApplicationType OBJECT-TYPE
+    SYNTAX      ME1200lldpmedRemoteNetworkPolicyApplicationType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The LLDP policy application type."
+    ::= { me1200LldpmedConfigPolicyRowEditor 2 }
+
+me1200LldpmedConfigPolicyRowEditorTagged OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Defines if LLDP policy uses tagged VLAN."
+    ::= { me1200LldpmedConfigPolicyRowEditor 3 }
+
+me1200LldpmedConfigPolicyRowEditorVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16 (1..4095)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "The policy VLAN ID. Only valid when policy 'Tagged' is TRUE."
+    ::= { me1200LldpmedConfigPolicyRowEditor 4 }
+
+me1200LldpmedConfigPolicyRowEditorL2Priority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (0..7)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's policy L2 priority. Only valid when policy
+         'Tagged' is TRUE."
+    ::= { me1200LldpmedConfigPolicyRowEditor 5 }
+
+me1200LldpmedConfigPolicyRowEditorDscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (0..63)
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "LLDP policy DSCP."
+    ::= { me1200LldpmedConfigPolicyRowEditor 6 }
+
+me1200LldpmedConfigPolicyRowEditorAction OBJECT-TYPE
+    SYNTAX      ME1200RowEditorState
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Action"
+    ::= { me1200LldpmedConfigPolicyRowEditor 100 }
+
+me1200LldpmedStatus OBJECT IDENTIFIER
+    ::= { me1200LldpmedMibObjects 3 }
+
+me1200LldpmedStatusRemoteDeviceInfoTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpmedStatusRemoteDeviceInfoEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to show the LLDP-MED remote device (neighbor)
+         information for a specific interface."
+    ::= { me1200LldpmedStatus 3 }
+
+me1200LldpmedStatusRemoteDeviceInfoEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpmedStatusRemoteDeviceInfoEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of neighbor's information"
+    INDEX       { me1200LldpmedStatusRemoteDeviceInfoIfIndex, me1200LldpmedStatusRemoteDeviceInfoLldpmedIndex }
+    ::= { me1200LldpmedStatusRemoteDeviceInfoTable 1 }
+
+ME1200LldpmedStatusRemoteDeviceInfoEntry ::= SEQUENCE {
+    me1200LldpmedStatusRemoteDeviceInfoIfIndex    ME1200InterfaceIndex,
+    me1200LldpmedStatusRemoteDeviceInfoLldpmedIndex   Integer32,
+    me1200LldpmedStatusRemoteDeviceInfoCapabilities   ME1200Unsigned16,
+    me1200LldpmedStatusRemoteDeviceInfoCapabilitiesEnabled    ME1200Unsigned16,
+    me1200LldpmedStatusRemoteDeviceInfoLatitude   ME1200Integer64,
+    me1200LldpmedStatusRemoteDeviceInfoLongitude      ME1200Integer64,
+    me1200LldpmedStatusRemoteDeviceInfoAltitudeType   ME1200lldpmedAltitudeType,
+    me1200LldpmedStatusRemoteDeviceInfoAltitude   Integer32,
+    me1200LldpmedStatusRemoteDeviceInfoDatum      ME1200lldpmedDatumType,
+    me1200LldpmedStatusRemoteDeviceInfoElinAddr   ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceInfoDeviceType     ME1200lldpmedRemoteDeviceType,
+    me1200LldpmedStatusRemoteDeviceInfoHwRev      ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceInfoFwRev      ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceInfoSwRev      ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceInfoSerialNo   ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceInfoManufacturerName   ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceInfoModelName      ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceInfoAssetId    ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceInfoEeeRxTwSys     ME1200Unsigned16,
+    me1200LldpmedStatusRemoteDeviceInfoEeeTxTwSys     ME1200Unsigned16,
+    me1200LldpmedStatusRemoteDeviceInfoEeeFbTwSys     ME1200Unsigned16,
+    me1200LldpmedStatusRemoteDeviceInfoEeeTxTwSysEcho     ME1200Unsigned16,
+    me1200LldpmedStatusRemoteDeviceInfoEeeRxTwSysEcho     ME1200Unsigned16
+}
+
+me1200LldpmedStatusRemoteDeviceInfoIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 1 }
+
+me1200LldpmedStatusRemoteDeviceInfoLldpmedIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..192)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Neighbor information table entry index."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 2 }
+
+me1200LldpmedStatusRemoteDeviceInfoCapabilities OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "LLDP neighbor's capabilities bit mask.
+         
+         Bit 0 represents LLDP-MED capabilities.
+         
+         Bit 1 represents Network Policy.
+         
+         Bit 2 represents Location Identification.
+         
+         Bit 3 represents Extended Power via MDI - PSE.
+         
+         Bit 4 represents Extended Power via MDI - PD
+         
+         Bit 5 represents Inventory
+         
+         "
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 4 }
+
+me1200LldpmedStatusRemoteDeviceInfoCapabilitiesEnabled OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "LLDP neighbor's capabilities bit mask for the capabilities which are
+         currently enabled.
+         
+         Bit 0 represents LLDP-MED capabilities.
+         
+         Bit 1 represents Network Policy.
+         
+         Bit 2 represents Location Identification.
+         
+         Bit 3 represents Extended Power via MDI - PSE.
+         
+         Bit 4 represents Extended Power via MDI - PD
+         
+         Bit 5 represents Inventory
+         
+         "
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 5 }
+
+me1200LldpmedStatusRemoteDeviceInfoLatitude OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Latitude degrees in 2s-complement as specified in RFC 3825. Positive
+         numbers are north of the equator and negative numbers are south of the
+         equator."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 6 }
+
+me1200LldpmedStatusRemoteDeviceInfoLongitude OBJECT-TYPE
+    SYNTAX      ME1200Integer64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Longitude degrees in 2s-complement as specified in RFC 3825. Positive
+         values are East of the prime meridian and negative numbers are West of
+         the prime meridian."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 7 }
+
+me1200LldpmedStatusRemoteDeviceInfoAltitudeType OBJECT-TYPE
+    SYNTAX      ME1200lldpmedAltitudeType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Altitude type as either floors or meters. Meters are representing
+         meters of altitude defined by the vertical datum specified. Floors are
+         representing altitude in a form more relevant in buildings which have
+         different floor-to-floor dimensions. An altitude = 0.0 is meaningful
+         even outside a building, and represents ground level at the given
+         latitude and longitude. Inside a building, 0.0 represents the floor
+         level associated with ground level at the main entrance."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 8 }
+
+me1200LldpmedStatusRemoteDeviceInfoAltitude OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Altitude value in 2s-complement as specified in RFC 3825"
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 9 }
+
+me1200LldpmedStatusRemoteDeviceInfoDatum OBJECT-TYPE
+    SYNTAX      ME1200lldpmedDatumType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Datum (geodetic system) .
+         
+         The Map Datum is used for the coordinates given in these options:
+         
+         WGS84: (Geographical 3D) - World Geodesic System 1984, CRS Code 4327,
+         Prime Meridian Name: Greenwich.
+         
+         NAD83/NAVD88: North American Datum 1983, CRS Code 4269, Prime Meridian
+         Name: Greenwich; The associated vertical datum is the North American
+         Vertical Datum of 1988 (NAVD88). This datum pair is to be used when
+         referencing locations on land, not near tidal water(which would use
+         Datum = NAD83/MLLW).
+         
+         NAD83/MLLW: North American Datum 1983, CRS Code 4269, Prime Meridian
+         Name: Greenwich; The associated vertical datum is Mean Lower Low Water
+         (MLLW). This datum pair is to be used when referencing locations on
+         water/sea/ocean."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 10 }
+
+me1200LldpmedStatusRemoteDeviceInfoElinAddr OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..25))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Emergency Call Service ELIN identifier data format is defined to carry
+         the ELIN identifier as used during emergency call setup to a
+         traditional CAMA or ISDN trunk-based PSAP. This format consists of a
+         numerical digit string, corresponding to the ELIN to be used for
+         emergency calling. Maximum number of octets are 25."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 12 }
+
+me1200LldpmedStatusRemoteDeviceInfoDeviceType OBJECT-TYPE
+    SYNTAX      ME1200lldpmedRemoteDeviceType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's device type."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 13 }
+
+me1200LldpmedStatusRemoteDeviceInfoHwRev OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's hardware revision."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 14 }
+
+me1200LldpmedStatusRemoteDeviceInfoFwRev OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's firmware revision."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 15 }
+
+me1200LldpmedStatusRemoteDeviceInfoSwRev OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's software revision."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 16 }
+
+me1200LldpmedStatusRemoteDeviceInfoSerialNo OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's serial number."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 17 }
+
+me1200LldpmedStatusRemoteDeviceInfoManufacturerName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's manufacturer name."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 18 }
+
+me1200LldpmedStatusRemoteDeviceInfoModelName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's model name."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 19 }
+
+me1200LldpmedStatusRemoteDeviceInfoAssetId OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..31))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's asset id."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 20 }
+
+me1200LldpmedStatusRemoteDeviceInfoEeeRxTwSys OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's Receive tw_sys_rx . Tw_sys_rx is defined as
+         the time (expressed in microseconds) that the transmitting link partner
+         will wait before it starts transmitting data after leaving the Low
+         Power Idle (LPI) mode. Section 79.3.5.2, IEEE802.3az."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 21 }
+
+me1200LldpmedStatusRemoteDeviceInfoEeeTxTwSys OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's Transmit Tw_sys_tx . Tw_sys_tx is defined as
+         the time (expressed in microseconds) that the receiving link partner is
+         requesting the transmitting link partner to wait before starting the
+         transmission data following the Low Power Idle (LPI) mode. Section
+         79.3.5.1, IEEE802.3az."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 22 }
+
+me1200LldpmedStatusRemoteDeviceInfoEeeFbTwSys OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's Fallback tw_sys_tx. A receiving link partner
+         may inform the transmitter of an alternate desired Tw_sys_tx. Since a
+         receiving link partner is likely to have discrete levels for savings,
+         this provides the transmitter with additional information that it may
+         use for a more efficient allocation. Section 79.3.5.3, IEEE802.3az."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 23 }
+
+me1200LldpmedStatusRemoteDeviceInfoEeeTxTwSysEcho OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's echo transmit Tw. The respective echo values
+         shall be defined as the local link partners reflection (echo) of the
+         remote link partners respective values. When a local link partner
+         receives its echoed values from the remote link partner it can
+         determine whether or not the remote link partner has received,
+         registered, and processed its most recent values. Section 79.3.5.4,
+         IEEE802.3az."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 24 }
+
+me1200LldpmedStatusRemoteDeviceInfoEeeRxTwSysEcho OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's echo receive Tw. The respective echo values
+         shall be defined as the local link partners reflection (echo) of the
+         remote link partners respective values. When a local link partner
+         receives its echoed values from the remote link partner it can
+         determine whether or not the remote link partner has received,
+         registered, and processed its most recent values. Section 79.3.5.4,
+         IEEE802.3az."
+    ::= { me1200LldpmedStatusRemoteDeviceInfoEntry 25 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpmedStatusRemoteDeviceLocInfoEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to show the LLDP-MED remote device (neighbor) civic
+         location information for a specific interface."
+    ::= { me1200LldpmedStatus 4 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpmedStatusRemoteDeviceLocInfoEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of neighbors information"
+    INDEX       { me1200LldpmedStatusRemoteDeviceLocInfoIfIndex, me1200LldpmedStatusRemoteDeviceLocInfoLldpmedIndex }
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoTable 1 }
+
+ME1200LldpmedStatusRemoteDeviceLocInfoEntry ::= SEQUENCE {
+    me1200LldpmedStatusRemoteDeviceLocInfoIfIndex     ME1200InterfaceIndex,
+    me1200LldpmedStatusRemoteDeviceLocInfoLldpmedIndex    Integer32,
+    me1200LldpmedStatusRemoteDeviceLocInfoState   ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoCounty      ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoCity    ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoCityDistrict    ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoBlock   ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoStreet      ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoLeadingStreetDirection      ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoTrailingStreetSuffix    ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoStreetSuffix    ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoHouseNo     ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoHouseNoSuffix   ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoLandmark    ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoAdditionalInfo      ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoName    ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoZipCode     ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoBuilding    ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoApartment   ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoFloor   ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoRoomNumber      ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoPlaceType   ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoPostalCommunityName     ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoPoBox   ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoAdditionalCode      ME1200DisplayString,
+    me1200LldpmedStatusRemoteDeviceLocInfoCountryCode     ME1200DisplayString
+}
+
+me1200LldpmedStatusRemoteDeviceLocInfoIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 1 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoLldpmedIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..192)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Neighbor information table entry index."
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 2 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoState OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "National subdivision"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 5 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoCounty OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "County"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 6 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoCity OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "City"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 7 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoCityDistrict OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "City district"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 8 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoBlock OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Block (Neighborhood)"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 9 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoStreet OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Street"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 10 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoLeadingStreetDirection OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Street Direction"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 11 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoTrailingStreetSuffix OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Trailling Street"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 12 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoStreetSuffix OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Street Suffix"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 13 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoHouseNo OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "House No."
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 14 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoHouseNoSuffix OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "House No. Suffix"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 15 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoLandmark OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Landmark"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 16 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoAdditionalInfo OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Additional Location Info"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 17 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Name"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 18 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoZipCode OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Zip Code"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 19 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoBuilding OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Building"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 20 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoApartment OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Unit"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 21 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoFloor OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Floor"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 22 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoRoomNumber OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Room No."
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 23 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoPlaceType OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Placetype"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 24 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoPostalCommunityName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Postal Community Name"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 25 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoPoBox OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "P.O. Box"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 26 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoAdditionalCode OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..250))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Addination Code"
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 27 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoCountryCode OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..2))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The two-letter ISO 3166 country code in capital ASCII letters -
+         Example: DK, DE or US."
+    ::= { me1200LldpmedStatusRemoteDeviceLocInfoEntry 28 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to show the LLDP-MED remote device (neighbor) network
+         policies information for a specific interface."
+    ::= { me1200LldpmedStatus 5 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry OBJECT-TYPE
+    SYNTAX      ME1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of neighbors information"
+    INDEX       { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoIfIndex, me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoLldpmedIndex, me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoPolicyIndex }
+    ::= { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoTable 1 }
+
+ME1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry ::= SEQUENCE {
+    me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoIfIndex   ME1200InterfaceIndex,
+    me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoLldpmedIndex      Integer32,
+    me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoPolicyIndex   Integer32,
+    me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoApplicationType   ME1200lldpmedRemoteNetworkPolicyApplicationType,
+    me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoUnknownPolicy     TruthValue,
+    me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoTagged    TruthValue,
+    me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoVlanId    ME1200Unsigned16,
+    me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoL2Priority    ME1200Unsigned8,
+    me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoDscp      ME1200Unsigned8
+}
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry 1 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoLldpmedIndex OBJECT-TYPE
+    SYNTAX      Integer32 (0..192)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Neighbor information table entry index."
+    ::= { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry 2 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoPolicyIndex OBJECT-TYPE
+    SYNTAX      Integer32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical Policy index."
+    ::= { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry 3 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoApplicationType OBJECT-TYPE
+    SYNTAX      ME1200lldpmedRemoteNetworkPolicyApplicationType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The LLDP policy application type."
+    ::= { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry 5 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoUnknownPolicy OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Policy indicates that an Endpoint Device wants to explicitly advertise
+         that the policy is required by the device. Can be either Defined or
+         Unknown
+         
+         Unknown: The network policy for the specified application type is
+         currently unknown.
+         
+         Defined: The network policy is defined (known)."
+    ::= { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry 6 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoTagged OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Defines if LLDP policy uses tagged VLAN."
+    ::= { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry 7 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoVlanId OBJECT-TYPE
+    SYNTAX      ME1200Unsigned16 (1..4095)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The policy VLAN ID. Only valid when policy 'Tagged' is TRUE."
+    ::= { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry 8 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoL2Priority OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (0..7)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the LLDP neighbor's policy L2 priority. Only valid when policy
+         'Tagged' is TRUE."
+    ::= { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry 9 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoDscp OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8 (0..63)
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "LLDP policy DSCP."
+    ::= { me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoEntry 10 }
+
+me1200LldpmedControl OBJECT IDENTIFIER
+    ::= { me1200LldpmedMibObjects 4 }
+
+me1200LldpmedMibConformance OBJECT IDENTIFIER
+    ::= { me1200LldpmedMib 2 }
+
+me1200LldpmedMibCompliances OBJECT IDENTIFIER
+    ::= { me1200LldpmedMibConformance 1 }
+
+me1200LldpmedMibGroups OBJECT IDENTIFIER
+    ::= { me1200LldpmedMibConformance 2 }
+
+me1200LldpmedConfigGlobalInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpmedConfigGlobalFastRepeatCount, 
+                  me1200LldpmedConfigGlobalLatitude, 
+                  me1200LldpmedConfigGlobalLongitude, 
+                  me1200LldpmedConfigGlobalAltitudeType, 
+                  me1200LldpmedConfigGlobalAltitude, 
+                  me1200LldpmedConfigGlobalElinAddr, me1200LldpmedConfigGlobalDatum }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpmedMibGroups 1 }
+
+me1200LldpmedConfigLocationInformationInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpmedConfigLocationInformationState, 
+                  me1200LldpmedConfigLocationInformationCounty, 
+                  me1200LldpmedConfigLocationInformationCity, 
+                  me1200LldpmedConfigLocationInformationCityDistrict, 
+                  me1200LldpmedConfigLocationInformationBlock, 
+                  me1200LldpmedConfigLocationInformationStreet, 
+                  me1200LldpmedConfigLocationInformationLeadingStreetDirection, 
+                  me1200LldpmedConfigLocationInformationTrailingStreetSuffix, 
+                  me1200LldpmedConfigLocationInformationStreetSuffix, 
+                  me1200LldpmedConfigLocationInformationHouseNo, 
+                  me1200LldpmedConfigLocationInformationHouseNoSuffix, 
+                  me1200LldpmedConfigLocationInformationLandmark, 
+                  me1200LldpmedConfigLocationInformationAdditionalInfo, 
+                  me1200LldpmedConfigLocationInformationName, 
+                  me1200LldpmedConfigLocationInformationZipCode, 
+                  me1200LldpmedConfigLocationInformationBuilding, 
+                  me1200LldpmedConfigLocationInformationApartment, 
+                  me1200LldpmedConfigLocationInformationFloor, 
+                  me1200LldpmedConfigLocationInformationRoomNumber, 
+                  me1200LldpmedConfigLocationInformationPlaceType, 
+                  me1200LldpmedConfigLocationInformationPostalCommunityName, 
+                  me1200LldpmedConfigLocationInformationPoBox, 
+                  me1200LldpmedConfigLocationInformationAdditionalCode, 
+                  me1200LldpmedConfigLocationInformationCountryCode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpmedMibGroups 2 }
+
+me1200LldpmedConfigInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpmedConfigOptionalTlvs, me1200LldpmedConfigDeviceType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpmedMibGroups 3 }
+
+me1200LldpmedConfigPolicyInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpmedConfigPolicyApplicationType, 
+                  me1200LldpmedConfigPolicyTagged, me1200LldpmedConfigPolicyVlanId, 
+                  me1200LldpmedConfigPolicyL2Priority, me1200LldpmedConfigPolicyDscp, 
+                  me1200LldpmedConfigPolicyAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpmedMibGroups 4 }
+
+me1200LldpmedConfigPolicyListInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpmedConfigPolicyListLldpmedPoliciesList }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpmedMibGroups 5 }
+
+me1200LldpmedConfigPolicyRowEditorInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpmedConfigPolicyRowEditorLldpmedPolicy, 
+                  me1200LldpmedConfigPolicyRowEditorApplicationType, 
+                  me1200LldpmedConfigPolicyRowEditorTagged, 
+                  me1200LldpmedConfigPolicyRowEditorVlanId, 
+                  me1200LldpmedConfigPolicyRowEditorL2Priority, 
+                  me1200LldpmedConfigPolicyRowEditorDscp, 
+                  me1200LldpmedConfigPolicyRowEditorAction }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpmedMibGroups 6 }
+
+me1200LldpmedStatusRemoteDeviceInfoInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpmedStatusRemoteDeviceInfoCapabilities, 
+                  me1200LldpmedStatusRemoteDeviceInfoCapabilitiesEnabled, 
+                  me1200LldpmedStatusRemoteDeviceInfoLatitude, 
+                  me1200LldpmedStatusRemoteDeviceInfoLongitude, 
+                  me1200LldpmedStatusRemoteDeviceInfoAltitudeType, 
+                  me1200LldpmedStatusRemoteDeviceInfoAltitude, 
+                  me1200LldpmedStatusRemoteDeviceInfoDatum, 
+                  me1200LldpmedStatusRemoteDeviceInfoElinAddr, 
+                  me1200LldpmedStatusRemoteDeviceInfoDeviceType, 
+                  me1200LldpmedStatusRemoteDeviceInfoHwRev, 
+                  me1200LldpmedStatusRemoteDeviceInfoFwRev, 
+                  me1200LldpmedStatusRemoteDeviceInfoSwRev, 
+                  me1200LldpmedStatusRemoteDeviceInfoSerialNo, 
+                  me1200LldpmedStatusRemoteDeviceInfoManufacturerName, 
+                  me1200LldpmedStatusRemoteDeviceInfoModelName, 
+                  me1200LldpmedStatusRemoteDeviceInfoAssetId, 
+                  me1200LldpmedStatusRemoteDeviceInfoEeeRxTwSys, 
+                  me1200LldpmedStatusRemoteDeviceInfoEeeTxTwSys, 
+                  me1200LldpmedStatusRemoteDeviceInfoEeeFbTwSys, 
+                  me1200LldpmedStatusRemoteDeviceInfoEeeTxTwSysEcho, 
+                  me1200LldpmedStatusRemoteDeviceInfoEeeRxTwSysEcho }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpmedMibGroups 7 }
+
+me1200LldpmedStatusRemoteDeviceLocInfoInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200LldpmedStatusRemoteDeviceLocInfoState, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoCounty, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoCity, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoCityDistrict, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoBlock, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoStreet, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoLeadingStreetDirection, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoTrailingStreetSuffix, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoStreetSuffix, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoHouseNo, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoHouseNoSuffix, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoLandmark, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoAdditionalInfo, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoName, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoZipCode, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoBuilding, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoApartment, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoFloor, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoRoomNumber, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoPlaceType, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoPostalCommunityName, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoPoBox, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoAdditionalCode, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoCountryCode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpmedMibGroups 8 }
+
+me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoInfoGroup OBJECT-GROUP
+    OBJECTS     { 
+                  me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoApplicationType, 
+                  me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoUnknownPolicy, 
+                  me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoTagged, 
+                  me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoVlanId, 
+                  me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoL2Priority, 
+                  me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoDscp }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200LldpmedMibGroups 9 }
+
+me1200LldpmedMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200LldpmedConfigGlobalInfoGroup, 
+                  me1200LldpmedConfigLocationInformationInfoGroup, 
+                  me1200LldpmedConfigInfoGroup, me1200LldpmedConfigPolicyInfoGroup, 
+                  me1200LldpmedConfigPolicyListInfoGroup, 
+                  me1200LldpmedConfigPolicyRowEditorInfoGroup, 
+                  me1200LldpmedStatusRemoteDeviceInfoInfoGroup, 
+                  me1200LldpmedStatusRemoteDeviceLocInfoInfoGroup, 
+                  me1200LldpmedStatusRemoteDeviceNetworkPolicyInfoInfoGroup }
+
+    ::= { me1200LldpmedMibCompliances 1 }
+
+END

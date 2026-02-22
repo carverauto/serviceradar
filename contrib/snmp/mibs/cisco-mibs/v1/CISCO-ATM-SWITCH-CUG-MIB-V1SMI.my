@@ -1,0 +1,389 @@
+-- MIB created 6/25/99 12:56:50, by
+--   SMIC (the next generation) version 1.6.29, November 22, 1994.
+
+CISCO-ATM-SWITCH-CUG-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-ATM-SWITCH-CUG-MIB.my"
+
+IMPORTS
+    Gauge32
+            FROM SNMPv2-SMI-v1
+    OBJECT-TYPE
+            FROM RFC-1212
+    RowStatus, TruthValue, DisplayString
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI;
+
+csCugMIB OBJECT IDENTIFIER ::= { ciscoMgmt 89 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    9707070000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-atm@cisco.com
+--  Descr
+--    This MIB module is for closed user group support (virtual private 
+--     networks).
+
+csCugMIBObjects OBJECT IDENTIFIER ::= { csCugMIB 1 }
+csCugMIBConformance OBJECT IDENTIFIER ::= { csCugMIB 3 }
+csCugMIBCompliances OBJECT IDENTIFIER ::= { csCugMIBConformance 1 }
+csCugMIBGroups  OBJECT IDENTIFIER ::= { csCugMIBConformance 2 }
+
+CsCugInterlockCode ::= OCTET STRING(SIZE(4 | 24))
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    A Closed User Group Interlock Code. It is either
+--     a 4-octet long International Cug Interlock Code or a 24-octet 
+--     long Global Cug Interlock Code which has two parts to it. 
+--     The first part is 20 byte ATM NSAP address and the second 
+--     part is a 4 byte CUG ID. For example the global interlock code
+--     could be represented as 
+--     390091845600000061706be6010061805aabcd0012345678
+--     |======= ATM ADDRESS ==================|-CUG ID-|
+--     
+--  Refer
+--    Atm Forum Contribution 96-1347.
+
+Unsigned32 ::= Gauge32
+-- TEXTUAL-CONVENTION
+--  Status
+--    mandatory
+--  Descr
+--    This data type is used to represent an unsigned 32-bit
+--     integer. We use it until a replacement for UInteger32
+--     is determined.
+
+csCugInterlockCodeTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsCugInterlockCodeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The CUG interlock code alias Table. Entries in this 
+         table can be created and deleted by setting the 
+         csCugInterlockCodeRowStatus object to appropriate
+         values. This table maps the interlock code to an alias name.
+         Table entries cannot be deleted if the entries in this table are
+         being used in csCugTable."
+    ::= { csCugMIBObjects 1 }
+
+csCugInterlockCodeEntry OBJECT-TYPE
+    SYNTAX CsCugInterlockCodeEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the cug interlock code table."
+    INDEX { csCugInterlockCode }
+    ::= { csCugInterlockCodeTable 1 }
+
+CsCugInterlockCodeEntry ::= SEQUENCE {
+    csCugInterlockCode CsCugInterlockCode,
+    csCugInterlockCodeAliasName DisplayString,
+    csCugInterlockCodeRowStatus RowStatus
+    }
+
+csCugInterlockCode OBJECT-TYPE
+    SYNTAX CsCugInterlockCode
+--    Rsyntax OCTET STRING(SIZE(4 | 24))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The Address to be aliased."
+    ::= { csCugInterlockCodeEntry 1 }
+
+csCugInterlockCodeAliasName OBJECT-TYPE
+    SYNTAX DisplayString(SIZE(1..30))
+--    Rsyntax OCTET STRING(SIZE(1..30))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The alias name for a CUG interlock code."
+    ::= { csCugInterlockCodeEntry 2 }
+
+csCugInterlockCodeRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "To create, delete a row.  Existing rows can be modified/deleted 
+         when the row is active providing this alias is not referenced by any 
+         entries in the csCugTable."
+    ::= { csCugInterlockCodeEntry 3 }
+
+csCugIfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsCugIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A table to define an interface as an access interface."
+    ::= { csCugMIBObjects 2 }
+
+csCugIfEntry OBJECT-TYPE
+    SYNTAX CsCugIfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in this table must be created in order to enable the
+        screening of closed user group calls and enable the barring of
+        transmission of CUG interlock codes across the interface. Closed
+        user group calls are screened by looking up csCugTable."
+    INDEX { ifIndex }
+    ::= { csCugIfTable 1 }
+
+CsCugIfEntry ::= SEQUENCE {
+    csCugIfAccessEnable TruthValue,
+    csCugIfPermitUnknownCugsToUser TruthValue,
+    csCugIfPermitUnknownCugsFromUser INTEGER,
+    csCugIfRowStatus RowStatus
+    }
+
+csCugIfAccessEnable OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "If the value is true, enables CUG service on the interface.
+        When the value is false, CUG service on the interface will be 
+        disabled and no screening of CUGs will be done."
+    DEFVAL { true }
+    ::= { csCugIfEntry 1 }
+
+csCugIfPermitUnknownCugsToUser OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This maps to incoming access of the ITU spec. This object takes
+        effect when csCugIfAccessEnable is true. If the value is true, 
+        allows calls with unknown cug interlock code or non-cug calls to be 
+        forwarded to the user. If the value is false, calls from unknown CUGs 
+        will not be forwarded to the user. If csCugIfAccessEnable is false
+        this object will be ignored."
+    REFERENCE
+        "ITU Specification Q.2955.1 section 1.3"
+    DEFVAL { false }
+    ::= { csCugIfEntry 2 }
+
+csCugIfPermitUnknownCugsFromUser OBJECT-TYPE
+    SYNTAX INTEGER {
+        deny(1),
+        permitPerCall(2),
+        permitPermanently(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This maps to outgoing access of the ITU spec. This object takes
+        effect when csCugIfAccessEnable is true. If the value is 
+        deny, do not permit calls to other CUGs.
+        If the value is permitPerCall, use cug index from user and calls
+        to other CUGs will be permitted. If the value is 
+        permitPermanently, use preferential CUG for calls from user and
+        calls to other CUGs will be permitted."
+    REFERENCE
+        "ITU Specification Q.2955.1 section 1.3"
+    DEFVAL { deny }
+    ::= { csCugIfEntry 3 }
+
+csCugIfRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.  
+        The value of the columnar objects in this row may be modified
+        even while the row status is 'active'."
+    ::= { csCugIfEntry 4 }
+
+csCugTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CsCugEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of Closed User Group (CUG) definitions on the interfaces of 
+        the switch. Entries in this table may be created and deleted by SNMP.
+        Each entry represents membership of an interface in a CUG. An 
+        interface may have several CUGs, but only one 'preferential' CUG.
+        CUG membership takes effect only when the interface is configured
+        as an access interface i.e., has an entry in the csCugIfTable and
+        that entry's csCugIfAccessEnable == true."
+    ::= { csCugMIBObjects 3 }
+
+csCugEntry OBJECT-TYPE
+    SYNTAX CsCugEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry identifying an interface's membership in a CUG."
+    INDEX { ifIndex, csCugInterlockCode }
+    ::= { csCugTable 1 }
+
+CsCugEntry ::= SEQUENCE {
+    csCugIndex Unsigned32,
+    csCugPreferential TruthValue,
+    csCugDenySameGroupToUser TruthValue,
+    csCugDenySameGroupFromUser TruthValue,
+    csCugRowStatus RowStatus
+    }
+
+csCugIndex OBJECT-TYPE
+    SYNTAX Unsigned32(0..65535)
+--    Rsyntax Gauge32(0..65535)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This maps to cug index of ITU spec. For each interface,
+        there is a unique cug index for each interlock code. This
+        object is valid only when CUGs are supported on a 
+        per-call basis."
+    REFERENCE
+        "ITU Specification Q.2955.1 section 1.3"
+    ::= { csCugEntry 1 }
+
+csCugPreferential OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates if this is a preferential CUG. A value of false means
+        non-preferred CUG. There can be at most one preferential CUG on
+        an interface. When a preferential cug exists, this object has to be
+        set to false before another CUG can become a preferential CUG.
+        For e.g., if CUG X is the preferential CUG and CUG Y has to take
+        the role of preferential CUG, change CUG X to be non-preferential
+        by modifying this object to false and make CUG Y the preferential CUG
+        by modifying this object to true."
+    DEFVAL { false }
+    ::= { csCugEntry 2 }
+
+csCugDenySameGroupToUser OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This applies to members of the same closed user group. This
+        object maps to incoming-calls-barred in ITU spec. At the 
+        destination interface if this is true and the call was made
+        by a member of the same CUG, the call will rejected."
+    REFERENCE
+        "ITU Specification Q.2955.1 section 1.3"
+    DEFVAL { false }
+    ::= { csCugEntry 3 }
+
+csCugDenySameGroupFromUser OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This applies to members of the same closed user group at the 
+        originating interface. This object maps to outgoing-calls-barred
+        in the ITU specification.
+        
+        Setting an entry's csCugDenySameGroupFromUser to true when the entry's
+        csCugPreferential is true will result in error.
+        
+        When csCugDenySameGroupFromUser is set to false and a
+        preferential cug is defined on the interface, by default the
+        call will be forwarded with the interlock code of the preferential cug."
+    REFERENCE
+        "ITU Specification Q.2955.1 section 1.3"
+    DEFVAL { false }
+    ::= { csCugEntry 4 }
+
+csCugRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this conceptual row.  
+        The value of the columnar objects in this row may be modified
+        even while the row status is 'active'. Modifications will
+        affect new calls. Existing calls are not affected."
+    ::= { csCugEntry 5 }
+
+csCugMIBGroup OBJECT IDENTIFIER ::= { csCugMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects for managing Closed User Groups.
+--  objects
+--    csCugInterlockCodeAliasName, csCugInterlockCodeRowStatus, 
+--    csCugIfAccessEnable, csCugIfPermitUnknownCugsToUser, 
+--    csCugIfPermitUnknownCugsFromUser, csCugIfRowStatus, 
+--    csCugIndex, csCugPreferential, csCugDenySameGroupToUser, 
+--    csCugDenySameGroupFromUser, csCugRowStatus
+
+csCugMIBCompliance OBJECT IDENTIFIER ::= { csCugMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the Cisco ATM CUG MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    csCugMIBGroup
+
+
+END
+

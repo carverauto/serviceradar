@@ -1,0 +1,56 @@
+-- *****************************************************************
+-- CISCO-BGP-POLICY-ACCOUNTING-MIB-CAPABILITY.my:
+-- Cisco CISCO-BGP-POLICY-ACCOUNTING-MIB AGENT-CAPABILITIES
+--
+-- December 2005, Sreenivasulu Chalamcharla
+--
+-- Copyright (c) 2005 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-BGP-POLICY-ACCOUNTING-MIB-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;
+
+cbpAcctCapabilitity MODULE-IDENTITY
+        LAST-UPDATED    "200512300000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-lan-switch-snmp@cisco.com
+                        cs-snmp@cisco.com"
+        DESCRIPTION
+                "The capabilities description of
+                 CISCO-BGP-POLICY-ACCOUNTING-MIB."
+
+        REVISION        "200512300000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoAgentCapability 468 }
+
+cbgppaCapabilityIOSXRV3R0CRS1 AGENT-CAPABILITIES
+    PRODUCT-RELEASE     "Cisco IOS XR 3.0 for CRS-1"
+    STATUS              current
+    DESCRIPTION         "CISCO-BGP-POLICY-ACCOUNTING-MIB 
+                        capabilities for IOS XR release 3.0"
+
+    SUPPORTS            CISCO-BGP-POLICY-ACCOUNTING-MIB
+        INCLUDES        { cbpAcctTableGroupRev1 }
+
+    ::= { cbpAcctCapabilitity 1 }
+
+END

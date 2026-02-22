@@ -1,0 +1,454 @@
+ -- *****************************************************************
+-- CISCO-MODULE-VIRTUALIZATION-MIB: MIB for  Virtualization of 
+--                                  a module.
+--
+-- August 2005, Subrahmanya Hegde
+--
+-- Copyright (c) 2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+CISCO-MODULE-VIRTUALIZATION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    RowStatus,
+    TruthValue,
+    StorageType
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    entPhysicalIndex
+        FROM ENTITY-MIB
+    IANAifType
+        FROM IANAifType-MIB
+    CiscoResourceClass
+        FROM CISCO-L4L7MODULE-RESOURCE-LIMIT-MIB
+    CiscoURLString
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+ciscoModuleVirtualizationMIB MODULE-IDENTITY
+    LAST-UPDATED        "200605290000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+        "       Cisco Systems
+               Customer Service
+
+        Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+           Tel: +1 800 553-NETS
+
+        E-mail: cs-l4l7security@cisco.com"
+    DESCRIPTION
+            "This MIB provides a way to create virtual contexts,
+            and managing them.  A virtual context is logical
+            partition of a physical device.  The Virtual context
+            provide different type of services and can be managed 
+            independently.  Each virtual context is an independent 
+            entity, with its own configuration and supports
+            almost all the options that can be configured on
+            stand-alone hardware.  Each context can have a separate 
+            management IP address that the user can Telnet/SSH into  
+            and send other requests(SNMP, FTP etc).
+            
+            This MIB contains tables for creating/deleting virtual
+            contexts and assigning interfaces and/or interface ranges
+            to virtual contexts."
+    REVISION        "200605290000Z"
+    DESCRIPTION
+            "Corrected the contact E-mail id: 
+             cs-l4l7security@cisco.com"
+    REVISION        "200512120000Z"
+    DESCRIPTION
+            "Initial version of the MIB module."
+    ::= { ciscoMgmt 472 }
+
+cmVirtualizationNotifs    OBJECT IDENTIFIER ::= 
+              { ciscoModuleVirtualizationMIB 0 }
+
+cmVirtualizationMIBObjects OBJECT IDENTIFIER ::=
+            { ciscoModuleVirtualizationMIB 1 }
+
+cmVirtualizationMIBConformance OBJECT IDENTIFIER ::=
+              { ciscoModuleVirtualizationMIB 2 }
+
+cmVirtualContext OBJECT IDENTIFIER ::= 
+                      { cmVirtualizationMIBObjects 1 }
+
+cmVirtualContextNotifControl OBJECT IDENTIFIER ::= 
+                       { cmVirtualizationMIBObjects 2 }
+
+cmVirtualContextNotifObjects OBJECT IDENTIFIER ::= 
+                       { cmVirtualizationMIBObjects 3 }
+
+-- The Virtual Context table.
+
+cmVirtualContextTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CmVirtualContextEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This is the virtual context table.  A virtual context
+        can be created for a module.  This table is used for 
+        creating/deleting virtual contexts.  The entries can be
+        created/deleted by SNMP and/or by console commands."
+    ::= { cmVirtualContext 1 }
+
+cmVirtualContextEntry       OBJECT-TYPE
+    SYNTAX      CmVirtualContextEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in virtual context table. Each entry
+        provides information about a particular virtual context.
+        To create a virtual context, following procedure is
+        used:
+        - choose the appropriate value for entPhysicalIndex
+          to point to an entry(with entPhysicaClass = 'module')
+          in entPhysicalTable.
+        - specify the name of the virtual context.
+        - create an entry in the table by specifying
+          ciscoVirtualContextRowStatus value of
+          'createAndGo' or 'createAndWait'.
+
+        One or more virtual contexts can be created in a module.
+        Each of these contexts are identified by a unique name.
+        Resources can be assigned/mapped to each virtual context.
+        Configurations and Monitoring can be done each virtual
+        context independent of each other.  Configuration changes in
+        one virtual context will not affect other."
+    INDEX   { entPhysicalIndex, 
+              cmVirtContextName 
+            }
+    ::= { cmVirtualContextTable 1 }
+
+CmVirtualContextEntry ::= SEQUENCE {
+      cmVirtContextName               SnmpAdminString,
+      cmVirtContextDescr              SnmpAdminString,
+      cmVirtContextURL                CiscoURLString,
+      cmVirtContextResourceClass      CiscoResourceClass,
+      cmVirtContextStorageType        StorageType,
+      cmVirtContextRowStatus          RowStatus
+}
+
+cmVirtContextName OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object uniquely identifies a virtual context."
+    ::= { cmVirtualContextEntry 1 }
+
+cmVirtContextDescr OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object is used for configuring
+       the description of virtual context."
+    DEFVAL { "" }
+    ::= { cmVirtualContextEntry 2 }
+
+cmVirtContextURL OBJECT-TYPE
+    SYNTAX      CiscoURLString
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object is used for configuring
+        the URL from which virtual context
+        configuration will be downloaded.
+
+        The configuration contains information
+        on anything that is configured in a 
+        virtual context.
+        Some examples of possible values for this object are:
+            disk://[path/]filename
+            ftp://[user[:password]@]server/[path/]filename
+            tftp://server/[path/]filename
+            http://server/[path/]filename
+            https://server/[path/]filename.
+        NOTE: Above list is just an example. It does not 
+        specify/limit only these values to be supported."
+    ::= { cmVirtualContextEntry 3 }
+
+cmVirtContextResourceClass OBJECT-TYPE
+    SYNTAX      CiscoResourceClass
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object is used for assigning
+       a resource class to a context. 
+       The resource class contains information
+       on the resources that are managed/applicable
+       to a context.  The type of resources that
+       may be applicable are governed by the
+       CiscoResourceClass TEXTUAL CONVENTION.
+       This object value must correspond to an entry
+       in cmResourceClassTable."
+    REFERENCE
+        "cmResourceClassTable in CISCO-RESOURCE-LIMIT-MIB."
+    ::= { cmVirtualContextEntry 4 }
+
+cmVirtContextStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        Conceptual rows having the value 'permanent' need not
+        allow write-access to any columnar objects in the row."
+    DEFVAL      { nonVolatile }
+    ::= { cmVirtualContextEntry 5 }
+
+cmVirtContextRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object is used for creating/deleting
+        entries in this table."
+    ::= { cmVirtualContextEntry 6 }
+
+--  Interface Map Table
+
+cmVirtContextIfMapTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF CmVirtContextIfMapEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This table is used for assigning interfaces
+        to a virtual context.  This table will configure
+        the set of interfaces that can be used by a
+        virtual context."
+    ::= { cmVirtualContext 2 }
+
+cmVirtContextIfMapEntry OBJECT-TYPE
+    SYNTAX      CmVirtContextIfMapEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "An entry in Interface Map table.
+        Each entry represents the interface or
+        interface range that are assigned to
+        a virtual context."
+    INDEX   { cmVirtContextName,
+              cmVirtContextIfMapType,
+              cmVirtContextIfMapIdLow }
+    ::= { cmVirtContextIfMapTable 1 }
+
+CmVirtContextIfMapEntry ::= SEQUENCE {
+      cmVirtContextIfMapType         IANAifType,
+      cmVirtContextIfMapIdLow        Unsigned32,
+      cmVirtContextIfMapIdHigh       Unsigned32,
+      cmVirtContextIfMapStorageType  StorageType,
+      cmVirtContextIfMapRowStatus    RowStatus
+}
+
+cmVirtContextIfMapType OBJECT-TYPE
+    SYNTAX      IANAifType
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the interface type
+        for which cmVirtContextIfMapIdHigh
+        and cmVirtContextIfMapIdLow are applicable."
+    ::= { cmVirtContextIfMapEntry 1 }
+
+cmVirtContextIfMapIdLow OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the interface that 
+        can be assigned to a context.  This object
+        either represents an interface or lower value
+        of the interface range."
+    ::= { cmVirtContextIfMapEntry 2 }
+ 
+cmVirtContextIfMapIdHigh OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object specifies the interface that
+        will be assigned to a virtual context.
+        The non-zero value specifies the upper value
+        of the interface range.  This value must be
+        greater than the value in cmVirtContextIfMapIdLow.
+        The value zero specifies that value specified 
+        in cmVirtContextIfMapIdLow is assigned."
+    ::= { cmVirtContextIfMapEntry 3 }
+
+cmVirtContextIfMapStorageType OBJECT-TYPE
+    SYNTAX       StorageType
+    MAX-ACCESS   read-create
+    STATUS       current
+    DESCRIPTION
+        "The storage type for this conceptual row.
+        Conceptual rows having the value 'permanent' need not
+        allow write-access to any columnar objects in the row."
+    DEFVAL      { nonVolatile }
+    ::= { cmVirtContextIfMapEntry 4 }
+
+cmVirtContextIfMapRowStatus OBJECT-TYPE
+    SYNTAX      RowStatus
+    MAX-ACCESS  read-create
+    STATUS      current
+    DESCRIPTION
+        "This object is used for creating/deleting
+        entries in this table."
+    ::= { cmVirtContextIfMapEntry 5 }
+
+-- Notification related objects
+
+cmVirtContextNotifEnable OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION
+        "This object is used for enabling/disabling
+        notifications related to virtual context."
+    ::= { cmVirtualContextNotifControl 1 }
+
+cmNotifVirtContextName OBJECT-TYPE
+    SYNTAX      SnmpAdminString
+    MAX-ACCESS  accessible-for-notify
+    STATUS      current
+    DESCRIPTION
+        "This object is used in notifications only.
+        This object contains the virtual context name.
+        (i.e. value of cmVirtContextName)."
+    ::= { cmVirtualContextNotifObjects 1 }
+
+cmVirtContextAdded NOTIFICATION-TYPE
+    OBJECTS {
+        cmNotifVirtContextName
+    }
+    STATUS current
+    DESCRIPTION 
+        "This notifications will be sent
+        when a virtual context is added."
+    ::= { cmVirtualizationNotifs 1 }
+
+cmVirtContextRemoved NOTIFICATION-TYPE
+    OBJECTS {
+        cmNotifVirtContextName
+    }
+    STATUS current
+    DESCRIPTION 
+        "This notifications will be sent
+        when a virtual context is removed/deleted."
+    ::= { cmVirtualizationNotifs 2 }
+
+cmVirtualizationCompliances OBJECT IDENTIFIER ::=
+              { cmVirtualizationMIBConformance 1 }
+
+cmVirtualizationGroups      OBJECT IDENTIFIER ::= 
+              { cmVirtualizationMIBConformance 2 }
+
+-- compliance statements
+cmVirtualizationCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "The compliance statement for SNMP entities which implement
+            virtualization MIB."
+    MODULE  -- this module
+        MANDATORY-GROUPS {
+            cmVirtContextconfigGroup
+        }
+
+    GROUP cmVirtContextIfMapGroup 
+    DESCRIPTION
+       "This group is mandatory in those systems
+       which supports assignment of interface
+       and interface ranges to a virtual context."
+
+    GROUP cmVirtContextNotifControlGroup
+    DESCRIPTION
+       "This group is mandatory in those systems
+       where it is required to control notifications
+       that are sent."
+
+    GROUP cmVirtContextNotificationGroup
+    DESCRIPTION
+       "This group is mandatory in those systems
+       where context add/delete is required by the
+       NMS applications."
+    ::= { cmVirtualizationCompliances 1 }
+
+-- MIB groupings
+
+cmVirtContextconfigGroup OBJECT-GROUP
+    OBJECTS {
+        cmVirtContextDescr,
+        cmVirtContextURL,
+        cmVirtContextResourceClass,
+        cmVirtContextStorageType, 
+        cmVirtContextRowStatus 
+    }
+    STATUS  current
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        virtual contexts in a virtualized system."
+    ::= { cmVirtualizationGroups 1 }
+
+cmVirtContextIfMapGroup OBJECT-GROUP
+    OBJECTS {
+        cmVirtContextIfMapIdHigh,
+        cmVirtContextIfMapStorageType,
+        cmVirtContextIfMapRowStatus 
+    }
+    STATUS  current
+    DESCRIPTION
+        "The collection of objects which are used 
+        for assigning interfaces to a virtual context."
+    ::= { cmVirtualizationGroups 2 }
+
+cmVirtContextNotifControlGroup OBJECT-GROUP
+    OBJECTS {
+        cmVirtContextNotifEnable
+    }
+    STATUS  current
+    DESCRIPTION
+        "The collection of object to control notifications
+        that are sent."
+    ::= { cmVirtualizationGroups 3 }
+
+cmVirtContextNotifObjectsGroup OBJECT-GROUP
+    OBJECTS {
+        cmNotifVirtContextName
+    }
+    STATUS  current
+    DESCRIPTION
+        "The collection of objects sent only in notifications."
+    ::= { cmVirtualizationGroups 4 }
+
+cmVirtContextNotificationGroup NOTIFICATION-GROUP
+    NOTIFICATIONS {
+        cmVirtContextAdded,
+        cmVirtContextRemoved
+    }
+    STATUS  current
+    DESCRIPTION
+        "The collection of objects which are used to represent
+        virtual contexts in a virtualized system."
+    ::= { cmVirtualizationGroups 5 }
+
+END
+     
+  
+ 
+ 

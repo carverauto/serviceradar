@@ -1,0 +1,301 @@
+-- MIB file created 03-Dec-2002 15:24:35, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-MULTILINK-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-MULTILINK-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus
+            FROM SNMPv2-TC-v1
+    alStatsMultiLink, alMultiLinkGroup
+            FROM ALTIGA-MIB
+    alMultiLinkMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaMultiLinkStatsMibModule OBJECT IDENTIFIER ::= { alMultiLinkMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga MultiLink Statistics MIB models counters and 
+--     objects that are of management interest for multilinks. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       MIB:        Management Information Base 
+--    
+--       MLP:        MultiLink Protocol 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsMultiLinkGlobal OBJECT IDENTIFIER ::= { alStatsMultiLink 1 }
+altigaMultiLinkStatsMibConformance OBJECT IDENTIFIER ::= { altigaMultiLinkStatsMibModule 1 }
+altigaMultiLinkStatsMibCompliances OBJECT IDENTIFIER ::= { altigaMultiLinkStatsMibConformance 1 }
+
+alMultiLinkStatsTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF AlMultiLinkStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "List of active bundles sessions."
+    ::= { alStatsMultiLink 2 }
+
+alMultiLinkStatsEntry OBJECT-TYPE
+    SYNTAX AlMultiLinkStatsEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry in the alMultiLinkStatsTable."
+    INDEX { alMultiLinkStatsIndex }
+    ::= { alMultiLinkStatsTable 1 }
+
+AlMultiLinkStatsEntry ::= SEQUENCE {
+    alMultiLinkStatsRowStatus RowStatus,
+    alMultiLinkStatsIndex INTEGER,
+    alMultiLinkStatsTxOctets Gauge,
+    alMultiLinkStatsTxPackets Gauge,
+    alMultiLinkStatsTxMlpFragments Gauge,
+    alMultiLinkStatsTxMlpPackets Gauge,
+    alMultiLinkStatsTxNonMlpPackets Gauge,
+    alMultiLinkStatsTxThroughput Gauge,
+    alMultiLinkStatsRxOctets Gauge,
+    alMultiLinkStatsRxPackets Gauge,
+    alMultiLinkStatsRxMlpFragments Gauge,
+    alMultiLinkStatsRxMlpPackets Gauge,
+    alMultiLinkStatsRxNonMlpPackets Gauge,
+    alMultiLinkStatsRxThroughput Gauge,
+    alMultiLinkStatsRxLostEnd Gauge,
+    alMultiLinkStatsRxStalePackets Gauge,
+    alMultiLinkStatsRxStaleFragments Gauge,
+    alMultiLinkStatsRxDroppedFragments Gauge,
+    alMultiLinkStatsRxOOSFragments Gauge,
+    alMultiLinkStatsIdleTmrCleanup Gauge
+    }
+
+alMultiLinkStatsRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this row."
+    ::= { alMultiLinkStatsEntry 1 }
+
+alMultiLinkStatsIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The unique MultiLink Bundle index for this row."
+    ::= { alMultiLinkStatsEntry 2 }
+
+alMultiLinkStatsTxOctets OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted octets."
+    ::= { alMultiLinkStatsEntry 3 }
+
+alMultiLinkStatsTxPackets OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted packets."
+    ::= { alMultiLinkStatsEntry 4 }
+
+alMultiLinkStatsTxMlpFragments OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted MLP packet fragments."
+    ::= { alMultiLinkStatsEntry 5 }
+
+alMultiLinkStatsTxMlpPackets OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted MLP complete packets."
+    ::= { alMultiLinkStatsEntry 6 }
+
+alMultiLinkStatsTxNonMlpPackets OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted non-MLP complete packets."
+    ::= { alMultiLinkStatsEntry 7 }
+
+alMultiLinkStatsTxThroughput OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of transmitted bits per second"
+    ::= { alMultiLinkStatsEntry 8 }
+
+alMultiLinkStatsRxOctets OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received octets."
+    ::= { alMultiLinkStatsEntry 9 }
+
+alMultiLinkStatsRxPackets OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received packets."
+    ::= { alMultiLinkStatsEntry 10 }
+
+alMultiLinkStatsRxMlpFragments OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received MLP packet fragments."
+    ::= { alMultiLinkStatsEntry 11 }
+
+alMultiLinkStatsRxMlpPackets OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received MLP complete packets."
+    ::= { alMultiLinkStatsEntry 12 }
+
+alMultiLinkStatsRxNonMlpPackets OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received non-MLP complete packets."
+    ::= { alMultiLinkStatsEntry 13 }
+
+alMultiLinkStatsRxThroughput OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received bits per second"
+    ::= { alMultiLinkStatsEntry 14 }
+
+alMultiLinkStatsRxLostEnd OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of missing MLP packets with no end bit."
+    ::= { alMultiLinkStatsEntry 15 }
+
+alMultiLinkStatsRxStalePackets OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received MLP packet fragments gone stale."
+    ::= { alMultiLinkStatsEntry 16 }
+
+alMultiLinkStatsRxStaleFragments OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received MLP fragments orphans gone stale."
+    ::= { alMultiLinkStatsEntry 17 }
+
+alMultiLinkStatsRxDroppedFragments OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received MLP packet fragments discarded."
+    ::= { alMultiLinkStatsEntry 18 }
+
+alMultiLinkStatsRxOOSFragments OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of received out-of-sequence MLP packet fragments"
+    ::= { alMultiLinkStatsEntry 19 }
+
+alMultiLinkStatsIdleTmrCleanup OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of times idle timer forwarded MLP complete packets."
+    ::= { alMultiLinkStatsEntry 20 }
+
+altigaMultiLinkStatsGroup OBJECT IDENTIFIER ::= { alMultiLinkGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for the MultiLink Bundle statistics.
+--  objects
+--    alMultiLinkStatsRowStatus, alMultiLinkStatsIndex, 
+--    alMultiLinkStatsTxOctets, alMultiLinkStatsTxPackets, 
+--    alMultiLinkStatsTxMlpFragments, alMultiLinkStatsTxMlpPackets, 
+--    alMultiLinkStatsTxNonMlpPackets, alMultiLinkStatsTxThroughput, 
+--    alMultiLinkStatsRxOctets, alMultiLinkStatsRxPackets, 
+--    alMultiLinkStatsRxMlpFragments, alMultiLinkStatsRxMlpPackets, 
+--    alMultiLinkStatsRxNonMlpPackets, alMultiLinkStatsRxThroughput, 
+--    alMultiLinkStatsRxLostEnd, alMultiLinkStatsRxStalePackets, 
+--    alMultiLinkStatsRxStaleFragments, 
+--    alMultiLinkStatsRxDroppedFragments, 
+--    alMultiLinkStatsRxOOSFragments, 
+--    alMultiLinkStatsIdleTmrCleanup
+
+altigaMultiLinkStatsMibCompliance OBJECT IDENTIFIER ::= { altigaMultiLinkStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga MultiLink Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaMultiLinkStatsGroup
+
+
+END
+

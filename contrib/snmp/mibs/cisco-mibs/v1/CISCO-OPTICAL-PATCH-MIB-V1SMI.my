@@ -1,0 +1,573 @@
+-- MIB file created 30-Aug-2002 08:57:47, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-OPTICAL-PATCH-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-OPTICAL-PATCH-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    RowStatus, TimeStamp, TruthValue
+            FROM SNMPv2-TC-v1
+    ciscoExperiment
+            FROM CISCO-SMI
+    InterfaceIndex, ifIndex
+            FROM IF-MIB
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoOpticalPatchMIB OBJECT IDENTIFIER ::= { ciscoExperiment 67 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200203180000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--     Customer Service
+--    
+--     Postal: 170 W Tasman Drive
+--     San Jose, CA 95134
+--    
+--     Tel: +1 800 553-NETS
+--    
+--     E-mail: cs-dwdm@cisco.com
+--  Descr
+--    This MIB module is used to configure and monitor the network
+--    element view of optical patches between two ports or 
+--    fibers on the same network element.
+--    
+--    It is up to the user to keep the provisioned information that
+--    is reflected in this MIB module in sync with the actual patches
+--    present between ports or fibers on the network element.
+--    Provisioning of a patch does not cause a patch to be inserted;
+--    it only informs the network element that a patch has been, or
+--    is soon to be, added or removed.
+--  RevDate
+--    200203180000Z
+--  RevDescr
+--    This revision adds support for patching one interface to two
+--     different interfaces in the receive and transmit directions.
+--    
+--     This revision deprecates the cOPatchInterfaceTable and 
+--     replaces it with the new cOPatchIntfTable. This new table
+--     includes the cOPatchIntfDirection object along with ifIndex
+--     as part of the table index. The cOPatchIntfDirection object
+--     identifies whether this interface is patched to another
+--     interface within a network element in the receive, transmit
+--     or both directions.
+--    
+--     A new object cOPatchDirOnLowIf is added to the cOPatchTable
+--     in order to identify the patch direction relative to the
+--     interface with low ifIndex.
+--  RevDate
+--    200109050000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+cOPatchMIBObjects OBJECT IDENTIFIER ::= { ciscoOpticalPatchMIB 1 }
+cOPatchMIBNotifications OBJECT IDENTIFIER ::= { ciscoOpticalPatchMIB 2 }
+cOPatchMIBConformance OBJECT IDENTIFIER ::= { ciscoOpticalPatchMIB 3 }
+cOPatchMIBCompliances OBJECT IDENTIFIER ::= { cOPatchMIBConformance 1 }
+cOPatchMIBGroups OBJECT IDENTIFIER ::= { cOPatchMIBConformance 2 }
+
+cOPatchInterfaceTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF COPatchInterfaceEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "This table lists all interfaces that are provisioned to
+        indicate that they are patched to other interfaces on the same
+        network element.  The table is used to find patches that
+        include a particular interface.
+        
+        This table is deprecated since it only includes bidirectional
+        patches. The new cOPatchIntfTable includes both unidirectional
+        patches (in the transmit or receive direction) and
+        bidirectional patches."
+    ::= { cOPatchMIBObjects 1 }
+
+cOPatchInterfaceEntry OBJECT-TYPE
+    SYNTAX COPatchInterfaceEntry
+    ACCESS not-accessible
+    STATUS deprecated
+    DESCRIPTION
+        "An entry is created only when an interface is provisioned
+        to indicate that it is patched to another interface on the same
+        network element (i.e. when the associated entry in the
+        cOPatchTable has been created).
+        
+        An entry is deleted when the interface is removed from a patch,
+        or when the patch is deleted from the cOPatchTable."
+    INDEX { ifIndex }
+    ::= { cOPatchInterfaceTable 1 }
+
+COPatchInterfaceEntry ::= SEQUENCE {
+    cOPatchIdentifier INTEGER
+    }
+
+cOPatchIdentifier OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483547)
+    ACCESS read-only
+    STATUS deprecated
+    DESCRIPTION
+        "The value of cOPatchIndex used in the cOPatchTable to identify
+        a patch that includes this interface.  The other interface
+        included in that patch has an entry in this table with the same
+        value of this object, in addition to the entry in the
+        cOPatchTable with this value of cOPatchIndex."
+    ::= { cOPatchInterfaceEntry 1 }
+
+cOPatchIndexNext OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains an appropriate value to be used for
+        cOPatchIndex when creating entries in the cOPatchTable.  The
+        value 0 indicates that no unassigned entries are available.
+        To obtain the cOPatchIndex value for a new entry, the manager
+        issues a management protocol retrieval operation to obtain the
+        current value of this object.
+        The agent will modify the value to the next unassigned index,
+        when a new row is created in cOPatchTable with the current
+        value of this object. After deletion of a row in cOPatchTable
+        the agent will determine through its local policy when its
+        index value will be made available for reuse."
+    ::= { cOPatchMIBObjects 2 }
+
+cOPatchLastChange OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of sysUpTime at the time of the last
+        creation, deletion or modification of an entry
+        in the cOPatchTable. If the cOPatchTable entries has been
+        unchanged since the last re-initialization of the local
+        network management subsystem, then this object contains a
+        zero value."
+    ::= { cOPatchMIBObjects 3 }
+
+cOPatchEventType OBJECT-TYPE
+    SYNTAX INTEGER {
+        create(1),
+        delete(2),
+        modify(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The event type of the patch.  The use is as follows:
+            create(1)
+                The value of this object when cOPatchEvent is generated
+                 upon creation of a patch.
+            delete(2)
+                The value of this object when cOPatchEvent is generated
+                 upon deletion of a patch.
+            modify(3)
+                The value of this object when cOPatchEvent is generated
+                 upon modification of a patch."
+    ::= { cOPatchMIBObjects 4 }
+
+cOPatchTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF COPatchEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table contains the network element view of optical patches
+        between two interfaces on the same network element.
+        
+        It is up to the user to keep the provisioned information that
+        is reflected in this table in sync with the actual patches
+        present between interfaces on the network element.
+        Provisioning of a patch in this table does not cause a patch to
+        be inserted; it only informs the network element that a patch
+        has been, or is soon to be, added or removed.
+        
+        Each entry in the table models a unidirectional or
+        bidirectional patch between two interfaces on the same
+        network element. When one interface is patched to two
+        different interfaces, one in the receive direction and
+        the other in the transmit direction, the interface will
+        appear in two different entries in the table.
+        
+        The terms low and high are chosen to represent numerical
+        ordering of the two interfaces associated with a patch.  That
+        is, the interface with the lower value of ifIndex is termed
+        'low', while the other interface associated with the patch is
+        termed 'high'."
+    ::= { cOPatchMIBObjects 5 }
+
+cOPatchEntry OBJECT-TYPE
+    SYNTAX COPatchEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This entry is used to model a unidirectional or
+        bidirectional patch between two interfaces on the same
+        network element. 
+        
+        An entry is created when the network element is provisioned to
+        indicate that two interfaces on the network element have been
+        patched together using an optical patch cord.
+        
+        Prior to creating an entry in the table, the manager should
+        obtain a unique value of cOPatchIndex by reading the
+        cOPatchIndexNext object.  When an entry in the table is
+        created, the cOPatchIntfPatchId values in the corresponding
+        cOPatchIntfTable rows are filled in by the agent."
+    INDEX { cOPatchIndex }
+    ::= { cOPatchTable 1 }
+
+COPatchEntry ::= SEQUENCE {
+    cOPatchIndex INTEGER,
+    cOPatchLowIfIndex InterfaceIndex,
+    cOPatchHighIfIndex InterfaceIndex,
+    cOPatchType INTEGER,
+    cOPatchStatus INTEGER,
+    cOPatchCreationTime TimeStamp,
+    cOPatchRowStatus RowStatus,
+    cOPatchDirOnLowIf INTEGER
+    }
+
+cOPatchIndex OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483647)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique value used to identify this patch.  For each
+        interface associated with this patch, the agent reports this
+        patch index value in the cOPatchIntfPatchId object of the
+        corresponding cOPatchIntfTable entries.
+        When the value of this index is equal to the current value
+        of cOPatchIndexNext, the agent will modify the value of
+        cOPatchIndexNext to the next unassigned index."
+    ::= { cOPatchEntry 1 }
+
+cOPatchLowIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object is equal to MIB II's ifIndex value of
+        the interface for this patch.  The term low implies that this
+        interface has the numerically lower ifIndex value than the
+        other interface identified in the same cOPatchEntry.
+        The value of this object is specified during row creation,
+        and can never be changed."
+    ::= { cOPatchEntry 2 }
+
+cOPatchHighIfIndex OBJECT-TYPE
+    SYNTAX InterfaceIndex
+--    Rsyntax INTEGER(1..2147483647)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The value of this object is equal to MIB II's ifIndex value of
+        the interface for this patch.  The term high implies that this
+        interface has the numerically higher ifIndex value than the
+        other interface identified in the same cOPatchEntry.
+        The value of this object is specified during row creation,
+        and can never be changed."
+    ::= { cOPatchEntry 3 }
+
+cOPatchType OBJECT-TYPE
+    SYNTAX INTEGER {
+        provisioned(1),
+        automatic(2),
+        other(3)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The creation type of the patch.  The use is as follows:
+            provisioned(1)
+                Provisioned by the user or by a management system
+                using the Command Line Interface, SNMP, or other
+                means of management access to the network element.
+            automatic(2)
+                Created automatically by the network element, without
+                user or management intervention.  In particular, this
+                is used to represent fixed patches due to the presence
+                of entities such as optical backplanes."
+    ::= { cOPatchEntry 4 }
+
+cOPatchStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        noError(1),
+        otherError(2),
+        interfaceError(3),
+        interfaceChannelError(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the error status of the patch.
+        The use is as follows:
+            noError(1)
+                This value indicates a patch with no error.
+            otherError(2)
+                This value indicates an unknown patch error.
+            interfaceError(3)
+                This value indicates one or both interfaces are of
+                the wrong type for a patch or the two interfaces
+                are not supposed to be patched together.
+            interfaceChannelError(4)
+                This value indicates the frequency channel of the
+                two interfaces in this patch entry do not match."
+    ::= { cOPatchEntry 5 }
+
+cOPatchCreationTime OBJECT-TYPE
+    SYNTAX TimeStamp
+--    Rsyntax TimeTicks
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of MIB II's sysUpTime object at the time this
+        patch was created.  If the current state was
+        entered prior to the last re-initialization of the agent then
+        this object contains a zero value."
+    ::= { cOPatchEntry 6 }
+
+cOPatchRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of this entry in the cOPatchTable.  This object is
+        used to create an entry indicating that two interfaces on the
+        network element have been patched together, or to modify or
+        delete an existing entry."
+    ::= { cOPatchEntry 7 }
+
+cOPatchDirOnLowIf OBJECT-TYPE
+    SYNTAX INTEGER {
+        lowIfDirReceive(1),
+        lowIfDirTransmit(2),
+        lowIfDirBoth(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "In case of an optical interface where the transmitted
+        and received signals travel on two different strands of
+        fiber, it is possible that each fiber is patched to a
+        different interface.  This object identifies the patch
+        direction for this entry relative to the interface with
+        low ifIndex.
+        
+        The direction in which the interface with high ifIndex
+        is patched can be deduced based on this object value.
+        If the interface with low ifIndex is patched in the
+        receive direction, the associated high interface has to
+        be patched in the transmit direction and vice versa. If
+        the low interface is patched in both directions, the
+        same should hold true on the interface with high
+        ifIndex."
+    DEFVAL { lowIfDirBoth }
+    ::= { cOPatchEntry 8 }
+
+cOPatchEventEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Notifications that a patch between two interfaces is
+        created, modified or deleted are enabled if this value
+        is set to 'true'."
+    DEFVAL { false }
+    ::= { cOPatchMIBObjects 6 }
+
+cOPatchIntfTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF COPatchIntfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table lists all interfaces that are provisioned to
+        indicate that they are patched to other interfaces on the same
+        network element.  The table is used to find patches that
+        include a particular interface. 
+        
+        An interface can be patched to another interface in the
+        receive direction, the transmit direction or both
+        directions. The cOPatchIntfDirection object identifies
+        the direction."
+    ::= { cOPatchMIBObjects 7 }
+
+cOPatchIntfEntry OBJECT-TYPE
+    SYNTAX COPatchIntfEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "An entry is created only when an interface is provisioned
+        to indicate that it is patched to another interface on the same
+        network element (i.e. when the associated entry in the
+        cOPatchTable has been created).
+        
+        An entry is deleted when the interface is removed from a patch,
+        or when the patch is deleted from the cOPatchTable."
+    INDEX { ifIndex, cOPatchIntfDirection }
+    ::= { cOPatchIntfTable 1 }
+
+COPatchIntfEntry ::= SEQUENCE {
+    cOPatchIntfDirection INTEGER,
+    cOPatchIntfPatchId INTEGER
+    }
+
+cOPatchIntfDirection OBJECT-TYPE
+    SYNTAX INTEGER {
+        receive(1),
+        transmit(2),
+        both(3)
+        }
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "In case of an optical interface where the transmitted
+        and received signals travel on two different strands of
+        fiber, it is possible that each fiber is patched to a
+        different interface.  For example, the transmit and
+        receive fibers of this interface may have unidirectional
+        connections to different optical amplifiers.
+        
+        This object indicates whether this entry describes a
+        patch in the receive direction, the transmit direction
+        or both directions. If both the transmit and receive
+        fibers of this interface are patched to the same
+        interface, then this object is set to 'both'. Individual
+        entries for 'transmit' and 'receive' should not be
+        created in this case."
+    ::= { cOPatchIntfEntry 1 }
+
+cOPatchIntfPatchId OBJECT-TYPE
+    SYNTAX INTEGER(1..2147483547)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The value of cOPatchIndex used in the cOPatchTable to identify
+         a patch that includes this interface.  The other interface
+         included in that patch has an entry in this table with the same
+         value of this object, in addition to the entry in the
+         cOPatchTable with this value of cOPatchIndex."
+    ::= { cOPatchIntfEntry 2 }
+
+cOPatchEvent TRAP-TYPE
+--?? Non-reverse mappable trap
+    ENTERPRISE cOPatchMIBNotifications
+    VARIABLES {
+        cOPatchLowIfIndex, cOPatchHighIfIndex, cOPatchType, 
+        cOPatchStatus, cOPatchEventType }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when ever a patch
+        is created, modified or deleted."
+    ::= 1
+
+cOPatchInterfaceGroup OBJECT IDENTIFIER ::= { cOPatchMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Object needed to implement Interfaces with
+--     Patches.
+--  objects
+--    cOPatchIdentifier
+
+cOPatchGroup OBJECT IDENTIFIER ::= { cOPatchMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    Collection of objects needed to implement
+--     Patches.
+--  objects
+--    cOPatchIndexNext, cOPatchLastChange, cOPatchEventType, 
+--    cOPatchEventEnabled, cOPatchLowIfIndex, cOPatchHighIfIndex, 
+--    cOPatchType, cOPatchStatus, cOPatchCreationTime, 
+--    cOPatchRowStatus
+
+cOPatchIntfGroup OBJECT IDENTIFIER ::= { cOPatchMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Object needed to implement Interfaces with
+--     Patches.
+--  objects
+--    cOPatchIntfPatchId
+
+cOPatchGroup1 OBJECT IDENTIFIER ::= { cOPatchMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Collection of objects needed to implement
+--     Patches in transmit, receive or both directions.
+--  objects
+--    cOPatchIndexNext, cOPatchLastChange, cOPatchEventType, 
+--    cOPatchEventEnabled, cOPatchLowIfIndex, cOPatchHighIfIndex, 
+--    cOPatchType, cOPatchStatus, cOPatchCreationTime, 
+--    cOPatchRowStatus, cOPatchDirOnLowIf
+
+cOPatchNotifyGroup OBJECT IDENTIFIER ::= { cOPatchMIBGroups 3 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    Patch error notifications.
+--  notifications
+--    cOPatchEvent
+
+cOPatchMIBCompliance OBJECT IDENTIFIER ::= { cOPatchMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Patch MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cOPatchInterfaceGroup
+--   MandGroup
+--    cOPatchGroup
+--   MandGroup
+--    cOPatchNotifyGroup
+
+cOPatchMIBCompliance1 OBJECT IDENTIFIER ::= { cOPatchMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    the Cisco Patch MIB
+--  Module
+--    >>current<<
+--   MandGroup
+--    cOPatchIntfGroup
+--   MandGroup
+--    cOPatchGroup1
+--   MandGroup
+--    cOPatchNotifyGroup
+
+
+END
+

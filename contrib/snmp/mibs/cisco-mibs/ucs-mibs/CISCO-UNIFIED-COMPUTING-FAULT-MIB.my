@@ -1,0 +1,1029 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-FAULT-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- FAULT management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-FAULT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsFaultCode,
+    CucsFaultProbableCause,
+    CucsFaultSeverity,
+    CucsFaultType
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsConditionAckAction,
+    CucsConditionCause,
+    CucsConditionLifecycle,
+    CucsConditionRule,
+    CucsConditionTag,
+    CucsConditionType,
+    CucsFaultBasePolicyClearAction,
+    CucsFaultBasePolicySoakingSeverity,
+    CucsMoMoClassId,
+    CucsPolicyPolicyOwner,
+    CucsTrigAdminState,
+    CucsTrigTrigOperState
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsFaultObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        FAULT management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 1 }
+
+cucsFaultAffectedClassTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFaultAffectedClassEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fault:AffectedClass managed object table"
+    ::= { cucsFaultObjects 4 }
+
+cucsFaultAffectedClassEntry OBJECT-TYPE
+    SYNTAX           CucsFaultAffectedClassEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFaultAffectedClassTable table."
+    INDEX { cucsFaultAffectedClassInstanceId }
+    ::= { cucsFaultAffectedClassTable 1 }
+
+CucsFaultAffectedClassEntry ::= SEQUENCE {
+    cucsFaultAffectedClassInstanceId                                 CucsManagedObjectId,
+    cucsFaultAffectedClassDn                                         CucsManagedObjectDn,
+    cucsFaultAffectedClassRn                                         SnmpAdminString,
+    cucsFaultAffectedClassMoClassId                                  CucsMoMoClassId
+}
+
+cucsFaultAffectedClassInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFaultAffectedClassEntry 1 }
+
+cucsFaultAffectedClassDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:AffectedClass:dn managed object property"
+    ::= { cucsFaultAffectedClassEntry 2 }
+
+cucsFaultAffectedClassRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:AffectedClass:rn managed object property"
+    ::= { cucsFaultAffectedClassEntry 3 }
+
+cucsFaultAffectedClassMoClassId OBJECT-TYPE
+    SYNTAX       CucsMoMoClassId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:AffectedClass:moClassId managed object property"
+    ::= { cucsFaultAffectedClassEntry 4 }
+
+cucsFaultHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFaultHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fault:Holder managed object table"
+    ::= { cucsFaultObjects 2 }
+
+cucsFaultHolderEntry OBJECT-TYPE
+    SYNTAX           CucsFaultHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFaultHolderTable table."
+    INDEX { cucsFaultHolderInstanceId }
+    ::= { cucsFaultHolderTable 1 }
+
+CucsFaultHolderEntry ::= SEQUENCE {
+    cucsFaultHolderInstanceId                                        CucsManagedObjectId,
+    cucsFaultHolderDn                                                CucsManagedObjectDn,
+    cucsFaultHolderRn                                                SnmpAdminString,
+    cucsFaultHolderName                                              SnmpAdminString,
+    cucsFaultHolderTotalFaults                                       Unsigned64,
+    cucsFaultHolderIsPinningCleared                                  TruthValue,
+    cucsFaultHolderLastPinTime                                       DateAndTime
+}
+
+cucsFaultHolderInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFaultHolderEntry 1 }
+
+cucsFaultHolderDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Holder:dn managed object property"
+    ::= { cucsFaultHolderEntry 2 }
+
+cucsFaultHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Holder:rn managed object property"
+    ::= { cucsFaultHolderEntry 3 }
+
+cucsFaultHolderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Holder:name managed object property"
+    ::= { cucsFaultHolderEntry 4 }
+
+cucsFaultHolderTotalFaults OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Holder:totalFaults managed object property"
+    ::= { cucsFaultHolderEntry 5 }
+
+cucsFaultHolderIsPinningCleared OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Holder:isPinningCleared managed object property"
+    ::= { cucsFaultHolderEntry 6 }
+
+cucsFaultHolderLastPinTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Holder:lastPinTime managed object property"
+    ::= { cucsFaultHolderEntry 7 }
+
+cucsFaultTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFaultEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fault:Inst managed object table"
+    ::= { cucsFaultObjects 1 }
+
+cucsFaultEntry OBJECT-TYPE
+    SYNTAX           CucsFaultEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFaultTable table."
+    INDEX { cucsFaultIndex }
+    ::= { cucsFaultTable 1 }
+
+CucsFaultEntry ::= SEQUENCE {
+    cucsFaultIndex                                                   CucsManagedObjectId,
+    cucsFaultDn                                                      CucsManagedObjectDn,
+    cucsFaultRn                                                      SnmpAdminString,
+    cucsFaultAffectedObjectId                                        RowPointer,
+    cucsFaultAffectedObjectDn                                        CucsManagedObjectDn,
+    cucsFaultAck                                                     TruthValue,
+    cucsFaultProbableCause                                           CucsFaultProbableCause,
+    cucsFaultChangeSet                                               SnmpAdminString,
+    cucsFaultCode                                                    CucsFaultCode,
+    cucsFaultCreationTime                                            DateAndTime,
+    cucsFaultDescription                                             SnmpAdminString,
+    cucsFaultHighestSeverity                                         CucsFaultSeverity,
+    cucsFaultId                                                      Unsigned64,
+    cucsFaultLastModificationTime                                    DateAndTime,
+    cucsFaultLc                                                      CucsConditionLifecycle,
+    cucsFaultOccur                                                   Counter32,
+    cucsFaultOrigSeverity                                            CucsFaultSeverity,
+    cucsFaultPrevSeverity                                            CucsFaultSeverity,
+    cucsFaultRule                                                    CucsConditionRule,
+    cucsFaultSeverity                                                CucsFaultSeverity,
+    cucsFaultTags                                                    CucsConditionTag,
+    cucsFaultType                                                    CucsFaultType
+}
+
+cucsFaultIndex OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFaultEntry 1 }
+
+cucsFaultDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:dn managed object property"
+    ::= { cucsFaultEntry 2 }
+
+cucsFaultRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:rn managed object property"
+    ::= { cucsFaultEntry 3 }
+
+cucsFaultAffectedObjectId OBJECT-TYPE
+    SYNTAX       RowPointer
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:affectedObjectId managed object property"
+    ::= { cucsFaultEntry 4 }
+
+cucsFaultAffectedObjectDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:affectedObjectDn managed object property"
+    ::= { cucsFaultEntry 5 }
+
+cucsFaultAck OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:ack managed object property"
+    ::= { cucsFaultEntry 6 }
+
+cucsFaultProbableCause OBJECT-TYPE
+    SYNTAX       CucsFaultProbableCause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:cause managed object property"
+    ::= { cucsFaultEntry 7 }
+
+cucsFaultChangeSet OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:changeSet managed object property"
+    ::= { cucsFaultEntry 8 }
+
+cucsFaultCode OBJECT-TYPE
+    SYNTAX       CucsFaultCode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:code managed object property"
+    ::= { cucsFaultEntry 9 }
+
+cucsFaultCreationTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:created managed object property"
+    ::= { cucsFaultEntry 10 }
+
+cucsFaultDescription OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:descr managed object property"
+    ::= { cucsFaultEntry 11 }
+
+cucsFaultHighestSeverity OBJECT-TYPE
+    SYNTAX       CucsFaultSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:highestSeverity managed object property"
+    ::= { cucsFaultEntry 12 }
+
+cucsFaultId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:id managed object property"
+    ::= { cucsFaultEntry 13 }
+
+cucsFaultLastModificationTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:lastTransition managed object property"
+    ::= { cucsFaultEntry 14 }
+
+cucsFaultLc OBJECT-TYPE
+    SYNTAX       CucsConditionLifecycle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:lc managed object property"
+    ::= { cucsFaultEntry 15 }
+
+cucsFaultOccur OBJECT-TYPE
+    SYNTAX       Counter32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:occur managed object property"
+    ::= { cucsFaultEntry 16 }
+
+cucsFaultOrigSeverity OBJECT-TYPE
+    SYNTAX       CucsFaultSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:origSeverity managed object property"
+    ::= { cucsFaultEntry 17 }
+
+cucsFaultPrevSeverity OBJECT-TYPE
+    SYNTAX       CucsFaultSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:prevSeverity managed object property"
+    ::= { cucsFaultEntry 18 }
+
+cucsFaultRule OBJECT-TYPE
+    SYNTAX       CucsConditionRule
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:rule managed object property"
+    ::= { cucsFaultEntry 19 }
+
+cucsFaultSeverity OBJECT-TYPE
+    SYNTAX       CucsFaultSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:severity managed object property"
+    ::= { cucsFaultEntry 20 }
+
+cucsFaultTags OBJECT-TYPE
+    SYNTAX       CucsConditionTag
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:tags managed object property"
+    ::= { cucsFaultEntry 21 }
+
+cucsFaultType OBJECT-TYPE
+    SYNTAX       CucsFaultType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Inst:type managed object property"
+    ::= { cucsFaultEntry 22 }
+
+cucsFaultLocalTypedHolderTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFaultLocalTypedHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fault:LocalTypedHolder managed object table"
+    ::= { cucsFaultObjects 6 }
+
+cucsFaultLocalTypedHolderEntry OBJECT-TYPE
+    SYNTAX           CucsFaultLocalTypedHolderEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFaultLocalTypedHolderTable table."
+    INDEX { cucsFaultLocalTypedHolderInstanceId }
+    ::= { cucsFaultLocalTypedHolderTable 1 }
+
+CucsFaultLocalTypedHolderEntry ::= SEQUENCE {
+    cucsFaultLocalTypedHolderInstanceId                              CucsManagedObjectId,
+    cucsFaultLocalTypedHolderDn                                      CucsManagedObjectDn,
+    cucsFaultLocalTypedHolderRn                                      SnmpAdminString,
+    cucsFaultLocalTypedHolderName                                    SnmpAdminString,
+    cucsFaultLocalTypedHolderTotalFaults                             Unsigned64,
+    cucsFaultLocalTypedHolderType                                    SnmpAdminString
+}
+
+cucsFaultLocalTypedHolderInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFaultLocalTypedHolderEntry 1 }
+
+cucsFaultLocalTypedHolderDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:LocalTypedHolder:dn managed object property"
+    ::= { cucsFaultLocalTypedHolderEntry 2 }
+
+cucsFaultLocalTypedHolderRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:LocalTypedHolder:rn managed object property"
+    ::= { cucsFaultLocalTypedHolderEntry 3 }
+
+cucsFaultLocalTypedHolderName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:LocalTypedHolder:name managed object property"
+    ::= { cucsFaultLocalTypedHolderEntry 4 }
+
+cucsFaultLocalTypedHolderTotalFaults OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:LocalTypedHolder:totalFaults managed
+        object property"
+    ::= { cucsFaultLocalTypedHolderEntry 5 }
+
+cucsFaultLocalTypedHolderType OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:LocalTypedHolder:type managed object property"
+    ::= { cucsFaultLocalTypedHolderEntry 6 }
+
+cucsFaultPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFaultPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fault:Policy managed object table"
+    ::= { cucsFaultObjects 3 }
+
+cucsFaultPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsFaultPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFaultPolicyTable table."
+    INDEX { cucsFaultPolicyInstanceId }
+    ::= { cucsFaultPolicyTable 1 }
+
+CucsFaultPolicyEntry ::= SEQUENCE {
+    cucsFaultPolicyInstanceId                                        CucsManagedObjectId,
+    cucsFaultPolicyDn                                                CucsManagedObjectDn,
+    cucsFaultPolicyRn                                                SnmpAdminString,
+    cucsFaultPolicyClearAction                                       CucsFaultBasePolicyClearAction,
+    cucsFaultPolicyClearInterval                                     TimeIntervalSec,
+    cucsFaultPolicyDescr                                             SnmpAdminString,
+    cucsFaultPolicyFlapInterval                                      Unsigned64,
+    cucsFaultPolicyIntId                                             SnmpAdminString,
+    cucsFaultPolicyName                                              SnmpAdminString,
+    cucsFaultPolicyRetentionInterval                                 TimeIntervalSec,
+    cucsFaultPolicySizeLimit                                         Gauge32,
+    cucsFaultPolicyAckAction                                         CucsConditionAckAction,
+    cucsFaultPolicyPolicyLevel                                       Gauge32,
+    cucsFaultPolicyPolicyOwner                                       CucsPolicyPolicyOwner,
+    cucsFaultPolicySoakInterval                                      TimeIntervalSec,
+    cucsFaultPolicySoakingSeverity                                   CucsFaultBasePolicySoakingSeverity,
+    cucsFaultPolicyPinningExpirationInterval                         TimeIntervalSec
+}
+
+cucsFaultPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFaultPolicyEntry 1 }
+
+cucsFaultPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:dn managed object property"
+    ::= { cucsFaultPolicyEntry 2 }
+
+cucsFaultPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:rn managed object property"
+    ::= { cucsFaultPolicyEntry 3 }
+
+cucsFaultPolicyClearAction OBJECT-TYPE
+    SYNTAX       CucsFaultBasePolicyClearAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:clearAction managed object property"
+    ::= { cucsFaultPolicyEntry 4 }
+
+cucsFaultPolicyClearInterval OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:clearInterval managed object property"
+    ::= { cucsFaultPolicyEntry 5 }
+
+cucsFaultPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:descr managed object property"
+    ::= { cucsFaultPolicyEntry 6 }
+
+cucsFaultPolicyFlapInterval OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:flapInterval managed object property"
+    ::= { cucsFaultPolicyEntry 7 }
+
+cucsFaultPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:intId managed object property"
+    ::= { cucsFaultPolicyEntry 8 }
+
+cucsFaultPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:name managed object property"
+    ::= { cucsFaultPolicyEntry 9 }
+
+cucsFaultPolicyRetentionInterval OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:retentionInterval managed object property"
+    ::= { cucsFaultPolicyEntry 10 }
+
+cucsFaultPolicySizeLimit OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:sizeLimit managed object property"
+    ::= { cucsFaultPolicyEntry 11 }
+
+cucsFaultPolicyAckAction OBJECT-TYPE
+    SYNTAX       CucsConditionAckAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:ackAction managed object property"
+    ::= { cucsFaultPolicyEntry 12 }
+
+cucsFaultPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:policyLevel managed object property"
+    ::= { cucsFaultPolicyEntry 13 }
+
+cucsFaultPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:policyOwner managed object property"
+    ::= { cucsFaultPolicyEntry 14 }
+
+cucsFaultPolicySoakInterval OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:soakInterval managed object property"
+    ::= { cucsFaultPolicyEntry 15 }
+
+cucsFaultPolicySoakingSeverity OBJECT-TYPE
+    SYNTAX       CucsFaultBasePolicySoakingSeverity
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:soakingSeverity managed object property"
+    ::= { cucsFaultPolicyEntry 16 }
+
+cucsFaultPolicyPinningExpirationInterval OBJECT-TYPE
+    SYNTAX       TimeIntervalSec
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:Policy:pinningExpirationInterval
+        managed object property"
+    ::= { cucsFaultPolicyEntry 18 }
+
+cucsFaultSuppressPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFaultSuppressPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicy managed object table"
+    ::= { cucsFaultObjects 7 }
+
+cucsFaultSuppressPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsFaultSuppressPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFaultSuppressPolicyTable table."
+    INDEX { cucsFaultSuppressPolicyInstanceId }
+    ::= { cucsFaultSuppressPolicyTable 1 }
+
+CucsFaultSuppressPolicyEntry ::= SEQUENCE {
+    cucsFaultSuppressPolicyInstanceId                                CucsManagedObjectId,
+    cucsFaultSuppressPolicyDn                                        CucsManagedObjectDn,
+    cucsFaultSuppressPolicyRn                                        SnmpAdminString,
+    cucsFaultSuppressPolicyDescr                                     SnmpAdminString,
+    cucsFaultSuppressPolicyIntId                                     SnmpAdminString,
+    cucsFaultSuppressPolicyName                                      SnmpAdminString,
+    cucsFaultSuppressPolicyPolicyLevel                               Gauge32,
+    cucsFaultSuppressPolicyPolicyOwner                               CucsPolicyPolicyOwner
+}
+
+cucsFaultSuppressPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFaultSuppressPolicyEntry 1 }
+
+cucsFaultSuppressPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicy:dn managed object property"
+    ::= { cucsFaultSuppressPolicyEntry 2 }
+
+cucsFaultSuppressPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicy:rn managed object property"
+    ::= { cucsFaultSuppressPolicyEntry 3 }
+
+cucsFaultSuppressPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicy:descr managed object property"
+    ::= { cucsFaultSuppressPolicyEntry 4 }
+
+cucsFaultSuppressPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicy:intId managed object property"
+    ::= { cucsFaultSuppressPolicyEntry 5 }
+
+cucsFaultSuppressPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicy:name managed object property"
+    ::= { cucsFaultSuppressPolicyEntry 6 }
+
+cucsFaultSuppressPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicy:policyLevel managed
+        object property"
+    ::= { cucsFaultSuppressPolicyEntry 7 }
+
+cucsFaultSuppressPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicy:policyOwner managed
+        object property"
+    ::= { cucsFaultSuppressPolicyEntry 8 }
+
+cucsFaultSuppressPolicyItemTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFaultSuppressPolicyItemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicyItem managed object table"
+    ::= { cucsFaultObjects 8 }
+
+cucsFaultSuppressPolicyItemEntry OBJECT-TYPE
+    SYNTAX           CucsFaultSuppressPolicyItemEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFaultSuppressPolicyItemTable table."
+    INDEX { cucsFaultSuppressPolicyItemInstanceId }
+    ::= { cucsFaultSuppressPolicyItemTable 1 }
+
+CucsFaultSuppressPolicyItemEntry ::= SEQUENCE {
+    cucsFaultSuppressPolicyItemInstanceId                            CucsManagedObjectId,
+    cucsFaultSuppressPolicyItemDn                                    CucsManagedObjectDn,
+    cucsFaultSuppressPolicyItemRn                                    SnmpAdminString,
+    cucsFaultSuppressPolicyItemCause                                 CucsConditionCause,
+    cucsFaultSuppressPolicyItemDescr                                 SnmpAdminString,
+    cucsFaultSuppressPolicyItemType                                  CucsConditionType
+}
+
+cucsFaultSuppressPolicyItemInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFaultSuppressPolicyItemEntry 1 }
+
+cucsFaultSuppressPolicyItemDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicyItem:dn managed object property"
+    ::= { cucsFaultSuppressPolicyItemEntry 2 }
+
+cucsFaultSuppressPolicyItemRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicyItem:rn managed object property"
+    ::= { cucsFaultSuppressPolicyItemEntry 3 }
+
+cucsFaultSuppressPolicyItemCause OBJECT-TYPE
+    SYNTAX       CucsConditionCause
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicyItem:cause managed object property"
+    ::= { cucsFaultSuppressPolicyItemEntry 4 }
+
+cucsFaultSuppressPolicyItemDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicyItem:descr managed object property"
+    ::= { cucsFaultSuppressPolicyItemEntry 5 }
+
+cucsFaultSuppressPolicyItemType OBJECT-TYPE
+    SYNTAX       CucsConditionType
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressPolicyItem:type managed object property"
+    ::= { cucsFaultSuppressPolicyItemEntry 6 }
+
+cucsFaultSuppressTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsFaultSuppressTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask managed object table"
+    ::= { cucsFaultObjects 9 }
+
+cucsFaultSuppressTaskEntry OBJECT-TYPE
+    SYNTAX           CucsFaultSuppressTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsFaultSuppressTaskTable table."
+    INDEX { cucsFaultSuppressTaskInstanceId }
+    ::= { cucsFaultSuppressTaskTable 1 }
+
+CucsFaultSuppressTaskEntry ::= SEQUENCE {
+    cucsFaultSuppressTaskInstanceId                                  CucsManagedObjectId,
+    cucsFaultSuppressTaskDn                                          CucsManagedObjectDn,
+    cucsFaultSuppressTaskRn                                          SnmpAdminString,
+    cucsFaultSuppressTaskAdminState                                  CucsTrigAdminState,
+    cucsFaultSuppressTaskAutoDelete                                  TruthValue,
+    cucsFaultSuppressTaskDescr                                       SnmpAdminString,
+    cucsFaultSuppressTaskIgnoreCap                                   TruthValue,
+    cucsFaultSuppressTaskIntId                                       SnmpAdminString,
+    cucsFaultSuppressTaskName                                        SnmpAdminString,
+    cucsFaultSuppressTaskOperScheduler                               SnmpAdminString,
+    cucsFaultSuppressTaskOperState                                   CucsTrigTrigOperState,
+    cucsFaultSuppressTaskOperSuppressPolicyName                      SnmpAdminString,
+    cucsFaultSuppressTaskPolicyLevel                                 Gauge32,
+    cucsFaultSuppressTaskPolicyOwner                                 CucsPolicyPolicyOwner,
+    cucsFaultSuppressTaskScheduler                                   SnmpAdminString,
+    cucsFaultSuppressTaskSuppressPolicyName                          SnmpAdminString
+}
+
+cucsFaultSuppressTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsFaultSuppressTaskEntry 1 }
+
+cucsFaultSuppressTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:dn managed object property"
+    ::= { cucsFaultSuppressTaskEntry 2 }
+
+cucsFaultSuppressTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:rn managed object property"
+    ::= { cucsFaultSuppressTaskEntry 3 }
+
+cucsFaultSuppressTaskAdminState OBJECT-TYPE
+    SYNTAX       CucsTrigAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:adminState managed object property"
+    ::= { cucsFaultSuppressTaskEntry 4 }
+
+cucsFaultSuppressTaskAutoDelete OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:autoDelete managed object property"
+    ::= { cucsFaultSuppressTaskEntry 5 }
+
+cucsFaultSuppressTaskDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:descr managed object property"
+    ::= { cucsFaultSuppressTaskEntry 6 }
+
+cucsFaultSuppressTaskIgnoreCap OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:ignoreCap managed object property"
+    ::= { cucsFaultSuppressTaskEntry 7 }
+
+cucsFaultSuppressTaskIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:intId managed object property"
+    ::= { cucsFaultSuppressTaskEntry 8 }
+
+cucsFaultSuppressTaskName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:name managed object property"
+    ::= { cucsFaultSuppressTaskEntry 9 }
+
+cucsFaultSuppressTaskOperScheduler OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:operScheduler managed
+        object property"
+    ::= { cucsFaultSuppressTaskEntry 10 }
+
+cucsFaultSuppressTaskOperState OBJECT-TYPE
+    SYNTAX       CucsTrigTrigOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:operState managed object property"
+    ::= { cucsFaultSuppressTaskEntry 11 }
+
+cucsFaultSuppressTaskOperSuppressPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:operSuppressPolicyName
+        managed object property"
+    ::= { cucsFaultSuppressTaskEntry 12 }
+
+cucsFaultSuppressTaskPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:policyLevel managed object property"
+    ::= { cucsFaultSuppressTaskEntry 13 }
+
+cucsFaultSuppressTaskPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:policyOwner managed object property"
+    ::= { cucsFaultSuppressTaskEntry 14 }
+
+cucsFaultSuppressTaskScheduler OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:scheduler managed object property"
+    ::= { cucsFaultSuppressTaskEntry 15 }
+
+cucsFaultSuppressTaskSuppressPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS fault:SuppressTask:suppressPolicyName
+        managed object property"
+    ::= { cucsFaultSuppressTaskEntry 16 }
+
+END

@@ -1,0 +1,81 @@
+-- MIB file created 30-Apr-2004 16:40:45, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-VISM-TRAPS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-VISM-TRAPS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TRAP-TYPE
+            FROM RFC-1215
+    lastSequenceNumber
+            FROM RTM-MIB
+    basis
+            FROM BASIS-MIB
+    shelfNodeName, shelfNum
+            FROM BASIS-SHELF-MIB
+    moduleSlotNumber, moduleTrapAlarmSeverity, functionModuleType
+            FROM BASIS-GENERIC-MIB
+    genericTimeStamp, genericLineNum, genericLineType
+            FROM GENERICOBJECT-MIB
+    vismPortNum, vismPortDs0ConfigBitMap, vismPortType, 
+    vismPortState
+            FROM CISCO-VISM-PORT-MIB
+    vismCasVariantName, vismCasFileName, vismCasVariantState
+            FROM CISCO-VISM-CAS-MIB
+    vismAal2CidState, vismAal2CidFailReason, vismAal2CidNum, 
+    vismAal2CidLcn, vismAal2CidAdminState
+            FROM CISCO-VISM-ATM-TRUNK-MIB
+    vismHdlcChanNum
+            FROM CISCO-VISM-HDLC-MIB
+    vismFreeDs0Count
+            FROM CISCO-VISM-DSX0-MIB
+    vismCPUUtilization, vismMemoryUtilization, vismIpAddress, 
+    vismTrapIntIndex1, vismTrapIntIndex2, vismTrapStrIndex1, 
+    vismAppliedTemplate, vismAal2SubcellMuxing, 
+    vismFreeDs0Threshold, vismCPUUtilizationThreshold, 
+    vismMemoryUtilizationThreshold, vismMode, vismFeatureBitMap, 
+    vismConfigChangeTypeBitMap
+            FROM CISCO-VISM-MODULE-MIB
+    vismCnfChanNum, vismChanPortNum, vismChanActivityState, 
+    vismChanLockingState, vismChanRowStatus, vismChanReroute, 
+    vismChanStatusBitMap
+            FROM CISCO-VISM-CONN-MIB
+    vismChanNum, networkCacConfigState
+            FROM CISCO-VISM-CAC-MIB
+    vismSessionSetNum, vismSessionSetState, vismSessionGrpNum, 
+    vismRudpSessionNum, vismRudpSessionState, vismSessionGrpState
+            FROM CISCO-VISM-SESSION-MIB
+    mgAdministrativeState, mgcName, mgcAssociationState, 
+    mgcResolutionCommState, mgEndpointLineNumber, 
+    mgEndpointChannelMap, mgEndpointState, mgDomainName, 
+    mgDnsResolutionType, mgcResolutionName, mgcResolutionIpAddress
+            FROM CISCO-WAN-MG-MIB
+    mgcRedundancyGrpActState
+            FROM CISCO-WAN-MGC-REDUN-MIB
+    srcpPeerGrpTimeSinceHeartbeat, srcpPeerTimeSinceHeartbeat
+            FROM CISCO-WAN-SRCP-MIB
+    persistentXgcpEventName
+            FROM CISCO-WAN-PERSISTENT-XGCP-EVENTS-MIB
+    tonePlanRegionName, tonePlanVersionNumber, tonePlanFileName, 
+    vismFrequency1, vismFrequency2, vismEventCode
+            FROM CISCO-WAN-VISM-TONE-PLAN-MIB
+    vismLapdIndex, vismLapdDlcIndex, vismLapdDlcSapi, 
+    vismLapdDlcTei, vismLapdDlcLinkState, vismLapdTrunkState
+            FROM CISCO-WAN-LAPD-TRUNK-MIB
+    vismRtpConnAlarmState, vismRtpLcn, vismRtpFailReason
+            FROM CISCO-WAN-RTP-CONN-MIB
+    cwAnnFileName, cwAnnFileCodec, cwAnnFileStatus
+            FROM CISCO-WAN-ANNOUNCEMENT-MIB
+    intSrvFlowStatus
+            FROM INT-SERV-MIB
+    rsvpSessionDestAddr, rsvpResvFwdStatus, rsvpResvStatus, 
+    rsvpSenderStatus
+            FROM RSVP-MIB
+    cvcmCasTemplateName
+            FROM CISCO-VOICE-CAS-MODULE-MIB;
+
+
+END
+

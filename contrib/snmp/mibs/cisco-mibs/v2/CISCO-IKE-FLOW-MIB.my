@@ -1,0 +1,1373 @@
+-- *------------------------------------------------------------------
+-- * CISCO-IKE-FLOW-MIB.my:
+-- *                   IKE Flow Monitoring MIB
+-- *
+-- * July 2004, S Ramakrishnan
+-- *
+-- * Copyright (c) 2004 by Cisco Systems, Inc.
+-- * All rights reserved.
+-- *------------------------------------------------------------------
+
+  CISCO-IKE-FLOW-MIB DEFINITIONS ::= BEGIN
+
+    IMPORTS
+      MODULE-IDENTITY, 
+      OBJECT-TYPE, 
+      NOTIFICATION-TYPE,
+      Counter32, 
+      Counter64, 
+      Unsigned32                        FROM SNMPv2-SMI
+      TruthValue                        FROM SNMPv2-TC
+      MODULE-COMPLIANCE, 
+      OBJECT-GROUP,
+      NOTIFICATION-GROUP                FROM SNMPv2-CONF
+      cisgIpsSgProtocol,
+      cisgIpsSgTunIndex,
+      cisgIpsSgTunHistIndex,
+      cisgIpsSgFailLocalAddress,
+      cisgIpsSgFailRemoteAddress        FROM CISCO-IPSEC-SIGNALING-MIB
+      CIPsecIkeNegoMode,
+      CIPsecDiffHellmanGrp              FROM CISCO-IPSEC-TC
+      ciscoMgmt                         FROM CISCO-SMI;
+
+    ciscoIkeFlowMIB MODULE-IDENTITY
+         LAST-UPDATED "200409140000Z"
+         ORGANIZATION "Cisco Systems"
+         CONTACT-INFO
+                 "       Cisco Systems
+                         Customer Service
+
+                 Postal: 170 W Tasman Drive
+                         San Jose, CA  95134
+                         USA
+
+                    Tel: +1 800 553-NETS
+                 E-mail: cs-ipsecmib@external.cisco.com"
+
+         DESCRIPTION
+                 "This is a MIB module for monitoring the structures
+                  and status of IPsec control flows based on Internet
+                  Key Exchange protocol. The MIB models standard 
+                  aspects of the IKE protocol.
+          
+                  Synopsis
+
+                  This MIB module models status, performance and 
+                  failures of the IKEv1- and IKEv2-based signaling in
+                  IPsec, FC-SP(and similar) protocols. In practice, 
+                  the security protocols such as IPsec, FC-SP and 
+                  CTS use a signaling protocol such as IKE, KINK, 
+                  or some such. A number of characteristics of these
+                  signaling protocols are generic.
+                  The generic attributes and status of signaling 
+                  activity has been modeled in 
+                  CISCO-IPSEC-SIGNALING-MIB. This MIB module augments
+                  CISCO-IPSEC-SIGNALING-MIB with IKE-specific
+                  MIB objects.
+                  (Signaling protocols are also referred to this 
+                  document as 'Control Protocols', since they perform
+                  session control.)
+
+                  History of the MIB
+                  A precursor to this MIB was written by Tivoli and
+                  implemented in IBM Nways routers in 1999. That 
+                  MIB instrumented both IKE(v1) and IPsec in a 
+                  single module. During late 1999, Cisco adopted 
+                  the MIB and together with Tivoli published the 
+                  IPsec Flow Monitor MIB in IETF IPsec WG in 
+                  draft-ietf-ipsec-flow-monitoring-mib-00.txt. 
+                  In 2000, the MIB was Cisco-ized and implemented
+                  this draft as CISCO-IPSEC-FLOW-MONITOR-MIB in 
+                  IOS and VPN3000 platforms.
+
+                  With the evolution of IKEv2, the MIB was modified
+                  and presented to the IPsec WG again in May 2003 
+                  in draft-ietf-ipsec-flow-monitoring-mib-02.txt.
+
+                  This version of the draft is a Cisco-ized version
+                  that culls out the IKE-specific aspects of the
+                  IPsec Flow Monitor MIB. 
+
+                  Overview of MIB
+                  The MIB contains five major groups of objects which 
+                  are used to manage the IKE protocol activity. These 
+                  groups include the global statistics, IKE tunnel 
+                  table, IKE History Group and a notification Group.
+
+                  The tunnel table and the history table have a 
+                  sparse-table relationship with the corresponding
+                  tables in the CISCO-IPSEC-SIGNALING-MIB 
+                  (details in the DESCRIPTION of the respective 
+                  tables). 
+     
+                  Acronyms
+                  The following acronyms are used in this document:     
+              
+                  Flow, Tunnel:
+                      An ISAKMP SA can be regarded as representing
+                      a flow of ISAKMP/IKE traffic. Hence an ISAKMP
+                      is referred to as a 'Phase 1 Tunnel' in this
+                      document. 
+                   
+                  IPsec: 
+                      Secure IP Protocol 
+       
+                  ISAKMP:
+                      Internet Security Association and Key
+                      Management Protocol
+
+                  IKE:
+                      Internet Key Exchange Protocol
+       
+                  MM:
+                      Main Mode - the process of setting up
+                      a Phase 1 SA to secure the exchanges
+                      required to setup Phase 2 SAs
+
+                  Phase 2 Tunnel:
+                      AN instance of a non-ISAKMP SA  bundle in 
+                      which all the SA share the same proxy 
+                      identifiers (IDii,IDir) protect the same 
+                      stream of application traffic.
+                      Such an SA bundle is termed a 'Phase 2 Tunnel'.
+                      Note that a Phase 2 tunnel may comprise 
+                      different SA bundles and different number of 
+                      SA bundles at different 
+                      times (due to key refresh).
+
+                  QM:         
+                      Quick Mode - the process of setting up
+                      Phase 2 Security Associations using a 
+                      Phase 1 SA.
+       
+                  SA: 
+                      Security Association (ref: rfc2408).
+
+                  VPN:
+                      Virtual Private Network. "
+
+         REVISION    "200409140000Z"
+         DESCRIPTION
+                 "Initial version."
+         ::= { ciscoMgmt 429 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- IKE MIB Object Groups
+   --
+   -- This MIB module contains the following groups:
+   -- 1) IKE Globals group
+   -- 2) IKE Tunnel table
+   -- 3) IKE History group
+   -- 4) IKE Failure group
+   -- 5) IKE Notifications group
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   ciscoIkeFlowMIBNotifs  OBJECT IDENTIFIER
+              ::= { ciscoIkeFlowMIB 0 }
+
+   ciscoIkeFlowMIBObjects OBJECT IDENTIFIER
+              ::= { ciscoIkeFlowMIB 1 }
+
+   ciscoIkeFlowMIBConform OBJECT IDENTIFIER
+              ::= { ciscoIkeFlowMIB 2 }
+
+   cifIkeCurrentActivity OBJECT IDENTIFIER
+                  ::= { ciscoIkeFlowMIBObjects 1 }
+
+   cifIkeHistory         OBJECT IDENTIFIER
+                  ::= { ciscoIkeFlowMIBObjects 2 }
+
+   cifIkeNotifControl       OBJECT IDENTIFIER
+                  ::= { ciscoIkeFlowMIBObjects 3 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- The IKE Global Statistics Table
+   -- This table has a sparse table relationship with the generic 
+   -- IPsec Phase-1 Global Statistics table defined in 
+   -- CISCO-IPSEC-SIGNALING-MIB.
+   -- For those rows in the generic Phase-1 Global Statistics table
+   -- that corresponds to IKE protocol, there is one row in 
+   -- the following table.
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   cifIkeGlobalStatsTable  OBJECT-TYPE
+      SYNTAX SEQUENCE OF CifIkeGlobalStatsEntry
+      MAX-ACCESS not-accessible
+      STATUS     current
+      DESCRIPTION
+       "
+       The Phase-1 IKE Global Statistics Table.
+       There is one entry in this table for each Phase-1 IKE,
+       protocol('cpIkev1' and 'cpIkev2') implemented by the 
+       managed entity.
+       
+       For all the counter objects in the table below, initially when
+       the IKE Tunnel becomes active and appears in this 
+       table, they would contain a value of zero.
+       "
+      ::= { cifIkeCurrentActivity 1 }
+      
+   cifIkeGlobalStatsEntry OBJECT-TYPE
+      SYNTAX     CifIkeGlobalStatsEntry
+      MAX-ACCESS not-accessible
+      STATUS     current
+      DESCRIPTION
+      "
+      Each entry contains the global statistics pertaining
+      to the specific IKE protocol.
+      "
+      INDEX { cisgIpsSgProtocol }
+      ::= { cifIkeGlobalStatsTable 1 }
+
+   CifIkeGlobalStatsEntry ::= SEQUENCE {
+      cifIkeGlobalInP2Exchgs            Counter64,
+      cifIkeGlobalInP2ExchgInvalids     Counter64,
+      cifIkeGlobalInP2ExchgRejects      Counter64,
+      cifIkeGlobalOutP2Exchgs           Counter64,
+      cifIkeGlobalOutP2ExchgInvalids    Counter64,
+      cifIkeGlobalOutP2ExchgRejects     Counter64,
+      cifIkeGlobalInXauths              Counter64,
+      cifIkeGlobalInXauthFailures       Counter64,
+      cifIkeGlobalOutXauthFailures      Counter64,
+      cifIkeGlobalInNewGrpReqs          Counter64,
+      cifIkeGlobalOutNewGrpReqs         Counter64,
+      cifIkeGlobalInNewGrpRejectReqs    Counter64,
+      cifIkeGlobalOutNewGrpRejectReqs   Counter64
+   }
+    
+   cifIkeGlobalInP2Exchgs OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges 
+       received by all currently and previously 
+       active Phase-1 Tunnels.
+       "
+      ::= { cifIkeGlobalStatsEntry 1 }
+
+   cifIkeGlobalInP2ExchgInvalids OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges which were
+       received and found to be invalid by all currently and
+       previously active Phase-1 Tunnels.
+       "
+      ::= { cifIkeGlobalStatsEntry 2 }
+
+   cifIkeGlobalInP2ExchgRejects OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges 
+       which were received and rejected by all 
+       currently and previously active Phase-1 Tunnels.
+       "
+      ::= { cifIkeGlobalStatsEntry 3 }
+
+   cifIkeGlobalOutP2Exchgs OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges which were
+       sent by all currently and previously active IPsec 
+       Phase-1 Tunnels.
+       "
+      ::= { cifIkeGlobalStatsEntry 4 }
+
+   cifIkeGlobalOutP2ExchgInvalids OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges which were
+       sent and found to be invalid by all currently and 
+       previously active Phase-1 Tunnels.
+       "
+      ::= { cifIkeGlobalStatsEntry 5 }
+
+   cifIkeGlobalOutP2ExchgRejects OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges 
+       which were sent and rejected by all currently and
+       previously active Phase-1 IKE Tunnels.
+       "
+      ::= { cifIkeGlobalStatsEntry 6 }
+
+   cifIkeGlobalInXauths OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "Failures"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The number of times the extended authentication
+       requests was received by the managed entity
+       from a peer.
+       "
+      ::= { cifIkeGlobalStatsEntry 7 }
+
+   cifIkeGlobalInXauthFailures OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "Failures"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The number of times the extended authentication
+       information supplied by an IKE peer was found
+       to be invalid by the local entity.
+       "
+      ::= { cifIkeGlobalStatsEntry 8 }
+
+   cifIkeGlobalOutXauthFailures OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "Failures"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The number of times the extended authentication
+       information supplied by the managed entity to an
+       IKE peer was found to be invalid by the remote peer.
+       "
+      ::= { cifIkeGlobalStatsEntry 9 }
+
+   cifIkeGlobalInNewGrpReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "Negotiations"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of New Group exchanges initiated
+       remotely.
+       "
+      ::= { cifIkeGlobalStatsEntry 10 }
+
+   cifIkeGlobalOutNewGrpReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "Negotiations"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of New Group exchanges initiated
+       locally.
+       "
+      ::= { cifIkeGlobalStatsEntry 11 }
+
+   cifIkeGlobalInNewGrpRejectReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "Negotiations"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of New Group exchanges initiated
+       remotely that ended in reject.
+       "
+      ::= { cifIkeGlobalStatsEntry 12 }
+
+   cifIkeGlobalOutNewGrpRejectReqs OBJECT-TYPE
+      SYNTAX     Counter64
+      UNITS      "Negotiations"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of New Group exchanges initiated
+       locally that ended in reject.
+       "
+      ::= { cifIkeGlobalStatsEntry 13 }
+
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+-- The Internet Key Exchange Tunnel Table
+-- This table has a sparse table relationship with the generic 
+-- IPsec Phase-1 Tunnel table defined in 
+-- CISCO-IPSEC-SIGNALING-MIB.
+-- For those rows in the generic Phase-1 Tunnel table
+-- that corresponds to IKE protocol, there is one row in 
+-- the following table.
+-- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   cifIkeTunnelTable OBJECT-TYPE
+      SYNTAX SEQUENCE OF CifIkeTunnelEntry
+      MAX-ACCESS not-accessible
+      STATUS     current
+      DESCRIPTION
+       "
+       The Phase-1 Internet Key Exchange Tunnel Table.
+       There is one entry in this table for each active IPsec
+       Phase-1 IKE Tunnel.
+       "
+     ::= { cifIkeCurrentActivity 3 }
+
+   cifIkeTunnelEntry OBJECT-TYPE
+      SYNTAX     CifIkeTunnelEntry
+      MAX-ACCESS not-accessible
+      STATUS     current
+      DESCRIPTION
+       "
+       Each entry contains the attributes associated with
+       an active Phase-1 IKE Tunnel.
+
+       The rows in this table correspond 1-to-1 with a subset of
+       the rows in cisgIpsSgTunnelTable, specifically the subset 
+       which represent Phase-1 IKE Tunnels.
+        
+       Hence, the value of the index 'cisgIpsSgProtocol'
+       in this table is always 'cpIkev1' or 'cpIkev2'.
+        
+       For all the counter objects in the table below, initially when
+       the Phase-1 IKE Tunnel becomes active and appears in this 
+       table, they would contain a value of zero. 
+       "
+      INDEX { cisgIpsSgProtocol, cisgIpsSgTunIndex }
+      ::= { cifIkeTunnelTable 1}
+
+   CifIkeTunnelEntry ::= SEQUENCE {
+      cifIkeTunNegoMode               CIPsecIkeNegoMode,
+      cifIkeTunDHGrp                  CIPsecDiffHellmanGrp,
+      cifIkeTunSaRefreshThreshold     Unsigned32,
+      cifIkeTunTotalRefreshes         Counter32,
+      cifIkeTunInP2Exchgs             Counter32,
+      cifIkeTunInP2ExchgInvalids      Counter32,
+      cifIkeTunInP2ExchgRejects       Counter32,
+      cifIkeTunInP2SaDelRequests      Counter32,
+      cifIkeTunOutP2Exchgs            Counter32,
+      cifIkeTunOutP2ExchgInvalids     Counter32,
+      cifIkeTunOutP2ExchgRejects      Counter32,
+      cifIkeTunInNewGrpReqs           Counter32,
+      cifIkeTunOutNewGrpReqs          Counter32,
+      cifIkeTunInNewGrpRejectedReqs   Counter32,
+      cifIkeTunOutNewGrpRejectedReqs  Counter32,
+      cifIkeTunInConfigs              Counter32,
+      cifIkeTunOutConfigs             Counter32,
+      cifIkeTunInConfigRejects        Counter32,
+      cifIkeTunOutConfigRejects       Counter32
+   }
+
+   cifIkeTunNegoMode OBJECT-TYPE
+      SYNTAX     CIPsecIkeNegoMode
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The negotiation mode of the Phase-1 IKE Tunnel.
+       "
+      ::= { cifIkeTunnelEntry 1 }
+
+   cifIkeTunDHGrp OBJECT-TYPE
+      SYNTAX     CIPsecDiffHellmanGrp
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The Diffie Hellman Group used in Phase-1 IKE
+       negotiations.
+       "
+      ::= { cifIkeTunnelEntry 2 }
+
+   cifIkeTunSaRefreshThreshold OBJECT-TYPE
+      SYNTAX     Unsigned32 (0..2147483647)
+      UNITS      "seconds"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The security association refresh threshold in seconds.
+       If the tunnel does not refresh its security associations,
+       the value of this MIB object is zero.
+       "
+      ::= { cifIkeTunnelEntry 3 }
+
+   cifIkeTunTotalRefreshes OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "QM Exchanges"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of security associations refreshes 
+       performed. If the tunnel does not refresh its security 
+       associations, the value of this MIB object is never 
+       incremented.
+       "
+      ::= { cifIkeTunnelEntry 4 }
+      
+   cifIkeTunInP2Exchgs OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges received by
+       this Phase-1 IKE Tunnel.
+       "
+      ::= { cifIkeTunnelEntry 5 }
+
+   cifIkeTunInP2ExchgInvalids OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges received and
+       found to be invalid by this Phase-1 IKE Tunnel.
+       "
+      ::= { cifIkeTunnelEntry 6 }
+
+   cifIkeTunInP2ExchgRejects OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges received and
+       rejected by this Phase-1 Tunnel.
+       "
+      ::= { cifIkeTunnelEntry 7 }
+
+   cifIkeTunInP2SaDelRequests OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "Notification Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 security association
+       delete requests received by this Phase-1 IKE Tunnel.
+       "
+      ::= { cifIkeTunnelEntry 8 }
+
+   cifIkeTunOutP2Exchgs OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges sent by
+       this Phase-1 IKE Tunnel.
+       "
+      ::= { cifIkeTunnelEntry 9 }
+
+   cifIkeTunOutP2ExchgInvalids OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges sent and
+       found to be invalid by this Phase-1 IKE Tunnel.
+       "
+      ::= { cifIkeTunnelEntry 10 }
+
+   cifIkeTunOutP2ExchgRejects OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "SA Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Phase-2 exchanges sent and
+       rejected by this Phase-1 IKE Tunnel.
+       "
+      ::= { cifIkeTunnelEntry 11 }
+
+   cifIkeTunInNewGrpReqs OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "Negotiations"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of New Group exchanges initiated
+       remotely using this IKE tunnel.
+       "
+      ::= { cifIkeTunnelEntry 12 }
+
+   cifIkeTunOutNewGrpReqs OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "Negotiations"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of New Group exchanges initiated
+       locally using this IKE tunnel.
+       "
+      ::= { cifIkeTunnelEntry 13 }
+
+   cifIkeTunInNewGrpRejectedReqs OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "Negotiations"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of New Group exchanges initiated
+       remotely using this IKE tunnel that ended in reject. 
+       "
+      ::= { cifIkeTunnelEntry 14 }
+
+   cifIkeTunOutNewGrpRejectedReqs OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "Negotiations"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of New Group exchanges initiated
+       locally using this IKE tunnel that ended in reject.
+       "
+      ::= { cifIkeTunnelEntry 15 }
+
+   cifIkeTunInConfigs OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "Mode Configuration Setting Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Mode Configuration settings
+       received (either CFG_REPLY or CFG_SET payloads)
+       by the local entity on the ISAKMP SA represented by
+       this IKE tunnel.
+       "
+      ::= { cifIkeTunnelEntry 16 }
+
+   cifIkeTunOutConfigs OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "Mode Configuration Setting Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Mode Configuration settings
+       dispatched (either CFG_REPLY or CFG_SET payloads)
+       by the local entity on the ISAKMP SA represented by
+       this IKE tunnel.
+       "
+      ::= { cifIkeTunnelEntry 17 }
+
+   cifIkeTunInConfigRejects OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "Mode Configuration Setting Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Mode Configuration settings
+       which were received (either CFG_REPLY or CFG_SET
+       payloads) and rejected by this entity using the ISAKMP
+       SA represented by this IKE tunnel.
+       "
+      ::= { cifIkeTunnelEntry 18 }
+
+   cifIkeTunOutConfigRejects OBJECT-TYPE
+      SYNTAX     Counter32
+      UNITS      "Mode Configuration Setting Payloads"
+      MAX-ACCESS read-only
+      STATUS     current
+      DESCRIPTION
+       "
+       The total number of Mode Configuration settings
+       which were dispatched (either CFG_REPLY or CFG_SET
+       payloads) by this entity and were rejected by the
+       peer (client) using the ISAKMP SA represented by
+       this IKE tunnel.
+       "
+      ::= { cifIkeTunnelEntry 19 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- The IKE History Group:
+   --   The IKE Tunnel History Table
+   --   This table has a sparse table relationship with the
+   --   generic Phase-1 Tunnel history table 
+   --   'cisgIpsSgTunnelHistTable' defined in 
+   --   CISCO-IPSEC-SIGNALING-MIB.
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      cifIkeTunnelHistTable OBJECT-TYPE
+         SYNTAX SEQUENCE OF CifIkeTunnelHistEntry
+         MAX-ACCESS not-accessible
+         STATUS     current
+         DESCRIPTION
+          "
+          The Phase-1 Internet Key Exchange Tunnel
+          history table.  
+
+          This table is conceptually a sliding window in 
+          which only the last 'N' entries are maintained,
+          where 'N' is the value of the object 
+          'cisgIpsSgHistTableSize' (defined in
+          defined in CISCO-IPSEC-SIGNALING-MIB).
+
+          If the value of 'cisgIpsSgHistTableSize' is 0,
+          then this table will be empty.
+          
+          For all the counter objects in the table below, initially
+          when the Tunnel entry appears in this table, they would 
+          contain a value of zero. 
+          "
+        ::= { cifIkeHistory 1 }
+
+      cifIkeTunnelHistEntry OBJECT-TYPE
+         SYNTAX     CifIkeTunnelHistEntry
+         MAX-ACCESS not-accessible
+         STATUS     current
+         DESCRIPTION
+          "
+          Each entry contains the attributes associated with 
+          a previously active Phase-1 IKE Tunnel.
+
+          This table has a sparse table relationship with the
+          generic Phase-1 Tunnel history table
+          'cisgIpsSgTunnelHistTable' defined in
+          CISCO-IPSEC-SIGNALING-MIB. However, the value of the
+          index column in this table will always be either
+          'cpIkev1' or 'cpIkev2'.
+          "
+         INDEX {
+                cisgIpsSgProtocol,
+                cisgIpsSgTunHistIndex
+               }
+         ::= { cifIkeTunnelHistTable 1 }
+
+      CifIkeTunnelHistEntry ::= SEQUENCE {
+         cifIkeTunHistNegoMode           CIPsecIkeNegoMode,
+         cifIkeTunHistDHGrp              CIPsecDiffHellmanGrp,
+         cifIkeTunHistTotalRefreshes     Counter32,
+         cifIkeTunHistTotalSas           Counter32,
+         cifIkeTunHistInP2Exchgs         Counter32,
+         cifIkeTunHistInP2ExchgInvalids  Counter32,
+         cifIkeTunHistInP2ExchgRejects   Counter32,
+         cifIkeTunHistOutP2Exchgs        Counter32,
+         cifIkeTunHistOutP2ExchgInvalids Counter32,
+         cifIkeTunHistOutP2ExchgRejects  Counter32,
+         cifIkeTunHistInNewGrpReqs       Counter32,
+         cifIkeTunHistOutNewGrpReqs      Counter32,
+         cifIkeTunHistInNewGrpRejectReqs Counter32,
+         cifIkeTunHistOutNewGrpRejectReqs Counter32,
+         cifIkeTunHistInConfigs          Counter32,
+         cifIkeTunHistOutConfigs         Counter32,
+         cifIkeTunHistInConfigsRejects   Counter32,
+         cifIkeTunHistOutConfigsRejects  Counter32
+      }
+
+      cifIkeTunHistNegoMode OBJECT-TYPE
+         SYNTAX     CIPsecIkeNegoMode
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The negotiation mode of the Phase-1 IKE Tunnel.
+          "
+         ::= { cifIkeTunnelHistEntry 1 }
+
+      cifIkeTunHistDHGrp OBJECT-TYPE
+         SYNTAX     CIPsecDiffHellmanGrp
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The Diffie Hellman Group used in Phase-1 IKE
+          negotiations.
+          "
+         ::= { cifIkeTunnelHistEntry 2 }
+
+      cifIkeTunHistTotalRefreshes OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "QM Exchanges"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of security associations
+          refreshes performed.
+          "
+         ::= { cifIkeTunnelHistEntry 3 }
+
+      cifIkeTunHistTotalSas       OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "SAs"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of security associations used 
+          during the life of the Phase-1 IKE Tunnel.
+          "
+         ::= { cifIkeTunnelHistEntry 4 }
+
+      cifIkeTunHistInP2Exchgs OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "SA Payloads"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of Phase-2 exchanges received
+          by this Phase-1 IKE Tunnel.
+          "
+         ::= { cifIkeTunnelHistEntry 5 }
+
+      cifIkeTunHistInP2ExchgInvalids OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "SA Payloads"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of Phase-2 exchanges
+          received on this tunnel that were found to
+          contain references to unrecognized security
+          parameters.
+          "
+         ::= { cifIkeTunnelHistEntry 6 }
+
+      cifIkeTunHistInP2ExchgRejects OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "SA Payloads"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of Phase-2 exchanges
+          received on this tunnel that were validated but were
+          rejected by the local policy.
+          "
+         ::= { cifIkeTunnelHistEntry 7 }
+
+      cifIkeTunHistOutP2Exchgs OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "Notification Payloads"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of Phase-2 security association
+          delete requests received by this Phase-1 IKE Tunnel.
+          "
+         ::= { cifIkeTunnelHistEntry 8 }
+
+      cifIkeTunHistOutP2ExchgInvalids OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "SA Payloads"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of Phase-2 exchanges sent by
+          this Phase-1 IKE Tunnel.
+          "
+         ::= { cifIkeTunnelHistEntry 9 }
+
+      cifIkeTunHistOutP2ExchgRejects OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "SA Payloads"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of Phase-2 exchanges
+          sent on this tunnel that were rejected by the 
+          peer, because it contained references to security
+          parameters not recognized by the peer.
+          "
+         ::= { cifIkeTunnelHistEntry 10 }
+
+      cifIkeTunHistInNewGrpReqs OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "Negotiations"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of New Group exchanges initiated
+          remotely using this IKE tunnel during its lifetime.
+          "
+         ::= { cifIkeTunnelHistEntry 11 }
+
+      cifIkeTunHistOutNewGrpReqs OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "Negotiations"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of New Group exchanges initiated
+          locally using this IKE tunnel during its lifetime.
+          "
+         ::= { cifIkeTunnelHistEntry 12 }
+
+
+      cifIkeTunHistInNewGrpRejectReqs OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "Negotiations"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of New Group exchanges initiated
+          remotely using this IKE tunnel during its lifetime
+          that ended in reject.
+          "
+         ::= { cifIkeTunnelHistEntry 13 }
+
+      cifIkeTunHistOutNewGrpRejectReqs OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "Negotiations"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of New Group exchanges initiated
+          locally using this IKE tunnel during its lifetime
+          that ended in reject.
+          "
+         ::= { cifIkeTunnelHistEntry 14 }
+
+      cifIkeTunHistInConfigs OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "Mode Configuration Setting Payloads"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of Mode Configuration settings
+          received (either CFG_REPLY or CFG_SET payloads)
+          by the local entity on the ISAKMP SA represented by this
+          IKE tunnel.
+          "
+         ::= { cifIkeTunnelHistEntry 15 }
+
+      cifIkeTunHistOutConfigs OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "Mode Configuration Setting Payloads"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of Mode Configuration settings
+          dispatched (either CFG_REPLY or CFG_SET payloads)
+          by the local entity on the ISAKMP SA represented by this
+          IKE tunnel.
+          "
+         ::= { cifIkeTunnelHistEntry 16 }
+
+      cifIkeTunHistInConfigsRejects OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "Mode Configuration Setting Payloads"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of Mode Configuration settings
+          which were received (either CFG_REPLY or CFG_SET
+          payloads) and rejected by this entity using the ISAKMP
+          SA represented by this IKE tunnel.
+          "
+         ::= { cifIkeTunnelHistEntry 17 }
+
+      cifIkeTunHistOutConfigsRejects OBJECT-TYPE
+         SYNTAX     Counter32
+         UNITS      "Mode Configuration Setting Payloads"
+         MAX-ACCESS read-only
+         STATUS     current
+         DESCRIPTION
+          "
+          The total number of Mode Configuration settings
+          which were dispatched (either CFG_REPLY or CFG_SET
+          payloads) by this entity and were rejected by the
+          peer (client) using the ISAKMP SA represented by this
+          IKE tunnel.
+          "
+         ::= { cifIkeTunnelHistEntry 18 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- The IKE Control Group
+   --
+   -- This group of objects controls the sending of IKE TRAPs.
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      cifIkeNotifCntlInNewGrpRejected OBJECT-TYPE
+         SYNTAX     TruthValue
+         MAX-ACCESS read-write
+         STATUS     current
+         DESCRIPTION
+          "
+          The generation of the 'ciscoIkeFlowInNewGrpRejected'
+          notification is enabled if and only if this object has the
+          value 'true'.
+          "
+         DEFVAL { false }
+         ::= { cifIkeNotifControl 1 }
+
+      cifIkeNotifCntlOutNewGrpRejected OBJECT-TYPE
+         SYNTAX     TruthValue
+         MAX-ACCESS read-write
+         STATUS     current
+         DESCRIPTION
+          "
+          The generation of the 'ciscoIkeFlowOutNewGrpRejected'
+          notification is enabled if and only if this object has the
+          value 'true'.
+	      "
+         DEFVAL { false }
+         ::= { cifIkeNotifControl 2 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- Internet Key Exchange Notifications
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      ciscoIkeFlowInNewGrpRejected NOTIFICATION-TYPE
+         OBJECTS {
+                   cisgIpsSgFailLocalAddress,
+                   cisgIpsSgFailRemoteAddress
+                 }
+         STATUS  current
+         DESCRIPTION
+          "
+          This notification is generated when the managed 
+          entity receives and rejects an incoming new group 
+          proposal from an IKE peer identified by
+          'cisgIpsSgFailRemoteAddress'. 
+          'cisgIpsSgFailLocalAddress' identifies the address of
+          the local peer.  
+          The ISAKMP context of the exchange can be obtained 
+          from the IKE tunnel index which is contained in the 
+          index of the varbind objects of this trap.
+          "
+         ::= { ciscoIkeFlowMIBNotifs 1 }
+
+      ciscoIkeFlowOutNewGrpRejected NOTIFICATION-TYPE
+         OBJECTS {
+                   cisgIpsSgFailLocalAddress,
+                   cisgIpsSgFailRemoteAddress
+                 }
+         STATUS  current
+         DESCRIPTION
+          "
+          This notification is generated when the managed entity
+          issues a new group proposal to the remote peer identified 
+          by 'cisgIpsSgFailRemoteAddress' and the peer rejects the 
+          proposal. 'cisgIpsSgFailLocalAddress' identifies the
+          address of the local peer.
+          The ISAKMP context of the exchange can be 
+          obtained from the IKE tunnel index which is contained 
+          in the index of the varbind objects of this trap.
+          "
+         ::= { ciscoIkeFlowMIBNotifs 2 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- Conformance Information
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      ciscoIkeFlowMIBCompliances OBJECT IDENTIFIER
+                      ::= { ciscoIkeFlowMIBConform 1 }
+
+      ciscoIkeFlowMIBGroups OBJECT IDENTIFIER
+                      ::= { ciscoIkeFlowMIBConform 2 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- Compliance Statements
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      ciscoIkeFlowMIBCompliance MODULE-COMPLIANCE
+         STATUS      current
+         DESCRIPTION
+           "The compliance statement for SNMP entities
+            implementing this MIB."
+
+         MODULE -- this module
+           MANDATORY-GROUPS  { 
+               ciscoIkeFlowActivityGroup
+           }
+
+       GROUP cifIkeFlowNewGroupGroup
+       DESCRIPTION   
+        "This group is conditionally mandatory and must be
+        implemented by the agent of the managed entity if and only
+        if the IKE implementation on the managed entity
+        implements new group operations."
+
+       GROUP cifIkeFlowXauthGroup 
+       DESCRIPTION   
+         "This group is conditionally mandatory and must be 
+         implemented by the agent of the managed entity
+         if the managed entity implements remote access
+         of users using IPsec and implements extended
+         authentication as a part of its IKE implementation."
+
+       GROUP cifIkeFlowModeConfigGroup
+       DESCRIPTION   
+        "This group is a conditionally mandatory group which 
+        must be implemented by the agent of the managed entity if 
+        the managed entity implements Mode Configuration 
+        as a part of IKE."
+
+       GROUP cifIkeFlowHistoryGroup
+       DESCRIPTION   
+        "This group is conditionally mandatory and must be 
+        implemented by the agent of the managed entity if and only
+        if
+         a) the managed entity implements Internet Key 
+            Exchange as an IPsec control protocol and
+         b) the managed entity implements historical 
+            archiving of IKE tunnels (ISAKMP security
+            associations)."
+
+       GROUP cifIkeFlowNewGroupHistoryGroup
+       DESCRIPTION   
+        "This group is conditionally mandatory and must be 
+        implemented by the agent of the managed entity if and only
+        if
+         a) the managed entity implements the group
+            'cifIkeFlowHistoryGroup' and
+         b) the managed entity supports new group
+            operations."
+
+       GROUP cifIkeFlowModeConfigHistoryGroup
+       DESCRIPTION   
+        "This group is conditionally mandatory and must be 
+        implemented by the agent of the managed entity if and only
+        if
+         a) the managed entity implements the group
+            'cifIkeFlowHistoryGroup' and
+         b) the managed entity implements mode configuration
+            operations."
+
+       GROUP cifIkeFlowNotificationGroup
+       DESCRIPTION   
+        "This group is conditionally mandatory. It may be 
+        implemented only if the group 'cifIkeFlowNewGroupGroup'
+        is implemented. This is because the only 
+        notifications defined in this version of
+        the MIB Module pertain to New Group negotiations."
+         
+
+       GROUP cifIkeFlowNotifCntlGroup
+       DESCRIPTION   
+        "This group is conditionally mandatory and the agent 
+        must implement this group if it implements 
+        the group 'cifIkeFlowNotificationGroup'."
+         
+       ::= { ciscoIkeFlowMIBCompliances 1 }
+
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+   -- Units of Conformance: List of current groups
+   -- +++++++++++++++++++++++++++++++++++++++++++++++++++++++
+      ciscoIkeFlowActivityGroup OBJECT-GROUP
+         OBJECTS {
+                   -- 
+                   -- Metrics pertaining to
+                   -- IKE real-time status 
+                   -- 
+                  cifIkeGlobalInP2Exchgs,
+                  cifIkeGlobalInP2ExchgInvalids,
+                  cifIkeGlobalInP2ExchgRejects,
+                  cifIkeGlobalOutP2Exchgs,
+                  cifIkeGlobalOutP2ExchgInvalids,
+                  cifIkeGlobalOutP2ExchgRejects,
+
+                   -- Tunnel-level metrics pertaining to
+                   -- Internet Key Exchange Tunnel 
+                  cifIkeTunNegoMode             ,
+                  cifIkeTunDHGrp                ,
+                  cifIkeTunSaRefreshThreshold   ,
+                  cifIkeTunTotalRefreshes       ,
+                  cifIkeTunInP2Exchgs           ,
+                  cifIkeTunInP2ExchgInvalids    ,
+                  cifIkeTunInP2ExchgRejects     ,
+                  cifIkeTunInP2SaDelRequests    ,
+                  cifIkeTunOutP2Exchgs          ,
+                  cifIkeTunOutP2ExchgInvalids   ,
+                  cifIkeTunOutP2ExchgRejects
+                 }
+         STATUS current
+         DESCRIPTION
+          "
+          This group consists of objects that track the 
+          current IKE protocol activity:
+          1) IKE Global Objects
+          2) IKE Tunnel table.
+          "
+         REFERENCE 
+          "
+          rfc2408, rfc2407; rfc2409 section 5.1, 5.2, 5.3
+          and 5.4.
+          "
+         ::= { ciscoIkeFlowMIBGroups 1 }
+
+      cifIkeFlowNewGroupGroup OBJECT-GROUP
+         OBJECTS {
+                   -- 
+                   -- Metrics pertaining to IKE New Group 
+                   -- operations.
+                   -- 
+                   cifIkeGlobalInNewGrpReqs,
+                   cifIkeGlobalOutNewGrpReqs,
+                   cifIkeGlobalInNewGrpRejectReqs ,
+                   cifIkeGlobalOutNewGrpRejectReqs ,
+                   cifIkeTunInNewGrpReqs         ,
+                   cifIkeTunOutNewGrpReqs        ,
+                   cifIkeTunInNewGrpRejectedReqs ,
+                   cifIkeTunOutNewGrpRejectedReqs
+                 }
+         STATUS current
+         DESCRIPTION
+          "
+          This group consists of:
+           1) Global metrics about new group negotiations
+           2) IKE Tunnel-wise new group metrics
+          "
+         REFERENCE
+          "
+          rfc2408, rfc2407; rfc2409 section 5.6.
+          "
+         ::= { ciscoIkeFlowMIBGroups 2 }
+
+      cifIkeFlowXauthGroup OBJECT-GROUP
+         OBJECTS {
+                 -- The IPsec extended authentication (Phase-1.5)
+                 -- Global Statistics
+                   cifIkeGlobalInXauths,
+                   cifIkeGlobalInXauthFailures,
+                   cifIkeGlobalOutXauthFailures
+                 }
+         STATUS current
+         DESCRIPTION
+          "
+          This group consists of metrics pertaining to
+          IKE extended authentication. Devices that do
+          not support Xauth need not implement this group.
+          "
+         ::= { ciscoIkeFlowMIBGroups 3 }
+
+      cifIkeFlowModeConfigGroup OBJECT-GROUP
+         OBJECTS {
+                 -- The IPsec extended authentication (Phase-1.5)
+                 -- Global Statistics
+                   cifIkeTunInConfigs            ,
+                   cifIkeTunOutConfigs           ,
+                   cifIkeTunInConfigRejects     ,
+                   cifIkeTunOutConfigRejects
+                 }
+         STATUS current
+         DESCRIPTION
+          "
+          This group consists of metrics pertaining to
+          IKE extended authentication. Devices that do
+          not support Xauth need not implement this group.
+          "
+         ::= { ciscoIkeFlowMIBGroups 4 }
+
+      cifIkeFlowHistoryGroup OBJECT-GROUP
+         OBJECTS {
+                   -- IKE History Global Control Objects
+                   cifIkeTunHistNegoMode           ,
+                   cifIkeTunHistDHGrp              ,
+                   cifIkeTunHistTotalRefreshes     ,
+                   cifIkeTunHistTotalSas           ,
+                   cifIkeTunHistInP2Exchgs         ,
+                   cifIkeTunHistInP2ExchgInvalids  ,
+                   cifIkeTunHistInP2ExchgRejects   ,
+                   cifIkeTunHistOutP2Exchgs        ,
+                   cifIkeTunHistOutP2ExchgInvalids ,
+                   cifIkeTunHistOutP2ExchgRejects
+         }
+         STATUS current
+         DESCRIPTION
+          "
+          This group consists of the core (mandatory) 
+          objects pertaining to maintaining history of 
+          Internet Key Exchange protocol activity.
+          "
+         ::= { ciscoIkeFlowMIBGroups 5 }
+
+      cifIkeFlowNewGroupHistoryGroup OBJECT-GROUP
+         OBJECTS {
+                   -- IKE History pertaining to new group
+                   cifIkeTunHistInNewGrpReqs       ,
+                   cifIkeTunHistOutNewGrpReqs      ,
+                   cifIkeTunHistInNewGrpRejectReqs ,
+                   cifIkeTunHistOutNewGrpRejectReqs
+         }
+         STATUS current
+         DESCRIPTION
+          "
+          This group consists of archive of new group
+          activity pertaining to expired IKE Phase-1 
+          tunnels.
+          "
+         ::= { ciscoIkeFlowMIBGroups 6 }
+
+      cifIkeFlowModeConfigHistoryGroup OBJECT-GROUP
+         OBJECTS {
+                   -- IKE History pertaining to new group
+                   cifIkeTunHistInConfigs          ,
+                   cifIkeTunHistOutConfigs         ,
+                   cifIkeTunHistInConfigsRejects   ,
+                   cifIkeTunHistOutConfigsRejects  
+         }
+         STATUS current
+         DESCRIPTION
+          "
+          This group consists of archive of mode
+          config activity pertaining to expired IKE 
+          Phase-1 Tunnels.
+          "
+         ::= { ciscoIkeFlowMIBGroups 7 }
+
+
+      cifIkeFlowNotifCntlGroup OBJECT-GROUP
+         OBJECTS {
+                 cifIkeNotifCntlInNewGrpRejected,
+                 cifIkeNotifCntlOutNewGrpRejected
+                 }
+         STATUS current
+         DESCRIPTION
+          "
+          This group of objects controls the sending 
+          of notifications pertaining to Phase-1 IKE
+          operations.
+          "
+         ::= { ciscoIkeFlowMIBGroups 8 }
+
+       cifIkeFlowNotificationGroup NOTIFICATION-GROUP
+         NOTIFICATIONS {
+                       ciscoIkeFlowInNewGrpRejected,
+                       ciscoIkeFlowOutNewGrpRejected
+                         }
+         STATUS current
+         DESCRIPTION
+          "
+          This group contains the notifications pertaining
+          to Phase-1 IKE operations.
+          "
+         REFERENCE
+          "
+          rfc2408, rfc2407; rfc2409 section 5.1, 5.2, 5.3
+          and 5.4.
+          "
+         ::= { ciscoIkeFlowMIBGroups 9 }
+
+   END

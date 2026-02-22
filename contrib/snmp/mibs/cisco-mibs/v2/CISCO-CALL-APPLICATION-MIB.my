@@ -1,0 +1,5296 @@
+-- *****************************************************************
+-- Cisco Call Application MIB
+--
+-- Dec 1999, Vasmi Abidi
+-- March 2003, Shanmukh Rao
+--
+-- Copyright (c) 1999, 2003  by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-CALL-APPLICATION-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+	MODULE-IDENTITY, OBJECT-TYPE, Gauge32, Unsigned32
+		FROM SNMPv2-SMI
+	TEXTUAL-CONVENTION, RowStatus, TimeStamp, TruthValue 
+		FROM SNMPv2-TC
+	MODULE-COMPLIANCE, OBJECT-GROUP
+		FROM SNMPv2-CONF
+	SnmpAdminString                      
+		FROM SNMP-FRAMEWORK-MIB
+	ciscoMgmt
+		FROM CISCO-SMI
+	ZeroBasedCounter32
+		FROM RMON2-MIB;
+
+ciscoCallApplicationMIB  MODULE-IDENTITY
+	LAST-UPDATED    "200305130001Z" 
+	ORGANIZATION	"Cisco Systems, Inc."
+	CONTACT-INFO
+		"	Cisco Systems
+			Customer Service
+
+		Postal:	170 W. Tasman Drive
+			San Jose, CA  95134
+			USA
+
+		Tel: +1 800 553-NETS
+
+		E-mail:	cs-voice@cisco.com"
+	DESCRIPTION
+            "This MIB allows management of call applications on a
+             network device. A 'call application' is a software module
+             that processes calls, such as data, voice, video, or fax 
+             calls.
+            "
+    REVISION      "200305130001Z"
+	DESCRIPTION
+           "The changes to this MIB now provide call application 
+           statistics for monitoring the call applications.
+           These call application stats are divided into 3 levels
+
+                       - per gateway level (Global).
+                       - per application-type level.
+                       - per application-instance level.
+                
+                
+            |    Level/State |   Active         | History
+            |   -------------+------------------+----------------
+            |    Global   lvl|  Gauges          | Counters
+            |   -------------+------------------+----------------
+            |    App-Type lvl|  Gauges records  | Counter records
+            |   -------------+------------------+----------------
+            |    App-Inst lvl|  Not available   | Counter records
+            v   -------------+------------------+----------------
+
+            An applicaiton gateway can have multiple types of call 
+            applications aka application scripts. User calls could 
+            be handled by any of this application types (scripts). 
+            Each user call can trigger an instance of this 
+            application type.  
+
+            An Application instance has a set of countres during 
+            its active and non-active (history) phase. These are 
+            available at App-Inst level records.  
+
+            App-Type level records have aggregated counters/gauges 
+            from all the application instances of its application 
+            type.  
+
+            Global level has aggregated counters/gauges from all 
+            application-type records.
+
+            Gateway administrators are encouraged to follow
+            a 'top-down' approach for monitoring and troubleshooting.
+            This top-down approach emphasizes on polling 'Global 
+            active level gauges'  for monitoring load on the gateway 
+            and 'Global history level counters' monitoring errors. 
+         
+            To find out more details about a particular gauge or 
+            counter one can step down a level to App-Type level. 
+            Similarly, to find out further details, one can goto a level
+            lower at 'Application-Instnace' for find out more details.
+            Finally, event-logs are available at the lowest level for
+            applicaiton instances. 
+
+            Following changes are as per the above mentioned scheme.
+
+             - ccapAppGlobalAct group of objects are added to provide
+               'Active Global lvl' gauges.
+             - ccapAppGlobalHis group of objects are added to provide
+               'Active Global lvl' gauges.
+             - ccapApplicationTable is extended to provide 
+               'Active App-Type lvl' gauges.
+             - ccapAppTypeHistoryTable is added to provided       
+               'History App-Type lvl' counters.
+             - ccapAppInstanceHistoryTable is added to provide
+               'History App-Inst lvl' counters.
+
+             This MIB also provides call application interface stats.
+             The call application interfaces are the servers with 
+             which applications do the transactions for various 
+             services like HTTP, RTSP, TFTP, SMTP, AAA, ASR 
+             (Automatic Speech Recognition), TTS (Text-To-Speech),
+             flash file read, RAM media recordings.
+
+             Following are the new objects/tables to provide 
+             'Application-Interface' statistics.
+             - ccapAppIntfGlobal group of objects 
+             - ccapAppIntfHTTPTable
+             - ccapAppIntfRTSPTable 
+             - ccapAppIntfTFTPTable
+             - ccapAppIntfSMTPTable
+             - ccapAppIntfAAAMethodListTable
+             - ccapAppIntfASRTable
+             - ccapAppIntfTTSTable
+             - ccapAppIntfFlash group of objects
+             - ccapAppIntfRAMRecord group of objects 
+ 
+             This MIB also provides facility to enable and 
+             disable statistics monitoring for call application at
+             global level. Applicaion interface statistics can 
+             also be enabled/disabled through this MIB. Statistics
+             can also be cleared at Global and App-type levels. Hence, 
+             lot of objects which could be reset/cleared are defined
+             as ZeroBasedCounter32 TC based of Gauge32.
+             Clearing operation is done either through MIB 
+             objects or through CLI (Command Line Interface). Clear
+             or resetting operation in applied to a group of countres.
+             For each group there is a 'discontinuity' object or 
+             'lastResetTime' object provided which specifies the time
+             when associated group of objects were cleared.
+                
+             Application infrastructure has facility to capture events 
+             from active application instances and save them in  event 
+             log buffer in memory and later to FTP dump file. This is
+             referred as event logging mechanism. Event logging can 
+             be enabled and disabled either from IOS CLI's or from SNMP
+             objects provided in this MIB change set. This event log 
+             facility is available at 'Active and History App-Inst lvl'.
+             Event logging is also available at 'App-Interface lvl', 
+             for per interface-type and per server of each interface
+             type.
+             This MIB provides facility to enable/disable application 
+             event log facility for all active application instances.
+             However, the MIB does not provide objects to get the 
+             event logs, since they can be bulky and degrade the 
+             performance of the system. There are mechanisms to dump 
+             the event logs to either stdout or ftp through IOS CLI 
+             configurations."
+
+    REVISION "9909220000Z"
+	DESCRIPTION
+                "This MIB allows management of call applications on a
+                 network device. A 'call application' is a software 
+                 module that processes calls, such as data, voice, 
+                 video, or fax calls.
+                 Initial version 199909220000Z, Nov 22nd, 1999."
+
+        ::= { ciscoMgmt 146 }  
+
+-- Terminology
+
+
+-- Textual Conventions
+
+URLStringOrNull ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "A Uniform Resource Locator represented in accordance
+         with RFC 1738, or an empty string."
+    SYNTAX OCTET STRING (SIZE (0..255))
+
+ServerNameString ::= TEXTUAL-CONVENTION
+    STATUS current
+    DESCRIPTION
+        "This TC describes an objects which represents an unique 
+        server identifier. This server identifier string constitutes 
+        from server name and/or ipaddress and/or AAA method list 
+        and/or part of URL.
+
+        Typically this TC is used in tables where the INDEX could be
+        DNS name or string form of IP address or part of URL or just 
+        a unique string."
+    SYNTAX OCTET STRING (SIZE (1..255))
+
+ciscoCallApplicationMIBObjects OBJECT IDENTIFIER ::= 
+	   { ciscoCallApplicationMIB 1 }
+
+-- groups
+
+ccapConf             OBJECT IDENTIFIER ::= 
+                        { ciscoCallApplicationMIBObjects 1 }
+ccapAppTypeHisStat   OBJECT IDENTIFIER ::= 
+                        { ciscoCallApplicationMIBObjects 2 }
+ccapAppInstHisStat   OBJECT IDENTIFIER ::= 
+                        { ciscoCallApplicationMIBObjects 3 }
+ccapAppGblActStat OBJECT IDENTIFIER ::= 
+                        { ciscoCallApplicationMIBObjects 4 }
+ccapAppGblHisStat OBJECT IDENTIFIER ::= 
+                        { ciscoCallApplicationMIBObjects 5 }
+ccapAppIntf          OBJECT IDENTIFIER ::= 
+                        { ciscoCallApplicationMIBObjects 6 }
+
+-- The Call Application Table
+
+ccapApplicationTable OBJECT-TYPE
+	SYNTAX SEQUENCE OF CcapApplicationEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about call applications on this managed 
+         device. There is an entry in this table for each call 
+         application."
+	::= { ccapConf 1 }
+
+ccapApplicationEntry OBJECT-TYPE
+	SYNTAX CcapApplicationEntry
+	MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about a call application."
+	INDEX { IMPLIED ccapAppName }
+	::= { ccapApplicationTable 1 }
+
+CcapApplicationEntry ::=
+	SEQUENCE {
+		ccapAppName                     SnmpAdminString,
+		ccapAppLocation                 URLStringOrNull,
+		ccapAppLoadState                INTEGER,
+		ccapAppLoadFailReason           INTEGER,
+		ccapAppDescr                    SnmpAdminString,
+		ccapAppCallType                 OCTET STRING,
+		ccapAppRowStatus                RowStatus,
+		ccapAppActiveInstances          Gauge32,
+		ccapAppEventLogging             TruthValue,
+		ccapAppPSTNInCallNowConn        Gauge32,
+		ccapAppPSTNOutCallNowConn       Gauge32,
+		ccapAppIPInCallNowConn          Gauge32,
+		ccapAppIPOutCallNowConn         Gauge32,
+		ccapAppPlaceCallInProgress      Gauge32,
+		ccapAppHandoffInProgress        Gauge32,
+		ccapAppPromptPlayActive         Gauge32,
+		ccapAppRecordingActive          Gauge32,
+		ccapAppTTSActive                Gauge32
+		}
+
+ccapAppName OBJECT-TYPE
+	SYNTAX	   SnmpAdminString (SIZE (1..40))
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The name of this call application."
+	::= { ccapApplicationEntry 1 }
+
+ccapAppLocation OBJECT-TYPE
+	SYNTAX	   URLStringOrNull
+	MAX-ACCESS read-create
+	STATUS     current
+	DESCRIPTION		
+		"Identifies the location from where this application is
+                loaded.  
+
+		For built-in applications, the value will always
+                be an empty string. 
+
+		If the location is not specified or not known, value is
+                an empty string.
+
+		Note that a particular agent may support only certain 
+                types of URLs (e.g., only tftp://...). Thus, the valid
+                values of this object are implementation dependent.
+                An agent may respond with an error (e.g., 'wrongValue')
+                to a management SET operation which attempts to modify
+                the value of this object to one which is not supported
+                by the managed device.
+
+		The value of this object may be changed at any time. 
+                However, note that setting this value for an active 
+                row will cause the old application to be deleted, and 
+                the new application (i.e. the program at the 
+                newly-specified URL) to be loaded."
+	::= { ccapApplicationEntry 2 }
+
+ccapAppLoadState OBJECT-TYPE
+	SYNTAX	INTEGER {
+			builtIn(1),
+			loading(2),
+			loaded(3),
+			loadFailed(4)
+		}
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION		
+	        "The state of this application.
+
+		For built-in applications, the value read is always
+                'builtIn'.
+
+		When this row is made active, the agent attempts to
+                load the application from the URL specified by
+                ccapAppLocation. While loading is in progress, value of
+                this object reads 'loading'. If the application is
+                successfully loaded, the value changes to 'loaded',
+                otherwise the value changes to 'loadFailed'. 
+                "
+	::= { ccapApplicationEntry 3 }
+
+ccapAppLoadFailReason OBJECT-TYPE
+	SYNTAX	INTEGER {
+			none(1),
+			other(2),
+			notFound(3),
+			timedOut(4),
+			noPermission(5),
+			badSignature(6),
+			noSpace(7)
+		}
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION		
+	        "The reason the last attempted load failed. 
+                The possible values are: 
+			none - there was no failure
+			other - failure reason is other than those 
+                                listed below
+			notFound - application was not found
+			timedOut - timed out while loading
+			noPermission - was denied permission
+			badSignature - the application did not have the
+                         proper signature. An agent may use an
+                         authentication scheme to protect itself. This
+                         error indicates that the authentication check
+                         failed, hence the application was not loaded.
+			noSpace - lack of memory space.
+
+		The value is updated after a load attempt.
+		"
+	::= { ccapApplicationEntry 4 }
+
+ccapAppDescr OBJECT-TYPE
+	SYNTAX	   SnmpAdminString
+	MAX-ACCESS read-create
+	STATUS     current
+	DESCRIPTION		
+		"A description of this application.
+		"
+	DEFVAL {""}
+	::= { ccapApplicationEntry 5 }
+
+ccapAppCallType OBJECT-TYPE
+	SYNTAX OCTET STRING (SIZE(1))
+	MAX-ACCESS read-create
+	STATUS     current
+	DESCRIPTION		
+		"Indicates the types of call that this application can
+         handle. 0 is voice, 1 is fax, 3 is data, 4 is video."
+--	DEFVAL {voice}
+	::= { ccapApplicationEntry 6 }
+
+
+ccapAppRowStatus OBJECT-TYPE
+	SYNTAX	   RowStatus
+	MAX-ACCESS read-create
+	STATUS     current
+	DESCRIPTION		
+		"The status of this conceptual row.
+		Note that rows corresponding to built-in applications
+                cannot be modified. Thus, this object is read-only for
+                such rows. 
+
+		This object can not be set to 'active' until a value 
+                has been assigned to the corresponding instance of
+                ccapAppLocation. When a row becomes active, the agent
+                attempts to load the application from the location
+                specified by ccapAppLocation. The result of the loading
+                operation can be monitored by the objects 
+                ccapAppLoadState and ccapAppLoadError.
+
+		Deleting a row will cause the agent to unload the
+                corresponding application.
+		"
+	::= { ccapApplicationEntry 7 }
+
+ccapAppActiveInstances OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of application instances currently active 
+                 of an application type from ccapApplicationTable."
+        ::= { ccapApplicationEntry 8 }
+
+ccapAppEventLogging OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Object by which management station can know if event
+                logging for this application type is enabled or 
+                disabled for all the instances of this application 
+                type."
+        ::= { ccapApplicationEntry 9 }
+
+ccapAppPSTNInCallNowConn OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of PSTN incoming calls connected and 
+                handled by this application type at this moment."
+        ::= { ccapApplicationEntry 10 }
+
+ccapAppPSTNOutCallNowConn OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of PSTN outgoing calls (placed calls 
+                to PSTN) connected and handled by this application 
+                type at this moment."
+        ::= { ccapApplicationEntry 11 }
+
+ccapAppIPInCallNowConn OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of  incoming IP calls connected and 
+                handled by this application type at this moment."
+        ::= { ccapApplicationEntry 12 }
+
+ccapAppIPOutCallNowConn OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of IP outgoing (placed to IP) calls 
+                connected and handled by this application type at 
+                this moment."
+        ::= { ccapApplicationEntry 13 }
+
+ccapAppPlaceCallInProgress OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of pending place calls requests from 
+                all the active instances of this application type."
+        ::= { ccapApplicationEntry 14 }
+
+ccapAppHandoffInProgress OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of pending handoff requests from all
+                the active instances of this application type."
+        ::= { ccapApplicationEntry 15 }
+
+ccapAppPromptPlayActive  OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of active prompts for all the active
+                instances of this application type."
+        ::= { ccapApplicationEntry 16 }
+
+ccapAppRecordingActive OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of active recording for all the active 
+                instances of this application type."
+        ::= { ccapApplicationEntry 17 }
+
+ccapAppTTSActive OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of active TTS (Text-To-Speech) for all 
+                the active instances of this application type."
+        ::= { ccapApplicationEntry 18 }
+
+--
+-- Application Type History Table
+--
+
+ccapAppTypeHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcapAppTypeHistoryEntry    
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+            "Information from history instances of application types."
+     ::= { ccapAppTypeHisStat 2 }
+
+ccapAppTypeHistoryEntry OBJECT-TYPE
+	SYNTAX CcapAppTypeHistoryEntry
+        MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information from all the history instances of an 
+                IOS call application type."
+	INDEX { IMPLIED ccapAppName }
+	::= { ccapAppTypeHistoryTable 1 }
+
+CcapAppTypeHistoryEntry ::= SEQUENCE {
+--  PSTN Incoming Call to Application History Type
+    ccapAppTypeHisEvtLogging                     TruthValue,
+    ccapAppTypeHisLastResetTime                  TimeStamp,
+    ccapAppTypeHisPSTNInCallSetupInd             ZeroBasedCounter32,
+    ccapAppTypeHisPSTNInCallTotConn              ZeroBasedCounter32,
+    ccapAppTypeHisPSTNInCallHandedOut            ZeroBasedCounter32,
+    ccapAppTypeHisPSTNInCallHandOutRet           ZeroBasedCounter32,
+    ccapAppTypeHisPSTNInCallInHandoff            ZeroBasedCounter32,
+    ccapAppTypeHisPSTNInCallInHandoffRet         ZeroBasedCounter32,
+    ccapAppTypeHisPSTNInCallDiscNormal           ZeroBasedCounter32,
+    ccapAppTypeHisPSTNInCallDiscUsrErr           ZeroBasedCounter32,
+    ccapAppTypeHisPSTNInCallDiscSysErr           ZeroBasedCounter32,
+
+--  PSTN Outgoing Placed Call from Application History Type
+
+    ccapAppTypeHisPSTNOutCallSetupReq            ZeroBasedCounter32,
+    ccapAppTypeHisPSTNOutCallTotConn             ZeroBasedCounter32,
+    ccapAppTypeHisPSTNOutCallHandedOut           ZeroBasedCounter32,
+    ccapAppTypeHisPSTNOutCallHandOutRet          ZeroBasedCounter32,
+    ccapAppTypeHisPSTNOutCallInHandoff           ZeroBasedCounter32,
+    ccapAppTypeHisPSTNOutCallInHandoffRet        ZeroBasedCounter32,
+    ccapAppTypeHisPSTNOutCallDiscNormal          ZeroBasedCounter32,
+    ccapAppTypeHisPSTNOutCallDiscUsrErr          ZeroBasedCounter32,
+    ccapAppTypeHisPSTNOutCallDiscSysErr          ZeroBasedCounter32,
+
+--
+--  IP Incoming Call to Application History Type
+--
+    ccapAppTypeHisIPInCallSetupInd               ZeroBasedCounter32,
+    ccapAppTypeHisIPInCallTotConn                ZeroBasedCounter32,
+    ccapAppTypeHisIPInCallHandedOut              ZeroBasedCounter32,
+    ccapAppTypeHisIPInCallHandOutRet             ZeroBasedCounter32,
+    ccapAppTypeHisIPInCallInHandoff              ZeroBasedCounter32,
+    ccapAppTypeHisIPInCallInHandoffRet           ZeroBasedCounter32,
+    ccapAppTypeHisIPInCallDiscNormal             ZeroBasedCounter32,
+    ccapAppTypeHisIPInCallDiscUsrErr             ZeroBasedCounter32,
+    ccapAppTypeHisIPInCallDiscSysErr             ZeroBasedCounter32,
+
+--  IP Outgoing Placed Call from Application History Type
+
+    ccapAppTypeHisIPOutCallSetupReq              ZeroBasedCounter32,
+    ccapAppTypeHisIPOutCallTotConn               ZeroBasedCounter32,
+    ccapAppTypeHisIPOutCallHandedOut             ZeroBasedCounter32,
+    ccapAppTypeHisIPOutCallHandOutRet            ZeroBasedCounter32,
+    ccapAppTypeHisIPOutCallInHandoff             ZeroBasedCounter32,
+    ccapAppTypeHisIPOutCallInHandoffRet          ZeroBasedCounter32,
+    ccapAppTypeHisIPOutCallDiscNormal            ZeroBasedCounter32,
+    ccapAppTypeHisIPOutCallDiscUsrErr            ZeroBasedCounter32,
+    ccapAppTypeHisIPOutCallDiscSysErr            ZeroBasedCounter32,
+
+-- Application Internal services 
+
+    ccapAppTypeHisPlaceCallAttempts              ZeroBasedCounter32,
+    ccapAppTypeHisPlaceCallSuccess               ZeroBasedCounter32,
+    ccapAppTypeHisPlaceCallFailure               ZeroBasedCounter32,
+
+    ccapAppTypeHisInHandoffCallback              ZeroBasedCounter32,  
+    ccapAppTypeHisInHandoffCallbackRet           ZeroBasedCounter32,
+    ccapAppTypeHisInHandoffNoCallback            ZeroBasedCounter32,
+    ccapAppTypeHisOutHandoffCallback             ZeroBasedCounter32,
+    ccapAppTypeHisOutHandoffCallbackRet          ZeroBasedCounter32,
+    ccapAppTypeHisOutHandoffNoCallback           ZeroBasedCounter32,
+    ccapAppTypeHisOutHandofffailures             ZeroBasedCounter32,
+    
+    ccapAppTypeHisDocumentReadAttempts           ZeroBasedCounter32,
+    ccapAppTypeHisDocumentReadSuccess            ZeroBasedCounter32,
+    ccapAppTypeHisDocumentReadFailures           ZeroBasedCounter32,
+    ccapAppTypeHisDocumentParseErrors            ZeroBasedCounter32,
+    
+    ccapAppTypeHisDocumentWriteAttempts          ZeroBasedCounter32,
+    ccapAppTypeHisDocumentWriteSuccess           ZeroBasedCounter32,
+    ccapAppTypeHisDocumentWriteFailures          ZeroBasedCounter32,
+
+-- Subscriber Interaction/Behaviour services
+    
+    ccapAppTypeHisDTMFAttempts                   ZeroBasedCounter32,
+    ccapAppTypeHisDTMFAborted                    ZeroBasedCounter32,
+    ccapAppTypeHisDTMFNoMatch                    ZeroBasedCounter32,
+    ccapAppTypeHisDTMFNoInput                    ZeroBasedCounter32,
+    ccapAppTypeHisDTMFMatch                      ZeroBasedCounter32,
+    ccapAppTypeHisDTMFLongPound                  ZeroBasedCounter32,
+
+    ccapAppTypeHisASRAttempts                    ZeroBasedCounter32,
+    ccapAppTypeHisASRAborted                     ZeroBasedCounter32,
+    ccapAppTypeHisASRNoMatch                     ZeroBasedCounter32,
+    ccapAppTypeHisASRNoInput                     ZeroBasedCounter32,
+    ccapAppTypeHisASRMatch                       ZeroBasedCounter32,
+
+    ccapAppTypeHisAAAAuthenticateFailure         ZeroBasedCounter32,
+    ccapAppTypeHisAAAAuthenticateSuccess         ZeroBasedCounter32,
+    ccapAppTypeHisAAAAuthorizeFailure            ZeroBasedCounter32,
+    ccapAppTypeHisAAAAuthorizeSuccess            ZeroBasedCounter32,
+
+-- ASNL information pertaining to Applications
+
+    ccapAppTypeHisASNLSubscriptionsSent          ZeroBasedCounter32,
+    ccapAppTypeHisASNLSubscriptionsSuccess       ZeroBasedCounter32,
+    ccapAppTypeHisASNLSubscriptionsFailed        ZeroBasedCounter32,
+    ccapAppTypeHisASNLNotifReceived              ZeroBasedCounter32,
+
+-- Media Stream information
+
+    ccapAppTypeHisPromptPlayAttempts             ZeroBasedCounter32,
+    ccapAppTypeHisPromptPlaySuccess              ZeroBasedCounter32,
+    ccapAppTypeHisPromptPlayFailed               ZeroBasedCounter32,
+    ccapAppTypeHisPromptPlayDuration             ZeroBasedCounter32,
+
+    ccapAppTypeHisRecordingAttempts              ZeroBasedCounter32,
+    ccapAppTypeHisRecordingSuccess               ZeroBasedCounter32,
+    ccapAppTypeHisRecordingFailed                ZeroBasedCounter32,
+    ccapAppTypeHisRecordingDuration              ZeroBasedCounter32,
+
+    ccapAppTypeHisTTSAttempts                    ZeroBasedCounter32,
+    ccapAppTypeHisTTSSuccess                     ZeroBasedCounter32,
+    ccapAppTypeHisTTSFailed                      ZeroBasedCounter32
+   }
+
+--  PSTN Incoming Call to Application History Type
+
+
+ccapAppTypeHisEvtLogging OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Object by which management station can know if event
+                logging for this application type is enabled or 
+                disabled."
+        ::= { ccapAppTypeHistoryEntry 1 }
+
+
+ccapAppTypeHisLastResetTime OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The time when the application information statistics 
+                were last reset for this application type, either 
+                through CLI or through ccapAppGblStatsClear object.
+                
+                When the application information system is disabled on
+                the gateway, this object is also reset to zeros."
+        ::= { ccapAppTypeHistoryEntry 2 }
+
+
+ccapAppTypeHisPSTNInCallSetupInd OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup indications received by this
+                application type from the PSTN."
+        ::= { ccapAppTypeHistoryEntry 3 }
+
+ 
+ccapAppTypeHisPSTNInCallTotConn OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs connected by
+                this application type."
+        ::= { ccapAppTypeHistoryEntry 4 }
+
+ccapAppTypeHisPSTNInCallHandedOut OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that are 
+                handed out to another application type because of
+                application handoff operation ."
+        ::= { ccapAppTypeHistoryEntry 5 }
+
+ccapAppTypeHisPSTNInCallHandOutRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that were
+                handed out with call back to another application,
+                and  returned back to this type."
+        ::= { ccapAppTypeHistoryEntry 6 }
+
+ccapAppTypeHisPSTNInCallInHandoff OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that were
+                handed to this application type, with the handoff
+                operation, performed by another application type."
+        ::= { ccapAppTypeHistoryEntry 7 }
+
+ccapAppTypeHisPSTNInCallInHandoffRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of incoming PSTN call legs returned
+                back as part of 'completed handoff with call back
+                operation'."
+        ::= { ccapAppTypeHistoryEntry 8 }
+
+ccapAppTypeHisPSTNInCallDiscNormal OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that
+                disconnected with 'normal' cause code in this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 9 }
+
+ccapAppTypeHisPSTNInCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that
+                disconnected with 'user error' cause code. User error
+                cause code could be 'no answer/busy/timeout'."
+        ::= { ccapAppTypeHistoryEntry 10 }
+
+ccapAppTypeHisPSTNInCallDiscSysErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that
+                disconnected with 'system error' cause code. System 
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppTypeHistoryEntry 11 }
+
+
+--  PSTN Outgoing Placed Call from Application History Type 
+
+ccapAppTypeHisPSTNOutCallSetupReq OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup requests placed out to PSTN 
+                interface, by this application type."
+        ::= { ccapAppTypeHistoryEntry 12 }
+
+ccapAppTypeHisPSTNOutCallTotConn OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of PSTN placed call legs connected to
+                this application type."
+        ::= { ccapAppTypeHistoryEntry 13 }
+
+ccapAppTypeHisPSTNOutCallHandedOut OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that are 
+                handed out to another application type because of
+                application handoff operation."
+        ::= { ccapAppTypeHistoryEntry 14 }
+
+ccapAppTypeHisPSTNOutCallHandOutRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that were 
+                handed out with call back to another application, 
+                returned back to this application type." 
+        ::= { ccapAppTypeHistoryEntry 15 }
+
+ccapAppTypeHisPSTNOutCallInHandoff OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that were
+                handed to this application type, with the handoff
+                operation performed by another application type."
+        ::= { ccapAppTypeHistoryEntry 16 }
+
+ccapAppTypeHisPSTNOutCallInHandoffRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of outgoing PSTN call legs returned
+                back as part of 'completed handoff with call back 
+                operation'."
+        ::= { ccapAppTypeHistoryEntry 17 }
+
+ccapAppTypeHisPSTNOutCallDiscNormal OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that  
+                disconnected with 'normal' cause code in this 
+                application type."
+        ::= { ccapAppTypeHistoryEntry 18 }
+
+ccapAppTypeHisPSTNOutCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that
+                disconnected with 'user error' cause code. User error
+                cause code could be 'no answer/busy/timeout'."
+        ::= { ccapAppTypeHistoryEntry 19 }
+
+ccapAppTypeHisPSTNOutCallDiscSysErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that 
+                disconnected with 'system error' cause code. System 
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppTypeHistoryEntry 20 }
+
+--  IP Incoming Call to Application History Type
+
+ccapAppTypeHisIPInCallSetupInd OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup indications received by this 
+                application type from the IP interface."
+        ::= { ccapAppTypeHistoryEntry 21 }
+
+ccapAppTypeHisIPInCallTotConn OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs connected by 
+                this application type."
+        ::= { ccapAppTypeHistoryEntry 22 }
+
+ccapAppTypeHisIPInCallHandedOut OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that are handed 
+                out to another application type because of application 
+                handoff operation."
+        ::= { ccapAppTypeHistoryEntry 23 }
+
+ccapAppTypeHisIPInCallHandOutRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that were
+                handed out with call back to another application, 
+                returned back to this type."
+        ::= { ccapAppTypeHistoryEntry 24 }
+
+ccapAppTypeHisIPInCallInHandoff OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that were
+                handed to this application type, with the handoff 
+                operation, performed by another application type."
+        ::= { ccapAppTypeHistoryEntry 25 }
+
+ccapAppTypeHisIPInCallInHandoffRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of incoming IP call legs returned
+                back as part of 'completed handoff with call back 
+                operation'."
+        ::= { ccapAppTypeHistoryEntry 26 }
+
+ccapAppTypeHisIPInCallDiscNormal OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that  
+                disconnected with 'normal' cause code in this 
+                application type."
+        ::= { ccapAppTypeHistoryEntry 27 }
+
+ccapAppTypeHisIPInCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that  
+                disconnected with 'user error' cause code. User error
+                cause code could be 'no answer/busy/timeout'."
+        ::= { ccapAppTypeHistoryEntry 28 }
+
+ccapAppTypeHisIPInCallDiscSysErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that 
+                disconnected with 'system error' cause code. System 
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppTypeHistoryEntry 29 }
+
+--  IP Outgoing Placed Call from Application Type
+
+ccapAppTypeHisIPOutCallSetupReq OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup requests placed out to IP 
+                interface, by this application type."
+        ::= { ccapAppTypeHistoryEntry 30 }
+
+ccapAppTypeHisIPOutCallTotConn OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of IP placed call legs connected to this 
+                application type."
+        ::= { ccapAppTypeHistoryEntry 31 }
+
+ccapAppTypeHisIPOutCallHandedOut OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that are handed
+                out to another application type because of application 
+                handoff operation."
+        ::= { ccapAppTypeHistoryEntry 32 }
+
+ccapAppTypeHisIPOutCallHandOutRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that were handed
+                out with call back to another application, returned 
+                back to this application type." 
+        ::= { ccapAppTypeHistoryEntry 33 }
+
+ccapAppTypeHisIPOutCallInHandoff OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that were handed
+                to this application type, with the handoff operation, 
+                performed by another application type."
+        ::= { ccapAppTypeHistoryEntry 34 }
+
+ccapAppTypeHisIPOutCallInHandoffRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of outgoing IP call legs returned
+                back as part of 'completed handoff with call back 
+                operation'."
+        ::= { ccapAppTypeHistoryEntry 35 }
+
+ccapAppTypeHisIPOutCallDiscNormal OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that 
+                disconnected with 'normal' cause code in this 
+                application type."
+        ::= { ccapAppTypeHistoryEntry 36 }
+
+ccapAppTypeHisIPOutCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that
+                disconnected with 'user error' cause code. User error
+                cause code could be 'no answer/busy/timeout'."
+        ::= { ccapAppTypeHistoryEntry 37 }
+
+ccapAppTypeHisIPOutCallDiscSysErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that 
+                disconnected with 'system error' cause code. System 
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppTypeHistoryEntry 38 }
+
+-- Application History Type Internal services 
+
+ccapAppTypeHisPlaceCallAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of place call attempts performed by this 
+                application type."
+        ::= { ccapAppTypeHistoryEntry 39 }
+
+ccapAppTypeHisPlaceCallSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of placecall attempts performed 
+                successfully by this application type."
+        ::= { ccapAppTypeHistoryEntry 40 }
+
+ccapAppTypeHisPlaceCallFailure OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of place call failures seen by this 
+                application type."
+        ::= { ccapAppTypeHistoryEntry 41 }
+
+ccapAppTypeHisInHandoffCallback OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming handoffs with call back to 
+                this application type."
+        ::= { ccapAppTypeHistoryEntry 42 }
+
+ccapAppTypeHisInHandoffCallbackRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of returned incoming handoffs with call
+                back, from this application type."
+        ::= { ccapAppTypeHistoryEntry 43 }
+
+ccapAppTypeHisInHandoffNoCallback OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming handoffs with no call backs 
+                (blind handoffs) received by this application type." 
+        ::= { ccapAppTypeHistoryEntry 44 }
+
+ccapAppTypeHisOutHandoffCallback OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of placed handoffs with call backs 
+                (bridged handoffs) from this application type."
+        ::= { ccapAppTypeHistoryEntry 45 }
+
+ccapAppTypeHisOutHandoffCallbackRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of returned handoffs with callback 
+                (bridged handoffs) to this application type."
+        ::= { ccapAppTypeHistoryEntry 46 }
+
+ccapAppTypeHisOutHandoffNoCallback OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of placed handoffs with no callback 
+                (blind handoffs) from this application type."
+        ::= { ccapAppTypeHistoryEntry 47 }
+
+ccapAppTypeHisOutHandofffailures OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing handoff failures seen by 
+                this application type, while trying to place an 
+                outgoing handoff to another application."
+        ::= { ccapAppTypeHistoryEntry 48 }
+
+ccapAppTypeHisDocumentReadAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document read requests made by this 
+                application type."
+        ::= { ccapAppTypeHistoryEntry 49 }
+
+ccapAppTypeHisDocumentReadSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document read by the application type.
+                "
+        ::= { ccapAppTypeHistoryEntry 50 }
+
+ccapAppTypeHisDocumentReadFailures OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document read errors for this 
+                application type."
+        ::= { ccapAppTypeHistoryEntry 51 }
+
+ccapAppTypeHisDocumentParseErrors OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document parse errors or semantic 
+                errors seen by this application."
+        ::= { ccapAppTypeHistoryEntry 52 }
+
+ccapAppTypeHisDocumentWriteAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document write attempts by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 53 }
+
+ccapAppTypeHisDocumentWriteSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document written successfully by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 54 }
+
+ccapAppTypeHisDocumentWriteFailures OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document write failures for this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 55 }
+
+ccapAppTypeHisDTMFAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of attempts to read user DTMF input by
+                this application type."
+        ::= { ccapAppTypeHistoryEntry 56 }
+
+ccapAppTypeHisDTMFAborted OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of DTMF reads interrupts/aborts by 
+                this application type."
+        ::= { ccapAppTypeHistoryEntry 57 }
+
+ccapAppTypeHisDTMFNoMatch OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of DTMF no match events on incorrect
+                user input, seen by this application type."
+        ::= { ccapAppTypeHistoryEntry 58 }
+
+ccapAppTypeHisDTMFNoInput OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of user input timeout on DTMF input 
+                seen by this application type."
+        ::= { ccapAppTypeHistoryEntry 59 }
+
+ccapAppTypeHisDTMFMatch OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of DTMF input matched events seen by
+                this application type."
+        ::= { ccapAppTypeHistoryEntry 60 }
+
+ccapAppTypeHisDTMFLongPound OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of 'Long-Pound' user interrupts seen by
+                this application type."
+        ::= { ccapAppTypeHistoryEntry 61 }
+
+ccapAppTypeHisASRAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition)
+                attempts to read user speech input by this application
+                type."
+        ::= { ccapAppTypeHistoryEntry 62 }
+
+ccapAppTypeHisASRAborted OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition)
+                read interrupts/aborts by this application type."
+        ::= { ccapAppTypeHistoryEntry 63 }
+
+
+ccapAppTypeHisASRNoMatch OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition) 
+                match events on user speech input, seen by this 
+                application."
+        ::= { ccapAppTypeHistoryEntry 64 }
+
+ccapAppTypeHisASRNoInput OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition)
+                user speech input timeout events, seen by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 65 }
+
+ccapAppTypeHisASRMatch OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition)
+                user speech input matched events, seen by this 
+                application type."
+        ::= { ccapAppTypeHistoryEntry 66 }
+
+ccapAppTypeHisAAAAuthenticateFailure OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authenticate failures seen by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 67 }
+
+ccapAppTypeHisAAAAuthenticateSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authenticate success seen by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 68 }
+
+ccapAppTypeHisAAAAuthorizeFailure OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authorize failures seen by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 69 }
+
+ccapAppTypeHisAAAAuthorizeSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authorize success seen by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 70 }
+
+ccapAppTypeHisASNLSubscriptionsSent  OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscription sent by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 71 }
+
+ccapAppTypeHisASNLSubscriptionsSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscriptions success, seen by 
+                this application type."
+        ::= { ccapAppTypeHistoryEntry 72 }
+
+ccapAppTypeHisASNLSubscriptionsFailed OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscription failures, seen by
+                this application type."
+        ::= { ccapAppTypeHistoryEntry 73 }
+
+ccapAppTypeHisASNLNotifReceived OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscriptions received by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 74 }
+
+ccapAppTypeHisPromptPlayAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of prompt play attempts made by this 
+                application type."
+        ::= { ccapAppTypeHistoryEntry 75 }
+
+ccapAppTypeHisPromptPlaySuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of play prompt success, seen by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 76 }
+
+ccapAppTypeHisPromptPlayFailed OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of prompt play failures seen by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 77 }
+
+ccapAppTypeHisPromptPlayDuration OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total duration (in seconds), of all the prompt plays
+                performed by this application type."
+        ::= { ccapAppTypeHistoryEntry 78 }
+
+ccapAppTypeHisRecordingAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of record attempts made by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 79 }
+
+ccapAppTypeHisRecordingSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of recording success, seen by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 80 }
+
+ccapAppTypeHisRecordingFailed OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of recording failures seen by this
+                application type."
+        ::= { ccapAppTypeHistoryEntry 81 }
+
+ccapAppTypeHisRecordingDuration OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total duration (in seconds), of all the recordings
+                performed by this application type."
+        ::= { ccapAppTypeHistoryEntry 82 }
+
+ccapAppTypeHisTTSAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of TTS (Text-To-Speech) play attempts
+                made by this application type."
+        ::= { ccapAppTypeHistoryEntry 83 }
+
+ccapAppTypeHisTTSSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of TTS (Text-To-Speech) play success
+                seen by this application type."
+        ::= { ccapAppTypeHistoryEntry 84 }
+
+ccapAppTypeHisTTSFailed OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of TTS (Text-To-Speech) play failures 
+                seen by this application type."
+        ::= { ccapAppTypeHistoryEntry 85 }
+
+--
+-- Application Instance History Table
+--
+
+ccapAppInstanceHistoryTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcapAppInstanceHistoryEntry    
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+            "Information about history application instances of 
+            an active application type. 
+
+            This table provides in details about an application 
+            instance when the applicaiton instancae has terminated.
+            
+            Note: Active application instance records are not 
+            available in any MIB because application instances when 
+            active may change status from active to history very  
+            quickly and instance record data is most of the time 
+            inconclusive."
+    ::= { ccapAppInstHisStat 3 }
+
+ccapAppInstanceHistoryEntry OBJECT-TYPE
+	SYNTAX CcapAppInstanceHistoryEntry
+        MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about a history instance of a IOS call application. 
+        When an application instance is terminated an entry is created.
+        Entry is removed from this table on the following any one 
+        condition -
+        a. Maximum number of records (configured via CLI) has reached. 
+        b. Maximum number of time (configured via CLI) has reached.
+        In both the above cases oldest history record is purged out."
+	INDEX { ccapAppInstHisIndex }
+	::= { ccapAppInstanceHistoryTable 1 }
+
+CcapAppInstanceHistoryEntry ::= SEQUENCE {
+    ccapAppInstHisIndex Unsigned32,
+    ccapAppInstHisSessionID Unsigned32,
+    ccapAppInstHisAppName OCTET STRING,
+
+--  PSTN Incoming Call to Application History Instance
+
+    ccapAppInstHisPSTNInCallSetupInd Unsigned32,
+    ccapAppInstHisPSTNInCallTotConn Unsigned32,
+    ccapAppInstHisPSTNInCallHandedOut Unsigned32,
+    ccapAppInstHisPSTNInCallHandOutRet Unsigned32,
+    ccapAppInstHisPSTNInCallInHandoff Unsigned32,
+    ccapAppInstHisPSTNInCallInHandoffRet Unsigned32,
+    ccapAppInstHisPSTNInCallDiscNormal Unsigned32,
+    ccapAppInstHisPSTNInCallDiscUsrErr Unsigned32,
+    ccapAppInstHisPSTNInCallDiscSysErr Unsigned32,
+
+--  PSTN Outgoing Placed Call from Application History Instance
+
+    ccapAppInstHisPSTNOutCallSetupReq Unsigned32,
+    ccapAppInstHisPSTNOutCallTotConn Unsigned32,
+    ccapAppInstHisPSTNOutCallHandedOut Unsigned32,
+    ccapAppInstHisPSTNOutCallHandOutRet Unsigned32,
+    ccapAppInstHisPSTNOutCallInHandoff Unsigned32,
+    ccapAppInstHisPSTNOutCallInHandoffRet Unsigned32,
+    ccapAppInstHisPSTNOutCallDiscNormal Unsigned32,
+    ccapAppInstHisPSTNOutCallDiscUsrErr Unsigned32,
+    ccapAppInstHisPSTNOutCallDiscSysErr Unsigned32,
+
+--
+--  IP Incoming Call to Application History Instance
+--
+    ccapAppInstHisIPInCallSetupInd Unsigned32,
+    ccapAppInstHisIPInCallTotConn Unsigned32,
+    ccapAppInstHisIPInCallHandedOut Unsigned32,
+    ccapAppInstHisIPInCallHandOutRet Unsigned32,
+    ccapAppInstHisIPInCallInHandoff Unsigned32,
+    ccapAppInstHisIPInCallInHandoffRet Unsigned32,
+    ccapAppInstHisIPInCallDiscNormal Unsigned32,
+    ccapAppInstHisIPInCallDiscUsrErr Unsigned32,
+    ccapAppInstHisIPInCallDiscSysErr Unsigned32,
+
+--  IP Outgoing Placed Call from Application History Instance
+
+    ccapAppInstHisIPOutCallSetupReq Unsigned32,
+    ccapAppInstHisIPOutCallTotConn Unsigned32,
+    ccapAppInstHisIPOutCallHandedOut Unsigned32,
+    ccapAppInstHisIPOutCallHandOutRet Unsigned32,
+    ccapAppInstHisIPOutCallInHandoff Unsigned32,
+    ccapAppInstHisIPOutCallInHandoffRet Unsigned32,
+    ccapAppInstHisIPOutCallDiscNormal Unsigned32,
+    ccapAppInstHisIPOutCallDiscUsrErr Unsigned32,
+    ccapAppInstHisIPOutCallDiscSysErr Unsigned32,
+
+-- Application Internal services 
+
+    ccapAppInstHisPlaceCallAttempts Unsigned32,
+    ccapAppInstHisPlaceCallSuccess Unsigned32,
+    ccapAppInstHisPlaceCallFailure Unsigned32,
+
+    ccapAppInstHisInHandoffCallback Unsigned32,  
+    ccapAppInstHisInHandoffCallbackRet Unsigned32,
+    ccapAppInstHisInHandoffNoCallback Unsigned32,
+    ccapAppInstHisOutHandoffCallback Unsigned32,
+    ccapAppInstHisOutHandoffCallbackRet Unsigned32,
+    ccapAppInstHisOutHandoffNoCallback Unsigned32,
+    ccapAppInstHisOutHandofffailures Unsigned32,
+    
+    ccapAppInstHisDocumentReadAttempts Unsigned32,
+    ccapAppInstHisDocumentReadSuccess Unsigned32,
+    ccapAppInstHisDocumentReadFailures Unsigned32,
+    ccapAppInstHisDocumentParseErrors Unsigned32,
+    
+    ccapAppInstHisDocumentWriteAttempts Unsigned32,
+    ccapAppInstHisDocumentWriteSuccess Unsigned32,
+    ccapAppInstHisDocumentWriteFailures Unsigned32,
+
+-- Subscriber Interaction/Behaviour services
+    
+    ccapAppInstHisDTMFAttempts	Unsigned32,
+    ccapAppInstHisDTMFAborted	Unsigned32,
+    ccapAppInstHisDTMFNoMatch	Unsigned32,
+    ccapAppInstHisDTMFNoInput	Unsigned32,
+    ccapAppInstHisDTMFMatch	Unsigned32,
+    ccapAppInstHisDTMFLongPound	Unsigned32,
+
+    ccapAppInstHisASRAttempts	Unsigned32,
+    ccapAppInstHisASRAborted	Unsigned32,
+    ccapAppInstHisASRNoMatch	Unsigned32,
+    ccapAppInstHisASRNoInput	Unsigned32,
+    ccapAppInstHisASRMatch	Unsigned32,
+
+    ccapAppInstHisAAAAuthenticateFailure Unsigned32,
+    ccapAppInstHisAAAAuthenticateSuccess Unsigned32,
+    ccapAppInstHisAAAAuthorizeFailure Unsigned32,
+    ccapAppInstHisAAAAuthorizeSuccess Unsigned32,
+
+-- ASNL information pertaining to Applications
+
+    ccapAppInstHisASNLSubscriptionsSent	Unsigned32,
+    ccapAppInstHisASNLSubscriptionsSuccess Unsigned32,
+    ccapAppInstHisASNLSubscriptionsFailed Unsigned32,
+    ccapAppInstHisASNLNotifReceived Unsigned32,
+
+-- Media Stream information
+
+    ccapAppInstHisPromptPlayAttempts	Unsigned32,
+    ccapAppInstHisPromptPlaySuccess	Unsigned32,
+    ccapAppInstHisPromptPlayFailed	Unsigned32,
+    ccapAppInstHisPromptPlayDuration	Unsigned32,
+
+    ccapAppInstHisRecordingAttempts	Unsigned32,
+    ccapAppInstHisRecordingSuccess	Unsigned32,
+    ccapAppInstHisRecordingFailed	Unsigned32,
+    ccapAppInstHisRecordingDuration	Unsigned32,
+
+    ccapAppInstHisTTSAttempts	Unsigned32,
+    ccapAppInstHisTTSSuccess	Unsigned32,
+    ccapAppInstHisTTSFailed	Unsigned32,
+    ccapAppInstHistEvtLogging  TruthValue
+   }
+
+ccapAppInstHisIndex OBJECT-TYPE
+        SYNTAX      Unsigned32 (1..4294967295)
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "A monotonically increasing integer for the sole purpose of
+             indexing application instance disconnection events. When it
+             reaches the maximum value, an extremely unlikely event, 
+             the agent wraps the value back to 1 and may flush existing 
+             entries."
+        ::= { ccapAppInstanceHistoryEntry 1 }
+
+ccapAppInstHisSessionID OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "A monotonically increasing integer specifying history 
+                application instance identification. This number is
+                unique per application gateway. When the counter
+                reaches the maximum value, the gateway wraps the 
+                value back to 1."
+        ::= { ccapAppInstanceHistoryEntry 2 }
+
+ccapAppInstHisAppName OBJECT-TYPE
+        SYNTAX      OCTET STRING (SIZE (0..255))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The name-tag as specified in the IOS configuration 
+                for this history application instance."
+        ::= { ccapAppInstanceHistoryEntry 3 }
+
+--
+--  PSTN Incoming Call to Application History Instance
+--
+ccapAppInstHisPSTNInCallSetupInd OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup indications received by this
+                application instance from the PSTN."
+        ::= { ccapAppInstanceHistoryEntry 4 }
+
+ 
+ccapAppInstHisPSTNInCallTotConn OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs connected by
+                this application instance."
+        ::= { ccapAppInstanceHistoryEntry 5 }
+
+ccapAppInstHisPSTNInCallHandedOut OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that are 
+                handed out to another application instance because 
+                of application handoff operation ."
+        ::= { ccapAppInstanceHistoryEntry 6 }
+
+ccapAppInstHisPSTNInCallHandOutRet OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that were 
+                handed out with call back to another application,
+                returned back to this instance."
+        ::= { ccapAppInstanceHistoryEntry 7 }
+
+ccapAppInstHisPSTNInCallInHandoff OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that were 
+                handed to this application instance, with the handoff 
+                operation, performed by another application instance."
+        ::= { ccapAppInstanceHistoryEntry 8 }
+
+ccapAppInstHisPSTNInCallInHandoffRet OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of incoming PSTN call legs returned
+                back as part of 'completed handoff with call back 
+                operation'."
+        ::= { ccapAppInstanceHistoryEntry 9 }
+
+ccapAppInstHisPSTNInCallDiscNormal OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that 
+                disconnected with 'normal' cause code in this 
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 10 }
+
+ccapAppInstHisPSTNInCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that 
+                disconnected with 'user error' cause code. User error 
+                cause code could be 'no answer/busy/timeout'."
+        ::= { ccapAppInstanceHistoryEntry 11 }
+
+ccapAppInstHisPSTNInCallDiscSysErr OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that 
+                disconnected with 'system error' cause code. System
+                error cause code could be any thing other than 'normal
+                or user error'."
+        ::= { ccapAppInstanceHistoryEntry 12 }
+
+
+--  PSTN Outgoing Placed Call from Application History Instance 
+
+ccapAppInstHisPSTNOutCallSetupReq OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup requests placed out to PSTN 
+                interface, by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 13 }
+
+ccapAppInstHisPSTNOutCallTotConn OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of PSTN placed call legs connected to 
+                this application instance."
+        ::= { ccapAppInstanceHistoryEntry 14 }
+
+ccapAppInstHisPSTNOutCallHandedOut OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that are 
+                handed out to another application instance because of 
+                application handoff operation."
+        ::= { ccapAppInstanceHistoryEntry 15 }
+
+ccapAppInstHisPSTNOutCallHandOutRet OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that were 
+                handed out with call back to another application, 
+                returned back to this  instance." 
+        ::= { ccapAppInstanceHistoryEntry 16 }
+
+ccapAppInstHisPSTNOutCallInHandoff OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that were
+                handed to  this application instance, with the handoff
+                operation, performed by another application instance."
+        ::= { ccapAppInstanceHistoryEntry 17 }
+
+ccapAppInstHisPSTNOutCallInHandoffRet OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of outgoing PSTN call legs returned
+                back as part of 'completed handoff with call back 
+                operation'."
+        ::= { ccapAppInstanceHistoryEntry 18 }
+
+ccapAppInstHisPSTNOutCallDiscNormal OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that 
+                disconnected with 'normal' cause code in this 
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 19 }
+
+ccapAppInstHisPSTNOutCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that 
+                disconnected with 'user error' cause code. User error
+                cause code could  be 'no answer/busy/timeout'."
+        ::= { ccapAppInstanceHistoryEntry 20 }
+
+ccapAppInstHisPSTNOutCallDiscSysErr OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that 
+                disconnected with 'system error' cause code. System 
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppInstanceHistoryEntry 21 }
+
+--  IP Incoming Call to Application History Instance
+
+ccapAppInstHisIPInCallSetupInd OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup indications received by this 
+                application instance from the IP interface."
+        ::= { ccapAppInstanceHistoryEntry 22 }
+
+ccapAppInstHisIPInCallTotConn OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs connected by 
+                this application instance."
+        ::= { ccapAppInstanceHistoryEntry 23 }
+
+ccapAppInstHisIPInCallHandedOut OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that are handed 
+                out to another application instance because of 
+                application handoff operation."
+        ::= { ccapAppInstanceHistoryEntry 24 }
+
+ccapAppInstHisIPInCallHandOutRet OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that were 
+                handed out  with call back to another application, 
+                returned back to this instance."
+        ::= { ccapAppInstanceHistoryEntry 25 }
+
+ccapAppInstHisIPInCallInHandoff OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that were 
+                handed to this application instance, with the handoff
+                operation, performed by another application instance."
+        ::= { ccapAppInstanceHistoryEntry 26 }
+
+ccapAppInstHisIPInCallInHandoffRet OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of incoming IP call legs returned 
+                back as part of 'completed handoff with call back 
+                operation'."
+        ::= { ccapAppInstanceHistoryEntry 27 }
+
+ccapAppInstHisIPInCallDiscNormal OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that 
+                disconnected with 'normal' cause code in this 
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 28 }
+
+ccapAppInstHisIPInCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that 
+                disconnected  with 'user error' cause code. User error
+                cause code could  be 'no answer/busy/timeout'."
+        ::= { ccapAppInstanceHistoryEntry 29 }
+
+ccapAppInstHisIPInCallDiscSysErr OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that 
+                disconnected with 'system error' cause code. System 
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppInstanceHistoryEntry 30 }
+
+--  IP Outgoing Placed Call from Application Instance
+
+ccapAppInstHisIPOutCallSetupReq OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup requests placed out to IP 
+                interface, by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 31 }
+
+ccapAppInstHisIPOutCallTotConn OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of IP placed call legs connected to this 
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 32 }
+
+ccapAppInstHisIPOutCallHandedOut OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that are
+                handed out to another application instance because of
+                application  handoff operation."
+        ::= { ccapAppInstanceHistoryEntry 33 }
+
+ccapAppInstHisIPOutCallHandOutRet OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that were
+                handed out with call back to another application,
+                returned back  to this  instance." 
+        ::= { ccapAppInstanceHistoryEntry 34 }
+
+ccapAppInstHisIPOutCallInHandoff OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that were handed
+                to this application instance, with the handoff 
+                operation, performed by another application instance."
+        ::= { ccapAppInstanceHistoryEntry 35 }
+
+ccapAppInstHisIPOutCallInHandoffRet OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of outgoing IP call legs returned 
+                back as part of 'completed handoff with call back 
+                operation'."
+        ::= { ccapAppInstanceHistoryEntry 36 }
+
+ccapAppInstHisIPOutCallDiscNormal OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that 
+                disconnected with 'normal' cause code in this 
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 37 }
+
+ccapAppInstHisIPOutCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that 
+                disconnected with 'user error' cause code. User error
+                cause code could be 'no answer/busy/timeout'."
+        ::= { ccapAppInstanceHistoryEntry 38 }
+
+ccapAppInstHisIPOutCallDiscSysErr OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that 
+                disconnected with 'system error' cause code. System 
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppInstanceHistoryEntry 39 }
+
+-- Application History Instance Internal services 
+
+ccapAppInstHisPlaceCallAttempts OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of place call attempts performed by this 
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 40 }
+
+ccapAppInstHisPlaceCallSuccess OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of placecall attempts performed 
+                successfully by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 41 }
+
+ccapAppInstHisPlaceCallFailure OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of place call failures seen by this 
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 42 }
+
+ccapAppInstHisInHandoffCallback OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming handoffs with call back to 
+                this application instance."
+        ::= { ccapAppInstanceHistoryEntry 43 }
+
+ccapAppInstHisInHandoffCallbackRet OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of returned incoming handoffs with call
+                back from this application instance."
+        ::= { ccapAppInstanceHistoryEntry 44 }
+
+ccapAppInstHisInHandoffNoCallback OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming handoffs with no call backs 
+                (blind handoff) received by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 45 }
+
+ccapAppInstHisOutHandoffCallback OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of placed handoffs with call backs 
+                (bridged handoffs) from this application instance."
+        ::= { ccapAppInstanceHistoryEntry 46 }
+
+ccapAppInstHisOutHandoffCallbackRet OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of returned handoffs with callback 
+                (bridged handoffs) to this application instance."
+        ::= { ccapAppInstanceHistoryEntry 47 }
+
+ccapAppInstHisOutHandoffNoCallback OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of placed handoffs with no callback 
+                (blind handoffs) from this application instance."
+        ::= { ccapAppInstanceHistoryEntry 48 }
+
+ccapAppInstHisOutHandofffailures OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing handoff failures seen by 
+                this application instance, while trying to place an 
+                outgoing handoff to another application."
+        ::= { ccapAppInstanceHistoryEntry 49 }
+
+ccapAppInstHisDocumentReadAttempts OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document read requests made by this 
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 50 }
+
+ccapAppInstHisDocumentReadSuccess OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document read by the application
+                instance."
+        ::= { ccapAppInstanceHistoryEntry 51 }
+
+ccapAppInstHisDocumentReadFailures OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document read errors for this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 52 }
+
+ccapAppInstHisDocumentParseErrors OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document parse errors or semantic 
+                errors seen by this application."
+        ::= { ccapAppInstanceHistoryEntry 53 }
+
+ccapAppInstHisDocumentWriteAttempts OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document write attempts by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 54 }
+
+ccapAppInstHisDocumentWriteSuccess OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document written successfully by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 55 }
+
+ccapAppInstHisDocumentWriteFailures OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document write failures for this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 56 }
+
+ccapAppInstHisDTMFAttempts OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of attempts to read user DTMF input by
+                this application instance."
+        ::= { ccapAppInstanceHistoryEntry 57 }
+
+ccapAppInstHisDTMFAborted OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of DTMF reads interrupts/aborts by 
+                this application instance."
+        ::= { ccapAppInstanceHistoryEntry 58 }
+
+ccapAppInstHisDTMFNoMatch OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of DTMF no match events on incorrect
+                user input, seen by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 59 }
+
+ccapAppInstHisDTMFNoInput OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of user input timeout on DTMF input 
+                seen by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 60 }
+
+ccapAppInstHisDTMFMatch OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of DTMF input matched events seen by
+                this application instance."
+        ::= { ccapAppInstanceHistoryEntry 61 }
+
+ccapAppInstHisDTMFLongPound OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of 'Long-Pound' user interrupts seen by
+                this application instance."
+        ::= { ccapAppInstanceHistoryEntry 62 }
+
+ccapAppInstHisASRAttempts OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition) 
+                attempts to read user speech input by this application
+                instance."
+        ::= { ccapAppInstanceHistoryEntry 63 }
+
+ccapAppInstHisASRAborted OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition) 
+                read interrupts/aborts by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 64 }
+
+
+ccapAppInstHisASRNoMatch OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition) 
+                match events on user speech input, seen by this
+                application."
+        ::= { ccapAppInstanceHistoryEntry 65 }
+
+ccapAppInstHisASRNoInput OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition)
+                user speech input timeout events, seen by this 
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 66 }
+
+ccapAppInstHisASRMatch OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition)
+                user speech input matched events, seen by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 67 }
+
+ccapAppInstHisAAAAuthenticateFailure OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authenticate failures seen by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 68 }
+
+ccapAppInstHisAAAAuthenticateSuccess OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authenticate success seen by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 69 }
+
+ccapAppInstHisAAAAuthorizeFailure OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authorize failures seen by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 70 }
+
+ccapAppInstHisAAAAuthorizeSuccess OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authorize success seen by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 71 }
+
+ccapAppInstHisASNLSubscriptionsSent  OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscription sent by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 72 }
+
+ccapAppInstHisASNLSubscriptionsSuccess OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscriptions success, seen by
+                this application instance."
+        ::= { ccapAppInstanceHistoryEntry 73 }
+
+ccapAppInstHisASNLSubscriptionsFailed OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscription failures, seen by
+                this application instance."
+        ::= { ccapAppInstanceHistoryEntry 74 }
+
+ccapAppInstHisASNLNotifReceived OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscriptions received by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 75 }
+
+ccapAppInstHisPromptPlayAttempts OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of prompt play attempts made by this 
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 76 }
+
+ccapAppInstHisPromptPlaySuccess OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of play prompt success, seen by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 77 }
+
+ccapAppInstHisPromptPlayFailed OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of prompt play failures seen by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 78 }
+
+ccapAppInstHisPromptPlayDuration OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total duration (in seconds), of all the prompt plays
+                performed by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 79 }
+
+ccapAppInstHisRecordingAttempts OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of record attempts made by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 80 }
+
+ccapAppInstHisRecordingSuccess OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of recording success, seen by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 81 }
+
+ccapAppInstHisRecordingFailed OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of recording failures seen by this
+                application instance."
+        ::= { ccapAppInstanceHistoryEntry 82 }
+
+ccapAppInstHisRecordingDuration OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total duration (in seconds), of all the recordings
+                performed by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 83 }
+
+ccapAppInstHisTTSAttempts OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of TTS (Text-To-Speech) play attempts
+                made by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 84 }
+
+ccapAppInstHisTTSSuccess OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of TTS (Text-To-Speech) play success
+                seen by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 85 }
+
+ccapAppInstHisTTSFailed OBJECT-TYPE
+        SYNTAX      Unsigned32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of TTS (Text-To-Speech) play failures
+                seen by this application instance."
+        ::= { ccapAppInstanceHistoryEntry 86 }
+
+ccapAppInstHistEvtLogging OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Object by which management station can know if event
+                logging for this application instance is enabled or 
+                disabled."
+        ::= { ccapAppInstanceHistoryEntry 87 }
+
+--
+-- Global Active Gauges for Applications
+--
+ccapAppGblActCurrentInstances OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Number of application instances currently active 
+                 from all application types of ccapApplicationTable
+                 on this gateway."
+        ::= { ccapAppGblActStat 1 }
+
+ccapAppGblActPSTNInCallNowConn OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of PSTN incoming calls connected and
+                 handled by this gateway at this moment."
+        ::= { ccapAppGblActStat 2 }
+
+ccapAppGblActPSTNOutCallNowConn OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of PSTN outgoing calls (placed calls to
+	             PSTN) connected and handled by this gateway at this 
+                 moment."
+        ::= { ccapAppGblActStat 3 }
+
+ccapAppGblActIPInCallNowConn OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of  incoming IP calls connected and 
+                handled by this gateway at this moment."
+        ::= { ccapAppGblActStat 4 }
+
+ccapAppGblActIPOutCallNowConn OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of IP outgoing (placed to IP) calls
+                connected and handled by this gateway at this moment."
+        ::= { ccapAppGblActStat 5 }
+
+ccapAppGblActPlaceCallInProgress OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of pending place calls requests from all
+                the active instances of this gateway."
+        ::= { ccapAppGblActStat 6 }
+
+ccapAppGblActHandoffInProgress OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of pending handoff requests from all 
+                the active instances of this gateway."
+        ::= { ccapAppGblActStat 7 }
+
+ccapAppGblActPromptPlayActive  OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of active prompts for all the active 
+                instances of this gateway."
+        ::= { ccapAppGblActStat 8 }
+
+ccapAppGblActRecordingActive OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of active recording for all the active 
+                instances of this gateway."
+        ::= { ccapAppGblActStat 9 }
+
+ccapAppGblActTTSActive OBJECT-TYPE
+        SYNTAX      Gauge32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of active TTS (Text-To-Speech) for all 
+                the active instances of this gateway."
+        ::= { ccapAppGblActStat 10 }
+
+--
+-- Global Applications stats configuration
+--
+ccapAppGblStatsLogging OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Enable or disable the Application Information System 
+                for gathering statistics for all the call application 
+                types on this gateway."
+        ::= { ccapAppGblActStat 11 }
+
+ccapAppGblEventLogging OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Enable or disable the Application Information System 
+                for gathering event-logs for all the call application 
+                type instances on this gateway."
+        ::= { ccapAppGblActStat 12 }
+
+ccapAppGblEvtLogflush OBJECT-TYPE
+        SYNTAX      INTEGER {  
+                        ftp(1)
+                    }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Flush the event logs of all the active application 
+                instances to the destination ftp server. 
+                
+                FTP server destination is specified in the IOS 
+                configuration  through config CLI. "
+        ::= { ccapAppGblActStat 13 }
+
+
+ccapAppGblStatsClear OBJECT-TYPE
+        SYNTAX      INTEGER { clear(1) }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Perform clearing of the entire Application History 
+                Global level stats and History Application Type stats."
+        ::= { ccapAppGblActStat 14 }
+
+ccapAppGblLastResetTime OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The time when the application information statistics 
+                were last reset, either through CLI or through 
+                ccapAppGblStatsClear object.
+                
+                When the application information system is disabled on
+                the gateway, this object is also reset to zeros."
+        ::= { ccapAppGblActStat 15 }
+
+
+
+
+
+
+--
+-- Global History Counters/Gauges
+--
+
+--  PSTN Incoming Call to Global History 
+
+ccapAppGblHisTotalInstances OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of application instances handled by 
+                this gateway since last reboot/reset." 
+        ::= { ccapAppGblHisStat 1 }
+
+ccapAppGblHisLastReset  OBJECT-TYPE
+        SYNTAX      TimeStamp
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Date and Time when the counters were last reset 
+                from CLI."
+        ::= { ccapAppGblHisStat 2 }
+
+
+ccapAppGblHisPSTNInCallSetupInd OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup indications received by this
+                gateway from the PSTN."
+        ::= { ccapAppGblHisStat 3 }
+
+ 
+ccapAppGblHisPSTNInCallTotConn OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs connected by
+                this gateway."
+        ::= { ccapAppGblHisStat 4 }
+
+ccapAppGblHisPSTNInCallHandedOut OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that are 
+                handed out to another gateway because of application 
+                handoff operation ."
+        ::= { ccapAppGblHisStat 5 }
+
+ccapAppGblHisPSTNInCallHandOutRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that were
+                handed out with call back to another application, 
+                returned back to this type."
+        ::= { ccapAppGblHisStat 6 }
+
+ccapAppGblHisPSTNInCallInHandoff OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that were 
+                handed to this gateway, with the handoff operation, 
+                performed by another gateway."
+        ::= { ccapAppGblHisStat 7 }
+
+ccapAppGblHisPSTNInCallInHandoffRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of incoming PSTN call legs returned 
+                back as part of 'completed handoff with call back 
+                operation'."
+        ::= { ccapAppGblHisStat 8 }
+
+ccapAppGblHisPSTNInCallDiscNormal OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that 
+                disconnected with 'normal' cause code in this gateway."
+        ::= { ccapAppGblHisStat 9 }
+
+ccapAppGblHisPSTNInCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that 
+                disconnected with 'user error' cause code. User error
+                cause code could be 'no answer/busy/timeout'."
+        ::= { ccapAppGblHisStat 10 }
+
+ccapAppGblHisPSTNInCallDiscSysErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming PSTN call legs that
+                disconnected with 'system error' cause code. System
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppGblHisStat 11 }
+
+
+--  PSTN Outgoing Placed Call from Applications 
+
+ccapAppGblHisPSTNOutCallSetupReq OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup requests placed out to PSTN
+                interface, by this gateway."
+        ::= { ccapAppGblHisStat 12 }
+
+ccapAppGblHisPSTNOutCallTotConn OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of PSTN placed call legs connected to
+                this gateway."
+        ::= { ccapAppGblHisStat 13 }
+
+ccapAppGblHisPSTNOutCallHandedOut OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that are
+                 handed out to another gateway because of application
+                handoff operation."
+        ::= { ccapAppGblHisStat 14 }
+
+ccapAppGblHisPSTNOutCallHandOutRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that were
+                handed out with call back to another application, 
+                returned back to this  type." 
+        ::= { ccapAppGblHisStat 15 }
+
+ccapAppGblHisPSTNOutCallInHandoff OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that were
+                handed to this gateway, with the handoff operation, 
+                performed by another gateway."
+        ::= { ccapAppGblHisStat 16 }
+
+ccapAppGblHisPSTNOutCallInHandoffRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of outgoing PSTN call legs returned
+                back as part of 'completed handoff with call back
+                operation'."
+        ::= { ccapAppGblHisStat 17 }
+
+ccapAppGblHisPSTNOutCallDiscNormal OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that 
+                disconnected with 'normal' cause code in this gateway."
+        ::= { ccapAppGblHisStat 18 }
+
+ccapAppGblHisPSTNOutCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that 
+                disconnected with 'user error' cause code. User error
+                cause code could be 'no answer/busy/timeout'."
+        ::= { ccapAppGblHisStat 19 }
+
+ccapAppGblHisPSTNOutCallDiscSysErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing PSTN call legs that 
+                disconnected with 'system error' cause code. System 
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppGblHisStat 20 }
+
+--  IP Incoming Call to Applications
+
+ccapAppGblHisIPInCallSetupInd OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup indications received by this 
+                gateway from the IP interface."
+        ::= { ccapAppGblHisStat 21 }
+
+ccapAppGblHisIPInCallTotConn OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs connected by 
+                this gateway."
+        ::= { ccapAppGblHisStat 22 }
+
+ccapAppGblHisIPInCallHandedOut OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that are handed 
+                out to another gateway because of application 
+                handoff operation."
+        ::= { ccapAppGblHisStat 23 }
+
+ccapAppGblHisIPInCallHandOutRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that were 
+                handed out with call back to another application, 
+                returned back to this type."
+        ::= { ccapAppGblHisStat 24 }
+
+ccapAppGblHisIPInCallInHandoff OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that were 
+                handed to this gateway, with the handoff operation, 
+                performed by another gateway."
+        ::= { ccapAppGblHisStat 25 }
+
+ccapAppGblHisIPInCallInHandoffRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of incoming IP call legs returned 
+                back as part of 'completed handoff with call back 
+                operation'."
+        ::= { ccapAppGblHisStat 26 }
+
+ccapAppGblHisIPInCallDiscNormal OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that 
+                disconnected with 'normal' cause code in this gateway."
+        ::= { ccapAppGblHisStat 27 }
+
+ccapAppGblHisIPInCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that 
+                disconnected with 'user error' cause code. User error 
+                cause code could be 'no answer/busy/timeout'."
+        ::= { ccapAppGblHisStat 28 }
+
+ccapAppGblHisIPInCallDiscSysErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming IP call legs that 
+                disconnected with 'system error' cause code. System 
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppGblHisStat 29 }
+
+--  IP Outgoing Placed Call from Gateway
+
+ccapAppGblHisIPOutCallSetupReq OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of setup requests placed out to IP 
+                interface, by this gateway."
+        ::= { ccapAppGblHisStat 30 }
+
+ccapAppGblHisIPOutCallTotConn OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of IP placed call legs connected to this 
+                gateway."
+        ::= { ccapAppGblHisStat 31 }
+
+ccapAppGblHisIPOutCallHandedOut OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that are handed
+                out to another gateway because of application 
+                handoff operation."
+        ::= { ccapAppGblHisStat 32 }
+
+ccapAppGblHisIPOutCallHandOutRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that were
+                handed out with call back to another application,
+                returned back."
+        ::= { ccapAppGblHisStat 33 }
+
+ccapAppGblHisIPOutCallInHandoff OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that were
+                handed to this gateway, with the handoff operation, 
+                performed by another gateway."
+        ::= { ccapAppGblHisStat 34 }
+
+ccapAppGblHisIPOutCallInHandoffRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The Total number of outgoing IP call legs returned
+                back as part of 'completed handoff with call back
+                operation'."
+        ::= { ccapAppGblHisStat 35 }
+
+ccapAppGblHisIPOutCallDiscNormal OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that 
+                disconnected  with 'normal' cause code in this 
+                gateway."
+        ::= { ccapAppGblHisStat 36 }
+
+ccapAppGblHisIPOutCallDiscUsrErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that 
+                disconnected with 'user error' cause code. User error 
+                cause code could be 'no answer/busy/timeout'."
+        ::= { ccapAppGblHisStat 37 }
+
+ccapAppGblHisIPOutCallDiscSysErr OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing IP call legs that 
+                disconnected with 'system error' cause code. System
+                error cause code could be any thing other than 
+                'normal or user error'."
+        ::= { ccapAppGblHisStat 38 }
+
+-- Application  Internal services for all applications on this gateway.
+
+ccapAppGblHisPlaceCallAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of place call attempts performed by this 
+                gateway."
+        ::= { ccapAppGblHisStat 39 }
+
+ccapAppGblHisPlaceCallSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of placecall attempts performed 
+                successfully by this gateway."
+        ::= { ccapAppGblHisStat 40 }
+
+ccapAppGblHisPlaceCallFailure OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of place call failures seen by this 
+                gateway."
+        ::= { ccapAppGblHisStat 41 }
+
+ccapAppGblHisInHandoffCallback OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming handoffs with call back to 
+                this gateway."
+        ::= { ccapAppGblHisStat 42 }
+
+ccapAppGblHisInHandoffCallbackRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of returned incoming handoffs with call
+                 back, from this gateway."
+        ::= { ccapAppGblHisStat 43 }
+
+ccapAppGblHisInHandoffNoCallback OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of incoming handoffs with no call backs 
+                (blind handoffs) received by this gateway." 
+        ::= { ccapAppGblHisStat 44 }
+
+ccapAppGblHisOutHandoffCallback OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of placed handoffs with call backs 
+                (bridged handoffs) from this gateway."
+        ::= { ccapAppGblHisStat 45 }
+
+ccapAppGblHisOutHandoffCallbackRet OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of returned handoffs with callback 
+                (bridged handoffs) to this gateway."
+        ::= { ccapAppGblHisStat 46 }
+
+ccapAppGblHisOutHandoffNoCallback OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of placed handoffs with no callback 
+                (blind handoffs) from this gateway."
+        ::= { ccapAppGblHisStat 47 }
+
+ccapAppGblHisOutHandofffailures OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of outgoing handoff failures seen by 
+                this gateway, while trying to place an 
+                outgoing handoff to another application."
+        ::= { ccapAppGblHisStat 48 }
+
+ccapAppGblHisDocumentReadAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document read requests made by this 
+                gateway."
+        ::= { ccapAppGblHisStat 49 }
+
+ccapAppGblHisDocumentReadSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document read by the gateway."
+        ::= { ccapAppGblHisStat 50 }
+
+ccapAppGblHisDocumentReadFailures OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document read errors for this 
+                application gateway."
+        ::= { ccapAppGblHisStat 51 }
+
+ccapAppGblHisDocumentParseErrors OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document parse errors or semantic 
+                errors seen by this gateway."
+        ::= { ccapAppGblHisStat 52 }
+
+ccapAppGblHisDocumentWriteAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document write attempts by this 
+                application gateway."
+        ::= { ccapAppGblHisStat 53 }
+
+ccapAppGblHisDocumentWriteSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document written successfully by this
+                gateway."
+        ::= { ccapAppGblHisStat 54 }
+
+ccapAppGblHisDocumentWriteFailures OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of document write failures for this
+                gateway."
+        ::= { ccapAppGblHisStat 55 }
+
+ccapAppGblHisDTMFAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of attempts to read user DTMF input by
+                this gateway."
+        ::= { ccapAppGblHisStat 56 }
+
+ccapAppGblHisDTMFAborted OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of DTMF reads interrupts/aborts by 
+                this gateway."
+        ::= { ccapAppGblHisStat 57 }
+
+ccapAppGblHisDTMFNoMatch OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of DTMF no match events on incorrect
+                user input, seen by this gateway."
+        ::= { ccapAppGblHisStat 58 }
+
+ccapAppGblHisDTMFNoInput OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of user input timeout on DTMF input 
+                seen by this gateway."
+        ::= { ccapAppGblHisStat 59 }
+
+ccapAppGblHisDTMFMatch OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of DTMF input matched events seen by
+                this gateway."
+        ::= { ccapAppGblHisStat 60 }
+
+ccapAppGblHisDTMFLongPound OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of 'Long-Pound' user interrupts seen by
+                this gateway."
+        ::= { ccapAppGblHisStat 61 }
+
+ccapAppGblHisASRAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition) 
+                attempts to read user speech input by this gateway."
+        ::= { ccapAppGblHisStat 62 }
+
+ccapAppGblHisASRAborted OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition) 
+                read interrupts/aborts by this gateway."
+        ::= { ccapAppGblHisStat 63 }
+
+
+ccapAppGblHisASRNoMatch OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition) 
+                match events on user speech input seen, by this 
+                gateway."
+        ::= { ccapAppGblHisStat 64 }
+
+ccapAppGblHisASRNoInput OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition)
+                user speech input timeout events, seen by this 
+                gateway."
+        ::= { ccapAppGblHisStat 65 }
+
+ccapAppGblHisASRMatch OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASR (Automatic Speech Recognition) 
+                user speech input matched events, seen by this 
+                gateway."
+        ::= { ccapAppGblHisStat 66 }
+
+ccapAppGblHisAAAAuthenticateFailure OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authenticate failures seen by this
+                gateway."
+        ::= { ccapAppGblHisStat 67 }
+
+ccapAppGblHisAAAAuthenticateSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authenticate success seen by this
+                gateway."
+        ::= { ccapAppGblHisStat 68 }
+
+ccapAppGblHisAAAAuthorizeFailure OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authorize failures seen by this
+                gateway."
+        ::= { ccapAppGblHisStat 69 }
+
+ccapAppGblHisAAAAuthorizeSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of AAA Authorize success seen by this
+                gateway."
+        ::= { ccapAppGblHisStat 70 }
+
+ccapAppGblHisASNLSubscriptionsSent  OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscription sent by this
+                 application type."
+        ::= { ccapAppGblHisStat 71 }
+
+ccapAppGblHisASNLSubscriptionsSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscriptions success, seen by
+                 this application gateway."
+        ::= { ccapAppGblHisStat 72 }
+
+ccapAppGblHisASNLSubscriptionsFailed OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscription failures, seen by 
+                this gateway."
+        ::= { ccapAppGblHisStat 73 }
+
+ccapAppGblHisASNLNotifReceived OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of ASNL subscriptions received by this
+                gateway."
+        ::= { ccapAppGblHisStat 74 }
+
+ccapAppGblHisPromptPlayAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of prompt play attempts made by this 
+                gateway."
+        ::= { ccapAppGblHisStat 75 }
+
+ccapAppGblHisPromptPlaySuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of play prompt success, seen by this
+                gateway."
+        ::= { ccapAppGblHisStat 76 }
+
+ccapAppGblHisPromptPlayFailed OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of prompt play failures seen by this
+                gateway."
+        ::= { ccapAppGblHisStat 77 }
+
+ccapAppGblHisPromptPlayDuration OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total duration (in seconds), of all the prompt plays
+                performed by this gateway."
+        ::= { ccapAppGblHisStat 78 }
+
+ccapAppGblHisRecordingAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of record attempts made by this 
+                application gateway."
+        ::= { ccapAppGblHisStat 79 }
+
+ccapAppGblHisRecordingSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of recording success, seen by this 
+                application gateway."
+        ::= { ccapAppGblHisStat 80 }
+
+ccapAppGblHisRecordingFailed OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of recording failures seen by this
+                application gateway."
+        ::= { ccapAppGblHisStat 81 }
+
+ccapAppGblHisRecordingDuration OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total duration (in seconds), of all the recordings
+                performed by this gateway."
+        ::= { ccapAppGblHisStat 82 }
+
+ccapAppGblHisTTSAttempts OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of TTS (Text-To-Speech) play attempts
+                 made by this gateway."
+        ::= { ccapAppGblHisStat 83 }
+
+ccapAppGblHisTTSSuccess OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of TTS (Text-To-Speech) play success 
+                seen by this gateway."
+        ::= { ccapAppGblHisStat 84 }
+
+ccapAppGblHisTTSFailed OBJECT-TYPE
+        SYNTAX      ZeroBasedCounter32
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "Total number of TTS (Text-To-Speech) play failures
+                seen by this gateway."
+        ::= { ccapAppGblHisStat 85 }
+
+--
+-- Application Interface system configuration
+--
+ccapAppIntfGblStatsLogging OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Enable/ disable the Application Interface Information 
+                System to gather statistics for all the application 
+                interface types on this gateway. Call application 
+                interface types are AAA, ASR, Flash, HTTP, SMTP, RAM, 
+                RTSP, TFTP, TTS."
+        ::= { ccapAppIntf 1 }
+
+ccapAppIntfGblEventLogging OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Enable/disable the Application Interface Information 
+                System to gather event-logs for all the call 
+                application interface types on this gateway. Call 
+                application interface types are AAA, ASR, Flash, HTTP,
+                SMTP, RAM, RTSP, TFTP and TTS."
+        ::= { ccapAppIntf 2 }
+
+ccapAppIntfGblEvtLogFlush OBJECT-TYPE
+        SYNTAX      INTEGER { ftp(1) }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Flush the application interface event logs from all 
+                the call application interfaces to the destination 
+                ftp server. 
+                
+                FTP server destination is specified in the IOS 
+                configuration through config Command Line Interface."
+        ::= { ccapAppIntf 3 }
+
+ccapAppIntfGblStatsClear OBJECT-TYPE
+        SYNTAX      INTEGER {
+                        clearStats(1),
+                        clearEventlog(2),
+                        clear(3)
+		    }
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+                "Perform resetting of the entire Application Interface
+                stats and/or evtlogs for all the interface types and 
+                all the associated servers records. Server records 
+                are not purged."
+        ::= { ccapAppIntf 4 }
+
+ccapAppIntfGblLastResetTime OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The time when the application interface information 
+                statistics were last reset, either through CLI or 
+                through ccapAppIntfGblStatsClear object.
+                
+                When the application interface information system is 
+                disabled on the gateway, this object is also reset to 
+                zeros."
+        ::= { ccapAppIntf 5 }
+
+
+
+--
+-- Application Interface to HTTP 
+--
+ccapAppIntfHTTPTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcapAppIntfHTTPEntry    
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+            "Information about last N most active HTTP unique servers
+            accessed from a call application gateway."
+    ::= { ccapAppIntf 8 }
+
+ccapAppIntfHTTPEntry OBJECT-TYPE
+	SYNTAX CcapAppIntfHTTPEntry
+        MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about a HTTP server interface to an application.
+        When applicaiton gateway instances access an external HTTP 
+        server, a record entry is created for that server. 
+        If a maximum number of servers is reached, then oldest accessed 
+        server record is purged. Maximum number of server records to 
+        retain is configured through IOS CLI."
+	INDEX { IMPLIED ccapAppIntfHTTPServer }
+	::= { ccapAppIntfHTTPTable 1 }
+
+CcapAppIntfHTTPEntry ::= SEQUENCE {
+    ccapAppIntfHTTPServer       ServerNameString,
+    ccapAppIntfHTTPStats    	INTEGER,
+    ccapAppIntfHTTPEvtLog      	INTEGER,
+    ccapAppIntfHTTPGetRequest   ZeroBasedCounter32,
+    ccapAppIntfHTTPGetSuccess   ZeroBasedCounter32,
+    ccapAppIntfHTTPGetFailure   ZeroBasedCounter32,
+    ccapAppIntfHTTPPostRequest  ZeroBasedCounter32,
+    ccapAppIntfHTTPPostSuccess  ZeroBasedCounter32,
+    ccapAppIntfHTTPPostFailure  ZeroBasedCounter32,
+    ccapAppIntfHTTPTxBytes      ZeroBasedCounter32,
+    ccapAppIntfHTTPRxBytes      ZeroBasedCounter32,
+    ccapAppIntfHTTPMinXferRate  ZeroBasedCounter32,
+    ccapAppIntfHTTPMaxXferRate  ZeroBasedCounter32,
+    ccapAppIntfHTTPAvgXferRate  ZeroBasedCounter32,
+    ccapAppIntfHTTPLastResetTime TimeStamp
+   }
+
+ccapAppIntfHTTPServer OBJECT-TYPE
+	SYNTAX	   ServerNameString
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The name or IP address of this HTTP server."
+	::= { ccapAppIntfHTTPEntry 1 }
+
+ccapAppIntfHTTPStats  OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Interface Information System for gathering statistics 
+                for this HTTP server."
+	::= { ccapAppIntfHTTPEntry 2 }
+
+ccapAppIntfHTTPEvtLog OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Information System for gathering event-logs for this 
+                HTTP server."
+	::= { ccapAppIntfHTTPEntry 3 }
+
+ccapAppIntfHTTPGetRequest  OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of HTTP GET requests sent by call 
+                applications to this HTTP server."
+	::= { ccapAppIntfHTTPEntry 4 }
+
+ccapAppIntfHTTPGetSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful HTTP GET transactions 
+                done from call applications to this HTTP server."
+	::= { ccapAppIntfHTTPEntry 5 }
+
+ccapAppIntfHTTPGetFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed HTTP GET transactions 
+                from  call applications to this HTTP server."
+	::= { ccapAppIntfHTTPEntry 6 }
+
+ccapAppIntfHTTPPostRequest OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of HTTP POST requests sent by call 
+                applications to this HTTP server."
+	::= { ccapAppIntfHTTPEntry 7 }
+
+ccapAppIntfHTTPPostSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful HTTP POST transactions 
+                done from call applications to this HTTP server."
+	::= { ccapAppIntfHTTPEntry 8 }
+
+ccapAppIntfHTTPPostFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed HTTP POST transactions 
+                from call applications to this HTTP server."
+	::= { ccapAppIntfHTTPEntry 9 }
+
+ccapAppIntfHTTPTxBytes OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number KiloBytes sent from call applications to 
+                this HTTP server, since last reset."
+	::= { ccapAppIntfHTTPEntry 10 }
+
+ccapAppIntfHTTPRxBytes OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of KiloBytes received to call 
+                applications from this HTTP server, since last reset."
+	::= { ccapAppIntfHTTPEntry 11 }
+
+ccapAppIntfHTTPMinXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Minimum transfer rate of all the transactions between
+                call applications and this HTTP server, from the last
+                reset."
+	::= { ccapAppIntfHTTPEntry 12 }
+
+ccapAppIntfHTTPMaxXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Maximum transfer rate of all the transactions between
+                call applications and this HTTP server, from the last
+                reset."
+	::= { ccapAppIntfHTTPEntry 13 }
+
+ccapAppIntfHTTPAvgXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Average transfer rate between call applications and 
+                this HTTP server. This is a running average of the 
+                last ten transactions or from the last reset if
+                transaction count is less than ten."
+	::= { ccapAppIntfHTTPEntry 14 }
+
+ccapAppIntfHTTPLastResetTime OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The time when the application information statistics 
+                were last reset, either through CLI or through 
+                ccapAppGblStatsClear object for this HTTP server.
+                
+                When the application information system is disabled
+                on the gateway, this object is also reset to zeros."
+        ::= { ccapAppIntfHTTPEntry 15 } 
+
+--
+-- Application Interface to RTSP 
+--
+ccapAppIntfRTSPTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcapAppIntfRTSPEntry    
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+            "Information about last N most active RTSP unique servers 
+            accessed from a call application gateway."
+    ::= { ccapAppIntf 9 }
+
+ccapAppIntfRTSPEntry OBJECT-TYPE
+	SYNTAX CcapAppIntfRTSPEntry
+        MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about a RTSP server interface to an application. 
+        When applicaiton gateway instances access an external RTSP 
+        server, a record entry is created for that server. If a 
+        maximum number of server records has reached, then oldest 
+        accessed server record is purged. Maximum number of server 
+        records to retain is configured through IOS CLI."
+	INDEX { IMPLIED ccapAppIntfRTSPServer }
+	::= { ccapAppIntfRTSPTable 1 }
+
+CcapAppIntfRTSPEntry ::= SEQUENCE {
+    ccapAppIntfRTSPServer        ServerNameString,
+    ccapAppIntfRTSPStats    	 INTEGER,
+    ccapAppIntfRTSPEvtLog      	 INTEGER,
+    ccapAppIntfRTSPReadRequest   ZeroBasedCounter32,
+    ccapAppIntfRTSPReadSuccess   ZeroBasedCounter32,
+    ccapAppIntfRTSPReadFailure   ZeroBasedCounter32,
+    ccapAppIntfRTSPWriteRequest  ZeroBasedCounter32,
+    ccapAppIntfRTSPWriteSuccess  ZeroBasedCounter32,
+    ccapAppIntfRTSPWriteFailure  ZeroBasedCounter32,
+    ccapAppIntfRTSPTxBytes       ZeroBasedCounter32,
+    ccapAppIntfRTSPRxBytes       ZeroBasedCounter32,
+    ccapAppIntfRTSPMinXferRate   ZeroBasedCounter32,
+    ccapAppIntfRTSPMaxXferRate   ZeroBasedCounter32,
+    ccapAppIntfRTSPAvgXferRate   ZeroBasedCounter32,
+    ccapAppIntfRTSPLastResetTime TimeStamp
+    }
+
+ccapAppIntfRTSPServer OBJECT-TYPE
+	SYNTAX	   ServerNameString
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The name or IP address of this RTSP server."
+	::= { ccapAppIntfRTSPEntry 1 }
+
+ccapAppIntfRTSPStats  OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Interface Information System for gathering statistics 
+                for this RTSP server."
+	::= { ccapAppIntfRTSPEntry 2 }
+
+ccapAppIntfRTSPEvtLog OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2)
+		}
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Information System for gathering event-logs for this
+                RTSP server."
+	::= { ccapAppIntfRTSPEntry 3 }
+
+ccapAppIntfRTSPReadRequest  OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		    "Total number of RTSP read requests sent by call 
+	        applications to this RTSP server."
+	::= { ccapAppIntfRTSPEntry 4 }
+
+ccapAppIntfRTSPReadSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful RTSP read transactions 
+                done from call applications to this RTSP server."
+	::= { ccapAppIntfRTSPEntry 5 }
+
+ccapAppIntfRTSPReadFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed RTSP read transactions 
+                from  call applications to this RTSP server."
+	::= { ccapAppIntfRTSPEntry 6 }
+
+ccapAppIntfRTSPWriteRequest OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of RTSP write requests sent by call 
+                applications to this RTSP server."
+	::= { ccapAppIntfRTSPEntry 7 }
+
+ccapAppIntfRTSPWriteSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful RTSP write transactions 
+                done from call applications to this RTSP server."
+	::= { ccapAppIntfRTSPEntry 8 }
+
+ccapAppIntfRTSPWriteFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed RTSP write transactions 
+                from call applications to this RTSP server."
+	::= { ccapAppIntfRTSPEntry 9 }
+
+ccapAppIntfRTSPTxBytes OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number KiloBytes sent from call applications to 
+                this RTSP server, since last reset."
+	::= { ccapAppIntfRTSPEntry 10 }
+
+ccapAppIntfRTSPRxBytes OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of KiloBytes received to call 
+                applications from this RTSP server, since last reset."
+	::= { ccapAppIntfRTSPEntry 11 }
+
+ccapAppIntfRTSPMinXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Minimum transfer rate of all the transactions between
+                call applications and this RTSP server, from last 
+                reset."
+	::= { ccapAppIntfRTSPEntry 12 }
+
+ccapAppIntfRTSPMaxXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Maximum transfer rate of all the transactions between
+                call applications and this RTSP server, from the last
+                reset."
+	::= { ccapAppIntfRTSPEntry 13 }
+
+ccapAppIntfRTSPAvgXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Average transfer rate between call applications and
+                this RTSP server. This is a running average of the 
+                last ten transactions or from the last reset if 
+                transaction count is less than ten."
+	::= { ccapAppIntfRTSPEntry 14 }
+
+ccapAppIntfRTSPLastResetTime OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The time when the application information statistics
+                were last reset, either through CLI or through 
+                ccapAppGblStatsClear object for this RTSP server.
+                
+                When the application information system is disabled on
+                gateway, this object is also reset to zeros."
+        ::= { ccapAppIntfRTSPEntry 15 } 
+
+--
+-- Application Interface to TFTP 
+--
+ccapAppIntfTFTPTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcapAppIntfTFTPEntry    
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+            "Information about last N most active TFTP unique servers 
+            accessed from a call application gateway."
+    ::= { ccapAppIntf 10 }
+
+ccapAppIntfTFTPEntry OBJECT-TYPE
+	SYNTAX CcapAppIntfTFTPEntry
+        MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about a TFTP server interface to a application.
+        When applicaiton gateway instances access an external TFTP 
+        server, a record entry is created for that server. If a maximum
+        number of server is reached, then oldest accessed server record
+        is purged. Maximum number of server records to retain is 
+        configured through IOS CLI."
+	INDEX { IMPLIED ccapAppIntfTFTPServer }
+	::= { ccapAppIntfTFTPTable 1 }
+
+CcapAppIntfTFTPEntry ::= SEQUENCE {
+    ccapAppIntfTFTPServer        ServerNameString,
+    ccapAppIntfTFTPStats    	 INTEGER,
+    ccapAppIntfTFTPEvtLog      	 INTEGER,
+    ccapAppIntfTFTPReadRequest   ZeroBasedCounter32,
+    ccapAppIntfTFTPReadSuccess   ZeroBasedCounter32,
+    ccapAppIntfTFTPReadFailure   ZeroBasedCounter32,
+    ccapAppIntfTFTPWriteRequest  ZeroBasedCounter32,
+    ccapAppIntfTFTPWriteSuccess  ZeroBasedCounter32,
+    ccapAppIntfTFTPWriteFailure  ZeroBasedCounter32,
+    ccapAppIntfTFTPTxBytes       ZeroBasedCounter32,
+    ccapAppIntfTFTPRxBytes       ZeroBasedCounter32,
+    ccapAppIntfTFTPMinXferRate   ZeroBasedCounter32,
+    ccapAppIntfTFTPMaxXferRate   ZeroBasedCounter32,
+    ccapAppIntfTFTPAvgXferRate   ZeroBasedCounter32,
+    ccapAppIntfTFTPLastResetTime TimeStamp
+    }
+
+ccapAppIntfTFTPServer OBJECT-TYPE
+	SYNTAX	   ServerNameString
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The name or IP address of this TFTP server."
+	::= { ccapAppIntfTFTPEntry 1 }
+
+ccapAppIntfTFTPStats  OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Interface Information System for gathering statistics
+                for this TFTP server."
+	::= { ccapAppIntfTFTPEntry 2 }
+
+ccapAppIntfTFTPEvtLog OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Information System for gathering event-logs for this 
+                TFTP server."
+	::= { ccapAppIntfTFTPEntry 3 }
+
+ccapAppIntfTFTPReadRequest  OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of TFTP read requests sent by call 
+                applications to this TFTP server."
+	::= { ccapAppIntfTFTPEntry 4 }
+
+ccapAppIntfTFTPReadSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful TFTP read transactions 
+                done from call applications to this TFTP server."
+	::= { ccapAppIntfTFTPEntry 5 }
+
+ccapAppIntfTFTPReadFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed TFTP read transactions 
+                from  call applications to this TFTP server."
+	::= { ccapAppIntfTFTPEntry 6 }
+
+ccapAppIntfTFTPWriteRequest OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of TFTP write requests sent by call 
+                applications to this TFTP server."
+	::= { ccapAppIntfTFTPEntry 7 }
+
+ccapAppIntfTFTPWriteSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful TFTP write transactions 
+                done from call applications to this TFTP server."
+	::= { ccapAppIntfTFTPEntry 8 }
+
+ccapAppIntfTFTPWriteFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed TFTP write transactions 
+                from call applications to this TFTP server."
+	::= { ccapAppIntfTFTPEntry 9 }
+
+ccapAppIntfTFTPTxBytes OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number KiloBytes sent from call applications to 
+                this TFTP server, since last reset."
+	::= { ccapAppIntfTFTPEntry 10 }
+
+ccapAppIntfTFTPRxBytes OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of KiloBytes received to call 
+                applications from this TFTP server, since last reset."
+	::= { ccapAppIntfTFTPEntry 11 }
+
+ccapAppIntfTFTPMinXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Minimum transfer rate of all the transactions between
+                call applications and this TFTP server, from the last
+                reset."
+	::= { ccapAppIntfTFTPEntry 12 }
+
+ccapAppIntfTFTPMaxXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Maximum transfer rate of all the transactions between
+                call applications and this TFTP server, from the last
+                reset."
+	::= { ccapAppIntfTFTPEntry 13 }
+
+ccapAppIntfTFTPAvgXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Average transfer rate between call applications and 
+                this TFTP server. This is a running average of the 
+                last ten transactions or from the last reset if 
+                transaction count is less than ten."
+	::= { ccapAppIntfTFTPEntry 14 }
+
+ccapAppIntfTFTPLastResetTime OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The time when the application information statistics
+                were last reset, either through CLI or through 
+                ccapAppGblStatsClear object for this TFTP server.
+                
+                When the application information system is disabled 
+                on the gateway, this object is also reset to zeros."
+        ::= { ccapAppIntfTFTPEntry 15 }
+
+-- 
+-- Appliation Interface to Flash File system
+--
+
+ccapAppIntfFlashReadRequest OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+        DESCRIPTION
+               "Total number of Flash read requests sent by call 
+               applications to flash file system on this gateway."
+        ::= { ccapAppIntf 11 }
+
+ccapAppIntfFlashReadSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful flash file read 
+                transactions done from call applications on this 
+                gateway."
+	::= { ccapAppIntf 12 }
+
+ccapAppIntfFlashReadFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed flash read transactions 
+                from  call applications on this gateway."
+	::= { ccapAppIntf 13 }
+
+-- 
+-- Appliation Interface of Recording to RAM.
+--
+
+ccapAppIntfRAMRecordReadRequest OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+        DESCRIPTION
+               "Total number of RAM recording read requests sent by
+                call applications on this gateway."
+        ::= { ccapAppIntf 14 }
+
+ccapAppIntfRAMRecordReadSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful RAM recording read 
+                transactions done from call applications on this 
+                gateway."
+	::= { ccapAppIntf 15 }
+
+ccapAppIntfRAMRecordiongReadFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of RAM recording read transactions 
+                failures from  call applications on this gateway."
+	::= { ccapAppIntf 16 }
+
+ccapAppIntfRAMRecordRequest OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+        DESCRIPTION
+               "Total number of RAM recording requests sent by call 
+               applications on this gateway."
+        ::= { ccapAppIntf 17 }
+
+ccapAppIntfRAMRecordSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful RAM recordings done from 
+                call applications on this gateway."
+	::= { ccapAppIntf 18 }
+
+ccapAppIntfRAMRecordiongFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of RAM recording failures from  call 
+                applications on this gateway."
+	::= { ccapAppIntf 19 }
+
+--
+-- Application Interface to SMTP 
+--
+ccapAppIntfSMTPTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcapAppIntfSMTPEntry    
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Information about last N most active SMTP unique servers 
+        accessed from a call application gateway.
+        When applicaiton gateway instances access an external SMTP
+        server, a record entry is created for that server. If a maximum
+        number of server record has reached, then the oldest accessed 
+        server record is purged. Maximum number of server records to 
+        retain is configured through IOS CLI."
+    ::= { ccapAppIntf 20 }
+
+ccapAppIntfSMTPEntry OBJECT-TYPE
+	SYNTAX CcapAppIntfSMTPEntry
+        MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about a SMTP server interface to an
+                application."
+	INDEX { IMPLIED ccapAppIntfSMTPServer }
+	::= { ccapAppIntfSMTPTable 1 }
+
+CcapAppIntfSMTPEntry ::= SEQUENCE {
+    ccapAppIntfSMTPServer        ServerNameString,
+    ccapAppIntfSMTPStats    	 INTEGER,
+    ccapAppIntfSMTPEvtLog      	 INTEGER,
+    ccapAppIntfSMTPReadRequest   ZeroBasedCounter32,
+    ccapAppIntfSMTPReadSuccess   ZeroBasedCounter32,
+    ccapAppIntfSMTPReadFailure   ZeroBasedCounter32,
+    ccapAppIntfSMTPWriteRequest  ZeroBasedCounter32,
+    ccapAppIntfSMTPWriteSuccess  ZeroBasedCounter32,
+    ccapAppIntfSMTPWriteFailure  ZeroBasedCounter32,
+    ccapAppIntfSMTPTxBytes       ZeroBasedCounter32,
+    ccapAppIntfSMTPRxBytes       ZeroBasedCounter32,
+    ccapAppIntfSMTPMinXferRate   ZeroBasedCounter32,
+    ccapAppIntfSMTPMaxXferRate   ZeroBasedCounter32,
+    ccapAppIntfSMTPAvgXferRate   ZeroBasedCounter32,
+    ccapAppIntfSMTPLastResetTime TimeStamp
+    }
+
+ccapAppIntfSMTPServer OBJECT-TYPE
+	SYNTAX	   ServerNameString
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The name or IP address of this SMTP server."
+	::= { ccapAppIntfSMTPEntry 1 }
+
+ccapAppIntfSMTPStats  OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Interface Information System for gathering statistics 
+                for this SMTP server."
+	::= { ccapAppIntfSMTPEntry 2 }
+
+ccapAppIntfSMTPEvtLog OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of  Application 
+                Information System for gathering event-logs for this
+                SMTP server."
+	::= { ccapAppIntfSMTPEntry 3 }
+
+ccapAppIntfSMTPReadRequest  OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of SMTP read requests sent by call 
+                applications to this SMTP server."
+	::= { ccapAppIntfSMTPEntry 4 }
+
+ccapAppIntfSMTPReadSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful SMTP read transactions 
+                done from call applications to this SMTP server."
+	::= { ccapAppIntfSMTPEntry 5 }
+
+ccapAppIntfSMTPReadFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed SMTP read transactions 
+                from  call applications to this SMTP server."
+	::= { ccapAppIntfSMTPEntry 6 }
+
+ccapAppIntfSMTPWriteRequest OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of SMTP write requests sent by call 
+                applications to this SMTP server."
+	::= { ccapAppIntfSMTPEntry 7 }
+
+ccapAppIntfSMTPWriteSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful SMTP write transactions 
+                done from call applications to this SMTP server."
+	::= { ccapAppIntfSMTPEntry 8 }
+
+ccapAppIntfSMTPWriteFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed SMTP write transactions 
+                from call applications to this SMTP server."
+	::= { ccapAppIntfSMTPEntry 9 }
+
+ccapAppIntfSMTPTxBytes OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number KiloBytes sent from call applications to 
+                this SMTP server, since last reset."
+	::= { ccapAppIntfSMTPEntry 10 }
+
+ccapAppIntfSMTPRxBytes OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of KiloBytes received to call 
+                applications from this SMTP server, since last reset."
+	::= { ccapAppIntfSMTPEntry 11 }
+
+ccapAppIntfSMTPMinXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Minimum transfer rate of all the transactions between
+                call applications and this SMTP server, from the last
+                reset."
+	::= { ccapAppIntfSMTPEntry 12 }
+
+ccapAppIntfSMTPMaxXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Maximum transfer rate of all the transactions between
+                call applications and this SMTP server, from the last 
+                reset."
+	::= { ccapAppIntfSMTPEntry 13 }
+
+ccapAppIntfSMTPAvgXferRate OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+        UNITS      "KBytes/second"
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Average transfer rate between call applications and 
+                this SMTP server. This is a running average of the 
+                last ten transactions or from the last reset if 
+                transaction count is less than ten."
+	::= { ccapAppIntfSMTPEntry 14 }
+
+ccapAppIntfSMTPLastResetTime OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The time when the application information statistics
+                were last reset, either through CLI or through 
+                ccapAppGblStatsClear object for this SMTP server.
+                
+                When the application information system is disabled on
+                gateway, this object is also reset to zeros."
+        ::= { ccapAppIntfSMTPEntry 15 } 
+
+-- 
+-- Appliation Interface to AAA method lists
+--
+ccapAppIntfAAAMethodListTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcapAppIntfAAAMethodListEntry    
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Information about last N most active AAA method lists 
+        accessed from a call application gateway.
+        When applicaiton gateway instances access AAA method list, 
+        a record entry is created for that method list. If a maximum 
+        number of server is reached, then oldest accessed method list 
+        record is purged. Maximum number of method list records to 
+        retain is configured through IOS CLI."
+    ::= { ccapAppIntf 21 }
+
+ccapAppIntfAAAMethodListEntry OBJECT-TYPE
+	SYNTAX CcapAppIntfAAAMethodListEntry
+        MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about an AAA method list interface to an
+                call  application."
+	INDEX { IMPLIED ccapAppIntfAAAMethodListServer }
+	::= { ccapAppIntfAAAMethodListTable 1 }
+
+CcapAppIntfAAAMethodListEntry ::= SEQUENCE {
+    ccapAppIntfAAAMethodListServer        SnmpAdminString,
+    ccapAppIntfAAAMethodListStats    	  INTEGER,
+    ccapAppIntfAAAMethodListEvtLog        INTEGER,
+    ccapAppIntfAAAMethodListReadRequest   ZeroBasedCounter32,
+    ccapAppIntfAAAMethodListReadSuccess   ZeroBasedCounter32,
+    ccapAppIntfAAAMethodListReadFailure   ZeroBasedCounter32,
+    ccapAppIntfAAAMethodListLastResetTime TimeStamp
+    }
+
+ccapAppIntfAAAMethodListServer OBJECT-TYPE
+	SYNTAX	   SnmpAdminString (SIZE (1..40))
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The name of this configured AAA method list."
+	::= { ccapAppIntfAAAMethodListEntry 1 }
+
+ccapAppIntfAAAMethodListStats  OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Interface Information System for gathering statistics
+                for this AAA method list."
+	::= { ccapAppIntfAAAMethodListEntry 2 }
+
+ccapAppIntfAAAMethodListEvtLog OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Information System for gathering event-logs for this 
+                AAA method list."
+	::= { ccapAppIntfAAAMethodListEntry 3 }
+
+ccapAppIntfAAAMethodListReadRequest OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+        DESCRIPTION
+               "Total number of AAA method list read requests sent by 
+               call applications to configured AAA method list on this
+               gateway."
+        ::= { ccapAppIntfAAAMethodListEntry 4 }
+
+ccapAppIntfAAAMethodListReadSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful AAA method lists 
+                transactions done from call applications on this 
+                gateway."
+	::= { ccapAppIntfAAAMethodListEntry 5 }
+
+ccapAppIntfAAAMethodListReadFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed AAA method lists transactions 
+                from  call applications on this gateway. This object
+                does not include the AAA rejects by the servers. It
+                indicates failures due to this gateway and AAA server 
+                issues."
+	::= { ccapAppIntfAAAMethodListEntry 6 }
+
+ccapAppIntfAAAMethodListLastResetTime OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The time when the application information statistics 
+                were last reset, either through CLI or through 
+                ccapAppGblStatsClear object for this AAA method 
+                list.
+                
+                When the application information system is disabled on
+                gateway, this object is also reset to zeros."
+        ::= { ccapAppIntfAAAMethodListEntry 7 } 
+
+-- 
+-- Appliation Interface to ASR
+--
+ccapAppIntfASRTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcapAppIntfASREntry    
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Information about last N most active ASR 
+        (Automatic Speech Recognition ) unique servers accessed 
+        from a call application gateway.
+        When applicaiton gateway instances access an external ASR 
+        server, a record entry is created for that server. If a 
+        maximum number of server records has reached, then the
+        oldest accessed server record is purged. Maximum number of 
+        server records to retain is configured through IOS CLI."
+    ::= { ccapAppIntf 22 }
+
+ccapAppIntfASREntry OBJECT-TYPE
+	SYNTAX CcapAppIntfASREntry
+        MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about an ASR server interface to an
+                call  application."
+	INDEX { IMPLIED ccapAppIntfASRServer }
+	::= { ccapAppIntfASRTable 1 }
+
+CcapAppIntfASREntry ::= SEQUENCE {
+    ccapAppIntfASRServer        ServerNameString,
+    ccapAppIntfASRStats         INTEGER,
+    ccapAppIntfASREvtLog        INTEGER,
+    ccapAppIntfASRReadRequest   ZeroBasedCounter32,
+    ccapAppIntfASRReadSuccess   ZeroBasedCounter32,
+    ccapAppIntfASRReadFailure   ZeroBasedCounter32,
+    ccapAppIntfASRLastResetTime TimeStamp
+    }
+
+ccapAppIntfASRServer OBJECT-TYPE
+	SYNTAX	   ServerNameString
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The name or IP address of this ASR server."
+	::= { ccapAppIntfASREntry 1 }
+
+ccapAppIntfASRStats  OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Interface Information System for gathering statistics 
+                for this ASR server."
+	::= { ccapAppIntfASREntry 2 }
+
+ccapAppIntfASREvtLog OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Information System for gathering event-logs for
+                this ASR server."
+	::= { ccapAppIntfASREntry 3 }
+
+ccapAppIntfASRReadRequest OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+        DESCRIPTION
+               "Total number of ASR  read requests sent by call 
+               applications to this ASR server from this gateway."
+        ::= { ccapAppIntfASREntry 4 }
+
+ccapAppIntfASRReadSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful ASR transactions done
+                from call applications on this gateway to this ASR 
+                server."
+	::= { ccapAppIntfASREntry 5 }
+
+ccapAppIntfASRReadFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed ASR attempts transactions 
+                from  call applications to this ASR server."
+	::= { ccapAppIntfASREntry 6 }
+
+ccapAppIntfASRLastResetTime OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The time when the application information statistics
+                were last reset, either through CLI or through 
+                ccapAppGblStatsClear object for this ASR server.
+                
+                When the application information system is disabled on
+                the gateway, this object is also reset to zeros."
+	::= { ccapAppIntfASREntry 7 }
+
+-- 
+-- Appliation Interface to TTS
+--
+ccapAppIntfTTSTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CcapAppIntfTTSEntry    
+    MAX-ACCESS not-accessible
+    STATUS current
+    DESCRIPTION
+        "Information about last N most active TTS 
+        (Automatic Speech Recognition ) unique servers accessed 
+        from a call application gateway.
+        When applicaiton gateway instances access an external TTS 
+        server, a record entry is created for that server. If maximum
+        number of server records has reached, then oldest accessed 
+        server record is purged. Maximum number of server records to 
+        retain is configured through IOS CLI."
+    ::= { ccapAppIntf 23 }
+
+ccapAppIntfTTSEntry OBJECT-TYPE
+	SYNTAX CcapAppIntfTTSEntry
+        MAX-ACCESS not-accessible
+	STATUS current
+	DESCRIPTION
+		"Information about an TTS server interface to a
+        call application."
+	INDEX { IMPLIED ccapAppIntfTTSServer }
+	::= { ccapAppIntfTTSTable 1 }
+
+CcapAppIntfTTSEntry ::= SEQUENCE {
+    ccapAppIntfTTSServer        ServerNameString,
+    ccapAppIntfTTSStats         INTEGER,
+    ccapAppIntfTTSEvtLog        INTEGER,
+    ccapAppIntfTTSReadRequest   ZeroBasedCounter32,
+    ccapAppIntfTTSReadSuccess   ZeroBasedCounter32,
+    ccapAppIntfTTSReadFailure   ZeroBasedCounter32,
+    ccapAppIntfTTSLastResetTime TimeStamp
+    }
+
+ccapAppIntfTTSServer OBJECT-TYPE
+	SYNTAX	   ServerNameString
+	MAX-ACCESS not-accessible
+	STATUS     current
+	DESCRIPTION
+		"The name or IP address of this TTS server."
+	::= { ccapAppIntfTTSEntry 1 }
+
+ccapAppIntfTTSStats  OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Interface Information System for gathering statistics
+                for this TTS server."
+	::= { ccapAppIntfTTSEntry 2 }
+
+ccapAppIntfTTSEvtLog OBJECT-TYPE
+        SYNTAX  INTEGER { disable(1), enable(2) }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "To display the current configuration of Application 
+                Information System for gathering event-logs for this
+                TTS server."
+	::= { ccapAppIntfTTSEntry 3 }
+
+ccapAppIntfTTSReadRequest OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+        DESCRIPTION
+               "Total number of TTS  read requests sent by call 
+               applications to this TTS server from this gateway."
+        ::= { ccapAppIntfTTSEntry 4 }
+
+ccapAppIntfTTSReadSuccess OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of successful TTS transactions done
+                from call applications on this gateway to this TTS 
+                server."
+	::= { ccapAppIntfTTSEntry 5 }
+
+ccapAppIntfTTSReadFailure OBJECT-TYPE
+	SYNTAX	   ZeroBasedCounter32
+	MAX-ACCESS read-only
+	STATUS     current
+	DESCRIPTION
+		"Total number of failed TTS attempts transactions 
+                from  call applications to this TTS server."
+	::= { ccapAppIntfTTSEntry 6 }
+
+ccapAppIntfTTSLastResetTime OBJECT-TYPE
+        SYNTAX      TimeStamp 
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+                "The time when the application information statistics 
+                were last reset, either through CLI or through 
+                ccapAppGblStatsClear object for this TTS server.
+                
+                When the application information system is disabled on
+                the gateway, this object is also reset to zeros."
+	::= { ccapAppIntfTTSEntry 7 }
+
+-- Compliance Statements
+
+ciscoCallApplicationMIBConformance	OBJECT IDENTIFIER ::= 
+			{ ciscoCallApplicationMIB 3 }
+ciscoCallApplicationMIBCompliances OBJECT IDENTIFIER ::= 
+			{ ciscoCallApplicationMIBConformance 1 }
+ciscoCallApplicationMIBGroups	  OBJECT IDENTIFIER ::= 
+			{ ciscoCallApplicationMIBConformance 2 }
+
+ciscoCallApplicationMIBCompliance MODULE-COMPLIANCE
+	STATUS	deprecated -- superceded by
+                           -- ciscoCallApplicationMIBComplianceRev1
+	DESCRIPTION
+		"The compliance statement for Cisco agents which 
+		implement the CISCO-CALL-APPLICATION-MIB." 
+	MODULE
+		MANDATORY-GROUPS { ccapGeneralCfgGroup
+	 	                 }
+	::= {ciscoCallApplicationMIBCompliances 1 }
+
+ciscoCallApplicationMIBComplianceRev1 MODULE-COMPLIANCE
+	STATUS	current
+	DESCRIPTION
+		"The compliance statement for Cisco agents which 
+		implement the CISCO-CALL-APPLICATION-MIB." 
+	MODULE
+		MANDATORY-GROUPS { ccapGeneralCfgGroupRev1,
+	                       ccapAppTypeHistoryGroup,
+	                       ccapAppInstanceHistoryGroup,
+	                       ccapAppGblActGroup,
+	                       ccapAppGblCfgGroup,
+	                       ccapAppGblHisGroup,
+	                       ccapAppIntfGblCfgGroup,
+	                       ccapAppIntfHTTPGroup,
+	                       ccapAppIntfRTSPGroup,
+	                       ccapAppIntfTFTPGroup,
+	                       ccapAppIntfSMTPGroup,
+	                       ccapAppIntfAAAMethodListGroup,
+	                       ccapAppIntfASRGroup,
+	                       ccapAppIntfTTSGroup,
+	                       ccapAppIntfFlashGroup,
+	                       ccapAppIntfRAMRecordGroup
+	 	                 }
+	::= { ciscoCallApplicationMIBCompliances 2 }
+
+-- units of conformance
+
+ccapGeneralCfgGroup OBJECT-GROUP
+	OBJECTS {
+		ccapAppLocation,
+		ccapAppLoadState,
+		ccapAppLoadFailReason,
+		ccapAppDescr,
+		ccapAppCallType,
+		ccapAppRowStatus
+	}
+	STATUS	deprecated -- superceded by ccapGeneralCfgGroupRev1
+	DESCRIPTION
+		"A collection of objects for general configuration of 
+                call applications."
+	::= { ciscoCallApplicationMIBGroups 1 }
+
+ccapGeneralCfgGroupRev1 OBJECT-GROUP
+	OBJECTS {
+	    ccapAppLocation,
+	    ccapAppLoadState,
+	    ccapAppLoadFailReason,
+	    ccapAppDescr,
+	    ccapAppCallType,
+	    ccapAppRowStatus,
+	    ccapAppActiveInstances,
+	    ccapAppEventLogging,
+	    ccapAppPSTNInCallNowConn,
+	    ccapAppPSTNOutCallNowConn,
+	    ccapAppIPInCallNowConn,
+	    ccapAppIPOutCallNowConn,
+	    ccapAppPlaceCallInProgress,
+	    ccapAppHandoffInProgress,
+	    ccapAppPromptPlayActive,
+	    ccapAppRecordingActive,
+	    ccapAppTTSActive
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects for general configuration of
+                call applications and to display current activity of
+                applications."
+	::= { ciscoCallApplicationMIBGroups 2 }
+
+ccapAppTypeHistoryGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppTypeHisEvtLogging,
+	    ccapAppTypeHisLastResetTime,
+	    ccapAppTypeHisPSTNInCallSetupInd,
+	    ccapAppTypeHisPSTNInCallTotConn,
+	    ccapAppTypeHisPSTNInCallHandedOut,
+	    ccapAppTypeHisPSTNInCallHandOutRet,
+	    ccapAppTypeHisPSTNInCallInHandoff,
+	    ccapAppTypeHisPSTNInCallInHandoffRet,
+	    ccapAppTypeHisPSTNInCallDiscNormal,
+	    ccapAppTypeHisPSTNInCallDiscUsrErr,
+	    ccapAppTypeHisPSTNInCallDiscSysErr,
+	    ccapAppTypeHisPSTNOutCallSetupReq,
+	    ccapAppTypeHisPSTNOutCallTotConn,
+	    ccapAppTypeHisPSTNOutCallHandedOut,
+	    ccapAppTypeHisPSTNOutCallHandOutRet,
+	    ccapAppTypeHisPSTNOutCallInHandoff,
+	    ccapAppTypeHisPSTNOutCallInHandoffRet,
+	    ccapAppTypeHisPSTNOutCallDiscNormal,
+	    ccapAppTypeHisPSTNOutCallDiscUsrErr,
+	    ccapAppTypeHisPSTNOutCallDiscSysErr,
+	    ccapAppTypeHisIPInCallSetupInd,
+	    ccapAppTypeHisIPInCallTotConn,
+	    ccapAppTypeHisIPInCallHandedOut,
+	    ccapAppTypeHisIPInCallHandOutRet,
+	    ccapAppTypeHisIPInCallInHandoff,
+	    ccapAppTypeHisIPInCallInHandoffRet,
+	    ccapAppTypeHisIPInCallDiscNormal,
+	    ccapAppTypeHisIPInCallDiscUsrErr,
+	    ccapAppTypeHisIPInCallDiscSysErr,
+	    ccapAppTypeHisIPOutCallSetupReq,
+	    ccapAppTypeHisIPOutCallTotConn,
+	    ccapAppTypeHisIPOutCallHandedOut,
+	    ccapAppTypeHisIPOutCallHandOutRet,
+	    ccapAppTypeHisIPOutCallInHandoff,
+	    ccapAppTypeHisIPOutCallInHandoffRet,
+	    ccapAppTypeHisIPOutCallDiscNormal,
+	    ccapAppTypeHisIPOutCallDiscUsrErr,
+	    ccapAppTypeHisIPOutCallDiscSysErr,
+	    ccapAppTypeHisPlaceCallAttempts,
+	    ccapAppTypeHisPlaceCallSuccess,
+	    ccapAppTypeHisPlaceCallFailure,
+	    ccapAppTypeHisInHandoffCallback,
+	    ccapAppTypeHisInHandoffCallbackRet,
+	    ccapAppTypeHisInHandoffNoCallback,
+	    ccapAppTypeHisOutHandoffCallback,
+	    ccapAppTypeHisOutHandoffCallbackRet,
+	    ccapAppTypeHisOutHandoffNoCallback,
+	    ccapAppTypeHisOutHandofffailures,
+	    ccapAppTypeHisDocumentReadAttempts,
+	    ccapAppTypeHisDocumentReadSuccess,
+	    ccapAppTypeHisDocumentReadFailures,
+	    ccapAppTypeHisDocumentParseErrors,
+	    ccapAppTypeHisDocumentWriteAttempts,
+	    ccapAppTypeHisDocumentWriteSuccess,
+	    ccapAppTypeHisDocumentWriteFailures,
+	    ccapAppTypeHisDTMFAttempts,
+	    ccapAppTypeHisDTMFAborted,
+	    ccapAppTypeHisDTMFNoMatch,
+	    ccapAppTypeHisDTMFNoInput,
+	    ccapAppTypeHisDTMFMatch,
+	    ccapAppTypeHisDTMFLongPound,
+	    ccapAppTypeHisASRAttempts,
+	    ccapAppTypeHisASRAborted,
+	    ccapAppTypeHisASRNoMatch,
+	    ccapAppTypeHisASRNoInput,
+	    ccapAppTypeHisASRMatch,
+	    ccapAppTypeHisAAAAuthenticateFailure,
+	    ccapAppTypeHisAAAAuthenticateSuccess,
+	    ccapAppTypeHisAAAAuthorizeFailure,
+	    ccapAppTypeHisAAAAuthorizeSuccess,
+	    ccapAppTypeHisASNLSubscriptionsSent ,
+	    ccapAppTypeHisASNLSubscriptionsSuccess,
+	    ccapAppTypeHisASNLSubscriptionsFailed,
+	    ccapAppTypeHisASNLNotifReceived,
+	    ccapAppTypeHisPromptPlayAttempts,
+	    ccapAppTypeHisPromptPlaySuccess,
+	    ccapAppTypeHisPromptPlayFailed,
+	    ccapAppTypeHisPromptPlayDuration,
+	    ccapAppTypeHisRecordingAttempts,
+	    ccapAppTypeHisRecordingSuccess,
+	    ccapAppTypeHisRecordingFailed,
+	    ccapAppTypeHisRecordingDuration,
+	    ccapAppTypeHisTTSAttempts,
+	    ccapAppTypeHisTTSSuccess,
+	    ccapAppTypeHisTTSFailed
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to monitor information for 
+                each  call application type. This provides statistics 
+                from all the history instances for that call 
+                application type."
+	::= { ciscoCallApplicationMIBGroups 3 }
+
+ccapAppInstanceHistoryGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppInstHisSessionID,
+	    ccapAppInstHisAppName,
+	    ccapAppInstHisPSTNInCallSetupInd,
+	    ccapAppInstHisPSTNInCallTotConn,
+	    ccapAppInstHisPSTNInCallHandedOut,
+	    ccapAppInstHisPSTNInCallHandOutRet,
+	    ccapAppInstHisPSTNInCallInHandoff,
+	    ccapAppInstHisPSTNInCallInHandoffRet,
+	    ccapAppInstHisPSTNInCallDiscNormal,
+	    ccapAppInstHisPSTNInCallDiscUsrErr,
+	    ccapAppInstHisPSTNInCallDiscSysErr,
+	    ccapAppInstHisPSTNOutCallSetupReq,
+	    ccapAppInstHisPSTNOutCallTotConn,
+	    ccapAppInstHisPSTNOutCallHandedOut,
+	    ccapAppInstHisPSTNOutCallHandOutRet,
+	    ccapAppInstHisPSTNOutCallInHandoff,
+	    ccapAppInstHisPSTNOutCallInHandoffRet,
+	    ccapAppInstHisPSTNOutCallDiscNormal,
+	    ccapAppInstHisPSTNOutCallDiscUsrErr,
+	    ccapAppInstHisPSTNOutCallDiscSysErr,
+	    ccapAppInstHisIPInCallSetupInd,
+	    ccapAppInstHisIPInCallTotConn,
+	    ccapAppInstHisIPInCallHandedOut,
+	    ccapAppInstHisIPInCallHandOutRet,
+	    ccapAppInstHisIPInCallInHandoff,
+	    ccapAppInstHisIPInCallInHandoffRet,
+	    ccapAppInstHisIPInCallDiscNormal,
+	    ccapAppInstHisIPInCallDiscUsrErr,
+	    ccapAppInstHisIPInCallDiscSysErr,
+	    ccapAppInstHisIPOutCallSetupReq,
+	    ccapAppInstHisIPOutCallTotConn,
+	    ccapAppInstHisIPOutCallHandedOut,
+	    ccapAppInstHisIPOutCallHandOutRet,
+	    ccapAppInstHisIPOutCallInHandoff,
+	    ccapAppInstHisIPOutCallInHandoffRet,
+	    ccapAppInstHisIPOutCallDiscNormal,
+	    ccapAppInstHisIPOutCallDiscUsrErr,
+	    ccapAppInstHisIPOutCallDiscSysErr,
+	    ccapAppInstHisPlaceCallAttempts,
+	    ccapAppInstHisPlaceCallSuccess,
+	    ccapAppInstHisPlaceCallFailure,
+	    ccapAppInstHisInHandoffCallback,
+	    ccapAppInstHisInHandoffCallbackRet,
+	    ccapAppInstHisInHandoffNoCallback,
+	    ccapAppInstHisOutHandoffCallback,
+	    ccapAppInstHisOutHandoffCallbackRet,
+	    ccapAppInstHisOutHandoffNoCallback,
+	    ccapAppInstHisOutHandofffailures,
+	    ccapAppInstHisDocumentReadAttempts,
+	    ccapAppInstHisDocumentReadSuccess,
+	    ccapAppInstHisDocumentReadFailures,
+	    ccapAppInstHisDocumentParseErrors,
+	    ccapAppInstHisDocumentWriteAttempts,
+	    ccapAppInstHisDocumentWriteSuccess,
+	    ccapAppInstHisDocumentWriteFailures,
+	    ccapAppInstHisDTMFAttempts,
+	    ccapAppInstHisDTMFAborted,
+	    ccapAppInstHisDTMFNoMatch,
+	    ccapAppInstHisDTMFNoInput,
+	    ccapAppInstHisDTMFMatch,
+	    ccapAppInstHisDTMFLongPound,
+	    ccapAppInstHisASRAttempts,
+	    ccapAppInstHisASRAborted,
+	    ccapAppInstHisASRNoMatch,
+	    ccapAppInstHisASRNoInput,
+	    ccapAppInstHisASRMatch,
+	    ccapAppInstHisAAAAuthenticateFailure,
+	    ccapAppInstHisAAAAuthenticateSuccess,
+	    ccapAppInstHisAAAAuthorizeFailure,
+	    ccapAppInstHisAAAAuthorizeSuccess,
+	    ccapAppInstHisASNLSubscriptionsSent,
+	    ccapAppInstHisASNLSubscriptionsSuccess,
+	    ccapAppInstHisASNLSubscriptionsFailed,
+	    ccapAppInstHisASNLNotifReceived,
+	    ccapAppInstHisPromptPlayAttempts,
+	    ccapAppInstHisPromptPlaySuccess,
+	    ccapAppInstHisPromptPlayFailed,
+	    ccapAppInstHisPromptPlayDuration,
+	    ccapAppInstHisRecordingAttempts,
+	    ccapAppInstHisRecordingSuccess,
+	    ccapAppInstHisRecordingFailed,
+	    ccapAppInstHisRecordingDuration,
+	    ccapAppInstHisTTSAttempts,
+	    ccapAppInstHisTTSSuccess,
+	    ccapAppInstHisTTSFailed,
+	    ccapAppInstHistEvtLogging
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display detailed 
+                information on an instance of a  call applications
+                once the application instance has terminated."
+	::= { ciscoCallApplicationMIBGroups 4 }
+
+ccapAppGblActGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppGblActCurrentInstances,
+	    ccapAppGblActPSTNInCallNowConn,
+	    ccapAppGblActPSTNOutCallNowConn,
+	    ccapAppGblActIPInCallNowConn,
+	    ccapAppGblActIPOutCallNowConn,
+	    ccapAppGblActPlaceCallInProgress,
+	    ccapAppGblActHandoffInProgress,
+	    ccapAppGblActPromptPlayActive,
+	    ccapAppGblActRecordingActive,
+	    ccapAppGblActTTSActive
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display gauges on the 
+                current activity for all the active instances from all
+                the call application types on this gateway."
+	::= { ciscoCallApplicationMIBGroups 5 }
+
+ccapAppGblCfgGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppGblStatsLogging,
+	    ccapAppGblEventLogging,
+	    ccapAppGblEvtLogflush,
+	    ccapAppGblStatsClear,
+	    ccapAppGblLastResetTime
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects for general configuration of 
+                call application information system stats and event 
+                logs for all the application instances on this gateway
+                and to display current configuration and reset time of
+                statistics."
+	::= { ciscoCallApplicationMIBGroups 6 }
+
+ccapAppGblHisGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppGblHisTotalInstances,
+	    ccapAppGblHisLastReset,
+	    ccapAppGblHisPSTNInCallSetupInd,
+	    ccapAppGblHisPSTNInCallTotConn,
+	    ccapAppGblHisPSTNInCallHandedOut,
+	    ccapAppGblHisPSTNInCallHandOutRet,
+	    ccapAppGblHisPSTNInCallInHandoff,
+	    ccapAppGblHisPSTNInCallInHandoffRet,
+	    ccapAppGblHisPSTNInCallDiscNormal,
+	    ccapAppGblHisPSTNInCallDiscUsrErr,
+	    ccapAppGblHisPSTNInCallDiscSysErr,
+	    ccapAppGblHisPSTNOutCallSetupReq,
+	    ccapAppGblHisPSTNOutCallTotConn,
+	    ccapAppGblHisPSTNOutCallHandedOut,
+	    ccapAppGblHisPSTNOutCallHandOutRet,
+	    ccapAppGblHisPSTNOutCallInHandoff,
+	    ccapAppGblHisPSTNOutCallInHandoffRet,
+	    ccapAppGblHisPSTNOutCallDiscNormal,
+	    ccapAppGblHisPSTNOutCallDiscUsrErr,
+	    ccapAppGblHisPSTNOutCallDiscSysErr,
+	    ccapAppGblHisIPInCallSetupInd,
+	    ccapAppGblHisIPInCallTotConn,
+	    ccapAppGblHisIPInCallHandedOut,
+	    ccapAppGblHisIPInCallHandOutRet,
+	    ccapAppGblHisIPInCallInHandoff,
+	    ccapAppGblHisIPInCallInHandoffRet,
+	    ccapAppGblHisIPInCallDiscNormal,
+	    ccapAppGblHisIPInCallDiscUsrErr,
+	    ccapAppGblHisIPInCallDiscSysErr,
+	    ccapAppGblHisIPOutCallSetupReq,
+	    ccapAppGblHisIPOutCallTotConn,
+	    ccapAppGblHisIPOutCallHandedOut,
+	    ccapAppGblHisIPOutCallHandOutRet,
+	    ccapAppGblHisIPOutCallInHandoff,
+	    ccapAppGblHisIPOutCallInHandoffRet,
+	    ccapAppGblHisIPOutCallDiscNormal,
+	    ccapAppGblHisIPOutCallDiscUsrErr,
+	    ccapAppGblHisIPOutCallDiscSysErr,
+	    ccapAppGblHisPlaceCallAttempts,
+	    ccapAppGblHisPlaceCallSuccess,
+	    ccapAppGblHisPlaceCallFailure,
+	    ccapAppGblHisInHandoffCallback,
+	    ccapAppGblHisInHandoffCallbackRet,
+	    ccapAppGblHisInHandoffNoCallback,
+	    ccapAppGblHisOutHandoffCallback,
+	    ccapAppGblHisOutHandoffCallbackRet,
+	    ccapAppGblHisOutHandoffNoCallback,
+	    ccapAppGblHisOutHandofffailures,
+	    ccapAppGblHisDocumentReadAttempts,
+	    ccapAppGblHisDocumentReadSuccess,
+	    ccapAppGblHisDocumentReadFailures,
+	    ccapAppGblHisDocumentParseErrors,
+	    ccapAppGblHisDocumentWriteAttempts,
+	    ccapAppGblHisDocumentWriteSuccess,
+	    ccapAppGblHisDocumentWriteFailures,
+	    ccapAppGblHisDTMFAttempts,
+	    ccapAppGblHisDTMFAborted,
+	    ccapAppGblHisDTMFNoMatch,
+	    ccapAppGblHisDTMFNoInput,
+	    ccapAppGblHisDTMFMatch,
+	    ccapAppGblHisDTMFLongPound,
+	    ccapAppGblHisASRAttempts,
+	    ccapAppGblHisASRAborted,
+	    ccapAppGblHisASRNoMatch,
+	    ccapAppGblHisASRNoInput,
+	    ccapAppGblHisASRMatch,
+	    ccapAppGblHisAAAAuthenticateFailure,
+	    ccapAppGblHisAAAAuthenticateSuccess,
+	    ccapAppGblHisAAAAuthorizeFailure,
+	    ccapAppGblHisAAAAuthorizeSuccess,
+	    ccapAppGblHisASNLSubscriptionsSent,
+	    ccapAppGblHisASNLSubscriptionsSuccess,
+	    ccapAppGblHisASNLSubscriptionsFailed,
+	    ccapAppGblHisASNLNotifReceived,
+	    ccapAppGblHisPromptPlayAttempts,
+	    ccapAppGblHisPromptPlaySuccess,
+	    ccapAppGblHisPromptPlayFailed,
+	    ccapAppGblHisPromptPlayDuration,
+	    ccapAppGblHisRecordingAttempts,
+	    ccapAppGblHisRecordingSuccess,
+	    ccapAppGblHisRecordingFailed,
+	    ccapAppGblHisRecordingDuration,
+	    ccapAppGblHisTTSAttempts,
+	    ccapAppGblHisTTSSuccess,
+	    ccapAppGblHisTTSFailed
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display detailed 
+                information from the gateway for all the history
+                instances which started from all application-types."
+	::= { ciscoCallApplicationMIBGroups 7 }
+
+ccapAppIntfGblCfgGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppIntfGblStatsLogging,
+	    ccapAppIntfGblEventLogging,
+	    ccapAppIntfGblEvtLogFlush,
+	    ccapAppIntfGblStatsClear,
+	    ccapAppIntfGblLastResetTime
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects for general configuration of 
+                call application interface information system stats and
+                event logs for all the application interfaces and 
+                servers associated with each interface. Also this 
+                group is to display current configuration and reset 
+                time of statistics for all the interfaces counters."
+	::= { ciscoCallApplicationMIBGroups 8 }
+
+ccapAppIntfHTTPGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppIntfHTTPStats,
+	    ccapAppIntfHTTPEvtLog,
+	    ccapAppIntfHTTPGetRequest,
+	    ccapAppIntfHTTPGetSuccess,
+	    ccapAppIntfHTTPGetFailure,
+	    ccapAppIntfHTTPPostRequest,
+	    ccapAppIntfHTTPPostSuccess,
+	    ccapAppIntfHTTPPostFailure,
+	    ccapAppIntfHTTPTxBytes,
+	    ccapAppIntfHTTPRxBytes,
+	    ccapAppIntfHTTPMinXferRate,
+	    ccapAppIntfHTTPMaxXferRate,
+	    ccapAppIntfHTTPAvgXferRate,
+	    ccapAppIntfHTTPLastResetTime
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display statistics related
+                to interaction between application instances and HTTP
+                servers."
+	::= { ciscoCallApplicationMIBGroups 9 }
+
+ccapAppIntfRTSPGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppIntfRTSPStats,
+	    ccapAppIntfRTSPEvtLog,
+	    ccapAppIntfRTSPReadRequest,
+	    ccapAppIntfRTSPReadSuccess,
+	    ccapAppIntfRTSPReadFailure,
+	    ccapAppIntfRTSPWriteRequest,
+	    ccapAppIntfRTSPWriteSuccess,
+	    ccapAppIntfRTSPWriteFailure,
+	    ccapAppIntfRTSPTxBytes,
+	    ccapAppIntfRTSPRxBytes,
+	    ccapAppIntfRTSPMinXferRate,
+	    ccapAppIntfRTSPMaxXferRate,
+	    ccapAppIntfRTSPAvgXferRate,
+	    ccapAppIntfRTSPLastResetTime
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display statistics related
+                to interaction between application instances and RTSP
+                servers."
+	::= { ciscoCallApplicationMIBGroups 10 }
+
+ccapAppIntfTFTPGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppIntfTFTPStats,
+	    ccapAppIntfTFTPEvtLog,
+	    ccapAppIntfTFTPReadRequest,
+	    ccapAppIntfTFTPReadSuccess,
+	    ccapAppIntfTFTPReadFailure,
+	    ccapAppIntfTFTPWriteRequest,
+	    ccapAppIntfTFTPWriteSuccess,
+	    ccapAppIntfTFTPWriteFailure,
+	    ccapAppIntfTFTPTxBytes,
+	    ccapAppIntfTFTPRxBytes,
+	    ccapAppIntfTFTPMinXferRate,
+	    ccapAppIntfTFTPMaxXferRate,
+	    ccapAppIntfTFTPAvgXferRate,
+	    ccapAppIntfTFTPLastResetTime
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display statistics related
+                to interaction between application instances and TFTP
+                servers."
+	::= { ciscoCallApplicationMIBGroups 11 }
+
+ccapAppIntfSMTPGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppIntfSMTPStats,
+	    ccapAppIntfSMTPEvtLog,
+	    ccapAppIntfSMTPReadRequest,
+	    ccapAppIntfSMTPReadSuccess,
+	    ccapAppIntfSMTPReadFailure,
+	    ccapAppIntfSMTPWriteRequest,
+	    ccapAppIntfSMTPWriteSuccess,
+	    ccapAppIntfSMTPWriteFailure,
+	    ccapAppIntfSMTPTxBytes,
+	    ccapAppIntfSMTPRxBytes,
+	    ccapAppIntfSMTPMinXferRate,
+	    ccapAppIntfSMTPMaxXferRate,
+	    ccapAppIntfSMTPAvgXferRate,
+	    ccapAppIntfSMTPLastResetTime
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display statistics related
+                to interaction between application instances and SMTP
+                servers."
+	::= { ciscoCallApplicationMIBGroups 12 }
+
+ccapAppIntfAAAMethodListGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppIntfAAAMethodListStats,
+	    ccapAppIntfAAAMethodListEvtLog,
+	    ccapAppIntfAAAMethodListReadRequest,
+	    ccapAppIntfAAAMethodListReadSuccess,
+	    ccapAppIntfAAAMethodListReadFailure,
+	    ccapAppIntfAAAMethodListLastResetTime
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display statistics related
+                to interaction between application instances and AAA
+                methods."
+	::= { ciscoCallApplicationMIBGroups 13 }
+
+ccapAppIntfASRGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppIntfASRStats,
+	    ccapAppIntfASREvtLog,
+	    ccapAppIntfASRReadRequest,
+	    ccapAppIntfASRReadSuccess,
+	    ccapAppIntfASRReadFailure,
+	    ccapAppIntfASRLastResetTime
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display statistics related
+                to interaction between application instances and ASR 
+                (Automatic Speech Recognition) servers."
+	::= { ciscoCallApplicationMIBGroups 14 }
+
+ccapAppIntfTTSGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppIntfTTSStats,
+	    ccapAppIntfTTSEvtLog,
+	    ccapAppIntfTTSReadRequest,
+	    ccapAppIntfTTSReadSuccess,
+	    ccapAppIntfTTSReadFailure,
+	    ccapAppIntfTTSLastResetTime
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display statistics related
+                to interaction between application instances and TTS 
+                (Text To Speech) servers."
+ 	::= { ciscoCallApplicationMIBGroups 15 }
+
+ccapAppIntfFlashGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppIntfFlashReadRequest,
+	    ccapAppIntfFlashReadSuccess,
+	    ccapAppIntfFlashReadFailure
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display statistics related
+                to interaction between application instances and Flash
+                file system on the IOS gateway."
+	::= { ciscoCallApplicationMIBGroups 16 }
+
+ccapAppIntfRAMRecordGroup OBJECT-GROUP
+	OBJECTS {
+	    ccapAppIntfRAMRecordReadRequest,
+	    ccapAppIntfRAMRecordReadSuccess,
+	    ccapAppIntfRAMRecordiongReadFailure,
+	    ccapAppIntfRAMRecordRequest,
+	    ccapAppIntfRAMRecordSuccess,
+	    ccapAppIntfRAMRecordiongFailure
+	}
+	STATUS	current
+	DESCRIPTION
+		"A collection of objects to display statistics related
+                to interaction between application instances and media
+                recording posted and re-read from RAM (memory) on this
+                gateway."
+	::= { ciscoCallApplicationMIBGroups 17 }
+
+
+END

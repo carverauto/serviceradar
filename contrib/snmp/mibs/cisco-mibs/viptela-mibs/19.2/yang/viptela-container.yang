@@ -1,0 +1,269 @@
+module viptela-container {
+  namespace "http://viptela.com/container";
+  prefix viptela-container;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+    prefix tailf;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import viptela-system {
+    prefix viptela-system;
+  }
+  import viptela-vpn {
+    prefix viptela-vpn;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines data model for Viptela containers";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-02-01 {
+    description
+      "Initial revision";
+  }
+
+  typedef container-personality-enum {
+    type enumeration {
+      enum "vsmart" {
+        value 1;
+      }
+    }
+  }
+
+  container container {
+    description "Configure containers";
+    when "(/viptela-system:system/viptela-system:personality = 'vcontainer')";
+    list instance {
+      description "Instance configuration";
+      key "name";
+      leaf name {
+        description "Name of the instance";
+        type viptela:named-type;
+      }
+      leaf description {
+        description "Description of the instance";
+        type string {
+          length "1..128";
+          pattern "[^<>]*";
+        }
+      }
+      leaf image {
+        description "Image version";
+        mandatory true;
+        type viptela:named-type;
+      }
+      leaf shutdown {
+        description "Administrative state";
+        type boolean;
+        default "true";
+      }
+      leaf memory {
+        description "Specify memory limit, in megabytes";
+        type uint32 {
+          description "<256..16384>MB";
+          range "256..16384";
+        }
+        default "512";
+      }
+      list allow-address {
+        description "Instance configuration";
+        key "source-ip dest-port protocol";
+        max-elements "64";
+        must "((dest-port = 0) and (protocol = 'icmp')) or (protocol != 'icmp')" {
+          error-message "ICMP cannot have ports";
+        }
+        must "((dest-port = 0) and (protocol = 'all')) or (protocol != 'all')" {
+          error-message "All traffic cannot have ports";
+        }
+        leaf source-ip {
+          description "IP prefix";
+          type inet:ipv4-prefix;
+        }
+        leaf dest-port {
+          description "Port number";
+          type viptela:range-type {
+            description "<0..65535> or range";
+          }
+        }
+        leaf protocol {
+          description "Protocol";
+          type enumeration {
+            enum "all";
+            enum "tcp";
+            enum "udp";
+            enum "icmp";
+          }
+        }
+      }
+      list interface {
+        description "Create container interface";
+        max-elements "10";
+        key "name";
+        leaf name {
+          description
+            "Name of the interface
+               vSmart:eth[0-9], vEdge:eth0, ge0/[0-8]";
+          type string {
+            length "1..5";
+            description
+              "Name of the interface
+                 vsmart:eth[0-9], vedge:eth0, ge0/[0-8]";
+            pattern "eth[0-9]|ge0/[0-8]";
+          }
+        }
+        leaf host-ip-address {
+          description "Host IP address of the interface";
+          mandatory true;
+          type inet:ipv4-address;
+        }
+      }
+    }
+    list images {
+      config false;
+      description "Images information";
+      key "version";
+      leaf version {
+        description "Image version";
+        type viptela:named-type;
+      }
+      list instances {
+        description "Instances information";
+        key "instance";
+        leaf instance {
+          description "Instance name";
+          type viptela:named-type;
+        }
+      }
+    }
+    list instances {
+      config false;
+      description "Instances information";
+      key "name";
+      leaf name {
+        description "Name of the instance";
+        type viptela:named-type;
+      }
+      leaf admin-state {
+        description "State of the instance";
+        type enumeration {
+          enum "up";
+          enum "down";
+        }
+      }
+      leaf oper-state {
+        description "State of the instance";
+        type enumeration {
+          enum "up";
+          enum "down";
+        }
+      }
+      leaf image {
+        description "Name of the image";
+        type viptela:named-type;
+      }
+      leaf personality {
+        description "Personality";
+        type container-personality-enum;
+      }
+      list interface {
+        description "Interface information";
+        key "if-name";
+        leaf if-name {
+          description "Name of the interface";
+          type viptela:named-type;
+        }
+        leaf ip-address {
+          description "Address of the interface";
+          type inet:ip-address;
+        }
+        leaf host-ip-address {
+          description "Host address of the interface";
+          type inet:ip-address;
+        }
+      }
+    }
+  }
+}

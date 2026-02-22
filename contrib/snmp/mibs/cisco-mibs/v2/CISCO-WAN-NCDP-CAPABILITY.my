@@ -1,0 +1,74 @@
+-- *****************************************************************
+-- ciscoWanNcdpCapabilities MIB
+--
+-- AGENT-CAPABILITIES mib for CISCO-WAN-NCDP-MIB in Cisco MGX8800
+-- series and other Products.
+--
+-- Copyright(c) 2001 by Cisco Systems,Inc.
+--
+-- Author: Michael.Sung 
+-- *****************************************************************
+
+CISCO-WAN-NCDP-CAPABILITY DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY
+                FROM SNMPv2-SMI
+        AGENT-CAPABILITIES
+                FROM SNMPv2-CONF
+        ciscoAgentCapability
+                FROM CISCO-SMI;   
+
+ciscoWanNcdpCapability MODULE-IDENTITY
+        LAST-UPDATED    "200109140000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                        Tel: +1 800 553-NETS
+
+                E-mail: cs-wanatm@cisco.com"
+        DESCRIPTION
+                "The Agent Capabilities for CISCO-WAN-NCDP-MIB."
+        ::= { ciscoAgentCapability 9999 }
+
+ciscoWanNcdpCapabilityV3R00 AGENT-CAPABILITIES
+    PRODUCT-RELEASE      "MGX8850 Release 3.00"
+    STATUS               current
+    DESCRIPTION          "NCDP MIB Capabilities."
+
+    SUPPORTS CISCO-WAN-NCDP-MIB
+        INCLUDES {   
+                   ciscoWanNcdpGlobalGroup,
+                   ciscoWanNcdpClockSourceGroup,
+                   ciscoWanNcdpManualGroup,
+                   ciscoWanNcdpAtmGroup
+                 }
+     
+    VARIATION cwnManualRowStatus
+    SYNTAX    INTEGER {
+                  active(1),
+                  createAndGo(4),
+                  destroy(6)
+              }
+    DESCRIPTION "Does not support values notInService(2), notReady(3),
+                 createAndWait(5)."
+
+    VARIATION cwnAtmSourceRowStatus
+    SYNTAX    INTEGER {
+                  active(1),
+                  createAndGo(4),
+                  destroy(6)
+              }
+    DESCRIPTION "Does not support values notInService(2),
+                 createAndWait(5). The value active(1)
+                 is not supported for set."
+
+    ::= { ciscoWanNcdpCapability 1 }
+END
+

@@ -1,0 +1,763 @@
+-- *****************************************************************
+-- CISCO-MDI-METRICS-MIB
+-- Definitions of managed objects describing MDI flow metrics.
+--   
+-- October 2008, Patrick R. Gili
+--   
+-- Copyright (c) 2009 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-MDI-METRICS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-IDENTITY,
+    OBJECT-TYPE,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    TimeStamp
+        FROM SNMPv2-TC
+    ReportIntervalCount
+        FROM CISCO-REPORT-INTERVAL-TC-MIB
+    FlowCfgRateType,
+    FlowBitRateUnits,
+    FlowMetricScale,
+    FlowMetricPrecision,
+    FlowMetricValue
+        FROM CISCO-FLOW-MONITOR-TC-MIB
+    cfmFlowMonitorId,
+    cfmFlowId,
+    cfmFlowMetricsIntNumber
+        FROM CISCO-FLOW-MONITOR-MIB
+    TimeIntervalMin
+        FROM CISCO-TC
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoMdiMetricsMIB MODULE-IDENTITY
+    LAST-UPDATED    "200911020000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal:  170 W Tasman Drive
+            San Jose, CA 95134
+
+            Tel:  +1 800 553-NETS
+
+            E-mail:  cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module defines objects that describe the Media
+        Delivery Index (MDI).  The MDI [RFC4445] measurement describes
+        the quality indicator of a network intended to delivery
+        applications such as streaming media, MPEG video, VoIP, or other
+        information sensitive to arrival time and packet loss.
+
+        GLOSSARY
+        ============
+
+        Delay Factor - the maximum observed value of the flow rate
+            imbalance over a measurement interval.
+
+        DF - Delay Factor.
+
+        Flow Monitor - a hardware or software entity that classifies
+            traffic flows, collects flow data, and periodically
+            computes flow metrics.
+
+        Flow Metric - a measurement that reflects the quality of a
+            traffic flow.
+
+        Measurement Interval - the length of time over which a flow
+            monitor collects data related to a traffic flow, after which
+            the flow monitor computes flow metrics using the collected
+            data.
+
+        Media Loss Rate - the number of lost or out-of-order packets
+            over a measurement interval.
+
+        Media Rate - the effective bit rate of the media content carried
+        by a traffic flow.
+
+        MLR - Media Loss Rate.
+
+        MR - Media Rate.
+
+        Traffic Flow - a unidirectional stream of packets conforming to
+            a classifier.  For example, packets having a particular 
+            source IP address, destination IP address, protocol type,
+            source port number, and destination port number.
+
+        VB - Virtual Buffer.
+
+        Virtual Buffer - a virtual buffer is a construct used to
+            simulate a real buffer used by a media application for the
+            purpose of storing media packets until the application can
+            render their content.
+
+        REFERENCES
+        ==============
+
+        [RFC4445]   J. Welch and J. Clark, 'A Proposed Media Delivery
+                    Index (MDI)', RFC-4445, April 2006."
+    REVISION        "200911020000Z"
+    DESCRIPTION
+        "Added the objects cfmMdiMetricsMdc, cfmMdiMetricsIntMdc.
+        Modified the objects cfmMdiMetricsValid and
+        cfmMdiMetricsIntValid with values to support the above object
+        additions. Added cfmeMdiCumulativeMdc and cfmeMdiMdc to
+        cfmMdiMonitoredElements."
+    REVISION        "200906050000Z"
+    DESCRIPTION
+        "The initial version of the MIB module."
+    ::= { ciscoMgmt 699 }
+
+
+-- **********************************************************************
+-- * Top-Level Trees                                                    *
+-- **********************************************************************
+
+ciscoMdiMetricsMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoMdiMetricsMIB 0 }
+
+ciscoMdiMetricsMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoMdiMetricsMIB 1 }
+
+ciscoMdiMetricsMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoMdiMetricsMIB 2 }
+
+ciscoMdiMetricsMIBIds  OBJECT IDENTIFIER
+    ::= { ciscoMdiMetricsMIB 3 }
+
+-- **********************************************************************
+-- * Objects                                                            *
+-- **********************************************************************
+
+cfmMdiMetrics  OBJECT IDENTIFIER
+    ::= { ciscoMdiMetricsMIBObjects 1 }
+
+
+cfmMdiMetricsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmMdiMetricsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains aggregate data maintained by a flow
+        monitor for traffic flows for which it is computing MDI
+        metrics.
+
+        This table has an sparse dependent relationship on the
+        cfmFlowMetricsTable (defined by the CISCO-FLOW-MONITOR-MIB),
+        containing a row for each row in the cfmFlowMetricsTable having
+        a corresponding instance of cfmFlowMetricsCollected with the
+        'mdi' bit set to one."
+    ::= { cfmMdiMetrics 1 }
+
+cfmMdiMetricsEntry OBJECT-TYPE
+    SYNTAX          CfmMdiMetricsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes cumulative and aggregate MDI metrics for a
+        single traffic flow.
+
+        The devices creates a row in the cfmMdiMetricsTable when a flow
+        monitor starts monitoring a traffic flow and has been configured
+        to compute MDI metrics for the same traffic flow. Likewise, the
+        device destroys a row in the cfmMdiMetricsMetricsTable when the
+        corresponding flow monitor has ceased monitoring the traffic
+        flow (e.g., when a traffic flow has timed out)."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId
+                    } 
+    ::= { cfmMdiMetricsTable 1 }
+
+CfmMdiMetricsEntry ::= SEQUENCE {
+        cfmMdiMetricsCfgRateType     FlowCfgRateType,
+        cfmMdiMetricsCfgBitRate      FlowBitRateUnits,
+        cfmMdiMetricsCfgRate         Unsigned32,
+        cfmMdiMetricsCfgMediaPktSize Unsigned32,
+        cfmMdiMetricsValid           BITS,
+        cfmMdiMetricsLostPkts        Counter64,
+        cfmMdiMetricsMlrScale        FlowMetricScale,
+        cfmMdiMetricsMlrPrecision    FlowMetricPrecision,
+        cfmMdiMetricsMlr             FlowMetricValue,
+        cfmMdiMetricsMdc             Counter64
+}
+
+cfmMdiMetricsCfgRateType OBJECT-TYPE
+    SYNTAX          FlowCfgRateType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates how the corresponding flow monitor
+        computes the DF for the traffic flow." 
+    ::= { cfmMdiMetricsEntry 1 }
+
+cfmMdiMetricsCfgBitRate OBJECT-TYPE
+    SYNTAX          FlowBitRateUnits
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmMdiMetricsCfgRate.  The value of this column only has
+        relevance if the corresponding instance of
+        cfmMdiMetricsCfgRateType is 'ipBitRate' or 'mediaRate'." 
+    ::= { cfmMdiMetricsEntry 2 }
+
+cfmMdiMetricsCfgRate OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured bit rate used by the flow
+        monitor to compute the DF for the traffic flow.  The value of
+        this column only has relevance if the corresponding instance of
+        cfmMdiMetricsCfgRateType is 'ipBitRate' or 'mediaRate'." 
+    ::= { cfmMdiMetricsEntry 3 }
+
+cfmMdiMetricsCfgMediaPktSize OBJECT-TYPE
+    SYNTAX          Unsigned32 (64..65535)
+    UNITS           "octets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the configured media packet size used by
+        the flow monitor to compute the DF for the traffic flow.  The
+        value of this column only has relevance if the corresponding
+        instance of cfmMdiMetricsCfgRateType is 'mediaRate'." 
+    ::= { cfmMdiMetricsEntry 4 }
+
+cfmMdiMetricsValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        lostPkts(0),
+                        mediaLossRate(1),
+                        mediaDiscontinuityCount(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which metrics are valid for the traffic
+        flow:
+
+            'lostPkts'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMdiMetricsLostPkts is valid.
+
+            'mediaLossRate'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMdiMetricsMlrScale,
+                cfmMdiMetricsMlrPrecision, and cfmMdiMetricsMlr are
+                valid.
+
+            'mediaDiscontinuityCount'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMdiMetricsMdc is valid." 
+    ::= { cfmMdiMetricsEntry 5 }
+
+cfmMdiMetricsLostPkts OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets lost for the
+        traffic flow.
+
+        The value of this column is valid if and only if the 'lostPkts'
+        bit in the corresponding instance of cfmMdiMetricsValid is set
+        to '1'." 
+    ::= { cfmMdiMetricsEntry 6 }
+
+cfmMdiMetricsMlrScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scale factor for the corresponding
+        instance of cfmMdiMetricsMlr.
+
+        The value of this column is valid if and only if the
+        'mediaLossRate' bit in the corresponding instance of
+        cfmMdiMetricsValid is set to '1'." 
+    ::= { cfmMdiMetricsEntry 7 }
+
+cfmMdiMetricsMlrPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmMdiMetricsMlr.
+
+        The value of this column is valid if and only if the
+        'mediaLossRate' bit in the corresponding instance of
+        cfmMdiMetricsValid is set to '1'." 
+    ::= { cfmMdiMetricsEntry 8 }
+
+cfmMdiMetricsMlr OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    UNITS           "packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the MLR for the traffic flow since the
+        flow monitor started collecting data for the traffic flow.
+
+        The value of this column is valid if and only if the
+        'mediaLossRate' bit in the corresponding instance of
+        cfmMdiMetricsValid is set to '1'." 
+    ::= { cfmMdiMetricsEntry 9 }
+
+cfmMdiMetricsMdc OBJECT-TYPE
+    SYNTAX          Counter64
+    UNITS           "Events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the media discontinuity events count for
+        the traffic flow since the flow monitor started collecting data
+        for the traffic flow.
+
+        The value of this column is valid if and only if the
+        'mediaDiscontinuityCount' bit in the corresponding instance of
+        cfmMdiMetricsValid is set to '1'." 
+    ::= { cfmMdiMetricsEntry 10 }
+ 
+
+
+cfmMdiMetricsTableChanged OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the value of sysUpTime the last time the
+        device created/destroyed a row in the cfmMdiMetricsTable." 
+    ::= { cfmMdiMetrics 2 }
+
+cfmMdiMetricsIntTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CfmMdiMetricsIntEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains historic MDI metrics for the traffic flows
+        monitored by each of the flow monitors supported by the device.
+
+        This table has an sparse dependent relationship on the
+        cfmFlowMetricsIntTable (defined by the CISCO-FLOW-MONITOR-MIB),
+        containing a row for each row in the cfmFlowMetricsIntTable
+        having a corresponding instance of cfmFlowMetricsCollected with
+        the 'mdi' bit set to one."
+    ::= { cfmMdiMetrics 3 }
+
+cfmMdiMetricsIntEntry OBJECT-TYPE
+    SYNTAX          CfmMdiMetricsIntEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry describes MDI metrics collected for a previous
+        measurement interval for a corresponding traffic flow."
+    INDEX           {
+                        cfmFlowMonitorId,
+                        cfmFlowId,
+                        cfmFlowMetricsIntNumber
+                    } 
+    ::= { cfmMdiMetricsIntTable 1 }
+
+CfmMdiMetricsIntEntry ::= SEQUENCE {
+        cfmMdiMetricsIntValid        BITS,
+        cfmMdiMetricsIntLostPkts     ReportIntervalCount,
+        cfmMdiMetricsIntVbMin        ReportIntervalCount,
+        cfmMdiMetricsIntVbMax        ReportIntervalCount,
+        cfmMdiMetricsIntMrUnits      FlowBitRateUnits,
+        cfmMdiMetricsIntMr           ReportIntervalCount,
+        cfmMdiMetricsIntDfScale      FlowMetricScale,
+        cfmMdiMetricsIntDfPrecision  FlowMetricPrecision,
+        cfmMdiMetricsIntDf           FlowMetricValue,
+        cfmMdiMetricsIntMlrScale     FlowMetricScale,
+        cfmMdiMetricsIntMlrPrecision FlowMetricPrecision,
+        cfmMdiMetricsIntMlr          FlowMetricValue,
+        cfmMdiMetricsIntMdc          ReportIntervalCount
+}
+
+cfmMdiMetricsIntValid OBJECT-TYPE
+    SYNTAX          BITS {
+                        lostPkts(0),
+                        vbMin(1),
+                        vbMax(2),
+                        mediaRate(3),
+                        delayFactor(4),
+                        mediaLossRate(5),
+                        mediaDiscontinuityCount(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates which metrics are valid for the
+        measurement interval:
+
+            'lostPkts'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMdiMetricsIntLostPkts is valid.
+
+            'vbMin'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMdiMetricsIntVbMin is valid.
+
+            'vbMax'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMdiMetricsIntVbMax is valid.
+
+            'mediaRate'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMdiMetricsIntMrUnits and
+                cfmMdiMetricsIntMr are valid.
+
+            'delayFactor'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMdiMetricsIntDfScale,
+                cfmMdiMetricsIntDfPrecision, and cfmMdiMetricsIntDf are
+                valid.
+
+            'mediaLossRate'
+                If this bit is set to '1', then the corresponding
+                instances of cfmMdiMetricsIntMlrScale,
+                cfmMdiMetricsIntMlrPrecision, and cfmMdiMetricsIntMlr
+                are valid.
+
+            'mediaDiscontinuityCount'
+                If this bit is set to '1', then the corresponding
+                instance of cfmMdiMetricsIntMdc is valid." 
+    ::= { cfmMdiMetricsIntEntry 1 }
+
+cfmMdiMetricsIntLostPkts OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "packets"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the number of packets lost for the
+        traffic flow during the measurement interval.
+
+        The value of this column is valid if and only if the 'lostPkts'
+        bit in the corresponding instance of cfmMdiMetricsValid is set
+        to '1'." 
+    ::= { cfmMdiMetricsIntEntry 2 }
+
+cfmMdiMetricsIntVbMin OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the minimum virtual buffer size computed
+        for the traffic flow over the course of the measurement
+        interval.
+
+        The value of this column is valid if and only if the 'vbMin'
+        bit in the corresponding instance of cfmMdiMetricsValid is set
+        to '1'." 
+    ::= { cfmMdiMetricsIntEntry 3 }
+
+cfmMdiMetricsIntVbMax OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "bytes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the maximum virtual buffer size computed
+        for the traffic flow over the course of the measurement
+        interval.
+
+        The value of this column is valid if and only if the 'vbMax' bit
+        in the corresponding instance of cfmMdiMetricsIntValid is set to
+        '1'." 
+    ::= { cfmMdiMetricsIntEntry 4 }
+
+cfmMdiMetricsIntMrUnits OBJECT-TYPE
+    SYNTAX          FlowBitRateUnits
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the units for the corresponding instance
+        of cfmMdiMetricsIntMr.
+
+        The value of this column is valid if and only if the 'mediaRate'
+        bit in the corresponding instance of cfmMdiMetricsIntValid is
+        set to '1'." 
+    ::= { cfmMdiMetricsIntEntry 5 }
+
+cfmMdiMetricsIntMr OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the media rate used by the flow monitor
+        to compute the DF for the traffic flow.  If the corresponding
+        instance of cfmMdiMetricsCfgRateType is 'auto', then the value
+        of this column indicates the MR for the traffic flow during the
+        measurement interval.  Otherwise, the value  of this column
+        reflects the configure MR.
+
+        The value of this column is valid if and only if the 'mediaRate'
+        bit in the corresponding instance of cfmMdiMetricsIntValid is
+        set to '1'." 
+    ::= { cfmMdiMetricsIntEntry 6 }
+
+cfmMdiMetricsIntDfScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmMdiMetricsIntDf.
+
+        The value of this column is valid if and only if the
+        'delayFactor' bit in the corresponding instance of
+        cfmMdiMetricsIntValid is set to '1'." 
+    ::= { cfmMdiMetricsIntEntry 7 }
+
+cfmMdiMetricsIntDfPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmMdiMetricsIntDf.
+
+        The value of this column is valid if and only if the
+        'delayFactor' bit in the corresponding instance of
+        cfmMdiMetricsIntValid is set to '1'." 
+    ::= { cfmMdiMetricsIntEntry 8 }
+
+cfmMdiMetricsIntDf OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the DF for the traffic flow during the
+        measurement interval.
+
+        The value of this column is valid if and only if the
+        'delayFactor' bit in the corresponding instance of
+        cfmMdiMetricsIntValid is set to '1'." 
+    ::= { cfmMdiMetricsIntEntry 9 }
+
+cfmMdiMetricsIntMlrScale OBJECT-TYPE
+    SYNTAX          FlowMetricScale
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the scaling factor for the corresponding
+        instance of cfmMdiMetricsIntMlr.
+
+        The value of this column is valid if and only if the
+        'mediaLossRate' bit in the corresponding instance of
+        cfmMdiMetricsIntValid is set to '1'." 
+    ::= { cfmMdiMetricsIntEntry 10 }
+
+cfmMdiMetricsIntMlrPrecision OBJECT-TYPE
+    SYNTAX          FlowMetricPrecision
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the precision for the corresponding
+        instance of cfmMdiMetricsIntMlr.
+
+        The value of this column is valid if and only if the
+        'mediaLossRate' bit in the corresponding instance of
+        cfmMdiMetricsIntValid is set to '1'." 
+    ::= { cfmMdiMetricsIntEntry 11 }
+
+cfmMdiMetricsIntMlr OBJECT-TYPE
+    SYNTAX          FlowMetricValue
+    UNITS           "packets per second"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the MLR for the traffic flow during the
+        measurement interval.
+
+        The value of this column is valid if and only if the
+        'mediaLossRate' bit in the corresponding instance of
+        cfmMdiMetricsIntValid is set to '1'." 
+    ::= { cfmMdiMetricsIntEntry 12 }
+
+cfmMdiMetricsIntMdc OBJECT-TYPE
+    SYNTAX          ReportIntervalCount
+    UNITS           "Events"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object indicates the media discontinuity events count for
+        the traffic flow during the measurement interval.
+
+        The value of this column is valid if and only if the
+        'mediaDiscontinuityCount' bit in the corresponding instance of
+        cfmMdiMetricsIntValid is set to '1'." 
+    ::= { cfmMdiMetricsIntEntry 13 }
+ 
+
+-- **********************************************************************
+-- * Object Identifiers                                                 *
+-- **********************************************************************
+
+cfmMdiMonitoredElements  OBJECT IDENTIFIER
+    ::= { ciscoMdiMetricsMIBIds 1 }
+
+
+cfmeMdiCumulativeLostPkts OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the cumulative number of lost packets for a traffic
+        flow (cfmMdiMetricsLostPkts)."
+    ::= { cfmMdiMonitoredElements 1 }
+
+
+cfmeMdiCumulativeMlr OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the MDI MLR for a traffic flow (cfmMdiMetricsMlr)."
+    ::= { cfmMdiMonitoredElements 2 }
+
+
+cfmeMdiCumulativeMdc OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the MDI MDC for a traffic flow (cfmMdiMetricsMdc)."
+    ::= { cfmMdiMonitoredElements 3 }
+
+
+cfmeMdiLostPkts OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the number of lost packets for a traffic flow during
+        the last measurement interval (cfmMdiMetricsIntLostPkts)."
+    ::= { cfmMdiMonitoredElements 4 }
+
+
+cfmeMdiDf OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the MDI DF for a traffic flow during the last
+        measurement interval (cfmMdiMetricsIntDf)."
+    ::= { cfmMdiMonitoredElements 5 }
+
+
+cfmeMdiMlr OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the MDI MLR for a traffic flow during the last
+        measurement interval (cfmMdiMetricsIntMlr)."
+    ::= { cfmMdiMonitoredElements 6 }
+
+
+cfmeMdiMdc OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object identifier represents the monitored element
+        describing the MDI MDC for a traffic flow during the last
+        measurement interval (cfmMdiMetricsIntMdc)."
+    ::= { cfmMdiMonitoredElements 7 }
+
+-- **********************************************************************
+-- * Conformance                                                        *
+-- **********************************************************************
+
+ciscoMdiMetricsMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoMdiMetricsMIBConform 1 }
+
+ciscoMdiMetricsMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoMdiMetricsMIBConform 2 }
+
+
+ciscoMdiMetricsCompliance01 MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "This compliance statement specifies the minimal requirements an
+        implementation must meet in order to claim full compliance with
+        the definition of the CISCO-MDI-METRICS-MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cfmMdiMetricsGroup }
+    ::= { ciscoMdiMetricsMIBCompliances 1 }
+
+-- **********************************************************************
+-- * Units of Conformance                                               *
+-- **********************************************************************
+
+cfmMdiMetricsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cfmMdiMetricsCfgRateType,
+                        cfmMdiMetricsCfgBitRate,
+                        cfmMdiMetricsCfgRate,
+                        cfmMdiMetricsCfgMediaPktSize,
+                        cfmMdiMetricsValid,
+                        cfmMdiMetricsLostPkts,
+                        cfmMdiMetricsMlrScale,
+                        cfmMdiMetricsMlrPrecision,
+                        cfmMdiMetricsMlr,
+                        cfmMdiMetricsMdc,
+                        cfmMdiMetricsTableChanged,
+                        cfmMdiMetricsIntValid,
+                        cfmMdiMetricsIntLostPkts,
+                        cfmMdiMetricsIntVbMin,
+                        cfmMdiMetricsIntVbMax,
+                        cfmMdiMetricsIntMrUnits,
+                        cfmMdiMetricsIntMr,
+                        cfmMdiMetricsIntDfScale,
+                        cfmMdiMetricsIntDfPrecision,
+                        cfmMdiMetricsIntDf,
+                        cfmMdiMetricsIntMlrScale,
+                        cfmMdiMetricsIntMlrPrecision,
+                        cfmMdiMetricsIntMlr,
+                        cfmMdiMetricsIntMdc
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This group contains objects that describe MDI metrics."
+    ::= { ciscoMdiMetricsMIBGroups 1 }
+
+END
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

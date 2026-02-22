@@ -1,0 +1,52 @@
+-- ****
+-- *------------------------------------------------------------------
+-- * PCUBE-PRODUCTS.my:   Main SNMP MIB for Cisco SCE products.
+-- *
+-- * PCube was acquired by Cisco Systems on August 23, 2004 
+-- *
+-- * Copyright (c) 2002 by Cisco Systems, Inc.
+-- * All rights reserved.
+-- *
+-- *------------------------------------------------------------------
+-- ****
+
+
+PCUBE-PRODUCTS-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    MODULE-IDENTITY
+        FROM SNMPv2-SMI
+    pcubeProducts, pcubeModules
+        FROM PCUBE-SMI;
+        
+
+pcubeProductsMIB MODULE-IDENTITY
+    LAST-UPDATED "200201142000Z"
+    ORGANIZATION  "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+                Customer Service
+
+                Postal: 170 W Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                 Tel: +1 800 553-NETS
+
+                E-mail: cs-sce@cisco.com"
+    DESCRIPTION
+        "This module defines the object identifiers that are
+        assigned to various hardware platforms, and hence are
+        returned as values for sysObjectID."
+    REVISION    "200201142000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { pcubeModules 2 }
+
+sce100 OBJECT IDENTIFIER ::= { pcubeProducts 1 }
+sce1000 OBJECT IDENTIFIER ::= { pcubeProducts 2 }
+sce2000 OBJECT IDENTIFIER ::= { pcubeProducts 3 }
+
+
+END
+
+

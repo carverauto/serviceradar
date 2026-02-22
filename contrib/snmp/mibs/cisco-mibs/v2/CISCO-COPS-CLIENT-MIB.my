@@ -1,0 +1,650 @@
+-- *****************************************************************
+-- Cisco COPS Client MIB
+--
+-- April, 1999 Thomas Wu
+--
+-- Copyright (c) 1999-2000, 2005 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+
+CISCO-COPS-CLIENT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+
+    TEXTUAL-CONVENTION,
+    DisplayString,
+    RowStatus,
+    TruthValue
+        FROM SNMPv2-TC
+
+    ifIndex
+        FROM IF-MIB
+
+    ciscoMgmt
+        FROM CISCO-SMI
+    ;
+
+ciscoCopsClientMIB MODULE-IDENTITY
+    LAST-UPDATED    "200511140000Z"
+    ORGANIZATION    "Cisco Systems Inc. "
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+
+        Postal: 170 W Tasman Drive
+            San Jose, CA 95134
+            USA
+
+        Tel: +1 800 553-NETS
+
+        E-mail: cs-wbu@cisco.com, cs-snmp@cisco.com"
+    DESCRIPTION
+        "This MIB module is for configuration & statistic query
+        of Common Open Policy Service(COPS) client feature on the Cisco
+        device.  COPS is a simple client/server model for supporting
+        policy control over QoS Signaling Protocols and provisioned QoS
+        resource management.
+
+        COPS is a simple query and response protocol that can be used to
+        exchange policy information between a policy server (Policy
+        Decision Point or PDP) and its clients (Policy Enforcement Points
+        or PEPs)."
+    REVISION    "200511140000Z"
+    DESCRIPTION
+            "Updated the imports such that Unsigned32 is imported from 
+            SNMPv2-SMI instead of CISCO-TC. Changed the syntax of the 
+            textual conventions CopsRole, CopsRoleCombination, 
+            CopsDomainName from DisplayString to OCTET STRING."
+    REVISION    "200006110000Z"
+    DESCRIPTION
+            "Added support for optional role configuration."
+    REVISION    "9909160040Z"
+    DESCRIPTION
+            "Initial version of this MIB module."
+    ::= { ciscoMgmt 140 }
+
+--
+-- Textual Conventions
+--
+CopsRole ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "A display string where valid letters are a-z, A-Z, 0-9,
+        ., - and _.  Name can not start with an '_'.
+        Policies are assigned to a 'role', and one or more 'roles' are
+        assigned to interfaces, such that an interface takes on the
+        policies indirectly as the policies of the roles assigned to
+        that interface."
+    SYNTAX  OCTET STRING (SIZE (1..31))
+
+CopsRoleCombination ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "A display string consisting of a set of roles concatenated
+        with '+' characters where the roles are in lexicographic
+        order from minimum to maximum.  Policies are assigned to a
+        'role', and one or more 'roles' are assigned to interfaces,
+        such that an interface takes on the policies indirectly as
+        the policies of the roles assigned to that interface.
+        When one or more roles assigned to an interface, that set of
+        roles is known as a role-combination."
+    SYNTAX  OCTET STRING (SIZE (0..255))
+
+CopsDomainName ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "A display string where valid letters are a-z, A-Z, 0-9,
+        ., - and _.  Name can not start with an '_'.
+        The COPS domain which a COPS client type belongs to.
+        This is so that a COPS server supporting multiple domains
+        can push the correct set of domain policies to a device."
+    SYNTAX  OCTET STRING (SIZE (0..31))
+
+CopsClientType ::= TEXTUAL-CONVENTION
+    STATUS  current
+    DESCRIPTION
+        "An enumerated value for all the supported COPS client type.
+        rsvp(1)             Resource Reservation Protocol(RSVP).  RSVP is a
+                            signaling mechanism that the applications will
+                            use to signal parameters to the network, so that
+                            network can assign QoS for the application data
+                            stream.
+        provisioning(2)     Provisioning.  A client type for COPS to support
+                            policy provisioning.  This client type is
+                            independent of the type of policy (QoS, VPNs,
+                            Security, etc.) and it is based on the concept
+                            of PIBs (Policy Information Bases [PIB])."
+    SYNTAX  INTEGER {
+        rsvp(1),
+        provisioning(2)
+    }
+
+ccopsMIBObjects OBJECT IDENTIFIER ::= { ciscoCopsClientMIB 1 }
+
+-- object groups
+
+ccopsGlobalObjects       OBJECT IDENTIFIER ::= { ccopsMIBObjects 1 }
+
+--
+-- The ccopsGlobalObjects group
+--
+ccopsServerMax OBJECT-TYPE
+        SYNTAX      Unsigned32 (0..65535)
+        UNITS       "servers"
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "Maximum number of configurable COPS servers allowed for
+            each client type.  A value of zero indicates no limitation
+            on the number of configurable COPS servers."
+        ::= { ccopsGlobalObjects 1 }
+
+ccopsMaxRole OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "roles"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Indicates the maximum number of roles supported by
+            this device.  A value of zero indicates no limitation on
+            the number of roles."
+        ::= { ccopsGlobalObjects 2 }
+
+ccopsMaxRoleCombination OBJECT-TYPE
+        SYNTAX     Unsigned32
+        UNITS      "role-combinations"
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+            "Indicates the maximum number of role-combinations supported
+            by this device.  A value of zero indicates no limitation on
+            the number of role-combinations.  Each CopsRoleCombination
+            may contain up to ccopsMaxRole roles."
+        ::= { ccopsGlobalObjects 3 }
+
+--
+-- COPS Client Server Configuration Table
+--
+ccopsServerConfigTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CcopsServerConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "A list of possible COPS servers that the COPS client will
+            try to connect to in order of ccopsServerConfigPriority."
+        ::= { ccopsGlobalObjects 4 }
+
+ccopsServerConfigEntry  OBJECT-TYPE
+        SYNTAX     CcopsServerConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "A set of configuration information regarding a single COPS
+            server from the point of view of a COPS client.  The entry
+            is created and deleted by using ccopsServerConfigStatus.
+
+            An entry may not exist in the active state unless all
+            objects in the entry have an appropriate value.
+
+            Each client type can have its own COPS servers.
+            By creating, deleting or modifying an entry in this table,
+            users can add, delete or modify a COPS server for a particular
+            client type for the device.
+
+            In order to get policies from COPS server for a client type,
+            user has to create an entry for such client type."
+        INDEX  { ccopsServerConfigClientType,
+                 IMPLIED ccopsServerConfigName }
+        ::= { ccopsServerConfigTable 1 }
+
+CcopsServerConfigEntry ::=
+     SEQUENCE {
+        ccopsServerConfigClientType     CopsClientType,
+        ccopsServerConfigName           DisplayString,
+        ccopsServerConfigPriority       Unsigned32,
+        ccopsServerConfigPort           Unsigned32,
+        ccopsServerConfigStatus         RowStatus
+     }
+
+ccopsServerConfigClientType OBJECT-TYPE
+        SYNTAX     CopsClientType
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "The type of policies to be retrieved from this server."
+        ::= { ccopsServerConfigEntry 1 }
+
+ccopsServerConfigName OBJECT-TYPE
+        SYNTAX     DisplayString (SIZE (1..64))
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "The IP address or the hostname of a COPS server. If a hostname
+            is used, it will be resolved to an address prior to each attempt
+            to setup a connection to a PDP. If the PEP cannot resolve the
+            hostname, the connection attempt will fail.
+            Use of IP address values is preferred, except in cases where a
+            hostname must/should be used (e.g. if the PDP has a dynamic
+            address)"
+        ::= { ccopsServerConfigEntry 2 }
+
+ccopsServerConfigPriority OBJECT-TYPE
+        SYNTAX     Unsigned32 (0..255)
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+            "The priority of this entry relative to other entries.
+            The COPS client will attempt to contact COPS servers for
+            the appropriate Client-Type in the order of their
+            priority values.  COPS servers designated by the COPS
+            protocol PDP-Redirect mechanism are always used in
+            preference to any entries in this table.
+
+            When ccopsServerMax mib object is not zero, the valid
+            value for ccopsServerConfigPriority ranges from zero to
+            ccopsServerMax minus one.  When the ccopsServerMax
+            mib object is zero, any valid unsigned value may be used.
+
+            For servers with different value of ccopsServerConfigPriority,
+            the server with lowest value has highest priority.
+
+            For servers with same value of ccopsServerConfigPriority
+            and ccopsServerConfigClientType, the relative priority
+            of Servers is determined by a numerical comparison of their
+            IP addresses, with the lowest address having higher priority."
+        REFERENCE
+            "Reference Internet Draft, The COPS (Common Open Policy
+            Service) Protocol, PDP Redirect."
+        ::= { ccopsServerConfigEntry 3 }
+
+ccopsServerConfigPort OBJECT-TYPE
+        SYNTAX     Unsigned32 (0..65535)
+        MAX-ACCESS read-create
+        STATUS     current
+        DESCRIPTION
+            "The destination port number to which COPS server messages
+            should be sent.  By default the COPS service will be provided
+            on the well-known COPS protocol port number 3288."
+        REFERENCE
+            "Reference Internet Draft, The COPS (Common Open Policy
+            Service) Protocol, Port number."
+        DEFVAL { 3288 }
+        ::= { ccopsServerConfigEntry 4 }
+
+ccopsServerConfigStatus  OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+            "The status of COPS server configuration for a client type.
+            An entry may not exist in the active state unless all
+            objects in the entry have an appropriate value.
+
+            Once a row becomes active, value in any other column within
+            such row cannot be modified except by setting
+            ccopsServerConfigStatus to notInService(2) for such row."
+        ::= { ccopsServerConfigEntry 5 }
+
+ccopsInitialTimeout  OBJECT-TYPE
+        SYNTAX     Unsigned32 (0..65535)
+        UNITS      "seconds"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+            "If the device can not connect to the last connected COPS
+            server, it uses this value for the initial retry time-out
+            and then retries to connect after this time-out period.
+            This value is re-used for the first retry after every
+            successful connection.
+
+            When the device is connecting to COPS server the first
+            time or the last connected COPS server is no longer
+            available, it will attempt to contact COPS servers existing
+            in ccopsServerConfigTable for the appropriate Client-Type
+            in the order of their priority values."
+        DEFVAL { 30 }
+        ::= { ccopsGlobalObjects 5 }
+
+ccopsTimeoutIncrement OBJECT-TYPE
+        SYNTAX     Unsigned32 (0..65535)
+        UNITS      "seconds"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+            "On every consecutive failure to connect to all existing
+            COPS server for a client type, the COPS client increases
+            the retry time-out by ccopsTimeoutIncrement but not greater
+            than ccopsTimeoutMax."
+        DEFVAL { 30 }
+        ::= { ccopsGlobalObjects 6 }
+
+ccopsTimeoutMax OBJECT-TYPE
+        SYNTAX     Unsigned32 (0..65535)
+        UNITS      "seconds"
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+            "The maximum retry time-out that the COPS client allows.
+            On every consecutive failure to connect to all COPS servers,
+            the COPS client increases the retry time-out up to
+            ccopsTimeoutMax."
+        DEFVAL { 300 }
+        ::= { ccopsGlobalObjects 7 }
+
+--
+-- COPS Client Domain Table
+--
+ccopsDomainTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CcopsDomainEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "A list of COPS domains for each client type supported in
+            the device."
+        ::= { ccopsGlobalObjects 8 }
+
+ccopsDomainEntry  OBJECT-TYPE
+        SYNTAX     CcopsDomainEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "A set of domain configuration information regarding a
+            single COPS client type.
+
+            An entry will exist for each COPS client type which is
+            supported in the device.
+
+            For each COPS client type supported in the device, a
+            domain name should be specified if the COPS server for
+            that client type has multiple domains defined in its
+            database."
+        INDEX  { ccopsDomainClientType }
+        ::= { ccopsDomainTable 1 }
+
+CcopsDomainEntry ::=
+     SEQUENCE {
+        ccopsDomainClientType     CopsClientType,
+        ccopsDomainName           CopsDomainName
+     }
+
+ccopsDomainClientType OBJECT-TYPE
+        SYNTAX     CopsClientType
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "The type of COPS client."
+        ::= { ccopsDomainEntry 1 }
+
+ccopsDomainName OBJECT-TYPE
+        SYNTAX     CopsDomainName
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+            "The COPS domain which this client type belongs to.
+            This is so that a COPS server supporting multiple domains
+            can push the correct set of domain policies to this device.
+            Zero length name is default.  COPS server have a default
+            set of policies for clients who have zero length domain
+            names.
+
+            Changing the COPS domain name while qosPolicySource is cops(2)
+            will result in requesting new policies from the cops server and
+            configuring the device with those new policies.  The value of
+            ccopsDomainName is ignored if qosPolicySource is local(1)."
+        REFERENCE
+            "Reference CISCO-QOS-MIB, qosPolicySource."
+        DEFVAL { ''H }
+        ::= { ccopsDomainEntry 2 }
+
+--
+-- COPS client role table
+--
+ccopsRoleTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CcopsRoleEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "A list of roles.  The number of entries is
+            determined by ccopsMaxRole."
+        ::= { ccopsGlobalObjects 9 }
+
+ccopsRoleEntry  OBJECT-TYPE
+        SYNTAX     CcopsRoleEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "Entry containing COPS-PR role information.  The entry is
+            created, deleted and modified by using ccopsRoleStatus.
+
+            There is a maximum on the number of roles which may be
+            configured per device.  In order to make a role available for
+            interface to construct its role combination, such role must
+            exist in the role table.  Deleting a role in ccopsRoleTable
+            also removes that role from all role combinations for all
+            interfaces.
+
+            Therefore, a particular role can not be added into the role
+            combination for any interface if it is removed from this table."
+        INDEX  { IMPLIED ccopsRoleName }
+        ::= { ccopsRoleTable 1 }
+
+CcopsRoleEntry ::= SEQUENCE {
+        ccopsRoleName    CopsRole,
+        ccopsRoleStatus  RowStatus
+}
+
+ccopsRoleName OBJECT-TYPE
+        SYNTAX      CopsRole
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "The name of the role.  Only roles which were defined in COPS
+            server should be used.  COPS server will only supply the policies
+            for those roles defined in its database."
+        ::= { ccopsRoleEntry 1 }
+
+ccopsRoleStatus    OBJECT-TYPE
+        SYNTAX      RowStatus
+        MAX-ACCESS  read-create
+        STATUS      current
+        DESCRIPTION
+            "This object is used to manage creation, deletion and
+            modification of rows in this table.
+
+            An entry may not exist in the active state unless all
+            objects in the entry have an appropriate value.
+            Once a row becomes active, value in any other column within
+            such row cannot be modified except by setting
+            ccopsRoleStatus to notInService(2) for such row.
+
+            Deleting a row results in removing this ccopsRoleName from all
+            role combinations in the ccopsIfTable"
+        ::= { ccopsRoleEntry 2 }
+
+--
+-- COPS client interface table
+--
+ccopsIfTable  OBJECT-TYPE
+        SYNTAX     SEQUENCE OF CcopsIfEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "A list of interface entries.  An entry will exist for each
+            interface which supports COPS-PR feature."
+        ::= { ccopsGlobalObjects 10 }
+
+ccopsIfEntry  OBJECT-TYPE
+        SYNTAX     CcopsIfEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+            "Entry containing COPS status for a particular interface.
+
+            By default each interface has no roles.  It then has a role
+            combination that is the zero length string.
+
+            Roles in a role combination for an interface are reported
+            to the PDP by the PEP.  An interface may have multiple roles.
+            Adding/deleting roles results in changes to the role
+            combination for an interface.  Therefore, a new set of QoS
+            policies will be used for the interface with the new role
+            combination."
+        INDEX  { ifIndex }
+        ::= { ccopsIfTable 1 }
+
+CcopsIfEntry ::= SEQUENCE {
+        ccopsIfRoleCombination      CopsRoleCombination
+}
+
+ccopsIfRoleCombination OBJECT-TYPE
+        SYNTAX      CopsRoleCombination
+        MAX-ACCESS  read-write
+        STATUS      current
+        DESCRIPTION
+            "A display string, role combination, that is associated
+            with an interface.  This is the administratively-desired
+            role combination which represents roles that are currently
+            set by the administrator for a particular interface in the
+            COPS domain.
+
+            If copsMaxRoleCombination is one, the new role will be
+            applied to all interfaces which support COPS feature on
+            the device.  Agent returns inconsistentValue if this role
+            does not exist in ccopsRoleTable, resourceUnavailable if
+            the role combination exceeds copsMaxRoleCombination in the
+            device, wrongValue if a non-lexicographically-ordered value
+            is written to it.
+
+            On some platforms, roles may be assigned per port group
+            rather than per port.  If multiple ports belong to a port
+            group, the role combination assigned to any of the ports
+            in such group will apply to all ports in the same group.
+
+            On some platforms, there can be a single role combination
+            for the entire device.  The role combination assigned to
+            any of the interfaces will apply to all interfaces which
+            support COPS feature in the device."
+        ::= { ccopsIfEntry 1 }
+
+ccopsRoleConfigSupported OBJECT-TYPE
+         SYNTAX TruthValue
+         MAX-ACCESS read-only
+         STATUS current
+         DESCRIPTION
+             "Indicates whether this device supports the ccopsMaxRole
+             and ccopsRoleTable, and thereby, whether a role must be
+             present in the ccopsRoleTable before it can be used within
+             a value of ccopsIfRoleCombination."
+        ::= { ccopsGlobalObjects 11 }
+
+--
+-- Notifications
+--
+ccopsMIBNotifications   OBJECT IDENTIFIER ::= { ciscoCopsClientMIB 2 }
+
+-- no notifications defined
+
+--
+-- Conformance
+--
+ccopsMIBConformance OBJECT IDENTIFIER ::= { ciscoCopsClientMIB 3 }
+
+ccopsMIBCompliances OBJECT IDENTIFIER ::= { ccopsMIBConformance 1 }
+
+ccopsMIBGroups      OBJECT IDENTIFIER ::= { ccopsMIBConformance 2 }
+
+--
+-- Compliance
+--
+ccopsMIBCompliance MODULE-COMPLIANCE
+   STATUS deprecated
+   DESCRIPTION
+            "The compliance statement for the  CISCO-COPS-CLIENT-MIB."
+   MODULE
+       MANDATORY-GROUPS { ccopsGlobalGroup }
+
+   ::= { ccopsMIBCompliances 1 }
+
+ccopsMIBComplianceRev2 MODULE-COMPLIANCE
+   STATUS current
+   DESCRIPTION
+            "The compliance statement for the CISCO-COPS-CLIENT-MIB."
+   MODULE
+       MANDATORY-GROUPS { ccopsGlobalGroupRev2 }
+
+       GROUP        ccopsRoleGroup
+       DESCRIPTION
+           "This group is mandatory in agents for which the value of
+           ccopsRoleConfigSupported is 'true'."
+
+   ::= { ccopsMIBCompliances 2 }
+
+--
+-- Units of Conformance
+--
+ccopsGlobalGroup OBJECT-GROUP
+        OBJECTS {
+            ccopsServerMax,
+            ccopsServerConfigPriority,
+            ccopsServerConfigPort,
+            ccopsServerConfigStatus,
+            ccopsInitialTimeout,
+            ccopsTimeoutIncrement,
+            ccopsTimeoutMax,
+            ccopsDomainName,
+            ccopsMaxRole,
+            ccopsMaxRoleCombination,
+            ccopsRoleStatus,
+            ccopsIfRoleCombination
+        }
+        STATUS deprecated
+        DESCRIPTION
+            "A collection of objects providing the COPS ability on the
+            device.  Devices implementing the COPS client feature should
+            support this group."
+        ::= { ccopsMIBGroups 1 }
+
+ccopsGlobalGroupRev2 OBJECT-GROUP
+        OBJECTS {
+            ccopsServerMax,
+            ccopsServerConfigPriority,
+            ccopsServerConfigPort,
+            ccopsServerConfigStatus,
+            ccopsInitialTimeout,
+            ccopsTimeoutIncrement,
+            ccopsTimeoutMax,
+            ccopsDomainName,
+            ccopsMaxRoleCombination,
+            ccopsIfRoleCombination,
+            ccopsRoleConfigSupported
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects providing the COPS ability on the
+            device."
+        ::= { ccopsMIBGroups 2 }
+
+ccopsRoleGroup OBJECT-GROUP
+        OBJECTS {
+            ccopsMaxRole,
+            ccopsRoleStatus
+        }
+        STATUS current
+        DESCRIPTION
+            "A collection of objects which allow an agent to require
+            a limited set of allowed roles be specified, and to reject
+            any role-combination containing any other role."
+        ::= { ccopsMIBGroups 3 }
+END
+
+ 
+

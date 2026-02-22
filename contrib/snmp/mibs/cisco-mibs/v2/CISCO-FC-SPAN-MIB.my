@@ -1,0 +1,798 @@
+-- *********************************************************************
+-- CISCO-FC-SPAN-MIB.my: Cisco FC SPAN MIB
+--
+-- December 2002, Charuhas Ghatge
+--
+-- Copyright (c) 2002 by cisco Systems, Inc.
+-- All rights reserved.
+--
+-- *********************************************************************
+
+CISCO-FC-SPAN-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS        
+     MODULE-IDENTITY, OBJECT-TYPE,
+     Integer32, Unsigned32                  FROM SNMPv2-SMI
+     MODULE-COMPLIANCE, OBJECT-GROUP        FROM SNMPv2-CONF
+     RowStatus, TEXTUAL-CONVENTION          FROM SNMPv2-TC 
+     SnmpAdminString                        FROM SNMP-FRAMEWORK-MIB
+     InterfaceIndex                         FROM IF-MIB
+     FcList                                 FROM CISCO-ZS-MIB
+     ciscoMgmt                              FROM CISCO-SMI;
+
+
+ciscoFcSpanMIB MODULE-IDENTITY
+        LAST-UPDATED "200304090000Z"
+        ORGANIZATION "Cisco Systems Inc. "
+        CONTACT-INFO
+            "Cisco Systems
+             Postal: 170 W Tasman Drive
+             San Jose, CA  95134
+             USA
+             Tel: +1 800 553 -NETS
+             E-mail: cs-san@cisco.com"
+        DESCRIPTION
+	        "MIB module for displaying and configuring 
+             Switched Port Analyzer(SPAN) related features 
+             in a Fibre Channel device.
+
+             SPAN is a feature that enables the user to analyze
+             network traffic, passing through the ports (called
+             SPAN source ports) in a switched network using
+             SwitchProbe device attached to a switch port called
+             SPAN destination (SD) port. SPAN feature is non-
+             intrusive and does not affect switching of network
+             traffic for any of the source ports."
+ 
+	    
+	REVISION   "200304090000Z"
+        DESCRIPTION
+            "Initial version of this MIB module."
+        ::= { ciscoMgmt 363 }
+
+
+ciscoSpanMIBObjects
+        OBJECT IDENTIFIER ::= { ciscoFcSpanMIB 1 }
+
+cspanConfiguration 
+        OBJECT IDENTIFIER ::= { ciscoSpanMIBObjects 1 }
+
+-- Textual Convention
+
+SessionIndex ::= TEXTUAL-CONVENTION
+   STATUS        current
+   DESCRIPTION
+           "An arbitrary value which identifies a session. "
+   SYNTAX        Unsigned32 (1..4095)
+
+
+-- The SPAN Session Table 
+
+
+cspanMaxSessions   OBJECT-TYPE
+    SYNTAX         Integer32 (1..4095)
+    MAX-ACCESS     read-only
+    STATUS         current
+    DESCRIPTION
+            "Maximum number of SPAN sessions that this device supports."
+    ::= { cspanConfiguration 1 }
+
+
+cspanSessionTable  OBJECT-TYPE
+    SYNTAX         SEQUENCE OF CspanSessionEntry
+    MAX-ACCESS     not-accessible
+    STATUS         current
+    DESCRIPTION   
+           "cspanSessionTable is a table that lets the user configure 
+            and monitor the SPAN sessions.
+
+            A SPAN session represents an association of one destination 
+            port with traffic redirected from different interfaces and 
+            VSANs (Virtual Storage Area Networks).
+
+            In most situations, there would be only one active session.
+            The flexibility to configure multiple sessions is helpful
+            in sharing the analyzer that is attached to the SPAN
+            destination port. In other words, the user can configure
+            multiple sessions, but only one is active.
+
+            However, it is possible to have multiple session active at 
+            a given time. The traffic on the SPAN destination port is 
+            the result of the combination of the active sessions."
+    ::= { cspanConfiguration 2 }
+
+                                 
+cspanSessionEntry   OBJECT-TYPE
+    SYNTAX          CspanSessionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION   
+           "A SPAN session entry. Each session consists of
+            session number, session Administrative Status
+            session OperationStatus, session InactiveReason (if the
+            session OperationStatus is Inactive) and a rowStatus object
+            to add/delete sessions.
+ 
+            cspanSessionIndex is the Index of this table that identifies
+            a session.
+
+            To Add a session:
+
+            1. Specify the session to be added (cspanSessionIndex)
+            2. Set the cspanSessionRowStatus to createAndGo (4).
+
+            To Delete a session:
+
+            1. Specify the session to be deleted (cspanSessionIndex).
+            2. Set the cspanSessionRowStatus to destroy (6).
+            "
+    INDEX  { cspanSessionIndex }
+    ::= { cspanSessionTable 1 }
+
+
+CspanSessionEntry ::=
+        SEQUENCE {                             
+                   cspanSessionIndex            SessionIndex,
+                   cspanSessionDestIfIndex      InterfaceIndex,
+                   cspanSessionAdminStatus      INTEGER,
+                   cspanSessionOperStatus       INTEGER,
+                   cspanSessionInactiveReason   SnmpAdminString,
+                   cspanSessionRowStatus        RowStatus
+        }
+
+
+cspanSessionIndex        OBJECT-TYPE
+    SYNTAX               SessionIndex
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION   
+           "An arbitrary value which identifies a session.
+            The value of this index must be less than the value
+            of cspanMaxSessions." 
+    ::= { cspanSessionEntry 1 }
+
+
+cspanSessionDestIfIndex  OBJECT-TYPE
+    SYNTAX               InterfaceIndex
+    MAX-ACCESS           read-create
+    STATUS               current
+    DESCRIPTION
+           "The ifIndex of the destination port to be configured
+            for the session specified by the instance of
+            cspanSessionIndex."
+    ::= { cspanSessionEntry 2 }
+
+
+cspanSessionAdminStatus  OBJECT-TYPE
+    SYNTAX               INTEGER  {
+                                   active(1),
+                                   inactive(2)
+                         }
+    MAX-ACCESS           read-create
+    STATUS               current
+    DESCRIPTION
+           "This object is used to suspend an active session
+            or activate an inactive session. 
+
+            Note that setting the value to the existing value
+            has no effect on the operation. i.e. setting the
+            value to 'active' when session is 'active' has no 
+            effect."
+    ::= { cspanSessionEntry 3 }
+
+
+cspanSessionOperStatus  OBJECT-TYPE
+    SYNTAX              INTEGER  {
+                                   active(1),
+                                   inactive(2)
+                         }
+    MAX-ACCESS           read-only
+    STATUS               current
+    DESCRIPTION
+           "The current state of the session. "
+    ::= { cspanSessionEntry 4 }
+
+
+cspanSessionInactiveReason  OBJECT-TYPE
+    SYNTAX                  SnmpAdminString
+    MAX-ACCESS              read-only
+    STATUS                  current
+    DESCRIPTION
+           "The description of the reason that this session
+           is not active. This string will be a zero length
+           string in case the session is active."
+    ::= { cspanSessionEntry 5 }
+
+
+cspanSessionRowStatus     OBJECT-TYPE
+        SYNTAX            RowStatus
+        MAX-ACCESS        read-create
+        STATUS            current
+        DESCRIPTION   
+               "Status of this row."
+        ::= { cspanSessionEntry 6 }
+
+
+-- Session Source Interface Table
+
+cspanSourcesIfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CspanSourcesIfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION   
+           "The cspanSourcesIfTable is used to configure source
+            interfaces for SPAN sessions."
+    ::= { cspanConfiguration 3 }
+
+                                 
+cspanSourcesIfEntry OBJECT-TYPE
+    SYNTAX          CspanSourcesIfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION   
+           "A SPAN source interface entry. Each entry consists of
+            session index, interface index of the source interface,
+            the ingress or egress direction of the traffic on that
+            interface and a rowStatus object"
+            
+    INDEX  { 
+             cspanSessionIndex, 
+             cspanSourcesIfIndex,
+             cspanSourcesDirection
+           }
+    ::= { cspanSourcesIfTable 1 }
+
+
+CspanSourcesIfEntry ::=
+        SEQUENCE {                             
+                   cspanSourcesIfIndex          InterfaceIndex,
+                   cspanSourcesDirection        INTEGER,
+                   cspanSourcesRowStatus        RowStatus
+        }
+
+
+cspanSourcesIfIndex       OBJECT-TYPE
+    SYNTAX                InterfaceIndex
+    MAX-ACCESS            not-accessible
+    STATUS                current
+    DESCRIPTION
+           "cspanSourcesIfIndex denotes the interface index for
+            this session."
+    ::= { cspanSourcesIfEntry 1 }
+
+
+cspanSourcesDirection    OBJECT-TYPE
+    SYNTAX               INTEGER  {
+                                   receive(1),
+                                   transmit(2)
+                         }
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION
+           "cspanSourcesDirection denotes traffic direction on
+            the cspanSourcesIfIndex."
+ 
+    ::= { cspanSourcesIfEntry 2 }
+
+
+cspanSourcesRowStatus     OBJECT-TYPE
+        SYNTAX            RowStatus
+        MAX-ACCESS        read-create
+        STATUS            current
+        DESCRIPTION
+               "Status of this row."
+        ::= { cspanSourcesIfEntry 3 }
+
+
+
+-- Session Source VSAN Table
+
+cspanSourcesVsanTable  OBJECT-TYPE
+    SYNTAX             SEQUENCE OF CspanSourcesVsanEntry
+    MAX-ACCESS         not-accessible
+    STATUS             current
+    DESCRIPTION   
+           "The cspanSourcesVsanTable is used to list source 
+            VSANs for SPAN sessions."
+    ::= { cspanConfiguration 4 }
+
+                                 
+cspanSourcesVsanEntry   OBJECT-TYPE
+    SYNTAX          CspanSourcesVsanEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION   
+           "An entry in the Source VSAN Table. 
+            For the session identified by the instance
+            of cspanSessionIndex, it lists the VSANs
+            that comprise the sources."
+    INDEX  { cspanSessionIndex }
+    ::= { cspanSourcesVsanTable 1 }
+
+
+CspanSourcesVsanEntry ::=
+        SEQUENCE {                             
+                   cspanSourcesVsans2k        FcList,
+                   cspanSourcesVsans4k        FcList
+        }
+
+
+cspanSourcesVsans2k         OBJECT-TYPE
+    SYNTAX                  FcList
+    MAX-ACCESS              read-only
+    STATUS                  current
+    DESCRIPTION
+           "The VSANs that are traffic sources to this session.
+
+            Each octet within the value of this object specifies 
+            a set of eight VSANS with the first octet specifying 
+            VSAN 1 through 8, the second octet specifying VSAN 9
+            through 16, etc. Since there are 256 octets, the range
+            of VSANs is from 0-2047. Within each octet, the most 
+            significant bit represents the lowest numbered VSAN id 
+            and the least significant bit represents the highest 
+            numbered VSAN id. Thus each VSAN is represented by a 
+            single bit within the value of this object. If that bit
+            has value '1' then that VSAN is included in the set of
+            VSANs; the VSAN is not included if its bit has a 
+            value of '0'.
+            "
+    ::= { cspanSourcesVsanEntry 1 }
+
+
+cspanSourcesVsans4k         OBJECT-TYPE
+    SYNTAX                  FcList
+    MAX-ACCESS              read-only
+    STATUS                  current
+    DESCRIPTION
+           "The VSANs that are assigned to this session.
+
+            Each octet within the value of this object specifies 
+            a set of eight VSANS with the first octet specifying 
+            VSAN 2048 through 2055, the second octet specifying VSAN 
+            2056 through 2063, etc. Since there are 256 octets,
+            he range of VSANs is from 2048 through 4095.
+            Within each octet, the most significant
+            bit represents the lowest numbered VSAN id and the least
+            significant bit represents the highest numbered VSAN id.
+            Thus each VSAN is represented by a single bit within the 
+            value of this object. If that bit has value '1' then 
+            that VSAN is included in the set of VSANs; the VSAN is
+            not included if its bit has a value of '0'."
+    ::= { cspanSourcesVsanEntry 2 }
+
+
+
+-- Session Source VSAN Configuration Table
+
+cspanSourcesVsanCfgTable  OBJECT-TYPE
+    SYNTAX               SEQUENCE OF CspanSourcesVsanCfgEntry
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION   
+           "The cspanSourcesVsanCfgTable is used to configure sources 
+            VSANs for SPAN sessions.
+           "
+    ::= { cspanConfiguration 5 }
+
+                                 
+cspanSourcesVsanCfgEntry  OBJECT-TYPE
+    SYNTAX                CspanSourcesVsanCfgEntry
+    MAX-ACCESS            not-accessible
+    STATUS                current
+    DESCRIPTION   
+           "An entry in the source Vsan Configuration Table.
+
+            Each entry represents either an add or a delete
+            VSANs operation for the session identified by the
+            instance of cspanSourcesVsanCfgSessIndex.
+  
+            The VSANs to be added (or deleted) are specified by
+            the values of cspanSourcesVsanCfgVsans2k and
+            cspanSourcesVsanCfgVsans4k."
+    INDEX  { cspanSourcesVsanCfgSessIndex }
+    ::= { cspanSourcesVsanCfgTable 1 }
+
+
+CspanSourcesVsanCfgEntry ::=
+        SEQUENCE {                             
+                   cspanSourcesVsanCfgSessIndex      SessionIndex,
+                   cspanSourcesVsanCfgCommand        INTEGER,
+                   cspanSourcesVsanCfgVsans2k        FcList,
+                   cspanSourcesVsanCfgVsans4k        FcList
+        }
+
+
+cspanSourcesVsanCfgSessIndex    OBJECT-TYPE
+    SYNTAX                      SessionIndex 
+    MAX-ACCESS                  not-accessible
+    STATUS                      current
+    DESCRIPTION   
+           "A session index associated with a session for which 
+            the VSANs are to be added/deleted. " 
+    ::= { cspanSourcesVsanCfgEntry 1 }
+
+
+cspanSourcesVsanCfgCommand   OBJECT-TYPE
+    SYNTAX                  INTEGER 
+                            { 
+                              add(1),
+                              remove(2),
+                              none(3)
+                            }
+    MAX-ACCESS              read-write
+    STATUS                  current
+    DESCRIPTION
+           "The command to be executed for this entry.
+            Only acceptable commands are 'add' and 'remove'. 
+            'none' is returned in case of read operation."
+    ::= { cspanSourcesVsanCfgEntry 2 }
+
+
+
+cspanSourcesVsanCfgVsans2k   OBJECT-TYPE
+    SYNTAX                  FcList
+    MAX-ACCESS              read-write
+    STATUS                  current
+    DESCRIPTION
+           "The VSANs that are assigned to this session.
+
+            Each octet within the value of this object specifies
+            a set of eight VSANS with the first octet specifying
+            VSAN 1 through 8, the second octet specifying VSAN 9
+            through 16, etc. Since there are 256 octets, the range
+            of VSANs is from 0-2047. Within each octet, the most 
+            significant bit represents the lowest numbered VSAN id 
+            and the least significant bit represents the highest 
+            numbered VSAN id. Thus each VSAN is represented by a
+            single bit within the value of this object. 
+            If that bit has value '1' then that VSAN is included 
+            in the set of VSANs; the VSAN is not included if 
+            its bit has a value of '0'."
+    ::= { cspanSourcesVsanCfgEntry 3 }
+
+
+
+cspanSourcesVsanCfgVsans4k   OBJECT-TYPE
+    SYNTAX                  FcList
+    MAX-ACCESS              read-write
+    STATUS                  current
+    DESCRIPTION
+           "The VSANs that are assigned to this session.
+
+            Each octet within the value of this object specifies
+            a set of eight VSANS with the first octet specifying
+            VSAN 2048 through 2055, the second octet specifying VSAN
+            2056 through 2063, etc. 
+            The range of VSANs is  2048-4095.
+            Within each octet, the most significant
+            bit represents the lowest numbered VSAN id and the least
+            significant bit represents the highest numbered VSAN id.
+            Thus each VSAN is represented by a single bit within the
+            value of this object. If that bit has value '1' then
+            that VSAN is included in the set of VSANs; the VSAN is
+            not included if its bit has a value of '0'."
+    ::= { cspanSourcesVsanCfgEntry 4 }
+
+
+
+-- Session VSAN Filter Table
+
+cspanVsanFilterTable  OBJECT-TYPE
+    SYNTAX            SEQUENCE OF CspanVsanFilterEntry
+    MAX-ACCESS        not-accessible
+    STATUS            current
+    DESCRIPTION   
+           "The cspanVsanFilterTable is used to monitor and 
+            configure VSAN filters for SPAN sessions.
+
+            cspanVsanFilterSessIndex denotes the session index of
+            this sesion.
+
+            cspanVsanFilterVsans2k and cspanVsanFilterVsans4k denote 
+            the VSANs in a bit mask fashion for each session.
+           "
+    ::= { cspanConfiguration 6 }
+
+                                 
+cspanVsanFilterEntry   OBJECT-TYPE
+    SYNTAX             CspanVsanFilterEntry
+    MAX-ACCESS         not-accessible
+    STATUS             current
+    DESCRIPTION   
+           "An entry in the VsanFilter Table. 
+            cspanVsanFilterVsans2k and 
+            cspanVsanFilterVsans4k denote the VSANs that
+            are part of the filter applied to the session
+            identified by the instance of cspanVsanFilterSessIndex."
+    INDEX  { cspanVsanFilterSessIndex }
+    ::= { cspanVsanFilterTable 1 }
+
+
+CspanVsanFilterEntry ::=
+        SEQUENCE {                             
+                   cspanVsanFilterSessIndex   SessionIndex,
+                   cspanVsanFilterVsans2k     FcList,
+                   cspanVsanFilterVsans4k     FcList
+        }
+
+
+cspanVsanFilterSessIndex    OBJECT-TYPE
+    SYNTAX                  SessionIndex 
+    MAX-ACCESS              not-accessible
+    STATUS                  current
+    DESCRIPTION   
+           "A session index associated with a session. " 
+    ::= { cspanVsanFilterEntry 1 }
+
+
+cspanVsanFilterVsans2k      OBJECT-TYPE
+    SYNTAX                  FcList
+    MAX-ACCESS              read-only
+    STATUS                  current
+    DESCRIPTION
+           "The VSANs that are assigned to this session.
+
+            Each octet within the value of this object specifies
+            a set of eight VSANS with the first octet specifying
+            VSAN 1 through 8, the second octet specifying VSAN 9
+            through 16, etc. Since there are 256 octets, the range
+            of VSANs is from 0-2047. Within each octet, the most 
+            significant bit represents the lowest numbered VSAN id 
+            and the least significant bit represents the highest 
+            numbered VSAN id. Thus each VSAN is represented by a single 
+            bit within the value of this object. If that bit has value 
+            '1' then that VSAN is included in the set of VSANs; the 
+            VSAN is not included if its bit has a value of '0'."
+    ::= { cspanVsanFilterEntry 2 }
+
+
+cspanVsanFilterVsans4k      OBJECT-TYPE
+    SYNTAX                  FcList
+    MAX-ACCESS              read-only
+    STATUS                  current
+    DESCRIPTION
+           "The VSANs that are assigned to this session.
+
+            Each octet within the value of this object specifies
+            a set of eight VSANS with the first octet specifying
+            VSAN 2048 through 2055, the second octet specifying VSAN
+            2056 through 2063, etc. the range of VSANs is 2048-4095.
+            Within each octet, the most significant bit represents
+            the lowest numbered VSAN id and the least significant
+            bit represents the highest numbered VSAN id. Thus
+            each VSAN is represented by a single bit within the
+            value of this object. If that bit has value '1' then
+            that VSAN is included in the set of VSANs; the VSAN is
+            not included if its bit has a value of '0'."
+    ::= { cspanVsanFilterEntry 3 }
+
+
+
+-- Session VSAN Filter Operations Table
+
+cspanVsanFilterOpTable  OBJECT-TYPE
+    SYNTAX              SEQUENCE OF CspanVsanFilterOpEntry
+    MAX-ACCESS          not-accessible
+    STATUS              current
+    DESCRIPTION   
+           "cspanVsanFilterOpTable is used to configure  
+            VSAN filters for SPAN sessions.
+
+            cspanVsanFilterSessIndex denotes the session index of
+            this sesion.
+
+            cspanVsanFilterVsans denotes the VSANs in a bit mask fashion
+            for each session. 
+           "
+    ::= { cspanConfiguration 7 }
+
+                                 
+cspanVsanFilterOpEntry   OBJECT-TYPE
+    SYNTAX               CspanVsanFilterOpEntry
+    MAX-ACCESS           not-accessible
+    STATUS               current
+    DESCRIPTION   
+           "An entry in the VsanFilterOp Table. "
+    INDEX  { cspanVsanFilterOpSessIndex }
+    ::= { cspanVsanFilterOpTable 1 }
+
+
+CspanVsanFilterOpEntry ::=
+        SEQUENCE {                             
+                   cspanVsanFilterOpSessIndex   SessionIndex,
+                   cspanVsanFilterOpCommand     INTEGER,
+                   cspanVsanFilterOpVsans2k     FcList,
+                   cspanVsanFilterOpVsans4k     FcList
+        }
+
+
+cspanVsanFilterOpSessIndex    OBJECT-TYPE
+    SYNTAX                    SessionIndex
+    MAX-ACCESS                not-accessible
+    STATUS                    current
+    DESCRIPTION   
+           "A session index associated with a session. " 
+    ::= { cspanVsanFilterOpEntry 1 }
+
+
+cspanVsanFilterOpCommand    OBJECT-TYPE
+    SYNTAX                  INTEGER
+                            {
+                              add(1),
+                              remove(2),
+                              none(3)
+                            }
+    MAX-ACCESS              read-write
+    STATUS                  current
+    DESCRIPTION
+           "The command to be executed for this entry."
+    ::= { cspanVsanFilterOpEntry 2 }
+
+
+cspanVsanFilterOpVsans2k    OBJECT-TYPE
+    SYNTAX                  FcList
+    MAX-ACCESS              read-write
+    STATUS                  current
+    DESCRIPTION
+           "The VSANs that are assigned to this session.
+
+            Each octet within the value of this object specifies
+            a set of eight VSANS with the first octet specifying
+            VSAN 1 through 8, the second octet specifying VSAN 9
+            through 16, etc. Within each octet, the most significant
+            bit represents the lowest numbered VSAN id and the least
+            significant bit represents the highest numbered VSAN id.
+            Thus each VSAN is represented by a single bit within the
+            value of this object. If that bit has value '1' then
+            that VSAN is included in the set of VSANs; the VSAN is
+            not included if its bit has a value of '0'."
+    ::= { cspanVsanFilterOpEntry 3 }
+
+
+cspanVsanFilterOpVsans4k    OBJECT-TYPE
+    SYNTAX                  FcList
+    MAX-ACCESS              read-write
+    STATUS                  current
+    DESCRIPTION
+           "The VSANs that are assigned to this session.
+
+            Each octet within the value of this object specifies
+            a set of eight VSANS with the first octet specifying
+            VSAN 2048 through 2055, the second octet specifying VSAN
+            2056 through 2063, etc. In each octet, the most significant
+            bit represents the lowest numbered VSAN id and the least
+            significant bit represents the highest numbered VSAN id.
+            Thus each VSAN is represented by a single bit within the
+            value of this object. If that bit has value '1' then
+            that VSAN is included in the set of VSANs; the VSAN is
+            not included if its bit has a value of '0'."
+    ::= { cspanVsanFilterOpEntry 4 }
+
+
+
+-- Conformance
+
+ciscoFcSpanMIBConformance
+       OBJECT IDENTIFIER ::= { ciscoFcSpanMIB 2 }
+
+ciscoFcSpanMIBCompliances
+       OBJECT IDENTIFIER ::= { ciscoFcSpanMIBConformance 1 }
+
+ciscoFcSpanMIBGroups
+       OBJECT IDENTIFIER ::= { ciscoFcSpanMIBConformance 2 }
+
+
+ciscoFcSpanMIBCompliance MODULE-COMPLIANCE
+        STATUS   current
+        DESCRIPTION
+                "The compliance statement for entities which
+                 implement the CISCO-FC-SPAN-MIB."
+        MODULE MANDATORY-GROUPS { 
+                 cspanScalarsGroup,
+                 cspanSessionsGroup, 
+                 cspanSourceIfGroup, 
+                 cspanSourceVsanGroup, 
+                 cspanSourceVsanCfgGroup, 
+                 cspanVsanFilterGroup, 
+                 cspanVsanFilterOpGroup 
+        }
+
+        OBJECT     cspanSessionRowStatus
+        SYNTAX     INTEGER {             
+                     active(1),
+                     createAndGo(4),
+                     destroy(6)}
+        DESCRIPTION 
+                "Only 'createAndGo', 'destroy' and 'active' need to
+                 be supported."
+        ::= { ciscoFcSpanMIBCompliances 1 }
+
+
+-- Units of Conformance
+
+cspanScalarsGroup  OBJECT-GROUP
+        OBJECTS   {
+                   cspanMaxSessions
+                  }
+        STATUS   current
+        DESCRIPTION
+                "A collection of scalar objects in this MIB."
+        ::= { ciscoFcSpanMIBGroups 1 }
+
+
+cspanSessionsGroup OBJECT-GROUP
+        OBJECTS   { 
+                   cspanSessionDestIfIndex,
+                   cspanSessionAdminStatus,
+                   cspanSessionOperStatus,
+                   cspanSessionInactiveReason,
+                   cspanSessionRowStatus  
+                 }                  
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for sessions configuration."
+        ::= { ciscoFcSpanMIBGroups 2 }
+
+
+cspanSourceIfGroup OBJECT-GROUP
+        OBJECTS  {
+                   cspanSourcesRowStatus
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for source interface 
+                 configuration."
+        ::= { ciscoFcSpanMIBGroups 3 }
+
+
+cspanSourceVsanGroup OBJECT-GROUP
+        OBJECTS  {
+                   cspanSourcesVsans2k,
+                   cspanSourcesVsans4k
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for source VSANs display."
+        ::= { ciscoFcSpanMIBGroups 4 }
+
+
+cspanSourceVsanCfgGroup OBJECT-GROUP
+        OBJECTS  {
+                   cspanSourcesVsanCfgCommand,
+                   cspanSourcesVsanCfgVsans2k,
+                   cspanSourcesVsanCfgVsans4k
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for source VSANs 
+                 configuration."
+        ::= { ciscoFcSpanMIBGroups 5 }
+
+
+cspanVsanFilterGroup OBJECT-GROUP
+        OBJECTS  {
+                   cspanSourcesVsanCfgVsans2k,
+                   cspanVsanFilterVsans2k,
+                   cspanVsanFilterVsans4k
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for filter display 
+                 information."
+        ::= { ciscoFcSpanMIBGroups 6 }
+
+
+cspanVsanFilterOpGroup OBJECT-GROUP
+        OBJECTS  {
+                   cspanVsanFilterOpCommand,
+                   cspanVsanFilterOpVsans2k,
+                   cspanVsanFilterOpVsans4k
+                 }
+        STATUS   current
+        DESCRIPTION
+                "A collection of objects for filter operations."
+        ::= { ciscoFcSpanMIBGroups 7 }
+
+
+END

@@ -1,0 +1,788 @@
+-- *****************************************************************
+-- CISCO-DOT11-QOS-MIB.my: CISCO IEEE 802.11 QOS MIB file
+--
+-- October 2003, Francis Pang 
+--
+-- Copyright (c) 2003-2004, 2005, 2006 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+--
+
+-- This MIB is a Cisco implementation of the QoS MIB in
+-- IEEE 802.11E/D1.42.0, October November 2001,
+-- "Draft Supplement to STANDARD FOR Telecommunications and 
+-- Information Exchange Between Systems - 
+-- LAN/MAN Specific Requirements - 
+-- Part 11: Wireless Medium Access Control (MAC) 
+-- and physical layer (PHY) specifications: 
+-- Medium Access Control (MAC) Enhancements for
+-- Quality of Service (QoS)".
+-- Some MIB objects in this MIB provide equivalent support as
+-- the objects proposed in the IEEE 802.11E Standard.  This
+-- MIB is applicable for Cisco Wireless LAN Access Point, 
+-- bridge, and switching devices. 
+--
+-- This MIB is intended for the replacement of existing
+-- CISCO-IETF-DOT11-QOS-MIB and CISCO-IETF-DOT11-QOS-EXT-MIB.
+--
+
+CISCO-DOT11-QOS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        NOTIFICATION-TYPE,
+        OBJECT-TYPE,
+        Unsigned32,
+        Gauge32, 
+        Counter32
+                FROM SNMPv2-SMI
+        MODULE-COMPLIANCE,
+        NOTIFICATION-GROUP,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        TEXTUAL-CONVENTION,
+        TruthValue
+                FROM SNMPv2-TC
+        ifIndex
+                FROM IF-MIB
+        CDot11IfVlanIdOrZero
+                FROM CISCO-DOT11-IF-MIB
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+ciscoDot11QosMIB MODULE-IDENTITY
+        LAST-UPDATED    "200605090000Z"
+        ORGANIZATION    "Cisco Systems Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 West Tasman Drive,
+                        San Jose CA 95134-1706.
+                        USA
+
+                   Tel: +1 800 553-NETS
+
+                E-mail: cs-dot11@cisco.com"
+        DESCRIPTION
+                "This MIB module provides network management 
+                support for QoS on wireless LAN devices.  The 
+                objects defined in this MIB provide equivalent 
+                support as the objects in the IEEE 802.11E 
+                Standard draft.  The original names of the objects
+                in the standard are included in the REFERENCE
+                clauses. 
+
+                          GLOSSARY and ACRONYMS
+
+                Access point (AP)
+                    Transmitter/receiver (transceiver) device
+                    that commonly connects and transports data
+                    between a wireless network and a wired network.
+
+                AIFS 
+                    Arbitration Interframe Space.  It is one of the 
+                    five different IFSs defined to provide priority 
+                    levels for access to the wireless media.  It 
+                    shall be used by QSTAs to transmit data type 
+                    frames (MPDUs) and management type frames 
+                    (MMPDUs).
+
+                BSS
+                    IEEE 802.11 Basic Service Set (Radio Cell).  The
+                    BSS of an AP comprises of the stations directly
+                    associating with the AP.
+
+                CW
+                    Contention Window.  It is the time period between 
+                    radio signal collisions caused by simultaneous 
+                    broadcast from multiple wireless stations.
+                    The contention window is used to compute the 
+                    random backoff of the radio broadcast.  The IEEE
+                    802.11b does not specify the unit for the time
+                    period.  
+
+                CWP Factor 
+                    Contention Window Persistence Factor.  It indicates
+                    the factor used in computing new CW values on every
+                    15 unsuccessful attempt to transmit an MPDU or an 
+                    MMPDU of a traffic class.  It is a scaling factor
+                    in units of 1/16ths.
+
+                IFS 
+                    Inter-Frame Space is the time interval between 
+                    frames.  A STA shall determine that the medium
+                    is idle through the use of the carrier sense 
+                    function for the interval specified.  In other
+                    words, the size of the IFS determines the length
+                    of the backoff time interval of a device to the
+                    medium.  In this case, the medium is the radio
+                    wave spectrum.  The IEEE 802.11b standard does not
+                    specify any unit for the time interval.
+
+                BSS
+                    IEEE 802.11 Basic Service Set (Radio Cell).  The
+
+                MAC
+                    Medium Access Control.  Layer 2 in the network 
+                    model. 
+
+                MPDU
+                    MAC protocol data unit.  The unit of data exchanged
+                    between two peer MAC entities using the services 
+                    of the physical layer (PHY).
+
+                MMPDU
+                    Management type MAC protocol data unit.
+
+                MSDU
+                    MAC service data unit.  Information that is 
+                    delivered as a unit between MAC service access 
+                    points.
+
+                QBSS 
+                    Quality of service basic service set.
+
+                QSTA 
+                    QoS station.
+
+                STA (WSTA)
+                    A non-AP IEEE 802.11 wireless station."
+
+        REVISION        "200605090000Z"
+        DESCRIPTION
+                "The DEFVAL clauses have been removed from the
+                definition of the objects cdot11QosCWmin,
+                cdot11QosCWmax, cdot11QosMaxRetry and
+                cdot11QosBackoffOffset, as the default values for
+                these objects depend on the different traffic
+                classes and that there are no common default
+                values across the different traffic classes. "
+
+        REVISION        "200311240000Z"
+        DESCRIPTION
+                "Initial version of this MIB module."
+        ::= { ciscoMgmt 416 }
+
+
+ciscoDot11QosMIBNotifs    OBJECT IDENTIFIER
+        ::= { ciscoDot11QosMIB 0 }
+
+ciscoDot11QosMIBObjects       OBJECT IDENTIFIER 
+        ::= { ciscoDot11QosMIB 1 }
+
+ciscoDot11QosMIBConformance   OBJECT IDENTIFIER 
+        ::= { ciscoDot11QosMIB 2 }
+
+ciscoDot11QosConfig           OBJECT IDENTIFIER 
+        ::= { ciscoDot11QosMIBObjects 1 }
+
+ciscoDot11QosQueue            OBJECT IDENTIFIER 
+        ::= { ciscoDot11QosMIBObjects 2 }
+
+ciscoDot11QosStatistics       OBJECT IDENTIFIER 
+        ::= { ciscoDot11QosMIBObjects 3 }
+
+ciscoDot11QosNotifControl OBJECT IDENTIFIER 
+        ::= { ciscoDot11QosMIBObjects 4 }
+
+
+-- Textual Conventions
+
+Cdot11QosTrafficClass ::= TEXTUAL-CONVENTION
+        STATUS     current
+        DESCRIPTION
+                "This textual convention defines the 802.11E 
+                traffic classes:
+                    background(0)        - background traffic,
+                                           lowest priority
+                    bestEffort(1)        - best effort delivery,
+                                           default priority class 
+                                           for all traffic
+                    video(2)             - video traffic, 2nd 
+                                           highest priority
+                    voice(3)             - voice traffic, highest
+                                           priority."
+        REFERENCE
+                "IEEE 802.1D-1998, Annex H.2.10 and 
+                IEEE 802.11E-2001, section 7.5.1."
+        SYNTAX     INTEGER {
+                        background(0),
+                        bestEffort(1),
+                        video(2),
+                        voice(3) 
+                           }
+
+
+-- Configuration and Support Objects
+
+cdot11QosConfigTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF Cdot11QosConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table contains the basic set of attributes
+                to configure QoS queues for radio interfaces of
+                a wireless LAN device.  This table has an 
+                expansion dependent relationship with the ifTable. 
+                Each IEEE 802.11 wireless interface has different 
+                outbound queues for different network traffic 
+                class.  For each entry in this table, there exists
+                an entry in the ifTable of ifType ieee80211(71)."
+        ::= { ciscoDot11QosConfig 1 }
+
+cdot11QosConfigEntry OBJECT-TYPE
+        SYNTAX     Cdot11QosConfigEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry contains parameters to configure
+                traffic contention window, AIFS, priority 
+                and MSDU lifetime for each traffic queue on an 
+                IEEE 802.11 interface."
+        INDEX      { 
+                ifIndex, 
+                cdot11TrafficQueue 
+                   }
+        ::= { cdot11QosConfigTable 1 }
+
+Cdot11QosConfigEntry ::=
+        SEQUENCE {
+                cdot11TrafficQueue      Unsigned32, 
+                cdot11TrafficClass      Cdot11QosTrafficClass, 
+                cdot11QosCWmin          Unsigned32,
+                cdot11QosCWmax          Unsigned32, 
+                cdot11QosBackoffOffset  Unsigned32,
+                cdot11QosMaxRetry       Unsigned32 
+                 }
+
+cdot11TrafficQueue OBJECT-TYPE
+        SYNTAX     Unsigned32 
+        MAX-ACCESS not-accessible 
+        STATUS     current 
+        DESCRIPTION
+                "This is the index to the outbound traffic 
+                queue on the radio interface."
+        ::= { cdot11QosConfigEntry 1 }
+ 
+cdot11TrafficClass OBJECT-TYPE
+        SYNTAX     Cdot11QosTrafficClass
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This object specifies the traffic class
+                and priority for the traffic on this queue."
+        ::= { cdot11QosConfigEntry 2 }
+
+cdot11QosCWmin OBJECT-TYPE
+        SYNTAX     Unsigned32(0..10)
+        MAX-ACCESS read-write
+        STATUS     current 
+        DESCRIPTION
+                "This object defines the minimum contention
+                window value for a traffic class.  The
+                minimum contention window is 2 to the power 
+                of cdot11QosCWmin minus 1, and that is from 
+                0 to 1023.  The cdot11QosCWmin value must 
+                be less than or equal to cdot11QosCWmax."
+        REFERENCE
+                "dot11CWmin, IEEE 802.11E-2001/D1."
+        ::= { cdot11QosConfigEntry 3 }
+ 
+cdot11QosCWmax OBJECT-TYPE
+        SYNTAX     Unsigned32(0..10)
+        MAX-ACCESS read-write
+        STATUS     current 
+        DESCRIPTION
+                "This object defines the maximum contention
+                window value for a traffic class.  The
+                maximum contention window is 2 to the power
+                of cdot11QosCWmax minus 1, and that is from  
+                0 to 1023.  The cdot11QosCWmax value must be 
+                greater than or equal to cdot11QosCWmin."
+        REFERENCE
+                "dot11CWmax, IEEE 802.11E-2001/D1."
+        ::= { cdot11QosConfigEntry 4 }
+ 
+cdot11QosBackoffOffset OBJECT-TYPE
+        SYNTAX     Unsigned32(0..20)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This specifies the offset of the radio
+                backoff from the transmission media for 
+                this traffic class.  The backoff interval 
+                of a radio is calculated from a pseudo 
+                random integer drawn from a uniform 
+                distribution over the interval determined
+                by the maximum and minimum of the contention 
+                window."
+        ::= { cdot11QosConfigEntry 5 }
+
+cdot11QosMaxRetry OBJECT-TYPE
+        SYNTAX     Unsigned32(0..65535)
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+                "This specifies the number of times the radio  
+                retries for a particular transmission if there
+                is a collision for the media."
+        ::= { cdot11QosConfigEntry 6 }
+
+
+cdot11QosSupportTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF Cdot11QosSupportEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION   
+                "This table contains the attributes indicating
+                QoS support information on the IEEE 802.11 
+                interfaces of this device.  This table has a 
+                sparse dependent relationship with the ifTable.
+                For each entry in this table, there exists an 
+                entry in the ifTable of ifType ieee80211(71)."
+        ::= { ciscoDot11QosConfig 2 }
+
+cdot11QosSupportEntry OBJECT-TYPE
+        SYNTAX     Cdot11QosSupportEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION   
+                "Each entry contains attributes to indicate
+                if QoS and priority queue are supported for
+                an IEEE 802.11 interface."
+        INDEX      { ifIndex }
+        ::= { cdot11QosSupportTable 1 }
+
+Cdot11QosSupportEntry ::=
+        SEQUENCE {
+                cdot11QosOptionImplemented  TruthValue,
+                cdot11QosOptionEnabled      TruthValue, 
+                cdot11QosQueuesAvailable    Unsigned32 
+                 } 
+
+cdot11QosOptionImplemented OBJECT-TYPE
+        SYNTAX     TruthValue 
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION   
+                "This object indicates if QoS is implemented 
+                on this IEEE 802.11 network interface."
+        REFERENCE
+                "dot11QosOptionImplemented, IEEE 802.11E-2001/D1."
+        ::= { cdot11QosSupportEntry 1 }
+
+cdot11QosOptionEnabled OBJECT-TYPE
+        SYNTAX     TruthValue 
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION   
+                "This object indicates if QoS is enabled
+                on this IEEE 802.11 network interface.  If it
+                is 'true', QoS queuing is ON and traffic are 
+                prioritized according to their traffic class.
+                If it is 'false', there is no QoS queuing 
+                and traffic are not prioritized."
+        ::= { cdot11QosSupportEntry 2 }
+
+cdot11QosQueuesAvailable OBJECT-TYPE
+        SYNTAX     Unsigned32(4..64) 
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION   
+                "This object shows the number of QoS 
+                priority queues are available on this 
+                IEEE 802.11 network interface.  That is the
+                number of queue per interface in the
+                cdot11QosConfigTable."
+        REFERENCE
+                "dot11QueuesAvailable, IEEE 802.11E-2001/D1."
+        ::= { cdot11QosSupportEntry 3 }
+
+
+-- QoS Queue Objects
+
+cdot11QosQueueTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF Cdot11QosQueueEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION   
+                "This table contains the queue weight and size  
+                information and statistics for each traffic 
+                queue on each the IEEE 802.11 interface.  This 
+                table has a sparse dependent relationship with the
+                ifTable.  For each entry in this table, there exists 
+                an entry in the ifTable of ifType ieee80211(71)."
+        ::= { ciscoDot11QosQueue 1 }
+
+cdot11QosQueueEntry OBJECT-TYPE
+        SYNTAX     Cdot11QosQueueEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION   
+                "Each entry contains the current queue weight, size,
+                and peak size information for each traffic queue 
+                on an IEEE 802.11 interface."
+        INDEX      { 
+                ifIndex, 
+                cdot11TrafficQueue 
+                   }
+        ::= { cdot11QosQueueTable 1 }
+
+Cdot11QosQueueEntry ::=
+        SEQUENCE {
+                cdot11QosQueueQuota     Unsigned32, 
+                cdot11QosQueueSize      Gauge32, 
+                cdot11QosQueuePeakSize  Counter32 
+                 } 
+
+cdot11QosQueueQuota OBJECT-TYPE
+        SYNTAX     Unsigned32(0..65535)
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This is the current QoS priority queue packet 
+                quota for this queue on the overall bandwidth. 
+                The total available quota is platform 
+                dependent and is shared among all the 
+                transmitting queues.  The queue with the 
+                largest quota value has the largest share of 
+                the overall bandwidth of the radio. The quota 
+                is allocated by the radio driver dynamically."
+        DEFVAL     { 0 }
+        ::= { cdot11QosQueueEntry 1 }
+
+cdot11QosQueueSize OBJECT-TYPE
+        SYNTAX     Gauge32
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION
+                "This is the current QoS priority queue size
+                for this queue."
+        REFERENCE
+                "dot11QueueSizeTC, IEEE 802.11E-2001/D1."
+        ::= { cdot11QosQueueEntry 2 }
+
+cdot11QosQueuePeakSize OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This is the peak QoS priority queue size
+                for this queue."
+        REFERENCE
+                "dot11QueuePeakSizeTC, IEEE 802.11E-2001/D1."
+        ::= { cdot11QosQueueEntry 3 }
+
+
+-- Statistics Objects
+
+cdot11QosStatisticsTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF Cdot11QosStatisticsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION  
+                "This table contains the QoS statistics 
+                by traffic queue on each the IEEE 802.11 
+                network interface.  This table has a expansion 
+                dependent relationship with the ifTable.
+                For each entry in this table, there exists an 
+                entry in the ifTable of ifType ieee80211(71)."
+        ::= { ciscoDot11QosStatistics 1 }
+
+cdot11QosStatisticsEntry OBJECT-TYPE
+        SYNTAX     Cdot11QosStatisticsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION  
+                "Each entry contain QoS statistics for data
+                transmission and receive for each traffic 
+                queue on an IEEE 802.11 interface." 
+        INDEX      { 
+                ifIndex, 
+                cdot11TrafficQueue }
+        ::= { cdot11QosStatisticsTable 1 }
+
+Cdot11QosStatisticsEntry ::=
+        SEQUENCE {
+                cdot11QosDiscardedFrames       Counter32, 
+                cdot11QosFails                 Counter32,
+                cdot11QosRetries               Counter32, 
+                cdot11QosMutipleRetries        Counter32, 
+                cdot11QosTransmittedFrames     Counter32 
+                 } 
+ 
+cdot11QosDiscardedFrames OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This is the counter for QoS discarded frames 
+                transmitting from this IEEE 802.11 interface for
+                the traffic queue."
+        REFERENCE
+                "dot11QosDiscardedFrameCountTC, IEEE 802.11E-2001/D1."
+        ::= { cdot11QosStatisticsEntry 1 }
+
+cdot11QosFails OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This is the counter for QoS failures on
+                this IEEE 802.11 interface for the traffic queue."
+        REFERENCE
+                "dot11QosFailedCountTC, IEEE 802.11E-2001/D1."
+        ::= { cdot11QosStatisticsEntry 2 }
+ 
+cdot11QosRetries OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This is the counter for QoS retries performed on
+                this IEEE 802.11 interface for the traffic queue."
+        REFERENCE
+                "dot11QosRetryCountTC, IEEE 802.11E-2001/D1."
+        ::= { cdot11QosStatisticsEntry 3 }
+ 
+cdot11QosMutipleRetries OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This is the counter for QoS multiple retries 
+                performed on this IEEE 802.11 interface for the 
+                traffic queue."
+        REFERENCE
+                "dot11QosMutipleRetryCountTC, IEEE 802.11E-2001/D1."
+        ::= { cdot11QosStatisticsEntry 4 }
+ 
+cdot11QosTransmittedFrames OBJECT-TYPE
+        SYNTAX     Counter32
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This is the counter for QoS frames transmitted 
+                from this IEEE 802.11 interface for the traffic 
+                queue."
+        REFERENCE
+                "dot11QosTransmittedFrameCountTC, 
+                IEEE 802.11E-2001/D1."
+        ::= { cdot11QosStatisticsEntry 5 }
+
+ 
+cdot11QosIfStatisticsTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF Cdot11QosIfStatisticsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION   
+                "This table contains the attributes indicating
+                QoS statistics on the IEEE 802.11 interfaces 
+                of the device.  This table has a sparse dependent
+                relationship with the ifTable.  For each entry in 
+                this table, there exists an entry in the ifTable 
+                of ifType ieee80211(71)."
+        ::= { ciscoDot11QosStatistics 2 }
+
+cdot11QosIfStatisticsEntry OBJECT-TYPE
+        SYNTAX     Cdot11QosIfStatisticsEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION   
+                "Each entry contains attributes to support 
+                QoS statistics on an IEEE 802.11 interface."
+        INDEX      { ifIndex }
+        ::= { cdot11QosIfStatisticsTable 1 }
+
+Cdot11QosIfStatisticsEntry ::=
+        SEQUENCE {
+                cdot11QosIfDiscardedFragments Counter32 
+                 }
+
+cdot11QosIfDiscardedFragments OBJECT-TYPE
+        SYNTAX     Counter32 
+        MAX-ACCESS read-only 
+        STATUS     current
+        DESCRIPTION   
+                "This object counts the number of QoS discarded
+                transmitting fragments on this radio interface." 
+        REFERENCE
+                "dot11QosDiscardedFragments, 
+                IEEE 802.11E-2001/D1."
+        ::= { cdot11QosIfStatisticsEntry 1 }
+
+
+cdot11QosIfVlanTable OBJECT-TYPE
+        SYNTAX     SEQUENCE OF Cdot11QosIfVlanEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This table maps VLANs to different traffic
+                classes and defines their QoS properties.  
+                This table has an expansion dependent
+                relationship with the ifTable.  For each entry 
+                in this table, there exists an entry in the 
+                ifTable of ifType ieee80211(71)."
+        ::= { ciscoDot11QosConfig 3 }
+
+cdot11QosIfVlanEntry OBJECT-TYPE
+        SYNTAX     Cdot11QosIfVlanEntry
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "Each entry defines parameters determining the
+                traffic class and QoS configuration of a VLAN."
+        INDEX      {
+                ifIndex,
+                cdot11QosIfVlanId
+                   }
+        ::= { cdot11QosIfVlanTable 1 }
+
+Cdot11QosIfVlanEntry ::= 
+        SEQUENCE {
+                cdot11QosIfVlanId            CDot11IfVlanIdOrZero,
+                cdot11QosIfVlanTrafficClass  Cdot11QosTrafficClass
+                 }
+                                
+cdot11QosIfVlanId OBJECT-TYPE
+        SYNTAX     CDot11IfVlanIdOrZero (1..4095)
+        MAX-ACCESS not-accessible
+        STATUS     current
+        DESCRIPTION
+                "This object identifies the VLAN (1 to 4095) on
+                this radio interface."  
+        ::= { cdot11QosIfVlanEntry 1 }
+
+cdot11QosIfVlanTrafficClass OBJECT-TYPE
+        SYNTAX     Cdot11QosTrafficClass 
+        MAX-ACCESS read-only
+        STATUS     current
+        DESCRIPTION
+                "This is the QoS traffic class for the traffic 
+                transmitting on this VLAN.  The traffic class 
+                determines the priority for the VLAN."
+        ::= { cdot11QosIfVlanEntry 2 }
+
+
+-- *****************************************************************
+-- Notification and Control Objects
+-- *****************************************************************
+
+cdot11QosNotifEnabled OBJECT-TYPE
+        SYNTAX     TruthValue
+        MAX-ACCESS read-write
+        STATUS     current
+        DESCRIPTION
+               "Indicates whether cdot11QosChangeNotif
+                notification will or will not be sent by the
+                agent when the QoS configuration in the 
+                cdot11QosConfigTable is changed."
+        DEFVAL     { false }
+        ::= { ciscoDot11QosNotifControl 1 }
+
+cdot11QosChangeNotif NOTIFICATION-TYPE
+        OBJECTS {
+                cdot11TrafficClass
+                }
+        STATUS     current
+        DESCRIPTION
+                "This notification will be sent when the QoS 
+                configuration in the cdot11QosConfigTable is 
+                changed.  The object cdot11TrafficClass specifies 
+                the traffic class of which a queue is configured. 
+                The sending of these notifications can be enabled 
+                or disabled via cdot11QosNotifEnabled."
+        ::= { ciscoDot11QosMIBNotifs 1 }
+
+        
+-- *****************************************************************
+--   Conformance information
+-- *****************************************************************
+
+ciscoDot11QosMIBCompliances OBJECT IDENTIFIER 
+        ::= { ciscoDot11QosMIBConformance 1 }
+
+ciscoDot11QosMIBGroups OBJECT IDENTIFIER 
+        ::= { ciscoDot11QosMIBConformance 2 }
+
+
+-- *****************************************************************
+--   Compliance statements
+-- *****************************************************************
+
+
+ciscoDot11QosMIBCompliance MODULE-COMPLIANCE
+        STATUS     current
+        DESCRIPTION
+                "The compliance statement for the 
+                configuration and status groups."
+        MODULE 
+        MANDATORY-GROUPS { 
+                ciscoDot11QosConfigGroup,
+                ciscoDot11QosStatsGroup, 
+                ciscoDot11QosNotifControlGroup,
+                ciscoDot11QosNotificationGroup 
+                         } 
+        ::= { ciscoDot11QosMIBCompliances 1 }
+
+
+-- *****************************************************************
+--   Units of conformance
+-- *****************************************************************
+
+ciscoDot11QosConfigGroup OBJECT-GROUP
+        OBJECTS { 
+                cdot11TrafficClass, 
+                cdot11QosCWmin,
+                cdot11QosCWmax,
+                cdot11QosBackoffOffset,
+                cdot11QosMaxRetry,
+                cdot11QosOptionImplemented,
+                cdot11QosOptionEnabled, 
+                cdot11QosQueuesAvailable, 
+                cdot11QosQueueQuota, 
+                cdot11QosQueueSize,
+                cdot11QosQueuePeakSize, 
+                cdot11QosIfVlanTrafficClass 
+                }
+        STATUS     current
+        DESCRIPTION
+                "Configurations for IEEE 802.11 QoS."
+        ::= { ciscoDot11QosMIBGroups 1 }
+
+ciscoDot11QosStatsGroup OBJECT-GROUP
+        OBJECTS { 
+                cdot11QosIfDiscardedFragments,
+                cdot11QosDiscardedFrames,
+                cdot11QosFails,
+                cdot11QosRetries,
+                cdot11QosMutipleRetries,
+                cdot11QosTransmittedFrames 
+                }
+        STATUS     current
+        DESCRIPTION
+                "Status and statistics for IEEE 802.11 QoS."
+        ::= { ciscoDot11QosMIBGroups 2 }
+
+ciscoDot11QosNotifControlGroup OBJECT-GROUP
+        OBJECTS { 
+                cdot11QosNotifEnabled
+                }
+        STATUS     current
+        DESCRIPTION
+                "Notification control configuration for QoS."
+        ::= { ciscoDot11QosMIBGroups 3 }
+
+ciscoDot11QosNotificationGroup NOTIFICATION-GROUP 
+        NOTIFICATIONS {
+                cdot11QosChangeNotif 
+                }
+        STATUS     current
+        DESCRIPTION
+                "Notifications for QoS configuration."
+        ::= { ciscoDot11QosMIBGroups 4 }
+
+END
+

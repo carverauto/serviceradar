@@ -1,0 +1,514 @@
+-- *****************************************************************
+-- DDMI-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-DDMI-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200DdmiMib MODULE-IDENTITY
+    LAST-UPDATED "201605230000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of DDMI"
+    REVISION    "201605230000Z"
+    DESCRIPTION
+        "Add SFP port DDMI error type notification"
+    REVISION    "201406300000Z"
+    DESCRIPTION
+        "rename invalid VTSSPortSFPTransceiver"
+    REVISION    "201405160000Z"
+    DESCRIPTION
+        "Remove comments"
+    REVISION    "201405140000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 121 }
+
+
+ME1200DdmiSfpTransceiver ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumerations show the SFP transceiver type."
+    SYNTAX      INTEGER { none(0), notSupported(1), sfp100FX(2), sfp1000BaseT(7), sfp1000BaseCx(8), sfp1000BaseSx(9), sfp1000BaseLx(10), sfp1000BaseX(11), sfp2G5(12), sfp5G(13), sfp10G(14) }
+
+me1200DdmiMibObjects OBJECT IDENTIFIER
+    ::= { me1200DdmiMib 1 }
+
+me1200DdmiConfig OBJECT IDENTIFIER
+    ::= { me1200DdmiMibObjects 2 }
+
+me1200DdmiConfigGlobals OBJECT IDENTIFIER
+    ::= { me1200DdmiConfig 1 }
+
+me1200DdmiConfigGlobalsMode OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Global operation mode of DDMI. true(1) is to enable the functions of
+         DDMI and false(2) is to disable it."
+    ::= { me1200DdmiConfigGlobals 1 }
+
+me1200DdmiStatus OBJECT IDENTIFIER
+    ::= { me1200DdmiMibObjects 3 }
+
+me1200DdmiStatusInterfaceTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200DdmiStatusInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a DDMI status table of port interface."
+    ::= { me1200DdmiStatus 2 }
+
+me1200DdmiStatusInterfaceEntry OBJECT-TYPE
+    SYNTAX      ME1200DdmiStatusInterfaceEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each entry has a set of DDMI status."
+    INDEX       { me1200DdmiStatusInterfaceIfIndex }
+    ::= { me1200DdmiStatusInterfaceTable 1 }
+
+ME1200DdmiStatusInterfaceEntry ::= SEQUENCE {
+    me1200DdmiStatusInterfaceIfIndex      ME1200InterfaceIndex,
+    me1200DdmiStatusInterfaceA0Supported      TruthValue,
+    me1200DdmiStatusInterfaceA0SfpDetected    TruthValue,
+    me1200DdmiStatusInterfaceA0Vendor     ME1200DisplayString,
+    me1200DdmiStatusInterfaceA0PartNumber     ME1200DisplayString,
+    me1200DdmiStatusInterfaceA0SerialNumber   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA0Revision   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA0DateCode   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA0SfpType    ME1200DdmiSfpTransceiver,
+    me1200DdmiStatusInterfaceA2Supported      TruthValue,
+    me1200DdmiStatusInterfaceA2CurrentTemperature     ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TemperatureHighAlarmThreshold      ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TemperatureLowAlarmThreshold   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TemperatureHighWarnThreshold   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TemperatureLowWarnThreshold    ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2CurrentVoltage     ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2VoltageHighAlarmThreshold      ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2VoltageLowAlarmThreshold   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2VoltageHighWarnThreshold   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2VoltageLowWarnThreshold    ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2CurrentTxBias      ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TxBiasHighAlarmThreshold   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TxBiasLowAlarmThreshold    ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TxBiasHighWarnThreshold    ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TxBiasLowWarnThreshold     ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2CurrentTxPower     ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TxPowerHighAlarmThreshold      ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TxPowerLowAlarmThreshold   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TxPowerHighWarnThreshold   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2TxPowerLowWarnThreshold    ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2CurrentRxPower     ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2RxPowerHighAlarmThreshold      ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2RxPowerLowAlarmThreshold   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2RxPowerHighWarnThreshold   ME1200DisplayString,
+    me1200DdmiStatusInterfaceA2RxPowerLowWarnThreshold    ME1200DisplayString
+}
+
+me1200DdmiStatusInterfaceIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number of physical port."
+    ::= { me1200DdmiStatusInterfaceEntry 1 }
+
+me1200DdmiStatusInterfaceA0Supported OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Support transceiver status information or not. true(1) is to supported
+         and false(2) is not supported."
+    ::= { me1200DdmiStatusInterfaceEntry 2 }
+
+me1200DdmiStatusInterfaceA0SfpDetected OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "SFP module is detected or not. true(1) is to detected and false(2) is
+         not detected."
+    ::= { me1200DdmiStatusInterfaceEntry 3 }
+
+me1200DdmiStatusInterfaceA0Vendor OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Vendor name."
+    ::= { me1200DdmiStatusInterfaceEntry 4 }
+
+me1200DdmiStatusInterfaceA0PartNumber OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Part number."
+    ::= { me1200DdmiStatusInterfaceEntry 5 }
+
+me1200DdmiStatusInterfaceA0SerialNumber OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Serial number."
+    ::= { me1200DdmiStatusInterfaceEntry 6 }
+
+me1200DdmiStatusInterfaceA0Revision OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Revision."
+    ::= { me1200DdmiStatusInterfaceEntry 7 }
+
+me1200DdmiStatusInterfaceA0DateCode OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Date Code."
+    ::= { me1200DdmiStatusInterfaceEntry 8 }
+
+me1200DdmiStatusInterfaceA0SfpType OBJECT-TYPE
+    SYNTAX      ME1200DdmiSfpTransceiver
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "SFP type. none(0) means no SFP module. notSupported(1) means SFP module
+         is not supported. sfp100Fx(2) means SFP 100BASE-FX. sfp100BaseLx(3)
+         means SFP 100BASE-LX. sfp100BaseBx10(4) means SFP 100BASE-BX10.
+         sfp100BaseT(5) means SFP 100BASE-T. sfp1000BaseBx10(6) means SFP
+         1000BASE-BX10. sfp1000BaseT(7) means SFP 1000BASE-T. sfp1000BaseCx(8)
+         means SFP 1000BASE-CX. sfp1000BaseSx(9) means SFP 1000BASE-SX.
+         sfp1000BaseLx(10) means SFP 1000BASE-LX. sfp1000BaseX(11) means SFP
+         1000BASE-X. sfp2G5(12) means SFP 2.5G. sfp5G(13) means SFP 5G.
+         sfp10G(14) means SFP 10G."
+    ::= { me1200DdmiStatusInterfaceEntry 9 }
+
+me1200DdmiStatusInterfaceA2Supported OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Support DDMI status information or not. true(1) is to supported and
+         false(2) is not supported."
+    ::= { me1200DdmiStatusInterfaceEntry 1002 }
+
+me1200DdmiStatusInterfaceA2CurrentTemperature OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current temperature in Celcius."
+    ::= { me1200DdmiStatusInterfaceEntry 1003 }
+
+me1200DdmiStatusInterfaceA2TemperatureHighAlarmThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Temperature high alarm threshold in Celcius."
+    ::= { me1200DdmiStatusInterfaceEntry 1004 }
+
+me1200DdmiStatusInterfaceA2TemperatureLowAlarmThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Temperature low alarm threshold in Celcius."
+    ::= { me1200DdmiStatusInterfaceEntry 1005 }
+
+me1200DdmiStatusInterfaceA2TemperatureHighWarnThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Temperature high warning threshold in Celcius."
+    ::= { me1200DdmiStatusInterfaceEntry 1006 }
+
+me1200DdmiStatusInterfaceA2TemperatureLowWarnThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Temperature low warning threshold in Celcius."
+    ::= { me1200DdmiStatusInterfaceEntry 1007 }
+
+me1200DdmiStatusInterfaceA2CurrentVoltage OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current voltage in Volt."
+    ::= { me1200DdmiStatusInterfaceEntry 1008 }
+
+me1200DdmiStatusInterfaceA2VoltageHighAlarmThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Voltage high alarm threshold in Volt."
+    ::= { me1200DdmiStatusInterfaceEntry 1009 }
+
+me1200DdmiStatusInterfaceA2VoltageLowAlarmThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Voltage low alarm threshold in Volt."
+    ::= { me1200DdmiStatusInterfaceEntry 1010 }
+
+me1200DdmiStatusInterfaceA2VoltageHighWarnThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Voltage high warning threshold in Volt."
+    ::= { me1200DdmiStatusInterfaceEntry 1011 }
+
+me1200DdmiStatusInterfaceA2VoltageLowWarnThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Voltage low warning threshold in Volt."
+    ::= { me1200DdmiStatusInterfaceEntry 1012 }
+
+me1200DdmiStatusInterfaceA2CurrentTxBias OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current Tx bias in mA."
+    ::= { me1200DdmiStatusInterfaceEntry 1013 }
+
+me1200DdmiStatusInterfaceA2TxBiasHighAlarmThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Tx bias high alarm threshold in mA."
+    ::= { me1200DdmiStatusInterfaceEntry 1014 }
+
+me1200DdmiStatusInterfaceA2TxBiasLowAlarmThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Tx bias low alarm threshold in mA."
+    ::= { me1200DdmiStatusInterfaceEntry 1015 }
+
+me1200DdmiStatusInterfaceA2TxBiasHighWarnThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Tx bias high warning threshold in mA."
+    ::= { me1200DdmiStatusInterfaceEntry 1016 }
+
+me1200DdmiStatusInterfaceA2TxBiasLowWarnThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Tx bias low warning threshold in mA."
+    ::= { me1200DdmiStatusInterfaceEntry 1017 }
+
+me1200DdmiStatusInterfaceA2CurrentTxPower OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current Tx power in mV."
+    ::= { me1200DdmiStatusInterfaceEntry 1018 }
+
+me1200DdmiStatusInterfaceA2TxPowerHighAlarmThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Tx power high alarm threshold in mV."
+    ::= { me1200DdmiStatusInterfaceEntry 1019 }
+
+me1200DdmiStatusInterfaceA2TxPowerLowAlarmThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Tx power low alarm threshold in mV."
+    ::= { me1200DdmiStatusInterfaceEntry 1020 }
+
+me1200DdmiStatusInterfaceA2TxPowerHighWarnThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Tx power high warning threshold in mV."
+    ::= { me1200DdmiStatusInterfaceEntry 1021 }
+
+me1200DdmiStatusInterfaceA2TxPowerLowWarnThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Tx power low warning threshold in mV."
+    ::= { me1200DdmiStatusInterfaceEntry 1022 }
+
+me1200DdmiStatusInterfaceA2CurrentRxPower OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Current Rx power in mV."
+    ::= { me1200DdmiStatusInterfaceEntry 1023 }
+
+me1200DdmiStatusInterfaceA2RxPowerHighAlarmThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Rx power high alarm threshold in mV."
+    ::= { me1200DdmiStatusInterfaceEntry 1024 }
+
+me1200DdmiStatusInterfaceA2RxPowerLowAlarmThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Rx power low alarm threshold in mV."
+    ::= { me1200DdmiStatusInterfaceEntry 1025 }
+
+me1200DdmiStatusInterfaceA2RxPowerHighWarnThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Rx power high warning threshold in mV."
+    ::= { me1200DdmiStatusInterfaceEntry 1026 }
+
+me1200DdmiStatusInterfaceA2RxPowerLowWarnThreshold OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..16))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Rx power low warning threshold in mV."
+    ::= { me1200DdmiStatusInterfaceEntry 1027 }
+
+me1200DdmiNotificationPrefix OBJECT IDENTIFIER
+    ::= { me1200DdmiMibObjects 4 }
+
+me1200DdmitNotification OBJECT IDENTIFIER
+    ::= { me1200DdmiNotificationPrefix 0 }
+
+me1200DdmiNotificationSFPErrorType NOTIFICATION-TYPE
+    OBJECTS     { me1200DdmiStatusInterfaceA0SfpType }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the SFP module DDMI is supported but read failed."
+   ::= { me1200DdmitNotification 1 }
+
+me1200DdmiMibConformance OBJECT IDENTIFIER
+    ::= { me1200DdmiMib 2 }
+
+me1200DdmiMibCompliances OBJECT IDENTIFIER
+    ::= { me1200DdmiMibConformance 1 }
+
+me1200DdmiMibGroups OBJECT IDENTIFIER
+    ::= { me1200DdmiMibConformance 2 }
+
+me1200DdmiConfigGlobalsInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DdmiConfigGlobalsMode }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DdmiMibGroups 1 }
+
+me1200DdmiStatusInterfaceTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200DdmiStatusInterfaceA0Supported, 
+                  me1200DdmiStatusInterfaceA0SfpDetected, 
+                  me1200DdmiStatusInterfaceA0Vendor, 
+                  me1200DdmiStatusInterfaceA0PartNumber, 
+                  me1200DdmiStatusInterfaceA0SerialNumber, 
+                  me1200DdmiStatusInterfaceA0Revision, 
+                  me1200DdmiStatusInterfaceA0DateCode, 
+                  me1200DdmiStatusInterfaceA0SfpType, 
+                  me1200DdmiStatusInterfaceA2Supported, 
+                  me1200DdmiStatusInterfaceA2CurrentTemperature, 
+                  me1200DdmiStatusInterfaceA2TemperatureHighAlarmThreshold, 
+                  me1200DdmiStatusInterfaceA2TemperatureLowAlarmThreshold, 
+                  me1200DdmiStatusInterfaceA2TemperatureHighWarnThreshold, 
+                  me1200DdmiStatusInterfaceA2TemperatureLowWarnThreshold, 
+                  me1200DdmiStatusInterfaceA2CurrentVoltage, 
+                  me1200DdmiStatusInterfaceA2VoltageHighAlarmThreshold, 
+                  me1200DdmiStatusInterfaceA2VoltageLowAlarmThreshold, 
+                  me1200DdmiStatusInterfaceA2VoltageHighWarnThreshold, 
+                  me1200DdmiStatusInterfaceA2VoltageLowWarnThreshold, 
+                  me1200DdmiStatusInterfaceA2CurrentTxBias, 
+                  me1200DdmiStatusInterfaceA2TxBiasHighAlarmThreshold, 
+                  me1200DdmiStatusInterfaceA2TxBiasLowAlarmThreshold, 
+                  me1200DdmiStatusInterfaceA2TxBiasHighWarnThreshold, 
+                  me1200DdmiStatusInterfaceA2TxBiasLowWarnThreshold, 
+                  me1200DdmiStatusInterfaceA2CurrentTxPower, 
+                  me1200DdmiStatusInterfaceA2TxPowerHighAlarmThreshold, 
+                  me1200DdmiStatusInterfaceA2TxPowerLowAlarmThreshold, 
+                  me1200DdmiStatusInterfaceA2TxPowerHighWarnThreshold, 
+                  me1200DdmiStatusInterfaceA2TxPowerLowWarnThreshold, 
+                  me1200DdmiStatusInterfaceA2CurrentRxPower, 
+                  me1200DdmiStatusInterfaceA2RxPowerHighAlarmThreshold, 
+                  me1200DdmiStatusInterfaceA2RxPowerLowAlarmThreshold, 
+                  me1200DdmiStatusInterfaceA2RxPowerHighWarnThreshold, 
+                  me1200DdmiStatusInterfaceA2RxPowerLowWarnThreshold }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DdmiMibGroups 2 }
+
+me1200DdmiNotificationInfoGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { me1200DdmiNotificationSFPErrorType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200DdmiMibGroups 3 }
+
+me1200DdmiMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200DdmiConfigGlobalsInfoGroup, 
+                  me1200DdmiStatusInterfaceTableInfoGroup,
+                                  me1200DdmiNotificationInfoGroup }
+
+    ::= { me1200DdmiMibCompliances 1 }
+
+END

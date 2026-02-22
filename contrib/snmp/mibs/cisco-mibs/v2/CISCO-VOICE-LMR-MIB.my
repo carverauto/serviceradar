@@ -1,0 +1,412 @@
+-- *****************************************************************
+-- CISCO-VOICE-LMR-MIB.my: Voice Land Mobile Radio MIB file
+--
+-- August 2004 Sheaun Tsai
+--
+-- Copyright (c) 2004 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+CISCO-VOICE-LMR-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+        MODULE-IDENTITY,
+        OBJECT-TYPE,
+        Integer32,
+        Unsigned32
+                FROM SNMPv2-SMI
+        TEXTUAL-CONVENTION,
+        TruthValue 
+                FROM SNMPv2-TC
+        SnmpAdminString
+                FROM SNMP-FRAMEWORK-MIB
+        MODULE-COMPLIANCE,
+        OBJECT-GROUP
+                FROM SNMPv2-CONF
+        ciscoMgmt
+                FROM CISCO-SMI;
+
+
+
+ciscoVoiceLmrMIB MODULE-IDENTITY
+        LAST-UPDATED    "200410140000Z"
+        ORGANIZATION    "Cisco Systems, Inc."
+        CONTACT-INFO
+                "       Cisco Systems
+                        Customer Service
+
+                Postal: 170 W. Tasman Drive
+                        San Jose, CA  95134
+                        USA
+
+                Tel: +1 800 553-NETS
+
+                E-mail: cs-voice@cisco.com"
+        DESCRIPTION
+                "This MIB module  provides management of voice tone
+                 signal as static injected tone for Land Mobile Radio
+                 The tone signal includes tone, pause, guard/idle tone.
+                 User can configure a sequence of tone and pause to
+                 be played out before any voice sample is played out.
+                 These tones are used to wake up the radio and 
+                 select the radio channel. During the voice playout,
+                 a configured guard tone will be mixed with the voice
+                 to keep the radio active. For some radio systems, 
+                 there is no need for the guard tone, but a configured
+                 idle tone is needed  to inform the radio that the
+                 channel is idle. It is possible that the radio system
+                 will generate guard/idle tone.  In that case,
+                 the IOS can instruct the DSP to filter out the radio
+                 generated guard/idle tone by enabling digital filter. 
+                 Digital filter is able to filter out either 1950HZ or
+                 2175HZ tone.
+                "
+        REVISION  "200410140000Z"
+        DESCRIPTION
+               "the initial version of the MIB."
+        ::= { ciscoMgmt 510 }
+
+--
+-- Overview of Land Mobile Radio(LMR) MIB
+--
+-- The LMR MIB provides the configuration of the LMR specific
+-- parameters which includes injected tone, guard/idle tone
+-- and tone to be filtered out.
+--
+-- The following groups are managed:
+-- 1) cvlToneClassGroup
+-- 2) cvlToneSignalGroup
+--
+-- The cvlToneClassGroup keeps the guard/idle tone generation
+-- and filter out information.
+-- The cvlToneSignalGroup keeps the injected tone information.
+
+-- LMR MIB groups
+
+cvlMIBObjects          OBJECT IDENTIFIER ::= { ciscoVoiceLmrMIB 1 }
+cvlMIBConformance      OBJECT IDENTIFIER ::= { ciscoVoiceLmrMIB 2 }
+
+cvlToneObjects      OBJECT IDENTIFIER ::= { cvlMIBObjects 1 }
+
+
+--
+-- Textual Conventions
+--
+      VoiceFrequency ::= TEXTUAL-CONVENTION
+          DISPLAY-HINT "d"
+          STATUS current
+          DESCRIPTION
+              "This textual convention is used to represent the
+               audible voice frequency between 1HZ to 4000HZ.
+               Value 0 indicates this textual convention is not
+               configured.
+              "
+          SYNTAX Unsigned32 (0..4000)
+
+      VoiceAmplitude ::= TEXTUAL-CONVENTION
+          DISPLAY-HINT "d"
+          STATUS current
+          DESCRIPTION
+              "This textual convention is used to
+               represent the amplitude of voice between -30 
+               to 3 dbm.
+               dbm is the absolute output and input optical
+               power levels in mW.
+              "
+          SYNTAX  Integer32 (-30..3)
+
+      LmrToneDuration ::= TEXTUAL-CONVENTION
+          DISPLAY-HINT "d"
+          STATUS current
+          DESCRIPTION
+              "This textual convention is used to represent
+               the duration of tone played. It is measured in
+               milliseconds.
+              "
+          SYNTAX  Unsigned32 (0..500)
+
+
+
+--*********************************************************************
+-- Tone signal
+--*********************************************************************
+
+--
+-- LMR Tone Class Table
+--
+-- cvlClassTable specifies the guard/idle tone which is injected
+-- to LMR port for keeping the radio up during the conversation. 
+-- This table also specifies what tone frequency will be filtered
+-- out by the DSP from the radio input.
+
+
+cvlClassTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF	CvlClassEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+           "The table contains the LMR guard/idle tone frequency
+            and amplitude. It also specifies what frequency will be
+            filtered out from radio voice input by dsp digital filter.
+           "	
+       ::= { cvlToneObjects 1 }
+
+cvlClassEntry OBJECT-TYPE
+        SYNTAX      CvlClassEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "A concept row in cvlClassTable. It has class name,
+             tone frequency, tone amplitude, guard/idle tone
+             indicator and digital filter information.
+            "
+        INDEX       { cvlClassIndex }
+      ::= { cvlClassTable 1 }
+
+CvlClassEntry ::= SEQUENCE {
+            cvlClassIndex                 Unsigned32,
+            cvlClassName                  SnmpAdminString,
+            cvlDigitalFilter              INTEGER,
+            cvlGuardToneFreq              VoiceFrequency,
+            cvlGuardToneAmp               VoiceAmplitude,
+            cvlIdleToneFlag               TruthValue
+        }
+
+cvlClassIndex OBJECT-TYPE
+        SYNTAX      Unsigned32 (1..10000)
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "An arbitrary integer which increases monotonically to
+             index the cvlClassTable.
+            "
+        ::= { cvlClassEntry 1 }
+
+
+cvlClassName OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE (0..19))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The object reflects the voice class name."
+        ::= { cvlClassEntry 2 }
+
+cvlDigitalFilter OBJECT-TYPE
+        SYNTAX     INTEGER {
+            digitalFilterNone     (0),
+            digitalFilter1950HZ   (1),
+            digitalFilter2175HZ   (2)
+            }
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects which tone frequency should 
+             be filtered out from radio input.
+             "
+        DEFVAL      { digitalFilterNone }
+        ::= { cvlClassEntry 3 }
+
+
+cvlGuardToneFreq OBJECT-TYPE
+        SYNTAX      VoiceFrequency
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the guard/idle tone frequency between
+             1-4000 HZ. If there is no guard/idle tone configured for
+             this voice class, cvlGuardToneFreq has value 0.
+            "
+        DEFVAL      { 0 }
+        ::= { cvlClassEntry 4 }
+
+cvlGuardToneAmp OBJECT-TYPE
+        SYNTAX      VoiceAmplitude
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the guard/idle tone amplitude in dbm.
+            "
+        DEFVAL      { 0 }
+        ::= { cvlClassEntry 5 }
+
+cvlIdleToneFlag OBJECT-TYPE
+        SYNTAX      TruthValue
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects this voice class has guard/idle
+             tone configured. true means guard tone and false means
+             idle tone. 
+            "
+        DEFVAL      { false }
+        ::= { cvlClassEntry 6 }
+
+--
+-- LMR  Signal Tone Table
+--
+-- cvlSignalToneTable defines a sequence of tones injected into LMR 
+-- port to activate the radio and select the radio channel. This 
+-- table is double indexed with cvlSignalToneGroupIndex &
+-- cvlSignalToneIndex. The object with same cvlSignalToneGroupIndex 
+-- will playout according to the ascending sequence of 
+-- cvlSignalToneIndex.
+
+
+cvlSignalToneTable OBJECT-TYPE
+        SYNTAX      SEQUENCE OF	CvlSignalToneEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+           "The table contains the LMR injected tone information
+            and playout sequence for voice class tone signal.
+            The tones with same cvlSignalToneGroupIndex
+            will be played out in ascending order of the 
+            cvlSignalToneIndex.            
+           "	
+       ::= { cvlToneObjects 2 }
+
+
+cvlSignalToneEntry OBJECT-TYPE
+        SYNTAX      CvlSignalToneEntry
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "An entry in the table, containing information
+             about a single tone."
+
+        INDEX       { cvlSignalToneGroupIndex, cvlSignalToneIndex }
+      ::= { cvlSignalToneTable 1 }
+
+CvlSignalToneEntry ::= SEQUENCE {
+            cvlSignalToneGroupIndex       Unsigned32,
+            cvlSignalToneIndex            Unsigned32, 
+            cvlSignalToneName             SnmpAdminString,
+            cvlSignalToneFreq             VoiceFrequency,
+            cvlSignalToneAmp              VoiceAmplitude,
+            cvlSignalToneDur              LmrToneDuration
+        }
+
+cvlSignalToneGroupIndex OBJECT-TYPE
+        SYNTAX      Unsigned32 (1..10000)
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This object reflects a group of tones. 
+             The tones with same cvlSignalToneGroupIndex
+             will be played out in ascending order of the 
+             cvlSignalToneIndex.
+            "
+        ::= { cvlSignalToneEntry 1 }
+
+cvlSignalToneIndex OBJECT-TYPE
+        SYNTAX      Unsigned32 (1..10)
+        MAX-ACCESS  not-accessible
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the tone playout sequence in
+             ascending order of the index for the tones with same
+             cvlSignalToneGroupIndex value.
+            "
+        ::= { cvlSignalToneEntry 2 }
+
+cvlSignalToneName OBJECT-TYPE
+        SYNTAX      SnmpAdminString (SIZE (0..19))
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "The object reflects the tone signal class name."
+        ::= { cvlSignalToneEntry 3 }
+
+cvlSignalToneFreq OBJECT-TYPE
+        SYNTAX      VoiceFrequency
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the tone frequency in HZ.
+             If the value is 0 then no tone will be played out
+             and can be used to provide pause during a sequence
+             of tones.
+            "
+        ::= { cvlSignalToneEntry 4 }
+
+cvlSignalToneAmp OBJECT-TYPE
+        SYNTAX      VoiceAmplitude
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the signal tone amplitude in dbm."
+        ::= { cvlSignalToneEntry 5 }
+
+cvlSignalToneDur OBJECT-TYPE
+        SYNTAX      LmrToneDuration
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION
+            "This object reflects the signal tone duration."
+        ::= { cvlSignalToneEntry 6 }
+
+
+--*********************************************************************
+-- Conformance
+--*********************************************************************
+
+cvlMIBCompliances OBJECT IDENTIFIER ::=
+                                { cvlMIBConformance 1 }
+cvlMIBGroups      OBJECT IDENTIFIER ::=
+                                { cvlMIBConformance 2 }
+
+-- compliance statements
+cvlMIBCompliance MODULE-COMPLIANCE
+    STATUS  current
+    DESCRIPTION
+            "The compliance statements for the Cisco Land Mobile
+             Radio (LMR) MIB.
+            "
+    MODULE  -- this module
+    MANDATORY-GROUPS {
+            cvlToneClassGroup,
+            cvlToneSignalGroup
+    }
+
+    ::= { cvlMIBCompliances 1 }
+
+
+
+-- units of conformance
+
+cvlToneClassGroup  OBJECT-GROUP
+        OBJECTS {
+          cvlClassName,
+          cvlDigitalFilter,
+          cvlGuardToneFreq,
+          cvlGuardToneAmp,
+          cvlIdleToneFlag 
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects that provide info 
+                 applicable to digital notch filter or guard/idle
+                 tone.
+                "
+        ::= { cvlMIBGroups 1 }
+
+cvlToneSignalGroup  OBJECT-GROUP
+        OBJECTS {
+          cvlSignalToneName,
+          cvlSignalToneFreq,
+          cvlSignalToneAmp,
+          cvlSignalToneDur
+        }
+        STATUS  current
+        DESCRIPTION
+                "A collection of objects that provide info 
+                 applicable to either wake-up tone, function
+                 selection or pause between tones. It also 
+                 provides the info about the playout sequence
+                 of the tones.
+                "
+        ::= { cvlMIBGroups 2 }
+  
+
+END
+

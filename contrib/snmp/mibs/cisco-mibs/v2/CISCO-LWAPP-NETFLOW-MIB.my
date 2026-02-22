@@ -1,0 +1,349 @@
+-- *******************************************************************
+-- CISCO-LWAPP-NETFLOW-MIB.my
+-- This Module describes about the Netflow.
+-- June 2012, Venkatesh Puranik
+--   
+-- Copyright (c) 2011, 2012, 2017 by Cisco Systems, Inc.
+-- All rights reserved.
+-- *******************************************************************
+
+CISCO-LWAPP-NETFLOW-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    OBJECT-GROUP,
+    NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    RowStatus
+        FROM SNMPv2-TC
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+-- ********************************************************************
+-- *  MODULE IDENTITY
+-- ********************************************************************
+
+ciscoLwappNetflowMIB MODULE-IDENTITY
+    LAST-UPDATED    "201704270000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+            "Cisco Systems,
+            Customer Service
+
+            Postal: 170 West Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            Email: cs-snmp@cisco.com"
+    DESCRIPTION
+        "Netflow is a protocol for collecting IP traffic information
+        from network devices for traffic monitoring. 
+        The netflow architecture consists of:
+           -Collector: An entity that collects all the IP traffic 
+                       info from various network elements
+           -Exporter: A network entity that exports the template 
+                      of the information that will be exported along 
+                      with the actual data which maps to the exported 
+                      template. WLC will play the role of an Exporter.
+
+                  GLOSSARY
+
+        Access Point ( AP )
+
+        An entity that contains an 802.11 medium access
+        control ( MAC ) and physical layer ( PHY ) interface
+        and provides access to the distribution services via
+        the wireless medium for associated clients.  
+
+        LWAPP APs encapsulate all the 802.11 frames in
+        LWAPP frames and sends it to the controller to which
+        it is logically connected to.
+
+        Central Controller ( CC )
+
+        The central entity that terminates the LWAPP protocol
+        tunnel from the LWAPP APs.  Throughout this MIB,
+        this entity also referred to as 'controller'.
+
+        Light Weight Access Point Protocol ( LWAPP ) 
+
+        This is a generic protocol that defines the
+        communication between the Access Points and the
+        controllers.
+
+        Mobile Node ( MN )
+
+        A roaming 802.11 wireless device in a wireless
+        network associated with an access point."
+    REVISION        "201704270000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 840 }
+
+
+ciscoLwappNetflowMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoLwappNetflowMIB 0 }
+
+ciscoLwappNetflowMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappNetflowMIB 1 }
+
+ciscoLwappNetflowMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoLwappNetflowMIB 2 }
+
+ciscoLwappNetflowTableObjects  OBJECT IDENTIFIER
+    ::= { ciscoLwappNetflowMIBObjects 1 }
+
+-- *******************************************************************
+-- Netflow Monitor Table
+-- *******************************************************************
+
+cLNetflowMonitorTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLNetflowMonitorEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the information about
+        netflow monitor."
+    ::= { ciscoLwappNetflowTableObjects 1 }
+
+cLNetflowMonitorEntry OBJECT-TYPE
+    SYNTAX          CLNetflowMonitorEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the configuration attributes
+        of netflow monitor."
+    INDEX           { cLNetflowMonitorName } 
+    ::= { cLNetflowMonitorTable 1 }
+
+CLNetflowMonitorEntry ::= SEQUENCE {
+        cLNetflowMonitorName       SnmpAdminString,
+        cLNetflowMonitorRecordName SnmpAdminString,
+        cLNetflowMonitorRowStatus  RowStatus
+}
+
+cLNetflowMonitorName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the netflow monitor name." 
+    ::= { cLNetflowMonitorEntry 1 }
+
+cLNetflowMonitorRecordName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the netflow monitor record type.
+        'none' specifies no record name is being used.
+        'none' should be used to delete record name from monitor." 
+    ::= { cLNetflowMonitorEntry 2 }
+
+cLNetflowMonitorRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to
+        create and delete specific instances of rows in this 
+        table." 
+    ::= { cLNetflowMonitorEntry 3 }
+ 
+
+-- *******************************************************************
+-- Netflow Exporter Table
+-- *******************************************************************
+
+cLNetflowExporterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLNetflowExporterEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the information about
+        netflow exporter."
+    ::= { ciscoLwappNetflowTableObjects 2 }
+
+cLNetflowExporterEntry OBJECT-TYPE
+    SYNTAX          CLNetflowExporterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the configuration attributes
+        of netflow exporter."
+    INDEX           { cLNetflowExporterName } 
+    ::= { cLNetflowExporterTable 1 }
+
+CLNetflowExporterEntry ::= SEQUENCE {
+        cLNetflowExporterName          SnmpAdminString,
+        cLNetflowExporterIPAddressType InetAddressType,
+        cLNetflowExporterIPAddress     InetAddress,
+        cLNetflowExporterPortNumber    InetPortNumber,
+        cLNetflowExporterRowStatus     RowStatus
+}
+
+cLNetflowExporterName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the netflow exporter name." 
+    ::= { cLNetflowExporterEntry 1 }
+
+cLNetflowExporterIPAddressType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the netflow exporter IP
+        address type." 
+    ::= { cLNetflowExporterEntry 2 }
+
+cLNetflowExporterIPAddress OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the netflow exporter IP
+        address." 
+    ::= { cLNetflowExporterEntry 3 }
+
+cLNetflowExporterPortNumber OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the netflow exporter port
+        number." 
+    ::= { cLNetflowExporterEntry 4 }
+
+cLNetflowExporterRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to
+        create and delete specific instances of rows in this 
+        table." 
+    ::= { cLNetflowExporterEntry 5 }
+ 
+
+-- *******************************************************************
+-- Netflow Monitor Exporter Map Table
+-- *******************************************************************
+
+cLNetflowMonitorMappingTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CLNetflowMonitorMappingEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table represents the netflow monitor and
+        exporter association."
+    ::= { ciscoLwappNetflowTableObjects 3 }
+
+cLNetflowMonitorMappingEntry OBJECT-TYPE
+    SYNTAX          CLNetflowMonitorMappingEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the association between
+        netflow monitor and exporter."
+    INDEX           {
+                        cLNetflowMonitorName,
+                        cLNetflowMonitorMappingExporterName
+                    } 
+    ::= { cLNetflowMonitorMappingTable 1 }
+
+CLNetflowMonitorMappingEntry ::= SEQUENCE {
+        cLNetflowMonitorMappingExporterName SnmpAdminString,
+        cLNetflowMonitorMappingRowStatus    RowStatus
+}
+
+cLNetflowMonitorMappingExporterName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the netflow exporter name." 
+    ::= { cLNetflowMonitorMappingEntry 1 }
+
+cLNetflowMonitorMappingRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This is the status column for this row and is used to
+        create and delete specific instances of rows in this 
+        table." 
+    ::= { cLNetflowMonitorMappingEntry 2 }
+ 
+
+-- *******************************************************************
+-- *    NOTIFICATIONS
+-- *******************************************************************
+--   
+-- *******************************************************************
+-- *   END OF -  NOTIFICATIONS
+-- *******************************************************************
+--   
+-- *******************************************************************
+-- *    Compliance statements
+-- *******************************************************************
+
+ciscoLwappNetflowMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoLwappNetflowMIBConform 1 }
+
+ciscoLwappNetflowMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoLwappNetflowMIBConform 2 }
+
+
+ciscoLwappNetflowMIBCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for the SNMP entities that
+        implement the ciscoLwappNetflowMIB module."
+    MODULE          -- this module
+    MANDATORY-GROUPS { cLNetflowConfigGroup }
+    ::= { ciscoLwappNetflowMIBCompliances 1 }
+
+-- *******************************************************************
+-- *    Units of conformance
+-- *******************************************************************
+
+cLNetflowConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cLNetflowMonitorName,
+                        cLNetflowMonitorRecordName,
+                        cLNetflowMonitorRowStatus,
+                        cLNetflowExporterName,
+                        cLNetflowExporterIPAddressType,
+                        cLNetflowExporterIPAddress,
+                        cLNetflowExporterPortNumber,
+                        cLNetflowExporterRowStatus,
+                        cLNetflowMonitorMappingExporterName,
+                        cLNetflowMonitorMappingRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This is a collection of objects which can
+        be configured to control netflow parameters."
+    ::= { ciscoLwappNetflowMIBGroups 1 }
+
+END
+
+
+

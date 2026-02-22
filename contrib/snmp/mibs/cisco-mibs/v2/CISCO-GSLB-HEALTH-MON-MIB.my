@@ -1,0 +1,1108 @@
+-- *******************************************************************
+-- CISCO-GSLB-HEALTH-MON-MIB.my:  Global Server Load Balancing
+-- Keepalive Status and Statistics
+--   
+-- Dec 2006, Pawan N
+--   
+-- Copyright (c) 2006-2007 by Cisco Systems Inc.
+-- All rights reserved.
+-- ******************************************************************
+
+CISCO-GSLB-HEALTH-MON-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    NOTIFICATION-TYPE,
+    Counter32,
+    Unsigned32
+        FROM SNMPv2-SMI
+    MODULE-COMPLIANCE,
+    NOTIFICATION-GROUP,
+    OBJECT-GROUP
+        FROM SNMPv2-CONF
+    RowStatus,
+    StorageType,
+    TruthValue
+        FROM SNMPv2-TC
+    sysName
+        FROM SNMPv2-MIB
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    CiscoGslbKeepaliveTargetType,
+    CiscoGslbKeepaliveMethod,
+    CiscoGslbKeepaliveRate,
+    CiscoGslbTerminationMethod,
+    CiscoGslbKeepaliveStatus,
+    CiscoGslbKalapType
+        FROM CISCO-GSLB-TC-MIB
+    cgdAnswerId
+        FROM CISCO-GSLB-DNS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI;
+
+
+ciscoGslbHealthMonMIB MODULE-IDENTITY
+    LAST-UPDATED    "200704090000Z"
+    ORGANIZATION    "Cisco Systems, Inc."
+    CONTACT-INFO
+            "Cisco Systems
+            Customer Service
+
+            Postal: 170 W Tasman Drive
+            San Jose, CA  95134
+            USA
+
+            Tel: +1 800 553-NETS
+
+            E-mail: cs-slb@cisco.com"
+    DESCRIPTION
+        "The MIB defines objects related to global keepalive
+        properties in GSLB devices.  It contains the tables
+        for keep alive configuration and statistics.  It also
+        defines related notifications.
+
+        Acronyms and their description:
+
+        Keepalive    : Keepalive is a method by which the GSLB
+                       device periodically checks to see if a
+                       resource associated with an answer is
+                       still active.  The action of checking is
+                       known as a keepalive probe.
+
+        Shared
+        -keepalive   : The GSLB device supports the use of shared
+                       keepalives to minimize traffic between the
+                       GSLB device and the SLBs(Server Load
+                       Balancing) that it is monitoring.
+                       A shared keepalive identifies a common IP
+                       address or resource that provides status
+                       for multiple answers.  Shared keepalives
+                       periodically provide state information
+                       (online, offline) of the resources
+                       to the GSLB device.
+
+        VIP          : Virtual IP Addresses are used by SLBs to
+                       represent content hosted on one or more
+                       servers under their control.  The use of
+                       VIPs is to route content to the proper
+                       requesting host without exposing the
+                       device's internal IP address.
+
+        CAPP         : Content Application Peering Protocol(CAPP) is
+                       a protocol used for intercommunication between
+                       content switching devices.
+
+        Answer       : Refers to resources to which the GSLB device
+                       resolves DNS requests that it receives.
+
+                       There are three possible types of answers:
+
+                       Virtual IP (VIP) : Addresses associated with
+                                          a SLB, a web server, a
+                                          cache, etc.
+
+                       Name Server (NS) : Configured DNS name server
+                                          on the network that can
+                                          answer queries that the GSLB
+                                          device can not resolve.
+
+                       Content Routing  : A device which uses a
+                       Agent (CRA)        resolution process called
+                                          DNS race to send identical
+                                          and simultaneous responses
+                                          back to client D-proxy
+                                          for proximity determination.
+                       HTTPHEAD         : The HTTP HEAD keepalive type
+                                          sends a TCP format HTTP HEAD
+                                          request to a web server at
+                                          an address you specify,
+                                          returning the online status
+                                          of the device (in the form 
+                                          of a 200 response) as well
+                                          as information on the web
+                                          page status and content
+                                          size."
+    REVISION        "200704090000Z"
+    DESCRIPTION
+        "-Added the following objects to ciscoGslbGeneralConfigGroup:
+        cghMonDroppedKalNotifs
+        cghMonKalTrapRateLimit
+
+        -Added a new group ciscoGslbGeneralConfigRateLimitGroup."
+    REVISION        "200612040000Z"
+    DESCRIPTION
+        "Initial version of this MIB module."
+    ::= { ciscoMgmt 600 }
+
+
+ciscoGslbHealthMonMIBNotifs  OBJECT IDENTIFIER
+    ::= { ciscoGslbHealthMonMIB 0 }
+
+ciscoGslbHealthMonMIBObjects  OBJECT IDENTIFIER
+    ::= { ciscoGslbHealthMonMIB 1 }
+
+ciscoGslbHealthMonMIBConform  OBJECT IDENTIFIER
+    ::= { ciscoGslbHealthMonMIB 2 }
+
+-- Objects for Notification Control
+
+cghMonNotifControl  OBJECT IDENTIFIER
+    ::= { ciscoGslbHealthMonMIBObjects 1 }
+
+-- Objects for Notification
+
+cghMonNotifObjects  OBJECT IDENTIFIER
+    ::= { ciscoGslbHealthMonMIBObjects 2 }
+
+-- Objects for General configuration, status and statistics
+
+cghMonKalGeneralConfig  OBJECT IDENTIFIER
+    ::= { ciscoGslbHealthMonMIBObjects 3 }
+
+-- Objects for per keepalive configuration, status and statistics
+
+cghMonKal  OBJECT IDENTIFIER
+    ::= { ciscoGslbHealthMonMIBObjects 4 }
+
+
+-- General Configuration Objects
+
+cghMonNsQueryDomainName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the default doman name for a
+        keepalive identified by cghMonKalMethod value of 'ns'."
+    DEFVAL          { "." } 
+    ::= { cghMonKalGeneralConfig 1 }
+
+cghMonCappHash OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the default alphanumeric value used
+        to encrypt CAPP data.  A keepalive with cghMonKalMethod as
+        'kalap' uses CAPP for inter-communication between GSLB
+        devices."
+    DEFVAL          { "hash-not-set" } 
+    ::= { cghMonKalGeneralConfig 2 }
+
+cghMonHttpHeadPath OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the default path relative to the
+        server website, for a keepalive with cghMonKalMethod as
+        'httphead'."
+    DEFVAL          { "/" } 
+    ::= { cghMonKalGeneralConfig 3 }
+
+cghMonHttpHeadConnTermMethod OBJECT-TYPE
+    SYNTAX          CiscoGslbTerminationMethod
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the default connection termination
+        method for a keepalive with cghMonKalMethod as 'httphead'."
+    DEFVAL          { reset } 
+    ::= { cghMonKalGeneralConfig 4 }
+
+cghMonTcpConnTermMethod OBJECT-TYPE
+    SYNTAX          CiscoGslbTerminationMethod
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the default connection termination
+        method for a keepalive with cghMonKalMethod as 'tcp'."
+    DEFVAL          { reset } 
+    ::= { cghMonKalGeneralConfig 5 }
+
+cghMonCraDecay OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object is used for a keepalive with cghMonKalMethod
+        as 'cra', to specify how heavily GSLB should weigh recent
+        DNS Round Trip Time (RTT) probe results relative to earlier
+        RTT metrics, with 1 indicating that recent results should
+        not be weighed any more than previous RTT results."
+    DEFVAL          { 2 } 
+    ::= { cghMonKalGeneralConfig 6 }
+
+cghMonTotalConfiguredProbes OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of keepalive probes
+        configured on the GSLB device by the administrator.  This
+        value corresponds to the number of entries in the
+        cghMonKalConfigTable." 
+    ::= { cghMonKalGeneralConfig 7 }
+
+cghMonDroppedKalNotifs OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "traps"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of this object is the total number of
+        ciscoGslbKalEventStatus notifications dropped
+        since the network management portion of the system
+        was last re-initialized. These notifications are dropped 
+        when the limit configured in cghMonKalTrapRateLimit 
+        is reached." 
+    ::= { cghMonKalGeneralConfig 8 }
+
+cghMonKalTrapRateLimit OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    UNITS           "traps per minute"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the maximum rate at which the
+        ciscoGslbKalEventStatus notifications can be sent."
+    DEFVAL          { 25 } 
+    ::= { cghMonKalGeneralConfig 9 }
+
+cghMonKalParameterTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CghMonKalParameterEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used to configure the default parameters
+        associated with each keepalive method, identified by
+        cghMonKalParameterMethod."
+    ::= { cghMonKalGeneralConfig 10 }
+
+cghMonKalParameterEntry OBJECT-TYPE
+    SYNTAX          CghMonKalParameterEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in cghMonKalParameterTable.  Each entry contains
+        default values for a keepalive probe method, identified by
+        cghMonKalParameterMethod.
+        Entries can be added/modified/deleted by administrator
+        action.  If the value of cghMonKalParameterStorageType
+        is 'permanent' then the corresponding entry cannot be
+        deleted."
+    INDEX           { cghMonKalParameterMethod } 
+    ::= { cghMonKalParameterTable 1 }
+
+CghMonKalParameterEntry ::= SEQUENCE {
+        cghMonKalParameterMethod               CiscoGslbKeepaliveMethod,
+        cghMonKalParameterRate                 CiscoGslbKeepaliveRate,
+        cghMonKalParameterMinimumFrequency     Unsigned32,
+        cghMonKalParameterResponseTimeout      Unsigned32,
+        cghMonKalParameterFastRetries          Unsigned32,
+        cghMonKalParameterFastSuccessfulProbes Unsigned32,
+        cghMonKalParameterDestPort             InetPortNumber,
+        cghMonKalParameterStorageType          StorageType,
+        cghMonKalParameterRowStatus            RowStatus
+}
+
+cghMonKalParameterMethod OBJECT-TYPE
+    SYNTAX          CiscoGslbKeepaliveMethod
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the method used for the keepalive." 
+    ::= { cghMonKalParameterEntry 1 }
+
+cghMonKalParameterRate OBJECT-TYPE
+    SYNTAX          CiscoGslbKeepaliveRate
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the global rate setting for a
+        keepalive method, identified by cghMonKalParameterMethod.
+        It is not valid when cghMonKalParameterMethod
+        is 'ns' or 'cra'." 
+    ::= { cghMonKalParameterEntry 2 }
+
+cghMonKalParameterMinimumFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the minimum interval with which the
+        GSLB device attempts to schedule keepalives.
+
+        It is valid when cghMonKalParameterMethod is 'cra' or 'ns'.
+        And also, it is valid when cghMonKalParameterMethod is
+        'tcp', 'icmp', 'httphead' or 'kalap', provided
+        cghMonKalParameterRate is 'standard'." 
+    ::= { cghMonKalParameterEntry 3 }
+
+cghMonKalParameterResponseTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    UNITS           "seconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the length of time allowed
+        before retransmission of data to a device that is
+        not responding to a request.
+
+        This object is valid when cghMonKalParameterMethod
+        is 'tcp' or 'httphead', provided
+        cghMonKalParameterRate is 'standard'." 
+    ::= { cghMonKalParameterEntry 4 }
+
+cghMonKalParameterFastRetries OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    UNITS           "retries"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times that the GSLB
+        device retransmits a packet before declaring an answer
+        offline.
+
+        This object is valid when cghMonKalParameterRate
+        is 'fast'." 
+    ::= { cghMonKalParameterEntry 5 }
+
+cghMonKalParameterFastSuccessfulProbes OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    UNITS           "probes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of consecutive successful
+        keepalive attempts (probes) that must be recognized by the
+        GSLB device before bringing an answer back online (and 
+        reintroducing it into the GSLB network).
+
+        This object is valid when cghMonKalParameterRate is 'fast'." 
+    ::= { cghMonKalParameterEntry 6 }
+
+cghMonKalParameterDestPort OBJECT-TYPE
+    SYNTAX          InetPortNumber (1..65535 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port on the remote device,
+        identified by cgdAnswerAddress, to which the
+        keepalive is sent.
+
+        This object is valid when cghMonKalParameterMethod is
+        'tcp' or 'httphead'."
+    REFERENCE       "cgdAnswerAddress from CISCO-GSLB-DNS-MIB." 
+    ::= { cghMonKalParameterEntry 7 }
+
+cghMonKalParameterStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this conceptual
+        row.  If the value of this object in the row is 'permanent',
+        then that corresponding row cannot be deleted, it can only
+        be modified."
+    DEFVAL          { nonVolatile } 
+    ::= { cghMonKalParameterEntry 8 }
+
+cghMonKalParameterRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cghMonKalParameterTable." 
+    ::= { cghMonKalParameterEntry 9 }
+ 
+
+
+cghMonKalConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CghMonKalConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used for configuring keepalives.
+        It consists a list of configuration entries for
+        each keepalive configured."
+    ::= { cghMonKal 1 }
+
+cghMonKalConfigEntry OBJECT-TYPE
+    SYNTAX          CghMonKalConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing configuration entities for a keepalive
+        instance.  Entries can be added/deleted/modified by
+        administrator action.
+
+        The following objects are mandatory for a row creation:
+            cghMonKalMethod
+            cghMonKalTargetType."
+    INDEX           { cghMonKalId } 
+    ::= { cghMonKalConfigTable 1 }
+
+CghMonKalConfigEntry ::= SEQUENCE {
+        cghMonKalId                   Unsigned32,
+        cghMonKalTargetType           CiscoGslbKeepaliveTargetType,
+        cghMonKalMethod               CiscoGslbKeepaliveMethod,
+        cghMonKalAnswerId             Unsigned32,
+        cghMonKalPrimaryTargetType    InetAddressType,
+        cghMonKalPrimaryTarget        InetAddress,
+        cghMonKalEnable               TruthValue,
+        cghMonKalDelay                Unsigned32,
+        cghMonKalKalapType            CiscoGslbKalapType,
+        cghMonKalTagName              SnmpAdminString,
+        cghMonKalDestPort             InetPortNumber,
+        cghMonKalCappSecure           TruthValue,
+        cghMonKalCappHash             SnmpAdminString,
+        cghMonKalQueryDomainName      SnmpAdminString,
+        cghMonKalPath                 SnmpAdminString,
+        cghMonKalHostTag              SnmpAdminString,
+        cghMonKalSecondaryTargetType  InetAddressType,
+        cghMonKalSecondaryTarget      InetAddress,
+        cghMonKalFastRetries          Unsigned32,
+        cghMonKalFastSuccessfulProbes Unsigned32,
+        cghMonKalStorageType          StorageType,
+        cghMonKalRowStatus            RowStatus
+}
+
+cghMonKalId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535 )
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object uniquely identifies a keepalive." 
+    ::= { cghMonKalConfigEntry 1 }
+
+cghMonKalTargetType OBJECT-TYPE
+    SYNTAX          CiscoGslbKeepaliveTargetType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the answer type to which this
+        keepalive is associated." 
+    ::= { cghMonKalConfigEntry 2 }
+
+cghMonKalMethod OBJECT-TYPE
+    SYNTAX          CiscoGslbKeepaliveMethod
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the keepalive method." 
+    ::= { cghMonKalConfigEntry 3 }
+
+cghMonKalAnswerId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to associate an answer with this
+        keepalive instance.  Its value must be same as the
+        value configured in cgdAnswerTable.
+
+        This object is mandatory for a row creation, the only
+        expection being when cghMonKalTargetType has a value
+        'shared'."
+    REFERENCE       "cgdAnswerTable from CISCO-GSLB-DNS-MIB." 
+    ::= { cghMonKalConfigEntry 4 }
+
+cghMonKalPrimaryTargetType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the primary target device IP address
+        type used by this keepalive."
+    DEFVAL          { ipv4 } 
+    ::= { cghMonKalConfigEntry 5 }
+
+cghMonKalPrimaryTarget OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the primary target device IP
+        address used by this keepalive.  The type of IP address
+        is identified by cghMonKalPrimaryTargetType.
+
+        This object is mandatory provided cghMonKalTargetType
+        is 'shared'."
+    DEFVAL          { "" } 
+    ::= { cghMonKalConfigEntry 6 }
+
+cghMonKalEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to activate/deactivate a keepalive by
+        setting the state to either 'true'/'false' respectively."
+    DEFVAL          { false } 
+    ::= { cghMonKalConfigEntry 7 }
+
+cghMonKalDelay OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "milliseconds"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies one-way delay time in milliseconds.
+        This value is used by the GSLB device to calculate a
+        static round-trip time (RTT), with the one-way delay
+        constituting one-half of the round-trip time.
+        This object is valid when cghMonKalMethod is 'cra' provided
+        cghMonKalEnable is 'false'."
+    DEFVAL          { 0 } 
+    ::= { cghMonKalConfigEntry 8 }
+
+cghMonKalKalapType OBJECT-TYPE
+    SYNTAX          CiscoGslbKalapType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the type of kalap for a keepalive.
+        This object is valid when cghMonKalTargetType is 'kalap'."
+    DEFVAL          { kalapByVip } 
+    ::= { cghMonKalConfigEntry 9 }
+
+cghMonKalTagName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the tag for identifying a specific
+        target, identified by cgdAnswerAddress object, on
+        content switching device.  This object is valid when
+        cghMonKalMethod is 'kalap' provided cghMonKalKalapType is
+        'kalapByTag'."
+    REFERENCE       "cgdAnswerAddress from CISCO-GSLB-DNS-MIB."
+    DEFVAL          { "" } 
+    ::= { cghMonKalConfigEntry 10 }
+
+cghMonKalDestPort OBJECT-TYPE
+    SYNTAX          InetPortNumber (1..65535 )
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the port on the remote device that
+        is to receive the TCP/HTTPHEAD keepalive probe from the
+        GSLB device.
+        The default value for this object is got from
+        cghMonKalParameterDestPort in the default properties
+        table (cghMonKalParameterTable)." 
+    ::= { cghMonKalConfigEntry 11 }
+
+cghMonKalCappSecure OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies whether or not the keepalive uses
+        CAPP encryption.
+        This object is valid when cghMonKalMethod is 'kalap'."
+    DEFVAL          { false } 
+    ::= { cghMonKalConfigEntry 12 }
+
+cghMonKalCappHash OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the alphanumeric value used to
+        encrypt interbox communications, which uses CAPP.  The
+        same value needs to be the configured on the remote GSLB
+        device, identified by cgdAnswerAddress .
+        This object is valid when cghMonKalMethod is 'kalap'
+        provided cghMonKalCappSecure is 'true'.
+        The default for this object is the value of
+        cghMonCappHash."
+    REFERENCE       "cgdAnswerAddress from CISCO-GSLB-DNS-MIB." 
+    ::= { cghMonKalConfigEntry 13 }
+
+cghMonKalQueryDomainName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the name of the domain name server
+        to which an ns keepalive is sent.
+        The default for this object is the value of
+        cghMonNsQueryDomainName." 
+    ::= { cghMonKalConfigEntry 14 }
+
+cghMonKalPath OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the server website queried in
+        HTTPHEAD keepalive.  The default for this object is the
+        value of cghMonHttpHeadPath." 
+    ::= { cghMonKalConfigEntry 15 }
+
+cghMonKalHostTag OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies an optional domain name that is sent
+        to the VIP as part of the HTTPHEAD query.  This tag allows
+        an SLB to resolve the keepalive request to a particular
+        website even when multiple sites are represented by the
+        same VIP.
+        This is object is valid when cghMonKalMethod is 'httphead'."
+    DEFVAL          { "" } 
+    ::= { cghMonKalConfigEntry 16 }
+
+cghMonKalSecondaryTargetType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the secondary target device IP
+        address type used by this keepalive.
+        This object is valid when cghMonKalMethod is 'kalap'."
+    DEFVAL          { ipv4 } 
+    ::= { cghMonKalConfigEntry 17 }
+
+cghMonKalSecondaryTarget OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the secondary target device IP
+        address used by this keepalive.  The type of IP address is
+        identified by cghMonKalSecondaryTargetType object.
+        Secondary target is used when the primary target is
+        not available.
+        This object is valid when cghMonKalMethod is 'kalap'."
+    DEFVAL          { "" } 
+    ::= { cghMonKalConfigEntry 18 }
+
+cghMonKalFastRetries OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "retries"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times the GSLB device
+        retransmits a keepalive probe before declaring the target,
+        identified by cgdAnswerAddress, offline.
+        The value of this object is by default got from the
+        default properties table (cghMonKalParameterTable), from
+        the row identified by cghMonKalMethod."
+    REFERENCE       "cgdAnswerAddress from CISCO-GSLB-DNS-MIB." 
+    ::= { cghMonKalConfigEntry 19 }
+
+cghMonKalFastSuccessfulProbes OBJECT-TYPE
+    SYNTAX          Unsigned32
+    UNITS           "probes"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of consecutive successful
+        keepalive attempts that must be recognized by the GSLB
+        device before bringing an answer back online.
+        The value of this object is by default got from the
+        default properties table (cghMonKalParameterTable), from
+        the row identified by cghMonKalMethod." 
+    ::= { cghMonKalConfigEntry 20 }
+
+cghMonKalStorageType OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cghMonKalConfigEntry 21 }
+
+cghMonKalRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cghMonKalConfigTable." 
+    ::= { cghMonKalConfigEntry 22 }
+ 
+
+
+cghMonKalSharedAnswerTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CghMonKalSharedAnswerEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table is used for associating a shared keepalive with
+        an answer."
+    ::= { cghMonKal 2 }
+
+cghMonKalSharedAnswerEntry OBJECT-TYPE
+    SYNTAX          CghMonKalSharedAnswerEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing the per shared keepalive to answer
+        association.  Entries can be added/deleted by
+        administrator action.  Entries are added when a shared
+        keepalive is required to be associated with an answer."
+    INDEX           {
+                        cgdAnswerId,
+                        cghMonKalId
+                    } 
+    ::= { cghMonKalSharedAnswerTable 1 }
+
+CghMonKalSharedAnswerEntry ::= SEQUENCE {
+        cghMonKalShAnsStoragetype StorageType,
+        cghMonKalShAnsRowStatus   RowStatus
+}
+
+cghMonKalShAnsStoragetype OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the storage type for this
+        conceptual row."
+    DEFVAL          { nonVolatile } 
+    ::= { cghMonKalSharedAnswerEntry 1 }
+
+cghMonKalShAnsRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This object is used to create/delete an entry in the
+        cghMonKalSharedAnswerTable." 
+    ::= { cghMonKalSharedAnswerEntry 2 }
+ 
+
+-- Keepalive Statistics Table
+
+cghMonKalStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF CghMonKalStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides the statistics of each keepalive
+        configured on the device."
+    ::= { cghMonKal 3 }
+
+cghMonKalStatsEntry OBJECT-TYPE
+    SYNTAX          CghMonKalStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry containing statistics for a keepalive instance.
+        Entries are added/deleted when the corresponding entries
+        in the cghMonKalConfigTable are added/deleted."
+    AUGMENTS           { cghMonKalConfigEntry  } 
+ 
+    ::= { cghMonKalStatsTable 1 }
+
+CghMonKalStatsEntry ::= SEQUENCE {
+        cghMonKalStatus            CiscoGslbKeepaliveStatus,
+        cghMonKalSentProbes        Counter32,
+        cghMonKalReceivedProbes    Counter32,
+        cghMonKalPositiveProbes    Counter32,
+        cghMonKalNegativeProbes    Counter32,
+        cghMonKalStatusTransitions Counter32,
+        cghMonKalDynamicLoad       Unsigned32,
+        cghMonKalVIPFailovers      Counter32
+}
+
+cghMonKalStatus OBJECT-TYPE
+    SYNTAX          CiscoGslbKeepaliveStatus
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object provides the status of the keepalive." 
+    ::= { cghMonKalStatsEntry 1 }
+
+cghMonKalSentProbes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "probes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of keepalive probes
+        sent to the remote device, identified by
+        cgdAnswerAddress.  This value of this object is sum
+        of cghMonKalPositiveProbes & cghMonKalNegativeProbes"
+    REFERENCE       "cgdAnswerAddress from CISCO-GSLB-DNS-MIB." 
+    ::= { cghMonKalStatsEntry 2 }
+
+cghMonKalReceivedProbes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "probes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of keepalive probes
+        received from the remote device, identified by
+        cgdAnswerAddress object."
+    REFERENCE       "cgdAnswerAddress from CISCO-GSLB-DNS-MIB." 
+    ::= { cghMonKalStatsEntry 3 }
+
+cghMonKalPositiveProbes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "probes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of keepalive probes
+        sent to the remote device, identified by
+        cgdAnswerAddress object, that resulted in a positive
+        response."
+    REFERENCE       "cgdAnswerAddress from CISCO-GSLB-DNS-MIB." 
+    ::= { cghMonKalStatsEntry 4 }
+
+cghMonKalNegativeProbes OBJECT-TYPE
+    SYNTAX          Counter32
+    UNITS           "probes"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of keepalive probes
+        sent to the remote device, identified by
+        cgdAnswerAddress object, that resulted in a negative
+        response."
+    REFERENCE       "cgdAnswerAddress from CISCO-GSLB-DNS-MIB." 
+    ::= { cghMonKalStatsEntry 5 }
+
+cghMonKalStatusTransitions OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the total number of status
+        transitions of cghMonKalStatus, from 'offline' to
+        'online' and vice versa." 
+    ::= { cghMonKalStatsEntry 6 }
+
+cghMonKalDynamicLoad OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object speifies the dynamic load value on the remote
+        device, identified by cgdAnswerAddress object,
+        associated with this keepalive."
+    REFERENCE       "cgdAnswerAddress from CISCO-GSLB-DNS-MIB." 
+    ::= { cghMonKalStatsEntry 7 }
+
+cghMonKalVIPFailovers OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This object specifies the number of times the VIP switched
+        from primary to secondary target and vice versa.
+        The primary and secondary targets are identified by
+        cghMonKalSecondaryTarget and cghMonKalPrimaryTarget
+        objects respectively." 
+    ::= { cghMonKalStatsEntry 8 }
+ 
+
+
+-- Notification Control Group
+
+cghMonKalNotifEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This object defines the administrative state of sending
+        notifications to signal the transition of the status of
+        keepalives."
+    DEFVAL          { false } 
+    ::= { cghMonNotifControl 1 }
+
+-- Objects for Notification
+
+cghMonKalPrevStatus OBJECT-TYPE
+    SYNTAX          CiscoGslbKeepaliveStatus
+    MAX-ACCESS      accessible-for-notify
+    STATUS          current
+    DESCRIPTION
+        "This object is used for sending the value of
+        cghMonKalStatus before transitioning to new state." 
+    ::= { cghMonNotifObjects 1 }
+
+-- Notifications
+
+ciscoGslbKalEventStatus NOTIFICATION-TYPE
+    OBJECTS         {
+                        sysName,
+                        cghMonKalPrimaryTargetType,
+                        cghMonKalPrimaryTarget,
+                        cghMonKalMethod,
+                        cghMonKalPrevStatus,
+                        cghMonKalStatus,
+                        cghMonDroppedKalNotifs
+                    }
+    STATUS          current
+    DESCRIPTION
+        "This notification is sent when ever the value of
+        cghMonKalStatus changes."
+   ::= { ciscoGslbHealthMonMIBNotifs 1 }
+-- Conformance
+
+ciscoGslbHealthMonMIBCompliances  OBJECT IDENTIFIER
+    ::= { ciscoGslbHealthMonMIBConform 1 }
+
+ciscoGslbHealthMonMIBGroups  OBJECT IDENTIFIER
+    ::= { ciscoGslbHealthMonMIBConform 2 }
+
+
+-- Compliance
+
+ciscoGslbHealthMonMIBCompliance MODULE-COMPLIANCE
+    STATUS          deprecated
+    DESCRIPTION
+        "Compliance statement for entities which implement
+        the Cisco GSLB HEALTH MON MIB"
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        ciscoGslbGeneralConfigGroup,
+                        ciscoGslbKalParameterGroup,
+                        ciscoGslbKalConfigGroup,
+                        ciscoGslbKalStatsGroup,
+                        ciscoGslbKalNotifControlGroup,
+                        ciscoGslbKalNotifObjectsGroup,
+                        ciscoGslbKalNotificationGroup,
+                        ciscoGslbGeneralConfigRateLimitGroup
+                    }
+    ::= { ciscoGslbHealthMonMIBCompliances 1 }
+
+-- Units of Conformance
+
+ciscoGslbGeneralConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cghMonNsQueryDomainName,
+                        cghMonCappHash,
+                        cghMonHttpHeadPath,
+                        cghMonHttpHeadConnTermMethod,
+                        cghMonCraDecay,
+                        cghMonTcpConnTermMethod,
+                        cghMonTotalConfiguredProbes,
+                        cghMonDroppedKalNotifs,
+                        cghMonKalTrapRateLimit
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing general GSLB keepalive
+        configuration."
+    ::= { ciscoGslbHealthMonMIBGroups 1 }
+
+ciscoGslbKalParameterGroup OBJECT-GROUP
+    OBJECTS         {
+                        cghMonKalParameterRate,
+                        cghMonKalParameterMinimumFrequency,
+                        cghMonKalParameterResponseTimeout,
+                        cghMonKalParameterFastRetries,
+                        cghMonKalParameterFastSuccessfulProbes,
+                        cghMonKalParameterDestPort,
+                        cghMonKalParameterStorageType,
+                        cghMonKalParameterRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing general GSLB keepalive
+        parameter configuration."
+    ::= { ciscoGslbHealthMonMIBGroups 2 }
+
+ciscoGslbKalConfigGroup OBJECT-GROUP
+    OBJECTS         {
+                        cghMonKalTargetType,
+                        cghMonKalMethod,
+                        cghMonKalAnswerId,
+                        cghMonKalPrimaryTargetType,
+                        cghMonKalPrimaryTarget,
+                        cghMonKalEnable,
+                        cghMonKalDelay,
+                        cghMonKalKalapType,
+                        cghMonKalTagName,
+                        cghMonKalDestPort,
+                        cghMonKalCappSecure,
+                        cghMonKalCappHash,
+                        cghMonKalQueryDomainName,
+                        cghMonKalPath,
+                        cghMonKalHostTag,
+                        cghMonKalSecondaryTargetType,
+                        cghMonKalSecondaryTarget,
+                        cghMonKalFastRetries,
+                        cghMonKalFastSuccessfulProbes,
+                        cghMonKalStorageType,
+                        cghMonKalRowStatus,
+                        cghMonKalShAnsStoragetype,
+                        cghMonKalShAnsRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing per keepalive
+        configuration."
+    ::= { ciscoGslbHealthMonMIBGroups 3 }
+
+ciscoGslbKalStatsGroup OBJECT-GROUP
+    OBJECTS         {
+                        cghMonKalStatus,
+                        cghMonKalSentProbes,
+                        cghMonKalReceivedProbes,
+                        cghMonKalPositiveProbes,
+                        cghMonKalNegativeProbes,
+                        cghMonKalStatusTransitions,
+                        cghMonKalDynamicLoad,
+                        cghMonKalVIPFailovers
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing per keepalive
+        status and statistics."
+    ::= { ciscoGslbHealthMonMIBGroups 4 }
+
+ciscoGslbKalNotifControlGroup OBJECT-GROUP
+    OBJECTS         { cghMonKalNotifEnable }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects controls the sending of
+        notifications defined in this MIB module."
+    ::= { ciscoGslbHealthMonMIBGroups 5 }
+
+ciscoGslbKalNotifObjectsGroup OBJECT-GROUP
+    OBJECTS         { cghMonKalPrevStatus }
+    STATUS          current
+    DESCRIPTION
+        "This group of objects is used to convey information for
+        notifications defined in this MIB module."
+    ::= { ciscoGslbHealthMonMIBGroups 6 }
+
+ciscoGslbKalNotificationGroup NOTIFICATION-GROUP
+   NOTIFICATIONS    { ciscoGslbKalEventStatus }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing GSLB events."
+    ::= { ciscoGslbHealthMonMIBGroups 7 }
+
+ciscoGslbGeneralConfigRateLimitGroup OBJECT-GROUP
+    OBJECTS         {
+                        cghMonDroppedKalNotifs,
+                        cghMonKalTrapRateLimit
+                    }
+    STATUS          current
+    DESCRIPTION
+        "A collection of objects providing information on
+        notifications dropped and rate limit for notifications."
+    ::= { ciscoGslbHealthMonMIBGroups 8 }
+
+END

@@ -1,0 +1,202 @@
+-- MIB file created 03-Dec-2002 15:24:34, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+ALTIGA-FTP-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "ALTIGA-FTP-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    alStatsFtp, alFtpGroup
+            FROM ALTIGA-MIB
+    alFtpMibModule
+            FROM ALTIGA-GLOBAL-REG
+    Counter, Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+altigaFtpStatsMibModule OBJECT IDENTIFIER ::= { alFtpMibModule 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200209051300Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--     170 W Tasman Drive 
+--     San Jose, CA  95134 
+--     USA 
+--    
+--     Tel: +1 800 553-NETS 
+--     E-mail: cs-cvpn3000@cisco.com
+--  Descr
+--    The Altiga FTP Statistics MIB models counters and objects 
+--     that are of management interest for FTP. 
+--     
+--     Acronyms 
+--     The following acronyms are used in this document: 
+--    
+--       FTP:        File Transfer Protocol 
+--    
+--       MIB:        Management Information Base 
+--    
+--  RevDate
+--    200209051300Z
+--  RevDescr
+--    Added module compliance.
+--  RevDate
+--    200207100000Z
+--  RevDescr
+--    Updated with new header
+
+alStatsFtpServerGlobal OBJECT IDENTIFIER ::= { alStatsFtp 1 }
+alStatsFtpClientGlobal OBJECT IDENTIFIER ::= { alStatsFtp 2 }
+altigaFtpStatsMibConformance OBJECT IDENTIFIER ::= { altigaFtpStatsMibModule 1 }
+altigaFtpStatsMibCompliances OBJECT IDENTIFIER ::= { altigaFtpStatsMibConformance 1 }
+
+alFtpClientStatsMaxSess OBJECT-TYPE
+    SYNTAX Gauge
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The current maximum number of FTP client sessions."
+    ::= { alStatsFtpClientGlobal 1 }
+
+alFtpClientStatsTotalSess OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of FTP client sessions since boot."
+    ::= { alStatsFtpClientGlobal 2 }
+
+alFtpClientStatsGoodConns OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of successful FTP client connections 
+                since boot."
+    ::= { alStatsFtpClientGlobal 3 }
+
+alFtpClientStatsBadConns OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of unsuccessful FTP client connections 
+                since boot."
+    ::= { alStatsFtpClientGlobal 4 }
+
+alFtpClientStatsGoodDataConns OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of successful FTP client data-socket 
+                connections since boot."
+    ::= { alStatsFtpClientGlobal 5 }
+
+alFtpClientStatsBadDataConns OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of unsuccessful FTP client data-socket 
+                connections since boot."
+    ::= { alStatsFtpClientGlobal 6 }
+
+alFtpClientStatsGoodFileXfers OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The number of successful FTP client file transfers 
+                since boot."
+    ::= { alStatsFtpClientGlobal 7 }
+
+alFtpClientStatsBadFileXfers OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The numner of unsuccessful FTP client file transfers 
+                since boot."
+    ::= { alStatsFtpClientGlobal 8 }
+
+alFtpClientStatsAsciiXfers OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of FTP client ASCII mode transfers 
+                since boot."
+    ::= { alStatsFtpClientGlobal 9 }
+
+alFtpClientStatsBinaryXfers OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of FTP client BINARY mode transfers 
+                since boot."
+    ::= { alStatsFtpClientGlobal 10 }
+
+alFtpClientStatsOctetsXmit OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number bytes transmitted by the FTP client 
+                since boot."
+    ::= { alStatsFtpClientGlobal 11 }
+
+alFtpClientStatsOctetsRecv OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number bytes received by the FTP client 
+                since boot."
+    ::= { alStatsFtpClientGlobal 12 }
+
+alFtpClientStatsTimeouts OBJECT-TYPE
+    SYNTAX Counter
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The total number of FTP client command/response timeouts 
+                since boot."
+    ::= { alStatsFtpClientGlobal 13 }
+
+altigaFtpStatsGroup OBJECT IDENTIFIER ::= { alFtpGroup 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for Ftp statistics.
+--  objects
+--    alFtpClientStatsMaxSess, alFtpClientStatsTotalSess, 
+--    alFtpClientStatsGoodConns, alFtpClientStatsBadConns, 
+--    alFtpClientStatsGoodDataConns, alFtpClientStatsBadDataConns, 
+--    alFtpClientStatsGoodFileXfers, alFtpClientStatsBadFileXfers, 
+--    alFtpClientStatsAsciiXfers, alFtpClientStatsBinaryXfers, 
+--    alFtpClientStatsOctetsXmit, alFtpClientStatsOctetsRecv, 
+--    alFtpClientStatsTimeouts
+
+altigaFtpStatsMibCompliance OBJECT IDENTIFIER ::= { altigaFtpStatsMibCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the Altiga FTP Statistics MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    altigaFtpStatsGroup
+
+
+END
+

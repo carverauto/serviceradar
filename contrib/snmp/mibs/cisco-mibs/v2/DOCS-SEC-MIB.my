@@ -1,0 +1,784 @@
+-- * $Source$
+-- *********
+-- *------------------------------------------------------------------
+-- * DOCS-SEC-MIB.my:  DOCSIS Security MIB.
+-- *
+-- * March 2008, Daniel Hegglin
+-- *
+-- * Copyright (c) 2008-2009 by Cisco Systems Inc.
+-- * All rights reserved.
+-- *
+-- *------------------------------------------------------------------
+
+DOCS-SEC-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Counter32
+        FROM SNMPv2-SMI
+    OBJECT-GROUP,
+    MODULE-COMPLIANCE
+        FROM SNMPv2-CONF
+    TruthValue,
+    MacAddress,
+    RowStatus,
+    DateAndTime
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    SnmpTagList
+        FROM SNMP-TARGET-MIB
+    InetAddressType,
+    InetAddress,
+    InetAddressPrefixLength,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    docsIf3CmtsCmRegStatusEntry,
+    docsIf3CmtsCmRegStatusId
+        FROM DOCS-IF3-MIB
+    clabProjDocsis
+        FROM CLAB-DEF-MIB;
+
+
+docsSecMib MODULE-IDENTITY
+    LAST-UPDATED    "200702230000Z"
+    ORGANIZATION    "Cable Television Laboratories, Inc."
+    CONTACT-INFO
+            "Postal: Cable Television Laboratories, Inc.
+            858 Coal Creek Circle
+            Louisville, Colorado 80027-9750
+            U.S.A.
+            Phone: +1 303-661-9100
+            Fax:   +1 303-661-9199
+            E-mail: mibs@cablelabs.com"
+    DESCRIPTION
+        "This MIB module contains the management objects for 
+        the management of the security requirements in the DOCSIS
+        Security Specification."
+    REVISION        "200702230000Z"
+    DESCRIPTION
+        "Revised Version includes ECN OSSIv3.0-N-06.0357-1
+        and published as IO2"
+    REVISION        "200612071700Z"
+    DESCRIPTION
+        "Initial version, published as part of the CableLabs
+        OSSIv3.0 specification CM-SP-OSSIv3.0-I01-061207
+        Copyright 1999-2006 Cable Television Laboratories, Inc.
+        All rights reserved."
+    ::= { clabProjDocsis 11 }
+
+
+-- Textual Conventions
+--   
+-- Object Definitions
+
+docsSecMibObjects  OBJECT IDENTIFIER
+    ::= { docsSecMib 1 }
+
+docsSecCmtsServerCfg  OBJECT IDENTIFIER
+    ::= { docsSecMibObjects 1 }
+
+
+docsSecCmtsServerCfgTftpOptions OBJECT-TYPE
+    SYNTAX          BITS {
+                        hwAddr(0),
+                        netAddr(1)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute instructs the CMTS to insert the source
+        IP address and/or MAC address of received TFTP packets
+        into the TFTP option fields before forwarding
+        the packets to the Config File server.
+        This attribute is only applicable when the TftpProxyEnabled
+        attribute of the MdCfg object is 'true'."
+    REFERENCE
+        "DOCSIS 3.0 Operations Support System Interface
+         Specification CM-SP-OSSIv3.0-I01-061207,
+         MdCfg Object Section in the Media Access Control (MAC)
+         Requirements Annex."
+    DEFVAL          { {  } } 
+    ::= { docsSecCmtsServerCfg 1 }
+
+docsSecCmtsServerCfgConfigFileLearningEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute enables and disables Configuration
+        File Learning functionality.
+        If this attribute is set to 'true' the CMTS will respond
+        with Authentication Failure in the REG-RSP message
+        when there is a mismatch between learned config file
+        parameters and REG-REQ parameters. If this attribute
+        is set to 'false', the CMTS will not execute config
+        file learning and mismatch check.
+        This attribute is only applicable when the TftpProxyEnabled
+        attribute of the MdCfg object is 'true'."
+    REFERENCE
+        "DOCSIS 3.0 Operations Support System Interface
+         Specification CM-SP-OSSIv3.0-I01-061207,
+         MdCfg Object Section in the Media Access Control (MAC)
+         Requirements Annex.
+         DOCSIS 3.0 Security Specification
+         CM-SP-SECv3.0-I01-060804, Secure Provisioning Section.
+         DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804."
+    DEFVAL          { true } 
+    ::= { docsSecCmtsServerCfg 2 }
+docsSecCmtsEncrypt  OBJECT IDENTIFIER
+    ::= { docsSecMibObjects 2 }
+
+
+docsSecCmtsEncryptEncryptAlgPriority OBJECT-TYPE
+    SYNTAX          SnmpTagList
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute allows for configuration of a prioritized
+        list of encryption algorithms the CMTS will
+        use when selecting the primary SAID encryption algorithm
+        for a given CM. The CMTS selects the highest priority
+        encryption algorithm from this list that the CM
+        supports. By default the following encryption algorithms
+        are listed from highest to lowest priority (left
+        being the highest): 128 bit AES, 56 bit DES, 40 bit
+        DES.
+        An empty list indicates that the CMTS attempts to use
+        the latest and robust encryption algorithm supported
+        by the CM. The CMTS will ignore unknown values or unsupported
+        algorithms."
+    DEFVAL          { "aes128CbcMode des56CbcMode des40CbcMode" } 
+    ::= { docsSecCmtsEncrypt 1 }
+
+docsSecCmtsCmEaeExclusionTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsSecCmtsCmEaeExclusionEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object defines a list of CMs or CM groups to exclude
+        from Early Authentication and Encryption (EAE).
+        This object allows overrides to the value of EAE Control
+        for individual CMs or group of CMs for purposes
+        such as debugging. The CMTS supports a minimum of
+        30 instances of the CmtsCmEaeExclusion object.
+        This object is only applicable when the EarlyAuthEncryptCtrl
+        attribute of the MdCfg object is enabled.
+
+        This object supports the creation and deletion of multiple
+        instances."
+    REFERENCE
+        "DOCSIS 3.0 Operations Support System Interface
+         Specification CM-SP-OSSIv3.0-I01-061207,
+         MdCfg Object Section in the Media Access Control (MAC)
+         Requirements Annex.
+         DOCSIS 3.0 Security Specification
+         CM-SP-SECv3.0-I01-060804, Early Authentication And
+         Encryption (EAE) Section."
+    ::= { docsSecMibObjects 3 }
+
+docsSecCmtsCmEaeExclusionEntry OBJECT-TYPE
+    SYNTAX          DocsSecCmtsCmEaeExclusionEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsSecCmtsCmEaeExclusion.
+        The CMTS persists all instances of CmtsCmEaeExclusion
+        across reinitializations."
+    INDEX           { docsSecCmtsCmEaeExclusionId } 
+    ::= { docsSecCmtsCmEaeExclusionTable 1 }
+
+DocsSecCmtsCmEaeExclusionEntry ::= SEQUENCE {
+        docsSecCmtsCmEaeExclusionId          Unsigned32,
+        docsSecCmtsCmEaeExclusionMacAddr     MacAddress,
+        docsSecCmtsCmEaeExclusionMacAddrMask MacAddress,
+        docsSecCmtsCmEaeExclusionRowStatus   RowStatus
+}
+
+docsSecCmtsCmEaeExclusionId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key uniquely identifies the exclusion MAC address
+        rule." 
+    ::= { docsSecCmtsCmEaeExclusionEntry 1 }
+
+docsSecCmtsCmEaeExclusionMacAddr OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute identifies the CM MAC address. A match
+        is made when a CM MAC address bitwise ANDed with the
+        MacAddrMask attribute equals the value of this attribute."
+    DEFVAL          { '000000000000'H } 
+    ::= { docsSecCmtsCmEaeExclusionEntry 2 }
+
+docsSecCmtsCmEaeExclusionMacAddrMask OBJECT-TYPE
+    SYNTAX          MacAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute identifies the CM MAC address mask
+        and is used with the MacAddr attribute."
+    DEFVAL          { 'FFFFFFFFFFFF'H } 
+    ::= { docsSecCmtsCmEaeExclusionEntry 3 }
+
+docsSecCmtsCmEaeExclusionRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Controls and reflects the status of rows in this
+        table. There is no restriction on changing values in
+        a row of this table while the row is active." 
+    ::= { docsSecCmtsCmEaeExclusionEntry 4 }
+ 
+
+docsSecCmtsSavControl  OBJECT IDENTIFIER
+    ::= { docsSecMibObjects 4 }
+
+
+docsSecCmtsSavControlCmAuthEnable OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute enables or disables Source Address
+        Verification (SAV) for CM configured policies in the
+        SavCmAuth object. If this attribute is set to 'false',
+        the CM configured policies in the SavCmAuth object
+        are ignored.
+        This attribute is only applicable when the
+        SrcAddrVerificationEnabled attribute of the MdCfg object is
+        'true'."
+    REFERENCE
+        "DOCSIS 3.0 Operations Support System Interface
+         Specification CM-SP-OSSIv3.0-I01-061207,
+         MdCfg Object Section in the Media Access Control (MAC)
+         Requirements Annex."
+    DEFVAL          { true } 
+    ::= { docsSecCmtsSavControl 1 }
+
+docsSecSavCmAuthTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsSecSavCmAuthEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object defines a read-only set of SAV policies
+        associated with a CM that the CMTS will use in addition
+        to the CMTS verification of an operator assigned IP
+        Address being associated with a CM. When the CMTS has
+        not resolved a source address of a CM CPE, the CMTS verifies
+        if the CM CPE is authorized to pass traffic based
+        on this object. These object policies include a list
+        of subnet prefixes (defined in the SavStaticList
+        object) or a SAV Group Name that could reference a CMTS
+        configured list of subnet prefixes (defined in SavCfgList
+        object) or vendor-specific policies. The CMTS
+        populates the attributes of this object for a CM from
+        that CM's config file.
+        This object is only applicable when the
+        SrcAddrVerificationEnabled attribute of the MdCfg object is
+        'true' and the CmAuthEnable attribute of the CmtsSavCtrl
+        object is 'true'.
+        The CMTS is not required to persist instances of this
+        object across reinitializations."
+    REFERENCE
+        "DOCSIS 3.0 Operations Support System Interface
+         Specification CM-SP-OSSIv3.0-I01-061207,
+         MdCfg Object Section in the Media Access Control (MAC)
+         Requirements Annex.
+         DOCSIS 3.0 Security Specification
+         CM-SP-SECv3.0-I01-060804, Secure Provisioning Section.
+         DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804,
+         Common Radio Frequency Interface Encodings Annex."
+    ::= { docsSecMibObjects 5 }
+
+docsSecSavCmAuthEntry OBJECT-TYPE
+    SYNTAX          DocsSecSavCmAuthEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsSecSavCmAuth."
+    INDEX           { docsIf3CmtsCmRegStatusId } 
+    ::= { docsSecSavCmAuthTable 1 }
+
+DocsSecSavCmAuthEntry ::= SEQUENCE {
+        docsSecSavCmAuthGrpName            SnmpAdminString,
+        docsSecSavCmAuthStaticPrefixListId Unsigned32
+}
+
+docsSecSavCmAuthGrpName OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute references the Name attribute of the
+        SavCfgList object of a CM. If the CM signaled group
+        name is not configured in the CMTS, the CMTS ignores this
+        attribute value for the purpose of Source Address
+        Verification. The CMTS must allow the modification
+        of the GrpName object and use the updated SAV rules for
+        newly discovered CPEs from CMs. When a source IP address
+        is claimed by two CMs (e.g., detected as duplicated),
+        the CMTS must use the current SAV rules defined
+        for both CMs in case the SAV GrpName rules may have been
+        updated. In the case of a persisting conflict, it is
+        up to vendor-implementation to decide what CM should
+        hold the SAV authorization.
+        The zero-length string indicates that no SAV Group was
+        signaled by the CM. The zero-length value or a non-existing
+        reference in the SavCfgList object means the
+        SavCfgListName is ignored for the purpose of SAV."
+    REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+         Specification CM-SP-MULPIv3.0-I01-060804,
+         Common Radio Frequency Interface Encodings Annex." 
+    ::= { docsSecSavCmAuthEntry 1 }
+
+docsSecSavCmAuthStaticPrefixListId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute identifies the reference to a CMTS
+        created subnet prefix list based on the CM signaled static
+        prefix list TLV elements. The CMTS may reuse this
+        attribute value to reference more than one CM when
+        those CMs have signaled the same subnet prefix list to
+        the CMTS.
+        The value zero indicates that no SAV static prefix encodings
+        were signaled by the CM." 
+    ::= { docsSecSavCmAuthEntry 2 }
+ 
+
+
+docsSecSavCfgListTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsSecSavCfgListEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object defines the CMTS configured subnet prefix
+        extension to the SavCmAuth object.
+        This object supports the creation and deletion of multiple
+        instances.
+        Creation of a new instance of this object requires the
+        PrefixAddrType and PrefixAddr attributes to be set."
+    ::= { docsSecMibObjects 6 }
+
+docsSecSavCfgListEntry OBJECT-TYPE
+    SYNTAX          DocsSecSavCfgListEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsSecSavCfgList.
+        The CMTS persists all instances of SavCfgList
+        across reinitializations."
+    INDEX           {
+                        docsSecSavCfgListName,
+                        docsSecSavCfgListRuleId
+                    } 
+    ::= { docsSecSavCfgListTable 1 }
+
+DocsSecSavCfgListEntry ::= SEQUENCE {
+        docsSecSavCfgListName           SnmpAdminString,
+        docsSecSavCfgListRuleId         Unsigned32,
+        docsSecSavCfgListPrefixAddrType InetAddressType,
+        docsSecSavCfgListPrefixAddr     InetAddress,
+        docsSecSavCfgListPrefixLen      InetAddressPrefixLength,
+        docsSecSavCfgListRowStatus      RowStatus
+}
+
+docsSecSavCfgListName OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..16))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This attribute is the key that identifies the instance
+        of the SavCmAuth object to which this object extension
+        belongs." 
+    ::= { docsSecSavCfgListEntry 1 }
+
+docsSecSavCfgListRuleId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This attribute is the key that identifies a particular
+        subnet prefix rule of an instance of this object." 
+    ::= { docsSecSavCfgListEntry 2 }
+
+docsSecSavCfgListPrefixAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute identifies the IP address type of this
+        subnet prefix rule." 
+    ::= { docsSecSavCfgListEntry 3 }
+
+docsSecSavCfgListPrefixAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute corresponds to the IP address of this
+        subnet prefix rule in accordance to the PrefixAddrType
+        attribute." 
+    ::= { docsSecSavCfgListEntry 4 }
+
+docsSecSavCfgListPrefixLen OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the length of the subnet prefix
+        to be matched by this rule." 
+    ::= { docsSecSavCfgListEntry 5 }
+
+docsSecSavCfgListRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The row creation control of this conceptual row.
+        An entry in this table can be set to active
+        only when the following attributes are correctly
+        assigned:
+           PrefixAddrType
+           PrefixAddress
+        There are no restrictions to modify or delete
+        entries in this table." 
+    ::= { docsSecSavCfgListEntry 6 }
+ 
+
+
+docsSecSavStaticListTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsSecSavStaticListEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object defines a subnet prefix extension to the
+        SavCmAuth object based on CM statically signaled
+        subnet prefixes to the CMTS.
+        When a CM signals to the CMTS static subnet prefixes,
+        the CMTS must create a List Id to be referenced by the CM
+        in the SavCmAuth StaticPrefixListId attribute, or
+        the CMTS may reference an existing List Id associated
+        to previously registered CMs in case of those subnet
+        prefixes associated with the List Id match the ones
+        signaled by the CM."
+    REFERENCE
+        "DOCSIS 3.0 MAC and Upper Layer Protocols Interface
+        Specification CM-SP-MULPIv3.0-I01-060804,
+        Common Radio Frequency Interface Encodings Annex."
+    ::= { docsSecMibObjects 7 }
+
+docsSecSavStaticListEntry OBJECT-TYPE
+    SYNTAX          DocsSecSavStaticListEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsSecSavStaticList.
+        The CMTS may persist instances of this object
+        across reinitializations."
+    INDEX           {
+                        docsSecSavStaticListId,
+                        docsSecSavStaticListRuleId
+                    } 
+    ::= { docsSecSavStaticListTable 1 }
+
+DocsSecSavStaticListEntry ::= SEQUENCE {
+        docsSecSavStaticListId             Unsigned32,
+        docsSecSavStaticListRuleId         Unsigned32,
+        docsSecSavStaticListPrefixAddrType InetAddressType,
+        docsSecSavStaticListPrefixAddr     InetAddress,
+        docsSecSavStaticListPrefixLen      InetAddressPrefixLength
+}
+
+docsSecSavStaticListId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key uniquely identifies the index that groups
+        multiple subnet prefix rules. The CMTS assigns this
+        value per CM or may reuse it among multiple CMs that share
+        the same list of subnet prefixes." 
+    ::= { docsSecSavStaticListEntry 1 }
+
+docsSecSavStaticListRuleId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This key identifies a particular static subnet prefix
+        rule of an instance of this object." 
+    ::= { docsSecSavStaticListEntry 2 }
+
+docsSecSavStaticListPrefixAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute identifies the IP address type of this
+        subnet prefix rule." 
+    ::= { docsSecSavStaticListEntry 3 }
+
+docsSecSavStaticListPrefixAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute corresponds to the IP address of this
+        subnet prefix rule in accordance to the PrefixAddrType
+        attribute." 
+    ::= { docsSecSavStaticListEntry 4 }
+
+docsSecSavStaticListPrefixLen OBJECT-TYPE
+    SYNTAX          InetAddressPrefixLength
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute defines the length of the subnet prefix
+        to be matched by this rule." 
+    ::= { docsSecSavStaticListEntry 5 }
+ 
+
+
+docsSecCmtsCmSavStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsSecCmtsCmSavStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object provides a read-only list of SAV counters
+        for different service theft indications."
+    ::= { docsSecMibObjects 8 }
+
+docsSecCmtsCmSavStatsEntry OBJECT-TYPE
+    SYNTAX          DocsSecCmtsCmSavStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row of docsSecCmtsCmSavStats."
+    AUGMENTS           { docsIf3CmtsCmRegStatusEntry  } 
+ 
+    ::= { docsSecCmtsCmSavStatsTable 1 }
+
+DocsSecCmtsCmSavStatsEntry ::= SEQUENCE {
+        docsSecCmtsCmSavStatsSavDiscards Counter32
+}
+
+docsSecCmtsCmSavStatsSavDiscards OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute provides the information about number
+        of dropped upstream packets due to SAV failure." 
+    ::= { docsSecCmtsCmSavStatsEntry 1 }
+ 
+
+docsSecCmtsCertificate  OBJECT IDENTIFIER
+    ::= { docsSecMibObjects 9 }
+
+
+docsSecCmtsCertificateCertRevocationMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        crl(2),
+                        ocsp(3),
+                        crlAndOcsp(4)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute identifies which certificate revocation
+        method is to be used by the CMTS to verify the cable
+        modem certificate validity. The certificate revocation
+        methods include Certification Revocation
+        List (CRL) and Online Certificate Status Protocol
+        (OCSP).
+        The following options are available:
+        The option 'none' indicates that the CMTS does not attempt
+        to determine the revocation status of a certificate.
+
+        The option 'crl' indicates the CMTS uses a Certificate
+        Revocation List (CRL) as defined by the Url attribute
+        of the CmtsCertRevocationList object. When the
+        value of this attribute is changed to 'crl', it triggers
+        the CMTS to retrieve the CRL from the URL specified
+        by the Url attribute. If the value of this attribute
+        is 'crl' when the CMTS starts up, it triggers the CMTS
+        to retrieve the CRL from the URL specified by the Url attribute.
+
+        The option 'ocsp' indicates the CMTS uses the Online
+        Certificate Status Protocol (OCSP) as defined by the
+        Url attribute of the CmtsOnlineCertStatusProtocol
+        object.
+
+        The option 'crlAndOcsp' indicates the CMTS uses both
+        the CRL as defined by the Url attribute in the
+        CmtsCertRevocationList object and OCSP as defined by the Url
+        attribute in the CmtsOnlineCertStatusProtocol
+        object.
+        The CMTS persists the values of the CertRevocationMethod
+        attribute across reinitializations."
+    DEFVAL          { none } 
+    ::= { docsSecCmtsCertificate 1 }
+docsSecCmtsCertRevocationList  OBJECT IDENTIFIER
+    ::= { docsSecMibObjects 10 }
+
+
+docsSecCmtsCertRevocationListUrl OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute contains the URL from where the CMTS
+        will retrieve the CRL. When this attribute is set to
+        a URL value different from the current value, it triggers
+        the CMTS to retrieve the CRL from that URL. If the
+        value of this attribute is a zero-length string, the
+        CMTS does not attempt to retrieve the CRL.
+        The CMTS persists the value of Url across
+        reinitializations."
+    REFERENCE
+        "DOCSIS 3.0 Security Specification
+         CM-SP-SECv3.0-I01-060804, BPI+ X.509 Certificate Profile
+         and Management Section."
+    DEFVAL          { "" } 
+    ::= { docsSecCmtsCertRevocationList 1 }
+
+docsSecCmtsCertRevocationListRefreshInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..524160)
+    UNITS           "minutes"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute contains the refresh interval for
+        the CMTS to retrieve the CRL (referred to in the Url attribute)
+        with the purpose of updating its Certificate
+        Revocation List. This attribute is meaningful if
+        the tbsCertList.nextUpdate attribute does not exist
+        in the last retrieved CRL, otherwise the value 0 is
+        returned.
+        The CMTS persists the value of RefreshInterval across
+        reinitializations."
+    REFERENCE
+        "DOCSIS 3.0 Security Specification
+         CM-SP-SECv3.0-I01-060804, BPI+ X.509 Certificate Profile
+         and Management Section."
+    DEFVAL          { 10080 } 
+    ::= { docsSecCmtsCertRevocationList 2 }
+
+docsSecCmtsCertRevocationListLastUpdate OBJECT-TYPE
+    SYNTAX          DateAndTime
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "This attribute contains the last date and time when
+        the CRL was retrieved by the CMTS. This attribute returns
+        the initial EPOC time if the CRL has not being updated.
+        The CMTS persists the value of LastUpdate across
+        reinitializations." 
+    ::= { docsSecCmtsCertRevocationList 3 }
+docsSecCmtsOnlineCertStatusProtocol  OBJECT IDENTIFIER
+    ::= { docsSecMibObjects 11 }
+
+
+docsSecCmtsOnlineCertStatusProtocolUrl OBJECT-TYPE
+    SYNTAX          SnmpAdminString
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute contains the URL string to retrieve
+        OCSP information. If the value of this attribute is
+        a zero-length string, the CMTS does not attempt to request
+        the status of a CM certificate.
+        The CMTS persists the value of Url across
+        reinitializations."
+    REFERENCE
+        "DOCSIS 3.0 Security Specification
+         CM-SP-SECv3.0-I01-060804, BPI+ X.509 Certificate Profile
+         and Management Section.
+         RFC 2560."
+    DEFVAL          { "" } 
+    ::= { docsSecCmtsOnlineCertStatusProtocol 1 }
+
+docsSecCmtsOnlineCertStatusProtocolSignatureBypass OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "This attribute enables or disables signature checking
+        on OCSP response messages.
+        The CMTS persists the value of SignatureBypass across
+        reinitializations."
+    REFERENCE
+        "DOCSIS 3.0 Security Specification
+         CM-SP-SECv3.0-I01-060804, BPI+ X.509 Certificate Profile
+         and Management Section.
+         RFC 2560."
+    DEFVAL          { false } 
+    ::= { docsSecCmtsOnlineCertStatusProtocol 2 }
+-- Conformance Definitions
+
+docsSecMibConformance  OBJECT IDENTIFIER
+    ::= { docsSecMib 2 }
+
+docsSecMibCompliances  OBJECT IDENTIFIER
+    ::= { docsSecMibConformance 1 }
+
+docsSecMibGroups  OBJECT IDENTIFIER
+    ::= { docsSecMibConformance 2 }
+
+
+docsSecCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for devices that implement the DOCSIS
+        Security MIB."
+    MODULE          -- this module
+    MANDATORY-GROUPS { docsSecGroup }
+    ::= { docsSecMibCompliances 1 }
+
+docsSecGroup OBJECT-GROUP
+    OBJECTS         {
+                        docsSecCmtsCertRevocationListUrl,
+                        docsSecCmtsCertRevocationListRefreshInterval,
+                        docsSecCmtsCertRevocationListLastUpdate,
+                        docsSecCmtsOnlineCertStatusProtocolUrl,
+                        docsSecCmtsOnlineCertStatusProtocolSignatureBypass,
+                        docsSecCmtsServerCfgTftpOptions,
+                        docsSecCmtsServerCfgConfigFileLearningEnable,
+                        docsSecCmtsEncryptEncryptAlgPriority,
+                        docsSecCmtsSavControlCmAuthEnable,
+                        docsSecCmtsCmEaeExclusionMacAddr,
+                        docsSecCmtsCmEaeExclusionMacAddrMask,
+                        docsSecCmtsCmEaeExclusionRowStatus,
+                        docsSecSavCmAuthGrpName,
+                        docsSecSavCmAuthStaticPrefixListId,
+                        docsSecSavCfgListPrefixAddrType,
+                        docsSecSavCfgListPrefixAddr,
+                        docsSecSavCfgListPrefixLen,
+                        docsSecSavCfgListRowStatus,
+                        docsSecSavStaticListPrefixAddrType,
+                        docsSecSavStaticListPrefixAddr,
+                        docsSecSavStaticListPrefixLen,
+                        docsSecCmtsCmSavStatsSavDiscards,
+                        docsSecCmtsCertificateCertRevocationMethod
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Group of objects implemented in the CMTS."
+    ::= { docsSecMibGroups 1 }
+
+END
+

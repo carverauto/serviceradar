@@ -1,0 +1,3420 @@
+DOCS-IF-M-CMTS-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-IDENTITY,
+    OBJECT-TYPE,
+    Unsigned32,
+    Integer32,
+    Gauge32,
+    Counter32,
+    TimeTicks
+        FROM SNMPv2-SMI
+    TimeStamp,
+    TruthValue,
+    RowStatus,
+    StorageType,
+    AutonomousType
+        FROM SNMPv2-TC
+    OBJECT-GROUP,
+    MODULE-COMPLIANCE
+        FROM SNMPv2-CONF
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    entPhysicalSerialNum,
+    entPhysicalAlias,
+    entPhysicalAssetID,
+    entPhysicalClass,
+    PhysicalIndexOrZero,
+    PhysicalIndex,
+    entityPhysicalGroup,
+    entityPhysical2Group,
+    entityPhysical3Group,
+    entityGeneralGroup,
+    entityLogical2Group,
+    entityMappingGroup
+        FROM ENTITY-MIB
+    ifIndex,
+    InterfaceIndex,
+    InterfaceIndexOrZero
+        FROM IF-MIB
+    TenthdBmV
+        FROM DOCS-IF-MIB
+    docsQosServiceFlowId
+        FROM DOCS-QOS-MIB
+    SnmpTagValue
+        FROM SNMP-TARGET-MIB
+    InetAddressType,
+    InetAddress,
+    InetPortNumber
+        FROM INET-ADDRESS-MIB
+    clabProjDocsis
+        FROM CLAB-DEF-MIB;
+
+
+docsIfMCmtsMib MODULE-IDENTITY
+    LAST-UPDATED    "200511160000Z"
+    ORGANIZATION    "Cable Television Laboratories, Inc"
+    CONTACT-INFO
+            "Postal: Cable Television Laboratories, Inc.
+            858 Coal Creek Circle 
+            Louisville, Colorado 80027-9750 
+            U.S.A. 
+            Phone: +1 303-661-9100 
+            Fax:   +1 303-661-9199 
+            E-mail: mibs@cablelabs.com"
+    DESCRIPTION
+        "This MIB module contains the management objects for the
+        configuration and management of the External PHY interface
+        (DEPI) of the M-CMTS architecture (Modular CMTS)."
+    REVISION        "200511160000Z"
+    DESCRIPTION
+        "Revised Version
+        includes ECN M-OSSI-N-05.0254-5"
+    REVISION        "200508050000Z"
+    DESCRIPTION
+        "Initial version of the DOCSIS Modular CMTS MIB
+        module. 
+        This revision is published as part of the CableLabs 
+        M-CMTS OSS specification
+        Copyright 1999-2005 Cable Television Laboratories, Inc.
+        All rights reserved."
+    ::= { clabProjDocsis 6 }
+
+
+-- ---------------------------------------------------------
+-- Textual Conventions
+-- ---------------------------------------------------------
+--   
+
+--   
+-- ---------------------------------------------------------------------
+-- Main Groups
+-- ---------------------------------------------------------------------
+
+docsIfMCmtsNotifications  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsMib 0 }
+
+docsIfMCmtsObjects  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsMib 1 }
+
+docsIfMCmtsBaseObjects  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsObjects 1 }
+
+docsIfMCmtsCoreObjects  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsObjects 2 }
+
+docsIfMCmtsEqamObjects  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsObjects 3 }
+
+docsIfMCmtsDepiObjects  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsObjects 4 }
+
+docsIfMCmtsDepiSessionObjects  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsDepiObjects 1 }
+
+docsIfMCmtsDepiQosObjects  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsDepiObjects 2 }
+
+
+-- --------------------------------------------------------------------
+-- DOCSIS RF Interface Extension objects
+-- M-CMTS Base Extensions
+-- --------------------------------------------------------------------
+--   
+-- --------------------------------------------------------------------
+--   
+-- Phy Parameters dependencies OBJECT-IDENTITY definitions
+--   
+-- --------------------------------------------------------------------
+
+docsIfMCmtsBaseAdmin OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "Registration point for M-CMTS characterization of PHY
+        parameters dependencies."
+    ::= { docsIfMCmtsBaseObjects 1 }
+
+
+docsPHYParamFixValue OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "Indicates that this PHY parameter is fix and cannot
+        be changed."
+    ::= { docsIfMCmtsBaseAdmin 1 }
+
+
+docsPHYParamSameValue OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "Indicates that the PHY parameter value is the same for
+        the elements in a dependency group; thus, a change in 
+        the PHY parameter of an element in the group will change
+        the PHY parameter value in the other elements of the
+        dependency group."
+    ::= { docsIfMCmtsBaseAdmin 2 }
+
+
+docsPHYParamAdjacentValues OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "Indicates that the PHY parameter has an adjacency or
+        sequence pattern for the elements in a dependency group
+        e.g., A group of channels all using J.83 Annex A, may set 
+        frequencies in the group by setting a 6 MHz spacing 
+        between the channels in the group. Vendors may rather
+        use a more detailed vendor-specific OBJECT-IDENTITY or a
+        table pointer to describe this type of PHY parameter 
+        adjacencies."
+    ::= { docsIfMCmtsBaseAdmin 3 }
+
+
+docsPHYParamFrequencyRange OBJECT-IDENTITY
+    STATUS          current
+    DESCRIPTION
+        "This object indicates that the frequency in a group ID
+        is constrained to a frequency range. Vendors may extend
+        the MIB construct containing this reference to detail such 
+        constraints or rather use a more detailed vendor-specific 
+        OBJECT-IDENTITY or a table pointer to describe the 
+        frequency range supported."
+    ::= { docsIfMCmtsBaseAdmin 4 }
+
+-- ---------------------------------------------------------------------
+-- DOCSIS RF Interface Extension objects
+-- M-CMTS Core Extensions
+-- ---------------------------------------------------------------------
+
+docsIfMCmtsCoreDownstreamTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsCoreDownstreamEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "M-CMTS Core extensions for the DOCSIS RFI Downstream
+        docsIfDownstreamTable."
+    ::= { docsIfMCmtsCoreObjects 1 }
+
+docsIfMCmtsCoreDownstreamEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsCoreDownstreamEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row for this table.
+        There is a corresponding entry for each entry of 
+        docsIfDownstreamChannelTable."
+    INDEX           { ifIndex } 
+    ::= { docsIfMCmtsCoreDownstreamTable 1 }
+
+DocsIfMCmtsCoreDownstreamEntry ::= SEQUENCE {
+        docsIfMCmtsCoreDownstreamType            INTEGER,
+        docsIfMCmtsCoreDownstreamPhyDependencies BITS
+}
+
+docsIfMCmtsCoreDownstreamType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        integrated(1),
+                        external(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value 'integrated' means the Downstream Interface is
+        integrated to the DOCSIS MAC interface. This type 
+        corresponds to the legacy DOCSIS Downstream Interface of
+        ifType 128.
+        The value 'external' indicates a Downstream External 
+        Interface that is associated to a QAM channel by mechanisms
+        like a DEPI session." 
+    ::= { docsIfMCmtsCoreDownstreamEntry 1 }
+
+docsIfMCmtsCoreDownstreamPhyDependencies OBJECT-TYPE
+    SYNTAX          BITS {
+                        frequency(0),
+                        bandwidth(1),
+                        power(2),
+                        modulation(3),
+                        interleaver(4),
+                        j83Annex(5),
+                        symbolRate(6),
+                        mute(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The PHY parameters being flagged in the DEPI session as
+        DEPI TSID group dependencies.
+        A value of all bits on zero indicates no TSID group 
+        dependencies for PHY parameters. If this object value is
+        the zero length string , indicates no DEPI session is 
+        configured for the M-CMTS Downstream interface or the
+        Downstream interface is of the type 'integrated'."
+    DEFVAL          { '00000000'H } 
+    ::= { docsIfMCmtsCoreDownstreamEntry 2 }
+ 
+
+-- ---------------------------------------------------------------------
+-- DOCSIS RF Interface Extension objects
+-- M-CMTS EQAM device Extensions
+-- ---------------------------------------------------------------------
+
+docsIfMCmtsEqamDownstreamTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsEqamDownstreamEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "M-CMTS EQAM extensions for the DOCSIS RFI Downstream
+        docsIfDownstreamTable."
+    ::= { docsIfMCmtsEqamObjects 1 }
+
+docsIfMCmtsEqamDownstreamEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsEqamDownstreamEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row for this table."
+    INDEX           { ifIndex } 
+    ::= { docsIfMCmtsEqamDownstreamTable 1 }
+
+DocsIfMCmtsEqamDownstreamEntry ::= SEQUENCE {
+        docsIfMCmtsEqamDownstreamTSID                     Unsigned32,
+        docsIfMCmtsEqamDownstreamPhyDependencies          BITS,
+        docsIfMCmtsEqamDownstreamDevicePhyParamLock       BITS,
+        docsIfMCmtsEqamDownstreamDeviceConfigPhyParamLock BITS,
+        docsIfMCmtsEqamDownstreamAllocationType           INTEGER,
+        docsIfMCmtsEqamDownstreamAllocationStatus         BITS,
+        docsIfMCmtsEqamDownstreamAllocationTimeout        Unsigned32,
+        docsIfMCmtsEqamDownstreamDRRPAdvertizing          TruthValue,
+        docsIfMCmtsEqamDownstreamUdpPortMapping           InetPortNumber
+}
+
+docsIfMCmtsEqamDownstreamTSID OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Represents the TSID value for the QAM channel of this
+        M-CMTS Downstream Interface.
+        The value '0' indicates no TSID is being configured in the
+        EQAM device for this interface entry." 
+    ::= { docsIfMCmtsEqamDownstreamEntry 1 }
+
+docsIfMCmtsEqamDownstreamPhyDependencies OBJECT-TYPE
+    SYNTAX          BITS {
+                        frequency(0),
+                        bandwidth(1),
+                        power(2),
+                        modulation(3),
+                        interleaver(4),
+                        j83Annex(5),
+                        symbolRate(6),
+                        mute(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The summary of the M-CMTS Downstream Interface
+        dependencies based on the constraints of 
+        docsIfMCmtsEqamGroupDependencyEntry.
+        A BIT position set to '1' indicates the PHY parameter
+        belongs to a dependency group (DEPI TSID group). 
+        The opposite, a BIT position set to '0', indicates 
+        the QAM channel does not belong to a dependency group."
+    DEFVAL          { '00000000'H } 
+    ::= { docsIfMCmtsEqamDownstreamEntry 2 }
+
+docsIfMCmtsEqamDownstreamDevicePhyParamLock OBJECT-TYPE
+    SYNTAX          BITS {
+                        frequency(0),
+                        bandwidth(1),
+                        power(2),
+                        modulation(3),
+                        interleaver(4),
+                        j83Annex(5),
+                        symbolRate(6),
+                        mute(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates if by design the QAM Channel is directly
+        configurable. This BIT set is derived from the 
+        dependency group a QAM channel belongs where 
+        docsIfMCmtsEqamGroupDependencyType is equal to 
+        docsPHYParamFixValue
+        When a specific BIT is set to '1', the PHY parameter 
+        in docsIfMCmtsDepiSessionConfigTable is locked for SNMP 
+        SETs, returning 'notWritable' on SET attempts.
+        When a specific BIT is set to '0', the PHY parameter 
+        in docsIfMCmtsDepiSessionConfigTable is processed.
+        Note that when a BIT is set to '0' an SNMP SET as described
+        above may affect the PHY parameter in other QAM channels 
+        as described in docsIfMCmtsEqamGroupDependencyTable
+        or rejected with error 'wrongValue' based on the constrains
+        indicated by the EQAM capabilities 
+        docsIfMCmtsEqamDownstreamCapabilitiesTable of 
+        DOCS-If-M-CMTS-MIB.
+        This object contains information that is used to signal 
+        'lock' PHY parameters to other entities via interfaces such
+        as DEPI and ERMI." 
+    ::= { docsIfMCmtsEqamDownstreamEntry 3 }
+
+docsIfMCmtsEqamDownstreamDeviceConfigPhyParamLock OBJECT-TYPE
+    SYNTAX          BITS {
+                        frequency(0),
+                        bandwidth(1),
+                        power(2),
+                        modulation(3),
+                        interleaver(4),
+                        j83Annex(5),
+                        symbolRate(6),
+                        mute(7)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Administrative configuration of lock bits for EQAM
+        channels PHY parameters.
+
+        A BIT set of this object is meaningful when the same BIT
+        set in docsIfMCmtsEqamDownstreamDevicePhyParamLock is set
+        to '0'. Therefore, a SET to this object when the entry 
+        value of docsIfMCmtsEqamDownstreamDevicePhyParamLock is 
+        set to '1' returns error 'wrongValue'.
+
+        When a PHY parameter BIT in this object is set to '1' 
+        the QAM channel PHY parameter in 
+        docsIfMCmtsDepiSessionConfigTable is locked 
+        for SNMP SETs returning error 'notWritable' on those 
+        attempts.
+
+        Sets to this object could be complex; as a rule of
+        thumb, SNMP agents ignore bits that are not recognized 
+        (e.g., extensions). An attempt to set BITs while 
+        docsIfMCmtsEqamDownstreamDeviceConfigPhyParamLock is set 
+        to '1' is rejected and the error code 'wrongValue' is 
+        returned." 
+    ::= { docsIfMCmtsEqamDownstreamEntry 4 }
+
+docsIfMCmtsEqamDownstreamAllocationType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        docsisOnly(1),
+                        videoOnly(2),
+                        any(3)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates the mechanisms authorized to reserve and control
+        this M-CMTS Downstream interface.
+        When configured to 'docsisOnly' indicates that it can be 
+        allocated only to serve data over DOCSIS. 
+        When configured to 'videoOnly' indicates that it can be 
+        allocated only to video services and not for Data over 
+        DOCSIS.
+        'any' indicates the M-CMTS Downstream Interface can be
+        reserved for DOCSIS or video services." 
+    ::= { docsIfMCmtsEqamDownstreamEntry 5 }
+
+docsIfMCmtsEqamDownstreamAllocationStatus OBJECT-TYPE
+    SYNTAX          BITS {
+                        other(0),
+                        docsisDepi(1),
+                        docsisErm(2),
+                        videoErm(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the service(s) the M-CMTS Downstream Interface
+        is allocated for.
+        'other' BIT set to '1' indicates the resource is currently
+        allocated to DOCSIS and/or Video services by a proprietary
+        mechanism.
+        'docsisDepi' BIT set to '1' indicates the DEPI Control 
+        mechanism is currently in use in the M-CMTS Downstream 
+        Interface allocation, e.g., an L2TPv3 DEPI Session.
+        'docsisErm' indicates that ERM Resource Allocation
+        Interface is being used in the M-CMTS Downstream Interface
+        allocation.
+        'video' indicates the resource is currently allocated by a
+        video control plane using an extension of the M-CMTS ERM
+        Resource Control Plane.
+
+        All BITs set to zero or a zero-length octet string 
+        indicates the M-CMTS Downstream Interface is available for
+        allocation constrained to the type of resource allocation
+        referenced by docsIfMCmtsEqamDownstreamAllocationType.
+
+        It may be the case where several BITs are set to '1' 
+        simultaneously:
+        The most common case is 'docsisDepi' and 'docsisERM' BITs.
+        In this situation, the ERM has allocated the QAM channel 
+        and the DEPI Session handles optional parameters 
+        configuration and/or in-band link status.
+
+        Combinations like 'docsisDepi' and 'videoERM' may indicate
+        concurrent services, which is vendor specific."
+    REFERENCE       "DEPI L2TP ERM RTSP section 7" 
+    ::= { docsIfMCmtsEqamDownstreamEntry 6 }
+
+docsIfMCmtsEqamDownstreamAllocationTimeout OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..120)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates the number of seconds the EQAM device waits
+        before advertising the QAM channel resource is idle and/or
+        accepting a session establishment from a different 
+        control plane to the previous one. As a side effect,
+        the entry in  docsIfMCmtsDepiSessionConfigTable is aged out
+        and destroyed only after the expiration of this reservation
+        timeout. A value zero makes the resource available 
+        immediately for allocation to others.
+
+        Note that not explicit indefinite timeout needs to be 
+        defined to indicate exclusive allocation to a requester. 
+        The EQAM device can support this condition for example by
+        configuring restricted access to certain Resource 
+        Allocation control plane to a particular IP host in the 
+        form of source IP or authentication mechanisms." 
+    ::= { docsIfMCmtsEqamDownstreamEntry 7 }
+
+docsIfMCmtsEqamDownstreamDRRPAdvertizing OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "Indicates when a QAM channel resource should be advertised
+        via DRRP (DOCSIS Resource Registration Protocol) to an Edge
+        Resource Manager (ERM).
+
+        This Object is useful when a device is allocated for 
+        instance to DOCSIS only by a static reservation
+        (docsIfMCmtsEqamDownstreamAllocationType 'docsisOnly').
+        It means an Edge Resource Manager won't have this QAM 
+        channel resource available allocate upon requests from 
+        different entities.
+
+        Note that DRRP currently does not signal EQAM resources
+        as reserved for a particular service.
+        The MIB objects docsIfMCmtsEqamDownstreamDRRPAdvertizing 
+        and docsIfMCmtsEqamDownstreamAllocationType are used 
+        primarily to statically reserve QAM channels and prevent 
+        its allocation by dynamic means such ERM or some other 
+        existing mechanisms. Therefore, caution is needed when 
+        setting this object to 'true' since the allocation Type
+        docsIfMCmtsEqamDownstreamAllocationType is not known by 
+        ERMs with DRRP support."
+    DEFVAL          { true } 
+    ::= { docsIfMCmtsEqamDownstreamEntry 8 }
+
+docsIfMCmtsEqamDownstreamUdpPortMapping OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The UDP Port within a L2TPv3 Session PDU the EQAM uses
+        to map DEPI flows to the EQAM channels associated to this
+        table entry. 
+        When the EQAM device does not support UDP port mapping to
+        DEPI flows, this object reports the value 1701 (the default
+        UDP port when M-CMTS Initiates a DEPI session with L2TPv3 
+        header over UDP)." 
+    ::= { docsIfMCmtsEqamDownstreamEntry 9 }
+ 
+
+-- EQAM M-CMTS Downstream Interface Capabilities
+
+docsIfMCmtsEqamDownstreamCapabilitiesTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsEqamDownstreamCapabilitiesEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains the QAM channel capabilities
+        for the M-CMTS Downstream Interface PHY parameters in the
+        EQAM device."
+    ::= { docsIfMCmtsEqamObjects 2 }
+
+docsIfMCmtsEqamDownstreamCapabilitiesEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsEqamDownstreamCapabilitiesEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row for this table."
+    INDEX           { ifIndex } 
+    ::= { docsIfMCmtsEqamDownstreamCapabilitiesTable 1 }
+
+DocsIfMCmtsEqamDownstreamCapabilitiesEntry ::= SEQUENCE {
+        docsIfMCmtsEqamDownstreamCapabFrequency          BITS,
+        docsIfMCmtsEqamDownstreamCapabBandwidth          BITS,
+        docsIfMCmtsEqamDownstreamCapabPower              BITS,
+        docsIfMCmtsEqamDownstreamCapabModulation         BITS,
+        docsIfMCmtsEqamDownstreamCapabInterleaver        BITS,
+        docsIfMCmtsEqamDownstreamCapabJ83Annex           BITS,
+        docsIfMCmtsEqamDownstreamCapabConcurrentServices BITS,
+        docsIfMCmtsEqamDownstreamCapabServicesTransport  BITS,
+        docsIfMCmtsEqamDownstreamCapabMuting             BITS
+}
+
+docsIfMCmtsEqamDownstreamCapabFrequency OBJECT-TYPE
+    SYNTAX          BITS {
+                        eqamDependency(0),
+                        adjacentChannel(1),
+                        adjacentChannelOrder(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The QAM channel frequency capabilities.
+        'eqamDependency' BIT set to '1' indicates the QAM channel
+        frequency value has dependencies with other QAM channels 
+        and an entry that includes this QAM channel is in 
+        in docsIfMCmtsEqamGroupDependencyTable for the PHY 
+        parameter 'frequency'.
+
+        'adjacentChannel' BIT set to '1' indicates the QAM channel
+        frequencies in the dependency group (DEPI TSID group) are 
+        adjacent and constrained in a frequency range based on 
+        the number of QAM channels in the dependency group.
+
+        'adjacentChannelOrder' BIT set to '1' indicates the QAM 
+        channel frequency adjacency is based in the QAM channel 
+        sequence like entPhysicalParentRelPos in EntPhysicalTable
+        or other vendor sequence.
+
+        e.g., a dependency group of four QAM channels 
+        with 'adjacentChannelOrder' BIT set to '1':
+        The 4th QAM channel in the sequence gets a frequency
+        assignment f + 1*bandwidth when the frequency value of 
+        the 3rd QAM channel in the sequence is set to f. 
+        Similarly the 1st QAM channel in the sequence gets a 
+        frequency assignment of f - 2*bandwidth and the 2nd QAM 
+        channels gets a frequency of f -1*bandwidth.
+
+        'adjacentChannel' 'adjacentChannelOrder' BITs may be set to
+        '1' when a dependency group includes the QAM channel
+        of this M-CMTS Downstream interface and the value of the 
+        object docsIfMCmtsEqamGroupDependencyType is 
+        docsPHYParamAdjacentValues.
+
+        'adjacentChannel' BIT may be set to '1' if 
+        'eqamDependency' BIT is set to '1'. The same way, 
+        'adjacentChannelOrder' BIT may be set to '1' and implies
+        'adjacentChannel' BIT is set to '1'." 
+    ::= { docsIfMCmtsEqamDownstreamCapabilitiesEntry 1 }
+
+docsIfMCmtsEqamDownstreamCapabBandwidth OBJECT-TYPE
+    SYNTAX          BITS {
+                        eqamDependency(0),
+                        chan6Mhz(1),
+                        chan8Mhz(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The QAM channel Bandwidth capabilities.
+        'eqamDependency' BIT set to '1' indicates the QAM channel
+        bandwidth value has dependencies with other QAM channels 
+        as indicated in docsIfMCmtsEqamGroupDependencyTable.
+
+        'chan6Mhz' set to '1' indicates 6 MHz channel width 
+        support.
+        'chan8Mhz' set to '1' indicates 8 MHz channel width 
+        support.
+
+        When 'eqamDependency' BIT is set to '1', a set to the 
+        channel bandwidth PHY parameter of a QAM channels in a
+        dependency group (with docsIfMCmtsEqamGroupDependencyType
+        set to docsPHYParamSameValue), sets the same channel 
+        bandwidth  value to all QAM channels in the dependency
+        group." 
+    ::= { docsIfMCmtsEqamDownstreamCapabilitiesEntry 2 }
+
+docsIfMCmtsEqamDownstreamCapabPower OBJECT-TYPE
+    SYNTAX          BITS {
+                        eqamDependency(0)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The QAM channel Power capabilities.
+        'eqamDependency' BIT set to '1' indicates the QAM channel
+        power value has dependencies with other QAM channels 
+        as indicated in docsIfMCmtsEqamGroupDependencyTable.
+
+        When 'eqamDependency' BIT is set to '1', a set to the 
+        power level PHY parameter of a QAM channels in a
+        dependency group (with docsIfMCmtsEqamGroupDependencyType
+        set to docsPHYParamSameValue), sets the same power 
+        level to all QAM channels in the dependency group." 
+    ::= { docsIfMCmtsEqamDownstreamCapabilitiesEntry 3 }
+
+docsIfMCmtsEqamDownstreamCapabModulation OBJECT-TYPE
+    SYNTAX          BITS {
+                        eqamDependency(0),
+                        qam64(1),
+                        qam256(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The QAM channel Modulation capabilities.
+        'eqamDependency' BIT set to '1' indicates the QAM channel
+        modulation value has dependencies with other QAM channels
+        as indicated in docsIfMCmtsEqamGroupDependencyTable.
+
+        'qam64' set to '1' indicates 64 QAM modulation support.
+        'qam256' set to '1' indicates 256 QAM modulation support.
+
+        When 'eqamDependency' BIT is set to '1', a set to the 
+        modulation PHY parameter of a QAM channels in a 
+        dependency group (with docsIfMCmtsEqamGroupDependencyType
+        set to docsPHYParamSameValue), sets the same modulation 
+        type to all QAM channels in the dependency group." 
+    ::= { docsIfMCmtsEqamDownstreamCapabilitiesEntry 4 }
+
+docsIfMCmtsEqamDownstreamCapabInterleaver OBJECT-TYPE
+    SYNTAX          BITS {
+                        eqamDependency(0),
+                        taps8Increment16(1),
+                        taps16Increment8(2),
+                        taps32Increment4(3),
+                        taps64Increment2(4),
+                        taps128Increment1(5),
+                        taps12increment17(6),
+                        taps128increment2(7),
+                        taps128increment3(8),
+                        taps128increment4(9),
+                        taps128increment5(10),
+                        taps128increment6(11),
+                        taps128increment7(12),
+                        taps128increment8(13)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The QAM channel Interleaver capabilities.
+        'eqamDependency' BIT set to '1' indicates the QAM channel
+        interleave value has dependencies with other QAM channels
+        as indicated in docsIfMCmtsEqamGroupDependencyTable.
+
+         'taps8Increment16'  set to '1' indicates the support of
+                             j = 8, i = 16 interleave.
+
+         'taps16Increment8'  set to '1' indicates the support of
+                             j = 16, i = 8 interleave.
+
+         'taps32Increment4'  set to '1' indicates the support of
+                             j = 32, i = 4 interleave.
+
+         'taps64Increment2'  set to '1' indicates the support of
+                             j = 64, i = 2 interleave.
+
+         'taps128Increment1' set to '1' indicates the support of
+                             j = 128, i = 1 interleave.
+
+         'taps12increment17' set to '1' indicates the support of
+                             j = 12, i = 17 interleave.
+
+         'tabs128increment2' set to '1' indicates the support of
+                             j = 128, i = 2 interleave.
+
+         'tabs128increment3' set to '1' indicates the support of
+                             j = 128, i = 3 interleave.
+
+         'tabs128increment4' set to '1' indicates the support of
+                             j = 128, i = 4 interleave.
+
+         'tabs128increment5' set to '1' indicates the support of
+                             j = 128, i = 5 interleave.
+
+         'tabs128increment6' set to '1' indicates the support of
+                             j = 128, i = 6 interleave.
+
+         'tabs128increment7' set to '1' indicates the support of
+                             j = 128, i = 7 interleave.
+
+         'tabs128increment8' set to '1' indicates the support of
+                             j = 128, i = 8 interleave.
+
+        When 'eqamDependency' BIT is set to '1', a set to the 
+        interleave PHY parameter of a QAM channels in a
+        dependency group (with docsIfMCmtsEqamGroupDependencyType
+        set to docsPHYParamSameValue), sets the same Interleave 
+        value to all QAM channels in the dependency group." 
+    ::= { docsIfMCmtsEqamDownstreamCapabilitiesEntry 5 }
+
+docsIfMCmtsEqamDownstreamCapabJ83Annex OBJECT-TYPE
+    SYNTAX          BITS {
+                        eqamDependency(0),
+                        annexA(1),
+                        annexB(2),
+                        annexC(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The QAM channel J.83 Annex Capabilities.
+        'eqamDependency' BIT set to '1' indicates the QAM channel
+        J.83 Annex value has dependencies with other QAM channels
+        as indicated in docsIfMCmtsEqamGroupDependencyTable.
+
+        'annexA' set to '1' indicates J.83 Annex A support.
+        'annexB' set to '1' indicates J.83 Annex B support.
+        'annexC' set to '1' indicates J.83 Annex C support.
+
+        When 'eqamDependency' BIT is set to '1', a set to the 
+        J.83 Annex PHY parameter of a QAM channels in a
+        dependency group (with docsIfMCmtsEqamGroupDependencyType
+        set to docsPHYParamSameValue), sets the same J.83 Annex
+        value to all QAM channels in the dependency group." 
+    ::= { docsIfMCmtsEqamDownstreamCapabilitiesEntry 6 }
+
+docsIfMCmtsEqamDownstreamCapabConcurrentServices OBJECT-TYPE
+    SYNTAX          BITS {
+                        eqamDependency(0),
+                        videoAndDocsis(1)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The QAM channel Concurrent Services Capabilities.
+        'eqamDependency' BIT set to '1' indicates the QAM channel
+        is part of a dependency group that supports concurrent 
+        services mode as indicated in 
+        docsIfMCmtsEqamGroupDependencyTable.
+
+        'videoAndDocsis' BIT set to '1' indicates video transport
+        and DOCSIS transport can be supported simultaneously.
+
+        Video and DOCSIS transport service types are described in
+        docsIfMCmtsEqamDownstreamCapabServicesTransport." 
+    ::= { docsIfMCmtsEqamDownstreamCapabilitiesEntry 7 }
+
+docsIfMCmtsEqamDownstreamCapabServicesTransport OBJECT-TYPE
+    SYNTAX          BITS {
+                        qamDependency(0),
+                        mpeg2OverIP(1),
+                        dmpt(2),
+                        psp(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The QAM channel Services transports modes Capabilities.
+
+        'eqamDependency' BIT set to '1' indicates the QAM channel
+        Service transport type has dependencies with other QAM 
+        channels as indicated in 
+        docsIfMCmtsEqamGroupDependencyTable.
+
+        'mpeg2OverIP' set to '1' indicates video transports as 
+        conventional VoD is supported (known as MPT mode, MPEG-2
+        transport).
+        'dmpt' set to 1 indicates DOCSIS MPT mode (D-MPT) support.
+        'psp' set to 1 indicates DOCSIS Packet Streaming Protocol
+        mode (PSP) support.
+
+        When 'eqamDependency' BIT is set to '1', a request to set
+        a QAM channel to a service type in a dependency group 
+        (with docsIfMCmtsEqamGroupDependencyType set to 
+        docsPHYParamSameValue) may be rejected." 
+    ::= { docsIfMCmtsEqamDownstreamCapabilitiesEntry 8 }
+
+docsIfMCmtsEqamDownstreamCapabMuting OBJECT-TYPE
+    SYNTAX          BITS {
+                        eqamDependency(0)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The QAM channel muting capabilities.
+        'eqamDependency' BIT set to '1' indicates the EQAM Mute
+        state has dependencies with other QAM channels as 
+        indicated in docsIfMCmtsEqamGroupDependencyTable.
+
+        When 'eqamDependency' BIT is set to '1', a request to 
+        mute a QAM channels in a dependency group (with 
+        docsIfMCmtsEqamGroupDependencyType set to 
+        docsPHYParamSameValue), sets all QAM channels in the 
+        dependency group to mute." 
+    ::= { docsIfMCmtsEqamDownstreamCapabilitiesEntry 9 }
+ 
+
+-- ---------------------------------------------------------------------
+-- EQAM M-CMTS Group Dependency of PHY parameters Definitions
+-- Defines the group of QAM channels that may be impacted for
+-- individual QAM channels PHY parameters changes. Extends ENTITY-MIB
+-- ---------------------------------------------------------------------
+
+docsIfMCmtsEqamGroupDependencyTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsEqamGroupDependencyEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table describes the rules that identify groups of
+        QAM channels with PHY parameters dependencies. 
+        A PHY parameter dependency group means that a set to 
+        a QAM channel parameter may affect the value of 
+        other QAM Channels in the group.
+
+        TSID is a broadcast term borrowed by the M-CMTS 
+        architecture to represent a unique identifier of QAM
+        channels in the M-CMTS architecture. 
+
+        TSID Group is the DEPI concept of a set of QAM channels
+        with a PHY parameter dependency. This module refers to 
+        TSID group as a PHY dependency Group.
+
+        This table uses the ENTITY-MIB physical component structure
+        to allows the managed system to describe the QAM channels'
+        PHY parameters dependencies. A management entity can use
+        the information from this table to generate the DEPI TSID
+        Groups.
+
+        Examples of PHY dependencies could be usage of adjacent
+        frequencies, or QAM channels of RF ports restricted, or 
+        same interleaver value, modulation and J.83 Annex value.
+
+        Additional details and rules to describe the PHY parameter
+        dependency is indicated in 
+        docsIfMCmtsEqamGroupDependencyType.
+        Vendors may extend via other MIB modules the usage of
+        docsIfMCmtsEqamGroupDependencyType."
+    ::= { docsIfMCmtsEqamObjects 3 }
+
+docsIfMCmtsEqamGroupDependencyEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsEqamGroupDependencyEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row of this table.
+
+        QAM channels are modeled as PhysicalClass 'port' from 
+        the ENTITY-MIB.
+        An QAM channel can be represented as part of an entity 
+        MIB containment tree as follows: 
+        chassis(EQAM device)
+              .container(EQAM Slot)
+                    .module(field-replaceable-module) 
+                         .module ( Physical RF spigot)
+                             . port (QAM channel) 
+
+        PhysicalClass 'stack' is left optional and not included 
+        as a reference or examples for this table.
+
+        Based on the hardware capabilities the Agent will create
+        entries in this table including the entPhysicalEntry of
+        the close element to the root (e.g., up to 'chassis' or 
+        'stack') including the PHY parameter of the dependency 
+        as part of the entry index
+
+        The Aggregation is then defined as all the QAM channels
+        (entity PhysicalClass = 'port') below the tree as 
+        indicated in entyPhysicalContainsTable.
+
+        Logical or software dependencies of the QAM channels PHY
+        parameters in addition to the hardware dependency entries
+        can be present and MUST persist to system
+        re-initialization. The storage realization of hardware 
+        dependent entries are 'permanent' or 'readOnly'. The 
+        storage realization of logical dependency entries is 
+        'nonVolatile'.
+
+        PHY parameters dependencies being logically defined may be
+        present in this table but its configuration is outside of
+        the scope of this MIB Module, including the definition of 
+        simulated Physical components such backplane types or 
+        modules accomplish its logical grouping.
+
+        PHY parameters with no Physical entities associated in 
+        this table indicates no PHY dependencies for certain groups
+        of QAM channels.
+
+        Administrative changes to the 
+        docsIfMCmtsEqamGroupDependencyPhyParamLock are preserved in
+        non-volatile memory upon system re-initialization.
+
+        Note that any change in the system due to the
+        insertion or removal or components will reset to factory
+        default the entries associated to those components.
+
+        An entry in this table is reflected in the MIB object
+        docsIfMExtDownstreamTSIDGroupPhyParamFlag for individual
+        QAM channels.
+
+        A recursive method to find the PHY dependency group of an
+        QAM channel A, PHY parameter X is as follows:
+
+        The parent tree of QAM channel A is recursively calculated
+        by navigating entyPhysicalContainsTable from bottom to top
+        Pi(P1..Pn)
+
+        The list Mj (M1..Mn) of 
+        docsIfMCmtsEqamGroupDependencyPhysicalIndex represents the 
+        values from this table with PHY parameter 
+        docsIfMCmtsEqamGroupDependencyPhyParam X and/or 'all' 
+
+        The list Qi (Q1..n) is the list of matches of Mi in Pi
+
+        Qi with the lower position in the entyPhysicalContainsTable
+        is selected Qy and My is the group criteria selected.
+
+        All QAM channels Bi below My are candidates of being in
+        the dependency group.
+
+        Each Bi is verified as A for its own BPi parent tree to
+        verify that in effect My is the lowest denominator in Mi 
+        BPi intersection to become part of the Dependency Group 
+        of A."
+    INDEX           {
+                        docsIfMCmtsEqamGroupDependencyPhyParam,
+                        docsIfMCmtsEqamGroupDependencyPhysicalIndex
+                    } 
+    ::= { docsIfMCmtsEqamGroupDependencyTable 1 }
+
+DocsIfMCmtsEqamGroupDependencyEntry ::= SEQUENCE {
+        docsIfMCmtsEqamGroupDependencyPhyParam      INTEGER,
+        docsIfMCmtsEqamGroupDependencyPhysicalIndex PhysicalIndexOrZero,
+        docsIfMCmtsEqamGroupDependencyGroupID       Unsigned32,
+        docsIfMCmtsEqamGroupDependencyType          AutonomousType
+}
+
+docsIfMCmtsEqamGroupDependencyPhyParam OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        noDependencies(0),
+                        all(1),
+                        frequency(2),
+                        bandwidth(3),
+                        power(4),
+                        modulation(5),
+                        interleave(6),
+                        annex(7),
+                        symbolRate(8),
+                        mute(9)
+                    }
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This object represents the type of DOCSIS PHY parameter
+        that may have dependencies when setting an individual 
+        object in the dependency group.
+        The value 'all' may be used as a wildcard to indicate
+        all PHY parameters. The other enumeration values are
+        DOCSIS PHY parameters.
+
+        The opposite to 'all' is 'noDependencies', which indicates
+        no dependencies in PHY parameters, but is only used to 
+        indicate no dependencies across all the EQAM device. Thus,
+        when used, 'notDependencies' is accompanied by 
+        docsIfMCmtsEqamGroupDependencyPhysicalIndex '0' as the only
+        entry in the table. 
+        In this way it is clearly distinguished when an EQAM device
+        has dependencies instead of an empty table." 
+    ::= { docsIfMCmtsEqamGroupDependencyEntry 1 }
+
+docsIfMCmtsEqamGroupDependencyPhysicalIndex OBJECT-TYPE
+    SYNTAX          PhysicalIndexOrZero
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "Indicates the physical element from where the PHY
+        parameter dependency for QAM channels applies.
+        All the QAM channels elements under this Physical index
+        will belong to a dependency group of the specified PHY 
+        parameter." 
+    ::= { docsIfMCmtsEqamGroupDependencyEntry 2 }
+
+docsIfMCmtsEqamGroupDependencyGroupID OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..127)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The internal ID assigned for the QAM channels in the
+        dependency group. 
+        The value of this object is unique in the scope of the
+        PHY parameter being mapped." 
+    ::= { docsIfMCmtsEqamGroupDependencyEntry 3 }
+
+docsIfMCmtsEqamGroupDependencyType OBJECT-TYPE
+    SYNTAX          AutonomousType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The description of the type of dependency associated
+        with this dependency group.
+        Basic type of dependencies are docsPHYParamSameValue, 
+        docsPHYParamAdjacentValues, docsPHYParamFrequencyRange. 
+        Vendors may define their own rules and policies to describe
+        their implementation dependency definitions such as
+        RowPointers to table entries or OBJECT-IDENTITY clauses.
+        If the dependency is not described this object is set to
+        zeroDotZero, although the dependency does exist." 
+    ::= { docsIfMCmtsEqamGroupDependencyEntry 4 }
+ 
+
+-- ---------------------------------------------------------------------
+-- EQAM M-CMTS Global configuration
+-- Defines the structure to include configuration rules applicable
+-- at EQAM device initialization and management actions
+-- Uses the containment structure of the ENTITY-MIB to create the global
+-- configuration rules.
+-- ---------------------------------------------------------------------
+
+docsIfMCmtsEqamGlobCfgDownTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsEqamGlobCfgDownEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A Table for setting multiple parameters of multiple
+        QAM channels.
+        Creating an entry in this table will set automatically
+        all QAM Channels in the containment tree of 
+        docsIfMCmtsEqamGlobCfgDownPhysicalIndex in 
+        entPhysicalContainsTable to the parameter values 
+        specified during the row creation.
+
+        docsIfMCmtsEqamGlobCfgDownPhysicalIndex MUST be a valid 
+        Physical index of entPhysicalTable.
+
+        The ways to configure QAM channels  parameters are:
+        1) Globally. 
+           Using this table, docsIfMCmtsEqamGlobCfgDownTable
+        2) Directly. 
+           Using docsIfMCmtsEqamDownstreamTable and 
+           docsIfDownstreamChannelTable to change parameters 
+           and lock status of individual QAM channels.
+
+        In general an entry in this table will set the parameters 
+        of QAM channels of the containment tree recursively the 
+        same way as doing directly as described in 2)above. It 
+        means, potentially there could be rejections based on 
+        locked parameters and/or PHY dependencies that prevent 
+        the sets.
+
+        The row creation in this table is not rejected or set in 
+        'inactive' or 'notInService' state due individual QAM 
+        channels in the group failures due the global set, instead,
+        an error status is reported per entry.
+
+        The processing of the entries in this table (e.g., at system
+        initialization) is sequential; therefore, it could be 
+        overlapping rules based on the containment tree level of
+        the entries."
+    ::= { docsIfMCmtsEqamObjects 4 }
+
+docsIfMCmtsEqamGlobCfgDownEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsEqamGlobCfgDownEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The index of this table.
+        Entries in this table persist after system 
+        re-initalization.
+        It is common to have 'holes' in this table
+        since not all the parameters associated with a QAM channel
+        might be desired of global set, therefore, columnar values
+        do not handle default values for entry creation."
+    INDEX           { docsIfMCmtsEqamGlobCfgDownIndex } 
+    ::= { docsIfMCmtsEqamGlobCfgDownTable 1 }
+
+DocsIfMCmtsEqamGlobCfgDownEntry ::= SEQUENCE {
+        docsIfMCmtsEqamGlobCfgDownIndex         Unsigned32,
+        docsIfMCmtsEqamGlobCfgDownPhysicalIndex PhysicalIndexOrZero,
+        docsIfMCmtsEqamGlobCfgDownBandwidth     Integer32,
+        docsIfMCmtsEqamGlobCfgDownPower         TenthdBmV,
+        docsIfMCmtsEqamGlobCfgDownModulation    INTEGER,
+        docsIfMCmtsEqamGlobCfgDownInterleave    INTEGER,
+        docsIfMCmtsEqamGlogCfgDownAnnex         INTEGER,
+        docsIfMCmtsEqamGlobCfgDownSymbolRateM   Unsigned32,
+        docsIfMCmtsEqamGlobCfgDownSymbolRateN   Unsigned32,
+        docsIfMCmtsEqamGlobCfgDownLockParams    BITS,
+        docsIfMCmtsEqamGlobCfgDownExecutionCode INTEGER,
+        docsIfMCmtsEqamGlobCfgDownErrorsCount   Gauge32,
+        docsIfMCmtsEqamGlobCfgDownRowStatus     RowStatus
+}
+
+docsIfMCmtsEqamGlobCfgDownIndex OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The unique identifier of entries in this table." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 1 }
+
+docsIfMCmtsEqamGlobCfgDownPhysicalIndex OBJECT-TYPE
+    SYNTAX          PhysicalIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The ENTITY-MIB Physical Index that includes the QAM
+        channels associated to the global parameter being set.
+        The QAM Channels covered by this global set are those 
+        linked to the entPhysicalContainsTable containment tree
+        starting at the value of this object.
+        The value '0' indicates all containment
+        elements in the managed system." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 2 }
+
+docsIfMCmtsEqamGlobCfgDownBandwidth OBJECT-TYPE
+    SYNTAX          Integer32 (6000000 | 8000000)
+    UNITS           "hertz"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The object for global configuration of Downstream
+        channel bandwidth of the QAM channels in the containment
+        tree of docsIfMCmtsEqamGlobCfgDownPhysicalIndex.
+        A set to this object is reflected in docsIfDownChannelWidth
+        of the QAM channels being set.
+        The syntax of this object is Integer32 to maintain the same
+        type of docsIfDownChannelWidth as initially defined in 
+        RFC 2670." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 3 }
+
+docsIfMCmtsEqamGlobCfgDownPower OBJECT-TYPE
+    SYNTAX          TenthdBmV
+    UNITS           "dBmV"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The object for global configuration of Downstream
+        channel Power Level of the QAM channels in the containment
+        tree of docsIfMCmtsEqamGlobCfgDownPhysicalIndex.
+        A set to this object is reflected in 
+        docsIfDownChannelPower of the QAM channels being set." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 4 }
+
+docsIfMCmtsEqamGlobCfgDownModulation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        qam64(3),
+                        qam256(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The object for global configuration of Downstream
+        channel modulation of the QAM channels in the containment
+        tree of docsIfMCmtsEqamGlobCfgDownPhysicalIndex.
+        A set to this object is reflected in 
+        docsIfDownChannelModulation of the QAM channels being set.
+        Values '1' and '2' are not used, only '3'and '4' to 
+        maintain compatibility with docsIfDownChannelModulation
+        enumeration values initially defined in RFC 2670." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 5 }
+
+docsIfMCmtsEqamGlobCfgDownInterleave OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        other(2),
+                        taps8Increment16(3),
+                        taps16Increment8(4),
+                        taps32Increment4(5),
+                        taps64Increment2(6),
+                        taps128Increment1(7),
+                        taps12increment17(8),
+                        tabs128increment2(9),
+                        tabs128increment3(10),
+                        tabs128increment4(11),
+                        tabs128increment5(12),
+                        tabs128increment6(13),
+                        tabs128increment7(14),
+                        tabs128increment8(15)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The object for global configuration of Downstream
+        channel interleave of the QAM channels in the containment
+        tree of docsIfMCmtsEqamGlobCfgDownPhysicalIndex.
+        A set to this object is reflected in 
+        docsIfDownChannelInterleave of the QAM channels being set.
+        Values are defined as follows: 
+                                           64QAM/256QAM
+         'taps8Increment16' :   protection   5.9/4.1  usec,
+                                latency      .22/.15  msec
+         'taps16Increment8' :   protection    12/8.2  usec,
+                                latency      .48/.33  msec
+         'taps32Increment4' :   protection    24/16   usec,
+                                latency      .98/.68  msec
+         'taps64Increment2' :   protection    47/33   usec,
+                                latency        2/1.4  msec
+         'taps128Increment1' :  protection    95/66   usec,
+                                latency        4/2.8  msec
+         'taps12increment17' :  protection    18/14   usec,
+                                latency     0.43/0.32 msec
+
+        Values below are not defined for DOCSIS RFI MIB for
+        docsIfDownChannelInterleave. The EQAM Channel supports
+        these values for video services (see 
+        docsIfMCmtsEqamDownstreamCapabInterleaver specific EQAM
+        supported values).
+
+         'tabs128increment2' :  protection   190/132  usec,
+                                latency        8/5.6  msec
+         'tabs128increment3' :  protection   285/198  usec,
+                                latency       12/8.4  msec
+         'tabs128increment4' :  protection   379/264  usec,
+                                latency       16/11   msec
+         'tabs128increment5' :  protection   474/330  usec,
+                                latency       20/14   msec
+         'tabs128increment6' :  protection   569/396  usec,
+                                latency       24/17   msec
+         'tabs128increment7' :  protection   664/462  usec,
+                                latency       28/19   msec
+         'tabs128increment8' :  protection   759/528  usec,
+                                latency       32/22   msec
+
+        Setting this object without setting 
+        docsIfMCmtsEqamGlogCfgDownAnnex may end up with particular
+        QAM channels set rejections due to incompatible Annex 
+        parameters, in which case the error 'errorSetFailures' 
+        is reported in docsIfMCmtsEqamGlobCfgDownExecutionCode." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 6 }
+
+docsIfMCmtsEqamGlogCfgDownAnnex OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        annexA(3),
+                        annexB(4),
+                        annexC(5)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The object for global configuration of Downstream
+        channel J.83 Annex of the QAM channels in the containment
+        tree of docsIfMCmtsEqamGlobCfgDownPhysicalIndex.
+        A set to this object is reflected in 
+        docsIfDownChannelAnnex of the QAM channels being set.
+        Values '1' and '2' are not used, only '3', '4' and '5' to
+        maintain compatibility with docsIfDownChannelAnnex
+        enumeration values initially defined in RFC 2670.
+
+        This object set has dependencies with 
+        docsIfDownChannelInterleave, 
+        docsIfMCmtsEqamGlobCfgDownBandwidth and probably
+        docsIfMCmtsEqamGlobCfgDownSymbolRateM/N, in particular 
+        in the rare event of changing the J.83 Annex type for the
+        already configured EQAM.
+
+        An entry set with an invalid combination of J.83 Annex 
+        PHY parameters mentioned above is not executed and 
+        reported as error code 'errorNoCommitted' in 
+        docsIfMCmtsEqamGlobCfgDownExecutionCode.
+
+        If an entry sets this object but any of the other J.83 
+        Annex PHY related objects, is missing, the missing
+        parameters are set to a default value only in the case 
+        of a change of J.83 Annex type (e.g., setting Annex A when 
+        currently in Annex B)." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 7 }
+
+docsIfMCmtsEqamGlobCfgDownSymbolRateM OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The object for global configuration of Downstream
+        channel Symbol M factor of the QAM channels in the
+        containment tree of 
+        docsIfMCmtsEqamGlobCfgDownPhysicalIndex.
+
+        When setting M and N Symbol Rate parameters, both
+        docsIfMCmtsEqamGlobCfgDownSymbolRateM and 
+        docsIfMCmtsEqamGlobCfgDownSymbolRateN objects MUST
+        be present in the entry, otherwise an error code 
+        'notCommitted' is reported in 
+        docsIfMCmtsEqamGlobCfgDownExecutionCode of this entry.
+
+        Setting this object without setting 
+        docsIfMCmtsEqamGlogCfgDownAnnex may end up with particular
+        QAM channels set rejections due to incompatible Annex 
+        parameters, in which case the error 'errorSetFailures' is
+        reported in docsIfMCmtsEqamGlobCfgDownExecutionCode." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 8 }
+
+docsIfMCmtsEqamGlobCfgDownSymbolRateN OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The object for global configuration of Downstream
+        channel Symbol M factor of the QAM channels in the
+        containment tree of 
+        docsIfMCmtsEqamGlobCfgDownPhysicalIndex.
+        When setting M and N Symbol Rate parameters, both
+        docsIfMCmtsEqamGlobCfgDownSymbolRateM and 
+        docsIfMCmtsEqamGlobCfgDownSymbolRateN objects MUST
+        be present in the entry, otherwise an error code 
+        'notCommitted' is reported in 
+        docsIfMCmtsEqamGlobCfgDownExecutionCode of this entry." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 9 }
+
+docsIfMCmtsEqamGlobCfgDownLockParams OBJECT-TYPE
+    SYNTAX          BITS {
+                        frequency(0),
+                        bandwidth(1),
+                        power(2),
+                        modulation(3),
+                        interleaver(4),
+                        j83Annex(5),
+                        symbolRate(6) -- symbolRate(6),                        
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The object for global configuration of Downstream
+        channel lock state of the PHY parameters of the QAM
+        channels in the containment tree of 
+        docsIfMCmtsEqamGlobCfgDownPhysicalIndex.
+
+        A locked PHY parameter is blocked for sets via Management
+        or other means such as DEPI session. 
+
+        Setting a BIT to '1' locks the corresponding PHY parameter
+        for configuration, returning error 'wrongValue' on SET 
+        attempts until administratively unlocked.
+
+        A set to this object is reflected in 
+        docsIfMCmtsEqamDownstreamDeviceConfigPhyParamLock of the
+        QAM channels being set.
+        Note that setting a BIT to '0' does not necessarily grant
+        write access to a PHY parameter, because of existing 
+        hardware constraints indicated in 
+        docsIfMCmtsEqamDownstreamDevicePhyParamLock."
+    DEFVAL          { '00000000'H } 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 10 }
+
+docsIfMCmtsEqamGlobCfgDownExecutionCode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        complete(1),
+                        errorNoPhysIndex(2),
+                        errorNoQAMChannels(3),
+                        errorSetFailures(4),
+                        errorNoCommitted(5),
+                        warningDependencies(6),
+                        errorOther(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the status of the global configuration entry
+        execution. If different than 'none', represents the last
+        error condition present.
+        'complete' indicates the Global configuration success with
+           no errors.
+        'errorNoPhysIndex' indicates the value of 
+           docsIfMCmtsEqamGlobCfgDownPhysicalIndex does not
+           exist.
+        'errorSetFailures' indicates the global set was commit but
+           individual QAM channels reported errors on sets. The 
+           counter docsIfMCmtsEqamGlobCfgDownErrorCount is 
+           increased for each QAM channel set failure.
+        'errorNoCommitted' indicates the entry was not committed as
+           sets to the associated QAM channels due to inconsistent
+           PHY parameters. Few possible cases are:
+           - refer to the docsIfMCmtsEqamGlogCfgDownAnnex 
+             constraints and related Annex objects as it 
+             describes.
+           - setting an unique parameter with wrong syntax, leaving
+             the entry in 'notReady' status See
+             RowStatus Object 
+             description.
+        'warningDependencies' indicates the command was executed
+           and the system may have detected dependencies. This 
+           execution code is optional and considered a warning 
+           rather than an error, as the management entity can have
+           knowledge about group dependencies prior to setting an 
+           entry by inspecting docsIfMCmtsEqamGroupDependencyTable.
+        'errorOther' indicates an error condition not considered in
+        the above situations.
+
+        As multiple QAM channels are set only the last error 
+        condition is maintained in case of a no 'complete' 
+        execution status. A warning condition (e.g., 
+        'warningDependencies' does not override an existing
+        error condition (other enumeration values)." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 12 }
+
+docsIfMCmtsEqamGlobCfgDownErrorsCount OBJECT-TYPE
+    SYNTAX          Gauge32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The number of error cases where a QAM channel was not
+        successfully set. This value starts counting at zero 
+        any time the global configuration entry is executed.
+        This object is reset back to zero in case of a successful
+        set." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 13 }
+
+docsIfMCmtsEqamGlobCfgDownRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual table row entry.
+        In order to create an entry the object 
+        docsIfMCmtsEqamGlobCfgDownPhysicalIndex MUST be set
+
+        This table has 'holes' for all the read-create' objects 
+        not specified in the setup.
+
+        An entry is set to 'active' status if at least one
+        read-create object of the list below is set, otherwise,
+        the entry is in 'notReady' status.
+
+         docsIfMCmtsEqamGlobCfgDownBandwidth
+         docsIfMCmtsEqamGlobCfgDownPower
+         docsIfMCmtsEqamGlobCfgDownModulation
+         docsIfMCmtsEqamGlobCfgDownInterleave
+         docsIfMCmtsEqamGlogCfgDownAnnex
+         docsIfMCmtsEqamGlobCfgDownSymbolRateM
+         docsIfMCmtsEqamGlobCfgDownSymbolRateN
+
+        Once an entry is active the QAM channels associated to the
+        docsIfMCmtsEqamGlobCfgDownPhysicalIndex containment tree 
+        are set to the parameters specified in the entry.
+        The Entry remains in 'active' row status and the execution
+        status is reported by 
+        docsIfMCmtsEqamGlobCfgDownExecutionCode.
+
+        Setting a previously set object to a new value or 
+        specifying an object not initially set during row creation, 
+        sets the entry in row status 'notInService'. A set of this
+        object to 'active' triggers again the global configuration
+        action. As a rule, the EQAM device is not expected to track
+        old parameter values. Thus, the set to 'active' of the
+        entry performs the global set of all the old and new 
+        parameters defined in the entry.
+
+        Due to the possible value 'notInService' as a valid 
+        configuration state, this entry MUST NOT be aged out when
+        Row Status is 'notInService'." 
+    ::= { docsIfMCmtsEqamGlobCfgDownEntry 14 }
+ 
+
+-- ---------------------------------------------------------------------
+-- CMTS and EQAM Channel Block configuration
+-- Configuration and diagnostic of block Channels.
+-- This table is only for Block Channels Physical containments
+-- Other configuration parameters (PHY) applicable to all channes in a
+-- Block Channel are set  through docsIfMCmtsEqamGlobCfgDownTable
+-- ---------------------------------------------------------------------
+
+docsIfMCmtsChannelBlockTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsChannelBlockEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table configure attributes of block channels and
+        Controls channel Block Tests.
+        A channel block is an ENTITY-MIB containment of 
+        PhysicalClass 'module' that represent an RF connector."
+    ::= { docsIfMCmtsEqamObjects 5 }
+
+docsIfMCmtsChannelBlockEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsChannelBlockEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual row entry of this table
+        Entries in this table are created at system 
+        Initialization for Block Channels compliant to DRFI 
+        Specification.
+        Sets in entries of this table persist after system
+        initialization."
+    INDEX           { docsIfMCmtsChannelBlockPhysicalIndex } 
+    ::= { docsIfMCmtsChannelBlockTable 1 }
+
+DocsIfMCmtsChannelBlockEntry ::= SEQUENCE {
+        docsIfMCmtsChannelBlockPhysicalIndex     PhysicalIndex,
+        docsIfMCmtsChannelBlockNumberChannels    Unsigned32,
+        docsIfMCmtsChannelBlockCfgNumberChannels Unsigned32,
+        docsIfMCmtsChannelBlockMute              TruthValue,
+        docsIfMCmtsChannelBlockTestType          INTEGER,
+        docsIfMCmtsChannelBlockTestIfIndex       InterfaceIndexOrZero
+}
+
+docsIfMCmtsChannelBlockPhysicalIndex OBJECT-TYPE
+    SYNTAX          PhysicalIndex
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Physical Index of the QAM Channel Block." 
+    ::= { docsIfMCmtsChannelBlockEntry 1 }
+
+docsIfMCmtsChannelBlockNumberChannels OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The Number of QAM Channels N associated to this entry." 
+    ::= { docsIfMCmtsChannelBlockEntry 2 }
+
+docsIfMCmtsChannelBlockCfgNumberChannels OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..119)
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The Number of QAM Channels N' to configure for the
+        QAM block.
+        The maximum number of channels per block follows the 
+        consideration of maximum number of digital channels in 
+        a headend described in the DRFI specification.
+        As a rule N' is valid if is less or equal to N. In addition
+        N minimal requirements consist of even numbers and 1 
+        (one QAM channel per Block Channel). Odd number of QAM 
+        channels per Block Channel are of optional implementation.
+        A Set to an invalid value or not supported value returns
+        Error 'wrongValue'." 
+    ::= { docsIfMCmtsChannelBlockEntry 3 }
+
+docsIfMCmtsChannelBlockMute OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The Mute control object for the Block Channel
+        A set to this object to 'true' is reflected in 
+        ifOperStatus set to 'down' of the QAM channels 
+        associated to the block Channel.
+        The opposite, a set to this object to 'false', is not 
+        necessarily reflected as ifOperStatus set to 'up' since
+        other interface conditions might prevent such status." 
+    ::= { docsIfMCmtsChannelBlockEntry 4 }
+
+docsIfMCmtsChannelBlockTestType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        noTest(1),
+                        offOthersNormal(2),
+                        allOff(3),
+                        onOthersOff(4),
+                        cwOnOthersOff(5),
+                        cwOnOthersNormal(6),
+                        clockTest(7)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A set of in-service and out-of-service test modes.
+        The value 'noTest'(1) is the normal condition after
+        reinitialization where the QAM channels are expected in
+        operation.
+
+        'noTest' 
+        It is also used to take out of testing mode
+        a QAM channel within the block.
+
+        In-service tests modes:
+        'offOthersNormal'
+        It is the condition where the QAM Channel indicated in
+        docsIfMCmtsChannelBlockTestIfIndex has its carrier 
+        suppressed and the other channels in the 
+        Block Channel are operational.
+        'allOff'
+        All QAM channels carriers in the channel block are
+        Suppressed. 
+        'onOthersOff'
+        It is the condition where the QAM channel indicated in
+        docsIfMCmtsChannelBlockTestIfIndex is in operation
+        and the other QAM channels in the channel Block have
+        their carriers suppressed.
+
+        Out-of-service test modes:
+        'cwOnOthersOff'
+        It is the condition where the QAM channel indicated in 
+        docsIfMCmtsChannelBlockTestIfIndex transmits a 
+        continuous wave (CW) while the other QAM 
+        channels in the channel Block have their carriers 
+        suppressed.
+        'cwOnOthersNormal'
+        It is the condition where the QAM channel indicated
+        in docsIfMCmtsChannelBlockTestIfIndex transmits a 
+        continuous wave (CW) while the other QAM channels in
+        the channel Block are operational.
+
+        'clockTest'
+        It is the condition where the QAM channel indicated in
+        docsIfMCmtsChannelBlockTestIfIndex transmits a sequence 
+        of alternating -1 and 1 symbols.
+
+        This object value does not persist after system 
+        Reinitialization.
+        The value of this object is meaningless if 
+        docsIfMCmtsChannelBlockTestIfIndex is set to zero." 
+    ::= { docsIfMCmtsChannelBlockEntry 5 }
+
+docsIfMCmtsChannelBlockTestIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex of the QAM channel to perform the QAM
+        channel test.
+        A Set to a value that does not correspond to a QAM 
+        Channel within the Block channel returns error 
+        'wrongValue'.
+        A set to zero stops a current test execution." 
+    ::= { docsIfMCmtsChannelBlockEntry 6 }
+ 
+
+-- DEPI Management objects
+-- Applicable to both M-CMTS core and EQAM device
+--   
+
+-- DEPI Control Table
+
+docsIfMCmtsDepiSessionConfigTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsDepiSessionConfigEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The Control table for the configuration of M-CMTS
+        Downstream Interfaces. 
+
+        The M-CMTS Downstream Interface configuration information
+        is contained in this table.
+
+        Currently L2TPv3 is the defined tunnel mechanism for 
+        DEPI sessions. There may be other DEPI tunnel methods
+        defined in the future.
+
+        The configuration of entries with 
+        docsIfMCmtsDepiSessionConfigMethod equal to 'l2tpControl' 
+        follows the rule below:
+
+        Only one L2TPv3 Control Plane from a M-CMTS Core IP is 
+        established per EQAM IP host destination indicated in
+        docsIfMCmtsDepiSessionConfigRemoteAddr. There may be other
+        L2TPv3 Control Plane connections from different M-CMTSs
+        to the same EQAM IP host."
+    ::= { docsIfMCmtsDepiSessionObjects 1 }
+
+docsIfMCmtsDepiSessionConfigEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsDepiSessionConfigEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row for this table.
+        Entries are created by either management operations or 
+        other M-CMTS applications or interfaces (e.g., ERMI), the
+        persistence of an entry is indicated in 
+        docsIfMCmtsDepiSessionConfigStorage.
+
+        The DEPI connection mechanism using L2TPv3 is initiated 
+        when an entry in this table is set to active. The 
+        following conditions apply: 
+
+        o If the M-CMTS L2TPv3 Control Connection with the remote
+          EQAM Host IP in docsIfMCmtsDepiSessionConfigRemoteAddr 
+          does not exist, a DEPI L2TPv3 control Connection is 
+          created.
+
+        o There may be cases where the control plane with the EQAM
+          IP host exists or is in progress, (e.g., a previously 
+          created entry with same EQAM IP host), thus the M-CMTS
+          MUST avoid multiple L2TP Control Connection State 
+          machines.
+
+        o DEPI L2TPv3 sessions are created based on the TSID 
+          value. Only the first entry with row status 'active'
+          with a particular TSID value will try to establish a 
+          L2TPv3 session. Other entries with same TSID value 
+          return state of 'depiSessionError' in 
+          docsIfMCmtsDepiSessionInfoState. 
+
+        Relationships with the DOCSIS MAC domain IfStackTable:
+
+        This control considers the ability of the M-CMTS to use a
+        manager-specified Downstream interface value 
+        for the configuration of the DOCSIS MAC domain downstream
+        interfaces of the M-CMTS architecture.
+
+        o When docsIfMCmtsDepiSessionConfigCableDownstreamIfIndex 
+          is a non-zero value the value of 
+          docsIfMCmtsDepiSessionConfigCableMacLayerIfIndex MUST be
+          an existing DOCSIS MAC layer interface. 
+
+        o If an entry in this table already exists for the specified
+          docsIfMCmtsDepiSessionConfigCableDownstreamIfIndex,
+          or corresponds to an ifIndex signaled as 
+          'integrated' in docsIfMCmtsDownstreamType a
+          newly created entry set to active is rejected and 
+          reported in docsIfMCmtsDepiSessionInfoState as 
+          'invalidDSInterfaceValue'.
+
+        o The M-CMTS accepts or rejects the creation of a new 
+          table entry based on the possibility of adding a new 
+          Downstream interface to the MAC domain. On success it
+          is reported in docsIfMCmtsDownstreamType as 
+          'depiSession'.
+
+        Relationship with M-CMTS Downstream Interface tables:
+
+        Setting an entry to active creates or updates (when
+        docsIfMCmtsDepiSessionConfigCableMCmtsDownIfIndex is 
+        provided in the row creation; see the object description 
+        for details) the corresponding entry in the following 
+        tables:
+         ifTable, 
+         docsIfDownstreamChannelTable, 
+         docsIfMCmtsCoreDownstreamTable/
+         docsIfMCmtsEqamDownstreamTable,
+         docsIfMCmtsCoreDownstreamTable,
+         docsIfMCmtsDepiSessionInfoTable, and
+         docsIfMCmtsDepiSessionStatsTable
+
+        In the EQAM device this table is normally created by the
+        M-CMTS Core initiated DEPI session, although manual 
+        configuration may be supported, with the difference that 
+        EQAM devices are not required to initiate DEPI sessions. 
+        EQAM device Operation of configured entries is not 
+        detailed in this MIB module."
+    INDEX           { docsIfMCmtsDepiSessionConfigIndex } 
+    ::= { docsIfMCmtsDepiSessionConfigTable 1 }
+
+DocsIfMCmtsDepiSessionConfigEntry ::= SEQUENCE {
+        docsIfMCmtsDepiSessionConfigIndex                 Unsigned32,
+        docsIfMCmtsDepiSessionConfigCableMacIfIndex       InterfaceIndexOrZero,
+        docsIfMCmtsDepiSessionConfigCableMCmtsDownIfIndex InterfaceIndexOrZero,
+        docsIfMCmtsDepiSessionConfigAddrType              InetAddressType,
+        docsIfMCmtsDepiSessionConfigLocalAddr             InetAddress,
+        docsIfMCmtsDepiSessionConfigRemoteAddr            InetAddress,
+        docsIfMCmtsDepiSessionConfigL2TPv3HeaderType      INTEGER,
+        docsIfMCmtsDepiSessionConfigMethod                INTEGER,
+        docsIfMCmtsDepiSessionConfigTSID                  Unsigned32,
+        docsIfMCmtsDepiSessionConfigDEPIMode              INTEGER,
+        docsIfMCmtsDepiSessionConfigRsrcAllocReq          Unsigned32,
+        docsIfMCmtsDepiSessionConfigCinPhbIdPolicy        SnmpTagValue,
+        docsIfMCmtsDepiSessionConfigSyncEnabled           TruthValue,
+        docsIfMCmtsDepiSessionConfigSyncInterval          Unsigned32,
+        docsIfMCmtsDepiSessionConfigPhyParamsFlag         BITS,
+        docsIfMCmtsDepiSessionConfigChannelFrequency      Unsigned32,
+        docsIfMCmtsDepiSessionConfigChannelModulation     INTEGER,
+        docsIfMCmtsDepiSessionConfigChannelInterleave     INTEGER,
+        docsIfMCmtsDepiSessionConfigChannelPower          TenthdBmV,
+        docsIfMCmtsDepiSessionConfigChannelAnnex          INTEGER,
+        docsIfMCmtsDepiSessionConfigChannelSymbolRateM    Unsigned32,
+        docsIfMCmtsDepiSessionConfigChannelSymbolRateN    Unsigned32,
+        docsIfMCmtsDepiSessionConfigChannelOutputRate     Unsigned32,
+        docsIfMCmtsDepiSessionConfigChannelBurstSize      Unsigned32,
+        docsIfMCmtsDepiSessionConfigStorage               StorageType,
+        docsIfMCmtsDepiSessionConfigRowStatus             RowStatus,
+        docsIfMCmtsDepiSessionConfigChannelId             Unsigned32
+}
+
+docsIfMCmtsDepiSessionConfigIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The index for entries in this conceptual table." 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 1 }
+
+docsIfMCmtsDepiSessionConfigCableMacIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines the MAC domain (ifType docsCableMaclayer)on
+        which the DEPI Session is being set for an existing M-CMTS
+        Downstream interface. 
+
+        This object MUST be set to a valid DOCSIS MAC layer 
+        interface in order to make the entry active." 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 2 }
+
+docsIfMCmtsDepiSessionConfigCableMCmtsDownIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Defines the Downstream channel index on which the DEPI
+        Session is being set. 
+
+        The set of this object is optional. When this object is not
+        specified the M-CMTS is expected to generate an internal 
+        value with its corresponding ifStackTable dependencies at 
+        the time or making this entry active.
+
+        When setting this value to a non-zero value, this object 
+        and docsIfMCmtsDepiSessionConfigCableMacIfIndex MUST 
+        correspond to a valid Cable and MCmtsDownstream interfaces
+        pair from the ifStackTable.
+
+        A set to an ifIndex corresponding to an ifType 128 
+        (docsCableDownstream Interface) won't allow to turn the 
+        entry active."
+    DEFVAL          { 0 } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 3 }
+
+docsIfMCmtsDepiSessionConfigAddrType OBJECT-TYPE
+    SYNTAX          InetAddressType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The type of InetAddress for
+        docsIfMCmtsDepiSessionConfigLocalAddr and 
+        docsIfMCmtsDepiSessionConfigRemoteAddr."
+    DEFVAL          { ipv4 } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 4 }
+
+docsIfMCmtsDepiSessionConfigLocalAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The InetAddress of the local entity the DEPI Session
+        is set."
+    DEFVAL          { ''H } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 5 }
+
+docsIfMCmtsDepiSessionConfigRemoteAddr OBJECT-TYPE
+    SYNTAX          InetAddress
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The InetAddress of the remote peer the DEPI Session
+        is set."
+    DEFVAL          { ''H } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 6 }
+
+docsIfMCmtsDepiSessionConfigL2TPv3HeaderType OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        ip(1),
+                        udp(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates the type of L2TPv3 header being configured for
+        the DEPI session.
+        The value 'ip' means L2TPv3 Header Over IP
+        The value 'udp' means L2TPv3 Header Over UDP. A M-CMTS Core
+        initiates a DEPI session with L2TPv3 over UDP using the
+        port number 1701 as destination port. The EQAM replies 
+        may modify its UDP source port as indicated in the L2TPv3 
+        RFC to convey the DEPI specification option of mapping
+        DEPI flows to a QAM Channel within an EQAM."
+    DEFVAL          { udp } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 7 }
+
+docsIfMCmtsDepiSessionConfigMethod OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        l2tpControl(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates the DEPI Tunnel mechanism used for the DEPI
+        session. Currently only 'l2tpControl is supported.
+        The value 'other' is used to indicate other means." 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 8 }
+
+docsIfMCmtsDepiSessionConfigTSID OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The TSID to be associated to the DEPI Session.
+        TSID is a 16-bit unsigned integer value configured per QAM
+        channel in the EQAM device and serves as a QAM channel 
+        identifier at several network levels.
+        When this object is set to 0, at the most the L2TPv3 
+        Control Plane of the DEPI session is established but not 
+        DEPI L2TPv3 Session itself. It means, there might be 
+        the situations where the DEPI Control Plane already exists
+        e.g., a different DEPI session to same EQAM device. In this
+        case the new entry will no trigger the DEPI Control Plane 
+        creation. The TSID value zero may accomplish functions 
+        like testing of DEPI Control Plane connectivity without 
+        launching the DEPI Session itself; DLM over a M-CMTS 
+        Core - EQAM devices path with no Active sessions for 
+        administrative purposes." 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 9 }
+
+docsIfMCmtsDepiSessionConfigDEPIMode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        dmpt(1),
+                        psp(2)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The DEPI mode of operation of this entry
+        'dmpt' indicates DOCSIS MPT mode (D-MPT)
+        'psp' indicates Packet Streaming Protocol." 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 10 }
+
+docsIfMCmtsDepiSessionConfigRsrcAllocReq OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A reference to docsIfMCmtsDepiRsrcAllocIndex of
+        docsIfMCmtsDepiRsrcAllocTable used in
+        the DEPI Session setup by the M-CMTS Core to configure
+        EQAM PHBIDs. M-CMTS uses only the PHBIDs from the 
+        docsIfMCmtsDepiRsrcAllocTable for the DEPI resource 
+        allocation request, ignoring DEPI Flow ID values and 
+        UDP Ports.
+        For the EQAM this object has no meaning as it is set to 
+        zero always."
+    DEFVAL          { 0 } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 11 }
+
+docsIfMCmtsDepiSessionConfigCinPhbIdPolicy OBJECT-TYPE
+    SYNTAX          SnmpTagValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A list of tags to reference CIN PHB policies in
+        docsIfMCmtsDepiPhbPolicyTable for this DEPI session.
+
+        This object is not meaningful for the EQAM, and reports
+        a zero length octet string." 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 12 }
+
+docsIfMCmtsDepiSessionConfigSyncEnabled OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates the DOCSIS Sync message handling at the Edge QAM
+        based upon PSP or DMPT mode of operation.
+        In MPT mode 'true' indicates the EQAM MUST perform 
+        Sync TimeStamp correction. In PSP mode 'true' indicates
+        the EQAM MUST insert DOCSIS Sync messages."
+    REFERENCE       "DEPI Specification Section 6.5"
+    DEFVAL          { false } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 13 }
+
+docsIfMCmtsDepiSessionConfigSyncInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (10..1000)
+    UNITS           "docsisSyncSteps"
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "Indicates the time nominal time interval for
+        EQAM to insert DOCSIS Sync messages when operating
+        in PSP mode. In DMPT mode this value is ignored.
+        The unit reference of this object is steps of 200 usec. 
+        This object range covers the EQAM required support of 
+        DOCSIS Sync interval from 2 msec to 200 msec."
+    DEFVAL          { 1000 } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 14 }
+
+docsIfMCmtsDepiSessionConfigPhyParamsFlag OBJECT-TYPE
+    SYNTAX          BITS {
+                        frequency(0),
+                        bandwidth(1),
+                        power(2),
+                        modulation(3),
+                        interleaver(4),
+                        j83Annex(5),
+                        symbolRate(6),
+                        mute(7)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "When configuring an entry, DOCSIS PHY parameters may
+        be set directly or default values are used to populate
+        the entry. 
+        This object indicates which PHY parameter sets need to be
+        sent by the M-CMTS Core in the DEPI session request.
+        A BIT position set to '1' indicates the PHY parameter is 
+        set during the DEPI session establishment.
+        In the EQAM indicates the PHY parameters set by the M-CMTS
+        core during the DEPI Session establishment procedure."
+    DEFVAL          { '00000000'H } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 15 }
+
+docsIfMCmtsDepiSessionConfigChannelFrequency OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The channel frequency for the Downstream DEPI Session.
+        A DEPI Session establishment success will update the 
+        corresponding ifIndex entry of docsIfChannelFrequency 
+        with this entry value if provided in entry creation,
+        or the EQAM DEPI Frequency parameter advertised 
+        during the DEPI session negotiation."
+    REFERENCE       "DEPI specification"
+    DEFVAL          { 0 } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 16 }
+
+docsIfMCmtsDepiSessionConfigChannelModulation OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        qam64(3),
+                        qam256(4)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The channel modulation for the Downstream DEPI Session.
+        A DEPI Session establishment success will update the 
+        corresponding ifIndex entry of docsIfDownChannelModulation
+        with this entry value if provided in entry creation,
+        or the EQAM DEPI Modulation parameter advertised 
+        during the DEPI session negotiation."
+    DEFVAL          { unknown } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 17 }
+
+docsIfMCmtsDepiSessionConfigChannelInterleave OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        taps8Increment16(3),
+                        taps16Increment8(4),
+                        taps32Increment4(5),
+                        taps64Increment2(6),
+                        taps128Increment1(7),
+                        taps12increment17(8),
+                        tabs128increment2(9), -- non RFIv2 MIB 2670
+                                              -- interleave modes
+                        tabs128increment3(10),
+                        tabs128increment4(11),
+                        tabs128increment5(12),
+                        tabs128increment6(13),
+                        tabs128increment7(14),
+                        tabs128increment8(15)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The channel Interleaver for the Downstream DEPI Session.
+        A DEPI Session establishment success will update the 
+        corresponding ifIndex entry of docsIfDownChannelInterleave
+        with this entry value if provided in entry creation,
+        or the EQAM DEPI interleaver parameter advertised 
+        during the DEPI session negotiation."
+    DEFVAL          { unknown } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 18 }
+
+docsIfMCmtsDepiSessionConfigChannelPower OBJECT-TYPE
+    SYNTAX          TenthdBmV
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The channel power level for the Downstream DEPI Session.
+        A DEPI Session establishment success will update the 
+        corresponding ifIndex entry of docsIfDownChannelPower 
+        with this entry value if provided in entry creation, 
+        or the EQAM DEPI power level parameter advertised 
+        during the DEPI session negotiation."
+    DEFVAL          { 0 } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 19 }
+
+docsIfMCmtsDepiSessionConfigChannelAnnex OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        unknown(1),
+                        annexA(3),
+                        annexB(4),
+                        annexC(5)
+                    }
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The channel J.83 Annex type for the Downstream DEPI
+        Session.
+        A DEPI Session establishment success will update the 
+        corresponding ifIndex entry of docsIfDownChannelAnnex 
+        with this entry value if provided in entry creation,
+        or the EQAM DEPI power level parameter advertised 
+        during the DEPI session negotiation. Also the value 
+        of docsIfDownChannelWidth is set according to
+        the J.83 specification."
+    DEFVAL          { unknown } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 20 }
+
+docsIfMCmtsDepiSessionConfigChannelSymbolRateM OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value M for the estimation of the DS Symbol Rate
+        as (10.24 MHz )*M/N"
+    DEFVAL          { 1 } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 21 }
+
+docsIfMCmtsDepiSessionConfigChannelSymbolRateN OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..65535)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The value N for the estimation of the DS Symbol Rate
+        as (10.24 MHz )*M/N"
+    DEFVAL          { 1 } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 22 }
+
+docsIfMCmtsDepiSessionConfigChannelOutputRate OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..100)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The percentage of the maximum output rate for the
+        aggregated traffic that is being sent though this 
+        M-CMTS Downstream interface to the QAM channel 
+        associated with this DEPI session.
+        Using a value lower than 100% of the QAM channel 
+        configured  payload rate prevents the build up of
+        a queue delay when MPEG-TS nulls are added in the
+        presence of jitter in the CIN.
+        This object is meaningful only to the M-CMTS core. 
+        The EQAM device reports a value 0."
+    REFERENCE       "DEPI M-CMTS Core Output Rate"
+    DEFVAL          { 99 } 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 23 }
+
+-- TBD IfSpeed Values relationship to DEPI tunnel MTU
+
+docsIfMCmtsDepiSessionConfigChannelBurstSize OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The maximum burst size for the aggregate output rate
+        of this M-CMTS Downstream Interface. The default value
+        of this object corresponds to 3 M-CMTS Core payload 
+        MTUs.
+        This value has no meaning for the EQAM device and reports
+        a value of 0." 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 24 }
+
+docsIfMCmtsDepiSessionConfigStorage OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage realization of the entry.
+        No columnar values can be changed if the StorageType of 
+        an entry is 'permanent'." 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 25 }
+
+docsIfMCmtsDepiSessionConfigRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual table row entry.
+        In order to set an entry to the 'active' status,
+        the MIB objects below must be set to proper values:
+        Other objects default values are used for the DEPI session
+
+        docsIfMCmtsDepiSessionConfigCableMacIfIndex
+        docsIfMCmtsDepiSessionConfigRemoteAddr
+        docsIfMCmtsDepiSessionConfigTSID      
+        docsIfMCmtsDepiSessionConfigDEPIMode  
+        docsIfMCmtsDepiSessionConfigRsrcAllocReq
+        docsIfMCmtsDepiSessionConfigMethod
+        docsIfMCmtsDepiSessionConfigPhyFlag    
+
+        docsIfMCmtsDepiSessionConfigChannelId must be unique within
+        the MAC sublayer domain in order to set this entry to
+        active,
+
+        PHY parameters listed below are not required to be 
+        populated in this table, then default values are used to 
+        populate the entry or implementation may opt to not 
+        instantiate those objects.
+
+        docsIfMCmtsDepiSessionConfigChannelFrequency
+        docsIfMCmtsDepiSessionConfigChannelModulation
+        docsIfMCmtsDepiSessionConfigChannelInterleave
+        docsIfMCmtsDepiSessionConfigChannelPower
+        docsIfMCmtsDepiSessionConfigChannelAnnex
+        docsIfMCmtsDepiSessionConfigSyncInterval
+
+        When the row entry is 'active' the DEPI tunnel control
+        and/or the DEPI session is established. Retries and 
+        timeouts are proper of the DEPI Tunnel protocol used.
+
+        For L2TPv3 while the entry is active the M-CMTS must 
+        continue to set the DEPI session and log the respective 
+        errors for unsuccessful operations.
+
+        Relationship with the IfTable ifAdminStatus
+
+        Setting ifAdminStatus from ifTable to the interface pointed
+        by this entry 
+        (docsIfMCmtsDepiSessionConfigCableMCmtsDownIfIndex) to 
+        'down' sets this entry Row Status to 'notInService'. A set
+        to ifAdminStatus to 'up' while in 'down' state sets back 
+        the Row Status to 'active'. 
+
+        The opposite is not true: a set to this object to 'active' 
+        when previously 'notInService' and while ifAdmiStatus is 
+        'down' returns an error 'inconsistentValue', such only one 
+        point of contact is needed to enable and disable the 
+        interface.
+
+        Setting this object to 'notInService' while ifAdminStatus is
+        'down' sets ifOperStatus to 'down'. 
+
+        Setting this entry to 'notInService' will tear down the 
+        DEPI session. DEPI Tunnel Control teardown in the absence
+        of sessions is Tunnel protocol dependent, e.g., for L2TPv3 
+        Control Connections may use tunnel Idle Timeout objects 
+        defined in L2TP-MIB.
+
+        Due to the dependencies of IfAdminStatus and this table row
+        Status, M-CMTS Core and EQAM devices MUST not age out 
+        entries with Row Status 'notInService' and 
+        docsIfMCmtsDepiSessionInfoState in 
+        'ifAdmiStatusSetToDown'." 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 26 }
+
+docsIfMCmtsDepiSessionConfigChannelId OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The downstream channel identification of this M-CMTS
+        Downstream interface.
+        During entry creation The M-CMTS Core assigns a 
+        Channel ID if this object is not provided.
+        When this object is set to a Channel ID value already in
+        use by a different downstream interface within the same 
+        MAC domain the error 'inconsistentValue' error is 
+        returned if this entry is active." 
+    ::= { docsIfMCmtsDepiSessionConfigEntry 27 }
+ 
+
+
+docsIfMCmtsDepiSessionInfoTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsDepiSessionInfoEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides M-CMTS Downstream Interface with
+        DEPI session information related to the DEPI session
+        configuration process."
+    ::= { docsIfMCmtsDepiSessionObjects 2 }
+
+docsIfMCmtsDepiSessionInfoEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsDepiSessionInfoEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row for this table.
+        Entries in this table are created when a DEPI Session 
+        Configuration Table entry becomes active. Both entries
+        are linked through 
+        docsIfMCmtsDepiSessionConfigCableMCmtsDownIfIndex, which is
+        equivalent to ifIndex from other M-CMTS Downstream 
+        interface tables."
+    INDEX           { ifIndex } 
+    ::= { docsIfMCmtsDepiSessionInfoTable 1 }
+
+DocsIfMCmtsDepiSessionInfoEntry ::= SEQUENCE {
+        docsIfMCmtsDepiSessionInfoCfgIndex          Unsigned32,
+        docsIfMCmtsDepiSessionInfoUdpPort           InetPortNumber,
+        docsIfMCmtsDepiSessionInfoMaxPayload        Unsigned32,
+        docsIfMCmtsDepiSessionInfoPathPayload       Unsigned32,
+        docsIfMCmtsDepiSessionInfoIncludeDOCSISMsgs TruthValue,
+        docsIfMCmtsDepiSessionInfoRsrcAllocResp     Unsigned32,
+        docsIfMCmtsDepiSessionInfoConnCtrlID        Unsigned32,
+        docsIfMCmtsDepiSessionInfoEQAMSessionID     Unsigned32,
+        docsIfMCmtsDepiSessionInfoOwner             INTEGER,
+        docsIfMCmtsDepiSessionInfoState             INTEGER,
+        docsIfMCmtsDepiSessionInfoErrorCode         INTEGER,
+        docsIfMCmtsDepiSessionInfoCreationTime      TimeStamp,
+        docsIfMCmtsDepiSessionInfoStorage           StorageType
+}
+
+docsIfMCmtsDepiSessionInfoCfgIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The value of the docsIfMCmtsDepiSessionConfigTable index
+        (docsIfMCmtsDepiSessionConfigIndex) associated to this
+        M-CMTS Downstream Interface Entry." 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 1 }
+
+docsIfMCmtsDepiSessionInfoUdpPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The UDP Port reported by the EQAM when the DEPI session
+        uses the L2TPv3 Header Over UDP. 
+        This object reports a value 0 when the DEPI session is 
+        running with the L2TPv3 Session IP Header.
+        This port number is negotiated between the M-CMTS Core and
+        the EQAM according to the L2TPv3 RFC." 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 2 }
+
+docsIfMCmtsDepiSessionInfoMaxPayload OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum MTU negotiated between the M-CMTS Core and the
+        EQAM during the DEPI session establishment process.
+        The local payload MTU is known from the IfEntry of this 
+        M-CMTS Downstream Interface. It considers the header 
+        subtractions as indicated in the DEPI specification."
+    REFERENCE
+        "DEPI specification, Signaling
+            DEPI specification Annex A" 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 3 }
+
+docsIfMCmtsDepiSessionInfoPathPayload OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The maximum MTU traversing the CIN from M-CMTS Core to the
+        EQAM. This calculated by the M-CMTS core by procedures such
+        MTU discovery as described in the DEPI specification."
+    REFERENCE       "DEPI specification, Network MTU" 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 4 }
+
+docsIfMCmtsDepiSessionInfoIncludeDOCSISMsgs OBJECT-TYPE
+    SYNTAX          TruthValue
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Reports if the M-CMTS includes DOCSIS MAP messages
+        and other MAC Management messages in the Downstream
+        interface entry associated with this DEPI control entry.
+        The CMTS determines weather the M-CMTS Donwstream Interface
+        includes DOCSIS messages as part of the DEPI payload."
+    DEFVAL          { false } 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 5 }
+
+docsIfMCmtsDepiSessionInfoRsrcAllocResp OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..4294967295)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "In the M-CMTS core a reference to
+        docsIfMCmtsDepiRsrcAllocIndex of 
+        docsIfMCmtsDepiRsrcAllocTable as reported by the EQAM
+        during the DEPI session establishment process.
+
+        The number of PHBIDs in the entries referenced in 
+        docsIfMCmtsDepiSessionConfigRsrcAllocReq and this object 
+        may differ if the EQAM Host IP signals a partial list of
+        PBHIDs during the DEPI session establishment.
+
+        In the EQAM a value 0 indicates no reference to 
+        docsIfMCmtsDepiRsrcAllocTable. A non-zero value indicates
+        the value of docsIfMCmtsDepiRsrcAllocIndex in 
+        docsIfMCmtsDepiRsrcAllocTable as being signaled by the EQAM
+        to the M-CMTS Core."
+    DEFVAL          { 0 } 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 6 }
+
+docsIfMCmtsDepiSessionInfoConnCtrlID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the DEPI Tunnel Connection Control Identifier
+        For L2TPv3 this corresponds to CCID." 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 7 }
+
+docsIfMCmtsDepiSessionInfoEQAMSessionID OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "Indicates the DEPI Session Identifier associated to the
+        EQAM IP host. In the M-CMTS it corresponds to the L2TPv3
+        Remote Session ID, while in the EQAM indicates the local 
+        Session ID. This object in conjunction with the Connection
+        Control ID identifies the DEPI session." 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 8 }
+
+docsIfMCmtsDepiSessionInfoOwner OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        management(1),
+                        dynamic(2)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The creation method of the entry. Applicable to both
+        M-CMTS Core and EQAM devices.
+        'management' 
+             Indicates the entry was created via a direct
+             configuration management such as SNMP or command line.
+
+        'dynamic' 
+             Indicates the entry was created via a mechanism 
+             different of user management, e.g., auto discovery or 
+             dynamic addition with the assistance of other 
+             Interfaces like ERMI.
+
+        Writable columnar values of entries with this object set 
+        to 'dynamic' should not be changed via management 
+        operations. An attempt to do so returns an SNMP error 
+        'notWritable'." 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 9 }
+
+docsIfMCmtsDepiSessionInfoState OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        other(1),
+                        depiSessionUp(2),
+                        depiSessionError(3)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "A high level state of the DEPI session.
+        'depiSessionUp' 
+           Indicates the DEPI session is UP and able to pass
+           traffic.
+        'depiSessionError' 
+           Indicates the DEPI session encountered 
+           an error and the DEPI session was disconnected or 
+           never reached the session connection state. 
+           docsIfMCmtsDepiSessionInfoErrorCode indicates possible
+           reasons for the error conditions." 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 10 }
+
+docsIfMCmtsDepiSessionInfoErrorCode OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        none(1),
+                        invalidMACInterfaceValue(2),
+                        invalidDSInterfaceValue(3),
+                        noResourcesForDSInterfaceIndex(4),
+                        l2tpv3Error(5),
+                        ifAdminStatusSetToDown(6)
+                    }
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The error Code raised when docsIfMCmtsDepiSessionInfoState
+        is 'depiSessionError' 
+        'invalidMACInterfaceValue'  
+           Indicates wrong assignment of the M-CMTS MAC interface
+           ifIndex.
+        'invalidDSInterfaceValue'  
+           Indicates wrong assignment of the M-CMTS Downstream 
+           interface ifIndex
+        'noResourcesForDSInterfaceIfIndex' 
+           Indicates the M-CMTS Core has no more resources to
+           assign a session to this entry.
+        'l2tpv3Error'
+           An L2TPv3 StopCCN or CDN message was issued 
+        'ifAdminStatusSetToDown'
+           Indicates the ifAdminStatus was set to down and the
+           session was torn down. More details are in the Row 
+           Status and ifAdminStatus relationship, described in 
+           docsIfMCmtsDepiSessionConfigRowStatus.
+
+        More detail state may be provided by the proper DEPI tunnel
+        Mechanism, e.g., L2TP-MIB l2tpTunnelStatsEntry." 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 11 }
+
+docsIfMCmtsDepiSessionInfoCreationTime OBJECT-TYPE
+    SYNTAX          TimeStamp
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sysUptime when the entry was turned active." 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 12 }
+
+docsIfMCmtsDepiSessionInfoStorage OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The storage realization of the entry.
+        This object value is the same as the corresponding
+        entry of docsIfMCmtsDepiSessionInfoStorage." 
+    ::= { docsIfMCmtsDepiSessionInfoEntry 13 }
+ 
+
+-- DEPI Session Resource Allocation Table
+-- Sets DEPI FlowIds policies to map DOCSIS Packets to DEPI Flow IDs
+
+docsIfMCmtsDepiRsrcAllocTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsDepiRsrcAllocEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A table containing PHBIDs Resources used for DEPI
+        applications.
+
+        At the M-CMTS core these entries contain information
+        about the mapping of egress traffic to PHIDs and DEPI flow
+        IDs also known as DEPI payload encapsulation.
+
+        For the M-CMTS Core there are two type of entries:
+        o One set of entries is a preconfigured list of PHBIDs 
+          used for M-CMTS requests to EQAM IP Host, e.g., the MIB 
+          object docsIfMCmtsDepiSessionConfigRsrcAllocReq
+          references those type of entry sets.
+          In those entries the values of 
+          docsIfMCmtsDepiRsrcAllocUdpPort, 
+          docsIfMCmtsDepiRsrcAllocFlowId and 
+          docsIfMCmtsDepiRsrcAllocPolicyScnTags
+          are ignored by the M-CMTS.
+
+        o The second set of entries has the responses from the EQAM
+          IP host to the M-CMTS when the DEPI session request is
+          successful. The object 
+          docsIfMCmtsDepiSessionConfigPhbIdResp in 
+          docsIfMCmtsDepiSessionConfigTable references an entry of
+          this type.
+
+        The EQAM MAY implement this table to configure the 
+        different queue prioritization of the DEPI flow IDs, PHBIDs
+        and UDP ports triplet used in the DEPI Resource allocation
+        response to the M-CMTS. If this table is not implemented by
+        the EQAM device the object 
+        docsIfMCmtsDepiSessionInfoRsrcAllocResp is
+        set to zero, and the DEPI session Resource Allocation 
+        response is vendor specific. Also the EQAM device MAY 
+        implement this table as read-only for the purpose of 
+        debugging the DEPI Resource Allocation Responses sent to
+        the M-CMTS core."
+    ::= { docsIfMCmtsDepiSessionObjects 3 }
+
+docsIfMCmtsDepiRsrcAllocEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsDepiRsrcAllocEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row for this table.
+        At minimum two entries for docsIfMCmtsDepiRsrcAllocSeq 
+        (two Flow ID entries) per docsIfMCmtsDepiRsrcAllocIndex 
+        value are needed for DEPI PSP mode.
+        When the docsIfMCmtsDepiRsrcAllocIndex is used for DMPT 
+        mode one flow Id entry value is required.
+
+        The PHBIDs contained in this entry are expanded with the 
+        tags of docsIfMCmtsDepiRsrcAllocPolicySCNTags to indicate 
+        the association of PSP packets attributes such as DOCSIS MAPS, 
+        DOCSIS MAC messages and DOCSIS Service Flows to a DEPI 
+        Flow ID. Thus, the EQAM IP Host uses those DEPI flow IDs to 
+        prioritize the QAM channel traffic."
+    INDEX           {
+                        docsIfMCmtsDepiRsrcAllocIndex,
+                        docsIfMCmtsDepiRsrcAllocSeq
+                    } 
+    ::= { docsIfMCmtsDepiRsrcAllocTable 1 }
+
+DocsIfMCmtsDepiRsrcAllocEntry ::= SEQUENCE {
+        docsIfMCmtsDepiRsrcAllocIndex         Unsigned32,
+        docsIfMCmtsDepiRsrcAllocSeq           Unsigned32,
+        docsIfMCmtsDepiRsrcAllocPhbId         Unsigned32,
+        docsIfMCmtsDepiRsrcAllocFlowId        Unsigned32,
+        docsIfMCmtsDepiRsrcAllocUdpPort       InetPortNumber,
+        docsIfMCmtsDepiRsrcAllocPolicyScnTags SnmpTagValue,
+        docsIfMCmtsDepiRsrcAllocStorage       StorageType,
+        docsIfMCmtsDepiRsrcAllocRowStatus     RowStatus
+}
+
+docsIfMCmtsDepiRsrcAllocIndex OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The first index of this table.
+        Multiple DEPI Flow Ids are within a 
+        docsIfMCmtsDepiRsrcAllocIndex value." 
+    ::= { docsIfMCmtsDepiRsrcAllocEntry 1 }
+
+docsIfMCmtsDepiRsrcAllocSeq OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The sequence index for entries within the same
+        docsIfMCmtsDepiRsrcAllocIndex value.
+        EQAM IP Host may reply with less PHBIDs than requested, 
+        then, the M-CMTS Core skips the sequence index of missing
+        PHBIDs when creating the Resource Allocation entry 
+        response.
+
+        As a rule of thumb this object has the minimal queuing 
+        priority information for DEPI flows treatment in the EQAM.
+        The lowest sequence value indicates the DEPI Flow ID with 
+        the highest priority treatment at the EQAM (e.g., DOCSIS 
+        MAC messages should be allocated to that flow) and the 
+        highest sequence number indicates the DEPI Flow ID with the
+        lowest priority." 
+    ::= { docsIfMCmtsDepiRsrcAllocEntry 2 }
+
+docsIfMCmtsDepiRsrcAllocPhbId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..63)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The PHB identifier (per-Hub-Behavior ID) associated to
+        this entry.
+        In PSP a minimum of two PHBIDs for two flow IDs corresponds
+        to PHBIDs EF and BE. BE is the PHBID for the one Flow ID 
+        PHBID required in DMPT mode." 
+    ::= { docsIfMCmtsDepiRsrcAllocEntry 3 }
+
+docsIfMCmtsDepiRsrcAllocFlowId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 1..4294967295)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The Flow ID value reported in the Resource Allocation
+        Response for the corresponding PHBID."
+    DEFVAL          { 0 } 
+    ::= { docsIfMCmtsDepiRsrcAllocEntry 4 }
+
+docsIfMCmtsDepiRsrcAllocUdpPort OBJECT-TYPE
+    SYNTAX          InetPortNumber
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The UDP Port reported by the Resource Allocation
+        Response for the corresponding PHBID in this table."
+    DEFVAL          { 0 } 
+    ::= { docsIfMCmtsDepiRsrcAllocEntry 5 }
+
+docsIfMCmtsDepiRsrcAllocPolicyScnTags OBJECT-TYPE
+    SYNTAX          SnmpTagValue
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "A list of Service Class Names (SCN) tags associated to
+        PHBID/Flow IDs.
+        The policies associated to each DEPI Flow ID of this table
+        allow the mapping of specific DOCSIS Service Flows well
+        distinguished by SCN.
+
+        The SCN encoding does not include the null terminated 
+        octets as DOCSIS specify for other configuration mechanisms
+        such as Cable Modem config files encoding.
+
+        This object is applicable to M-CMTS core but not to 
+        EQAM devices.
+
+        In D-MPT mode no tags are needed since all DOCSIS traffic
+        is mapped to same DEPI Flow ID, thus this object is set to
+        zero-length string (no tag) or ignored.
+
+        In PSP mode DOCSIS MAPS, DOCSIS MAC messages  and PacketCable 
+        1.0/1.5 voice traffic are mapped to the highest priority DEPI 
+        Flow ID (lower sequence number in the Resource allocation
+        response)
+
+        If this object is empty (no tag), the default policy is 
+        used. 
+
+        In PSP mode the default policy consists to assign the DEPI 
+        Flow ID of the lowest priority (highest sequence number) to
+        the DOCSIS traffic. DOCSIS Traffic not matched to a policy 
+        Tag is mapped to the default policy Flow ID.
+
+        In PSP mode the docsIfMCmtsDepiRsrcAllocSeq values pointed 
+        in a M-CMTS Core Resource Allocation Request has the 
+        preconfigured Policy Tags to map DOCSIS traffic to DEPI 
+        Flow IDs. When the Resource Allocation response from the 
+        EQAM is received, it could have same or less of the PHBIDs
+        requested, and the PHBID references could be in a different
+        order sequence. Therefore, the M-CMTS Core MUST accommodate
+        the policy Tags initial configuration to the EQAM order 
+        sequence and number of PHBIDs.
+
+        For example:
+        A Resource Allocation Request: 
+        Seq Num   PHBID   Flow ID   UDP Port   Policy Tags
+        --------  ------  --------  ---------  ------------
+        1         EF                           VoiceGold*  
+        2         AF                           VideoConference
+        3         BE                           empty  - no tag -
+
+        * - PCMM voice service based on SCN, no PacketCable 1.0/1.5
+            voice
+
+        The EQAM Resource Allocation response:
+
+        Seq Num   PHBID   Flow ID   UDP Port   Policy Tags
+        --------  ------  --------  ---------  ------------
+        1         EF      6         50201 
+        2         BE      7         50202
+
+        It is vendor specific to re-allocate the policy Tags in the
+        case of less DEPI Flow IDs in the Resource Allocation 
+        response than in the requests. In the example PHBID AF 
+        policy tag could be assigned to either Flow ID 6 or 7
+
+        Final Resource Allocation Tag reordering
+
+        Seq Num   PHBID   Flow ID   UDP Port   Policy Tags
+        --------  ------  --------  ---------  ------------
+        1         EF      6         50201      VoiceGold 
+                                               VideoConference
+        2         BE      7         50202      empty  - no tag -
+
+        Change of sequence in the response example:
+
+        A Resource Allocation Request: 
+        Seq Num   PHBID   Flow ID   UDP Port   Policy Tags
+        --------  ------  --------  ---------  ------------
+        1         0x30                         VoiceGold
+        2         0x20                         VideoConference
+        3         0x10                         empty  - no tag -
+
+        * - PCMM voice service based on SCN, no PacketCable 1.0/1.5 voice
+
+        The EQAM Resource Allocation response:
+
+        Seq Num   PHBID   Flow ID   UDP Port   Policy Tags
+        --------  ------  --------  ---------  ------------
+        1         0x20    6         50201 
+        2         0x10    7         50202
+        3         0x30    8         50203
+
+        Final Resource Allocation Tag reordering
+
+        Seq Num   PHBID   Flow ID   UDP Port   Policy Tags
+        --------  ------  --------  ---------  ------------
+        1         0x20    6         50201      VoiceGold
+        2         0x10    7         50202      VideoConference
+        3         0x30    8         50203      empty - no tag -"
+    DEFVAL          { "" } 
+    ::= { docsIfMCmtsDepiRsrcAllocEntry 6 }
+
+docsIfMCmtsDepiRsrcAllocStorage OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage realization of this entry.
+        Entries corresponding to a Resource Allocation Response
+        are of type 'volatile' and do not persist.
+        Entries set as 'permanent' need not write access
+        for its read-create type base objects.
+
+        All entries within the same docsIfMCmtsDepiRsrcAllocIndex
+        share the same StorageType value."
+    DEFVAL          { volatile } 
+    ::= { docsIfMCmtsDepiRsrcAllocEntry 7 }
+
+docsIfMCmtsDepiRsrcAllocRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual row.
+        Administratively created entries need only 
+        set the value of docsIfMCmtsDepiRsrcAllocPhbId to become
+        'active'. All other read-create columnar objects are not
+        instantiated or set to default values if not set during 
+        row creation." 
+    ::= { docsIfMCmtsDepiRsrcAllocEntry 8 }
+ 
+
+-- QOS extensions for  M-CMTS architecture
+-- Policies for mapping PSP packets to SF policies
+
+docsIfMCmtsDepiSessionStatsTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsDepiSessionStatsEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides DEPI Session statistics for the
+        M-CMTS Downstream Interface."
+    ::= { docsIfMCmtsDepiSessionObjects 4 }
+
+docsIfMCmtsDepiSessionStatsEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsDepiSessionStatsEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row for this table."
+    INDEX           { ifIndex } 
+    ::= { docsIfMCmtsDepiSessionStatsTable 1 }
+
+DocsIfMCmtsDepiSessionStatsEntry ::= SEQUENCE {
+        docsIfMCmtsDepiSessionInfoOutOfSequencePkts Counter32
+}
+
+docsIfMCmtsDepiSessionInfoOutOfSequencePkts OBJECT-TYPE
+    SYNTAX          Counter32
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The count of DEPI session packets out of sequence.
+        It is vendor dependent the re-sequence of DEPI packets.
+        EQAM Implementations that do not re-sequence DEPI 
+        packets also increase the value of ifInDiscards 
+        for the respective entry.
+        This counter is meaningful for M-CMTS Downstream
+        interfaces configured in PSP mode. This object 
+        is not instantiated for D-MPT mode of operation." 
+    ::= { docsIfMCmtsDepiSessionStatsEntry 1 }
+ 
+
+-- DEPI Latency Measurement (DLM)
+
+docsIfMCmtsDepiSessionCinLatency  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsDepiSessionObjects 5 }
+
+
+docsIfMCmtsDepiSessionCinLatencyInterval OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..420)
+    UNITS           "seconds"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The time interval used to measure periodically the CIN
+        latency per DEPI session.
+        Active measurement of CIN latency applies to active DEPI
+        sessions only.
+        This object is constrained to 420 seconds to prevent 
+        the Master Clock counter overruns.
+        A value zero indicates no CIN latency measurements to be
+        performed." 
+    ::= { docsIfMCmtsDepiSessionCinLatency 1 }
+
+docsIfMCmtsDepiSessionCinLatencyThrshld OBJECT-TYPE
+    SYNTAX          Unsigned32 (0 | 1..4294967295)
+    UNITS           "MasterClockTicks"
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The CIN latency threshold measured in DOCSIS Master clock
+        ticks to be reported as an event when exceeded.
+        The DOCSIS Master Clock is the 10.24 MHz reference clock." 
+    ::= { docsIfMCmtsDepiSessionCinLatency 2 }
+
+docsIfMCmtsDepiSessionCinEventLevel OBJECT-TYPE
+    SYNTAX          INTEGER  {
+                        emergency(1),
+                        alert(2),
+                        critical(3),
+                        error(4),
+                        warning(5),
+                        notice(6),
+                        information(7),
+                        debug(8)
+                    }
+    MAX-ACCESS      read-write
+    STATUS          current
+    DESCRIPTION
+        "The desired event level to report in case of the CIN
+        latency threshold being exceeded." 
+    ::= { docsIfMCmtsDepiSessionCinLatency 3 }
+
+docsIfMCmtsDepiSessionCinLastValue OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "MasterClockTicks"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CIN latency value measured for the DEPI session
+        pointed by docsIfMCmtsDepiSessionCinLastValueIfIndex." 
+    ::= { docsIfMCmtsDepiSessionCinLatency 4 }
+
+docsIfMCmtsDepiSessionCinLastValueIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndex
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex of the DEPI Session associated to the CIN
+        latency value pointed measured for the DEPI session 
+        pointed by docsIfMCmtsDepiSessionCinLastValue." 
+    ::= { docsIfMCmtsDepiSessionCinLatency 5 }
+
+docsIfMCmtsDepiSessionCinLatencyValueLastTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sysUpTime value of the last time the object
+        docsIfMCmtsDepiSessionCinLastValue was updated." 
+    ::= { docsIfMCmtsDepiSessionCinLatency 6 }
+
+docsIfMCmtsDepiSessionCinLatencyPerfTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsDepiSessionCinLatencyPerfEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table provides accumulative measurements of the CIN
+        latency on the network."
+    ::= { docsIfMCmtsDepiSessionObjects 6 }
+
+docsIfMCmtsDepiSessionCinLatencyPerfEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsDepiSessionCinLatencyPerfEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "A conceptual row for this table.
+        It is a vendor implementation to limit the number
+        of entries per DEPI session (ifIndex) to be stored
+        in this table. When the table is full, the oldest
+        measurement is replaced with a new one."
+    INDEX           {
+                        ifIndex,
+                        docsIfMCmtsDepiSessionCinLatencyPerfIntervalSeq
+                    } 
+    ::= { docsIfMCmtsDepiSessionCinLatencyPerfTable 1 }
+
+DocsIfMCmtsDepiSessionCinLatencyPerfEntry ::= SEQUENCE {
+        docsIfMCmtsDepiSessionCinLatencyPerfIntervalSeq Unsigned32,
+        docsIfMCmtsDepiSessionCinLatencyPerfValue       Unsigned32,
+        docsIfMCmtsDepiSessionCinLatencyTime            TimeTicks
+}
+
+docsIfMCmtsDepiSessionCinLatencyPerfIntervalSeq OBJECT-TYPE
+    SYNTAX          Unsigned32
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The interval sequence where the CIN latency
+        measurement was taken. It is valid an implementation
+        that overrides the oldest sequence number entry with the
+        most recent measurement." 
+    ::= { docsIfMCmtsDepiSessionCinLatencyPerfEntry 1 }
+
+docsIfMCmtsDepiSessionCinLatencyPerfValue OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..4294967295)
+    UNITS           "MasterClockTicks"
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CIN latency value measured for the DEPI session
+        pointed by this entry." 
+    ::= { docsIfMCmtsDepiSessionCinLatencyPerfEntry 2 }
+
+docsIfMCmtsDepiSessionCinLatencyTime OBJECT-TYPE
+    SYNTAX          TimeTicks
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The sysUpTime value of the last time this entry was
+        updated." 
+    ::= { docsIfMCmtsDepiSessionCinLatencyPerfEntry 3 }
+ 
+
+-- Policies for mapping Service Flows to PSP packets
+--   
+
+--   
+-- docsIfMCmtsDepiPhbPolicyTable
+-- Applicable to CMTS only
+
+docsIfMCmtsDepiPhbPolicyTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsDepiPhbPolicyEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The policy rules that apply to DOCSIS traffic (traffic
+        profiles) of a DEPI session.
+        Traffic Profiles are ways to discriminate specific
+        traffic flows for QOS treatment in the CIN and EQAM device.
+
+        The main function of this table is to map the DOCSIS SF 
+        egress traffic to the Converged Interconnect Network PHB
+        configuration; thus, from the M-CMTS to the EQAM IP host
+        Ingress port, the QOS levels are defined properly. 
+
+        In D-MPT mode this table is only applicable to PHB egress 
+        marking for the CIN.
+
+        In PSP mode this table is referenced PHBID CIN 
+        (referenced by docsIfMCmtsDepiSessionConfigCinPhbIdPolicy)
+
+        The CIN PHBs is operator specific. The CIN per-hub-Behavior
+        of this table accomplishes:
+
+        o DOCSIS MAPs, DOCSIS MAC messages and PacketCable VoIP 
+          PHBID are configured in a reserved policy tag
+          'ExpediteForwardCIN' traffic. This
+          policy has a 'permanent' storage.
+        o Data traffic (per DOCSIS Service Flows) is assigned to 
+          PBHIDs based on Admission policies rules, e.g., 
+          Service Class Name, DOCSIS specific parameters, etc.
+          This table only deals with policies based with SCN. 
+          Other traffic descriptor rules are vendor dependent."
+    ::= { docsIfMCmtsDepiQosObjects 1 }
+
+docsIfMCmtsDepiPhbPolicyEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsDepiPhbPolicyEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The conceptual Table entry.
+        A consumer of this table uses a lexicographical matching
+        of entries to apply the respective policy, e.g., 
+        this table is used for two types of policy assignments:
+
+        When referenced by an instance of 
+        docsIfMCmtsDepiSessionConfigCinPhbIdPolicy, the value of
+        docsIfMCmtsDepiPhbPolicySCN is passed to the CIN PHBID
+        handler to encapsulate the SF payload with DEPI tunnel 
+        PHBID. It means different DOCSIS traffic profiles are 
+        assigned to different PHBIDs for the CIN transport."
+    INDEX           { docsIfMCmtsDepiPhbPolicyTag } 
+    ::= { docsIfMCmtsDepiPhbPolicyTable 1 }
+
+DocsIfMCmtsDepiPhbPolicyEntry ::= SEQUENCE {
+        docsIfMCmtsDepiPhbPolicyTag       SnmpAdminString,
+        docsIfMCmtsDepiPhbPolicySCN       SnmpAdminString,
+        docsIfMCmtsDepiPhbPolicyCinPhbId  Unsigned32,
+        docsIfMCmtsDepiPhbPolicyStorage   StorageType,
+        docsIfMCmtsDepiPhbPolicyRowStatus RowStatus
+}
+
+docsIfMCmtsDepiPhbPolicyTag OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..32))
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "The index of the policy." 
+    ::= { docsIfMCmtsDepiPhbPolicyEntry 1 }
+
+docsIfMCmtsDepiPhbPolicySCN OBJECT-TYPE
+    SYNTAX          SnmpAdminString (SIZE  (1..15))
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The Service Class Name used to map DOCSIS traffic to
+        DEPI Flow IDs and/or CIN PHBIDs.
+        This value is not null terminated as other DOCSIS
+        interfaces defines SCN." 
+    ::= { docsIfMCmtsDepiPhbPolicyEntry 2 }
+
+docsIfMCmtsDepiPhbPolicyCinPhbId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..63)
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The CIN PHBID assigned to transport the DOCSIS traffic
+        that matches docsIfMCmtsDepiPhbPolicySCN for the related
+        DEPI session." 
+    ::= { docsIfMCmtsDepiPhbPolicyEntry 3 }
+
+docsIfMCmtsDepiPhbPolicyStorage OBJECT-TYPE
+    SYNTAX          StorageType
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The storage realization of this entry
+        'permanent' columnar objects allow write access." 
+    ::= { docsIfMCmtsDepiPhbPolicyEntry 4 }
+
+docsIfMCmtsDepiPhbPolicyRowStatus OBJECT-TYPE
+    SYNTAX          RowStatus
+    MAX-ACCESS      read-create
+    STATUS          current
+    DESCRIPTION
+        "The status of this conceptual table.
+        Changes in this columnar objects while this entry is active
+        will take effect on new DOCSIS packets being mapped by this
+        policy entry." 
+    ::= { docsIfMCmtsDepiPhbPolicyEntry 5 }
+ 
+
+-- Extensions for DOCSIS QOS Service Flow Table
+
+docsIfMCmtsQosServiceFlowExtTable OBJECT-TYPE
+    SYNTAX          SEQUENCE OF DocsIfMCmtsQosServiceFlowExtEntry 
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "This table contains M-CMTS Extensions of the
+        DOCSIS Service Flow table to describe DEPI QOS associations
+        to Service Flows.
+
+        DEPI Connection Control Table indicates the policies to 
+        apply any time a new DOCSIS Service Flow is added to the
+        M-CMTS Downstream interface."
+    ::= { docsIfMCmtsDepiQosObjects 2 }
+
+docsIfMCmtsQosServiceFlowExtEntry OBJECT-TYPE
+    SYNTAX          DocsIfMCmtsQosServiceFlowExtEntry
+    MAX-ACCESS      not-accessible
+    STATUS          current
+    DESCRIPTION
+        "An entry in the table exists for each
+        Service Flow ID of a M-CMTS Downstream Interface type. 
+        This table is an extension of DocsQosServiceFlowEntry."
+    INDEX           {
+                        ifIndex,
+                        docsQosServiceFlowId
+                    } 
+    ::= { docsIfMCmtsQosServiceFlowExtTable 1 }
+
+DocsIfMCmtsQosServiceFlowExtEntry ::= SEQUENCE {
+        docsIfMCmtsQosServiceFlowExtDepiFlowId  Unsigned32,
+        docsIfMCmtsQosServiceFlowExtCinPhbId    Unsigned32,
+        docsIfMCmtsQosServiceFlowExtDepiIfIndex InterfaceIndexOrZero
+}
+
+docsIfMCmtsQosServiceFlowExtDepiFlowId OBJECT-TYPE
+    SYNTAX          Unsigned32 (1..127)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The DEPI Flow ID associated with this Service Flow." 
+    ::= { docsIfMCmtsQosServiceFlowExtEntry 1 }
+
+docsIfMCmtsQosServiceFlowExtCinPhbId OBJECT-TYPE
+    SYNTAX          Unsigned32 (0..63)
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The CIN PHBID associated with this Service Flow." 
+    ::= { docsIfMCmtsQosServiceFlowExtEntry 2 }
+
+docsIfMCmtsQosServiceFlowExtDepiIfIndex OBJECT-TYPE
+    SYNTAX          InterfaceIndexOrZero
+    MAX-ACCESS      read-only
+    STATUS          current
+    DESCRIPTION
+        "The ifIndex of the M-CMTS DS interface pertaining to
+        this Service flow." 
+    ::= { docsIfMCmtsQosServiceFlowExtEntry 3 }
+ 
+
+-- ---------------------------------------------------------
+-- Conformance definitions
+-- ---------------------------------------------------------
+
+docsIfMCmtsConformance  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsMib 2 }
+
+docsIfMCmtsCompliances  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsConformance 1 }
+
+docsIfMCmtsGroups  OBJECT IDENTIFIER
+    ::= { docsIfMCmtsConformance 2 }
+
+
+docsIfMCmtsCoreDeviceCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for M-CMTS Core compliant
+        devices."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        docsIfMCmtsBaseGroup,
+                        docsIfMCmtsCoreGroup
+                    }
+    ::= { docsIfMCmtsCompliances 1 }
+
+docsIfMCmtsEQAMCompliance MODULE-COMPLIANCE
+    STATUS          current
+    DESCRIPTION
+        "The compliance statement for M-CMTS EQAM compliant
+        devices."
+    MODULE          -- this module
+    MANDATORY-GROUPS {
+                        docsIfMCmtsBaseGroup,
+                        docsIfMCmtsEqamDevGroup,
+                        entityPhysicalGroup,
+                        entityPhysical2Group,
+                        entityPhysical3Group,
+                        entityGeneralGroup
+                    }
+
+    GROUP           entityLogical2Group
+    DESCRIPTION
+        "Implementation of this group is not mandatory for Agents
+        that model all MIB object instances within a 
+        single naming scope."
+
+    GROUP           entityMappingGroup
+    DESCRIPTION
+        "Implementation of the entPhysicalContainsTable is
+        mandatory for EQAMs. Implementation of the 
+        entLPMappingTable and entAliasMappingTable are required
+        for agents with MIB object 
+        instances within multiple logical entities. EQAM devices 
+        with MIB object instances in a single naming scope SHOULD 
+        implement entAliasMappingTable by using 
+        entAliasLogicalIndexOrZero set to zero."
+
+    OBJECT          entPhysicalSerialNum
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "Read and write access is not required for agents that
+        cannot identify serial number information for physical
+        entities, and/or cannot provide non-volatile storage for
+        NMS-assigned serial numbers.
+
+        Write access is not required for agents that can identify
+        serial number information for physical entities but cannot
+        provide non-volatile storage for NMS-assigned serial
+        numbers.
+
+        Write access is not required for physical entities for
+        physical entities for which the associated value of the
+        entPhysicalIsFRU object is equal to 'false(2)'."
+
+    OBJECT          entPhysicalAlias
+    MIN-ACCESS      read-only
+    DESCRIPTION
+        "Write access is required only if the associated
+        entPhysicalClass value is equal to 'chassis(3)'."
+
+    OBJECT          entPhysicalAssetID
+    MIN-ACCESS      not-accessible
+    DESCRIPTION
+        "Read and write access is not required for agents that
+        cannot provide non-volatile storage for NMS-assigned asset
+        identifiers.
+
+        Write access is not required for physical entities for which
+        the associated value of entPhysicalIsFRU is equal to
+        'false(2)'."
+
+    OBJECT          entPhysicalClass
+    SYNTAX          INTEGER  {
+                        other(1),
+                        unknown(2),
+                        chassis(3),
+                        backplane(4),
+                        container(5),
+                        powerSupply(6),
+                        fan(7),
+                        sensor(8),
+                        module(9),
+                        port(10),
+                        stack(11)
+                    }
+    DESCRIPTION
+        "Implementation of the 'cpu(12)' enumeration is not
+        required."
+    ::= { docsIfMCmtsCompliances 2 }
+
+docsIfMCmtsBaseGroup OBJECT-GROUP
+    OBJECTS         {
+                        docsIfMCmtsDepiSessionConfigCableMacIfIndex,
+                        docsIfMCmtsDepiSessionConfigCableMCmtsDownIfIndex,
+                        docsIfMCmtsDepiSessionConfigAddrType,
+                        docsIfMCmtsDepiSessionConfigLocalAddr,
+                        docsIfMCmtsDepiSessionConfigRemoteAddr,
+                        docsIfMCmtsDepiSessionConfigL2TPv3HeaderType,
+                        docsIfMCmtsDepiSessionConfigMethod,
+                        docsIfMCmtsDepiSessionConfigTSID,
+                        docsIfMCmtsDepiSessionConfigDEPIMode,
+                        docsIfMCmtsDepiSessionConfigRsrcAllocReq,
+                        docsIfMCmtsDepiSessionConfigCinPhbIdPolicy,
+                        docsIfMCmtsDepiSessionConfigSyncEnabled,
+                        docsIfMCmtsDepiSessionConfigSyncInterval,
+                        docsIfMCmtsDepiSessionConfigPhyParamsFlag,
+                        docsIfMCmtsDepiSessionConfigChannelFrequency,
+                        docsIfMCmtsDepiSessionConfigChannelModulation,
+                        docsIfMCmtsDepiSessionConfigChannelInterleave,
+                        docsIfMCmtsDepiSessionConfigChannelPower,
+                        docsIfMCmtsDepiSessionConfigChannelAnnex,
+                        docsIfMCmtsDepiSessionConfigChannelSymbolRateM,
+                        docsIfMCmtsDepiSessionConfigChannelSymbolRateN,
+                        docsIfMCmtsDepiSessionConfigChannelOutputRate,
+                        docsIfMCmtsDepiSessionConfigChannelBurstSize,
+                        docsIfMCmtsDepiSessionConfigStorage,
+                        docsIfMCmtsDepiSessionConfigRowStatus,
+                        docsIfMCmtsDepiSessionConfigChannelId,
+                        docsIfMCmtsDepiSessionInfoCfgIndex,
+                        docsIfMCmtsDepiSessionInfoUdpPort,
+                        docsIfMCmtsDepiSessionInfoMaxPayload,
+                        docsIfMCmtsDepiSessionInfoPathPayload,
+                        docsIfMCmtsDepiSessionInfoIncludeDOCSISMsgs,
+                        docsIfMCmtsDepiSessionInfoRsrcAllocResp,
+                        docsIfMCmtsDepiSessionInfoConnCtrlID,
+                        docsIfMCmtsDepiSessionInfoEQAMSessionID,
+                        docsIfMCmtsDepiSessionInfoOwner,
+                        docsIfMCmtsDepiSessionInfoState,
+                        docsIfMCmtsDepiSessionInfoErrorCode,
+                        docsIfMCmtsDepiSessionInfoCreationTime,
+                        docsIfMCmtsDepiSessionInfoStorage,
+                        docsIfMCmtsDepiRsrcAllocPhbId,
+                        docsIfMCmtsDepiRsrcAllocFlowId,
+                        docsIfMCmtsDepiRsrcAllocUdpPort,
+                        docsIfMCmtsDepiRsrcAllocPolicyScnTags,
+                        docsIfMCmtsDepiRsrcAllocStorage,
+                        docsIfMCmtsDepiRsrcAllocRowStatus,
+                        docsIfMCmtsDepiSessionInfoOutOfSequencePkts,
+                        docsIfMCmtsDepiSessionCinLatencyInterval,
+                        docsIfMCmtsDepiSessionCinLatencyThrshld,
+                        docsIfMCmtsDepiSessionCinEventLevel,
+                        docsIfMCmtsDepiSessionCinLastValue,
+                        docsIfMCmtsDepiSessionCinLastValueIfIndex,
+                        docsIfMCmtsDepiSessionCinLatencyValueLastTime
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Group of objects implemented in M-CMTS compliant devices."
+    ::= { docsIfMCmtsGroups 1 }
+
+docsIfMCmtsCoreGroup OBJECT-GROUP
+    OBJECTS         {
+                        docsIfMCmtsCoreDownstreamPhyDependencies,
+                        docsIfMCmtsCoreDownstreamType,
+                        docsIfMCmtsQosServiceFlowExtDepiFlowId,
+                        docsIfMCmtsQosServiceFlowExtCinPhbId,
+                        docsIfMCmtsQosServiceFlowExtDepiIfIndex,
+                        docsIfMCmtsDepiSessionCinLatencyPerfValue,
+                        docsIfMCmtsDepiSessionCinLatencyTime,
+                        docsIfMCmtsDepiPhbPolicySCN,
+                        docsIfMCmtsDepiPhbPolicyCinPhbId,
+                        docsIfMCmtsDepiPhbPolicyStorage,
+                        docsIfMCmtsDepiPhbPolicyRowStatus
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Group of objects implemented in M-CMTS Core compliant
+        devices."
+    ::= { docsIfMCmtsGroups 2 }
+
+docsIfMCmtsEqamDevGroup OBJECT-GROUP
+    OBJECTS         {
+                        docsIfMCmtsEqamDownstreamTSID,
+                        docsIfMCmtsEqamDownstreamPhyDependencies,
+                        docsIfMCmtsEqamDownstreamDevicePhyParamLock,
+                        docsIfMCmtsEqamDownstreamDeviceConfigPhyParamLock,
+                        docsIfMCmtsEqamDownstreamAllocationType,
+                        docsIfMCmtsEqamDownstreamAllocationStatus,
+                        docsIfMCmtsEqamDownstreamAllocationTimeout,
+                        docsIfMCmtsEqamDownstreamDRRPAdvertizing,
+                        docsIfMCmtsEqamDownstreamUdpPortMapping,
+                        docsIfMCmtsEqamDownstreamCapabFrequency,
+                        docsIfMCmtsEqamDownstreamCapabBandwidth,
+                        docsIfMCmtsEqamDownstreamCapabPower,
+                        docsIfMCmtsEqamDownstreamCapabModulation,
+                        docsIfMCmtsEqamDownstreamCapabInterleaver,
+                        docsIfMCmtsEqamDownstreamCapabJ83Annex,
+                        docsIfMCmtsEqamDownstreamCapabConcurrentServices,
+                        docsIfMCmtsEqamDownstreamCapabServicesTransport,
+                        docsIfMCmtsEqamDownstreamCapabMuting,
+                        docsIfMCmtsEqamGroupDependencyGroupID,
+                        docsIfMCmtsEqamGroupDependencyType,
+                        docsIfMCmtsEqamGlobCfgDownPhysicalIndex,
+                        docsIfMCmtsEqamGlobCfgDownBandwidth,
+                        docsIfMCmtsEqamGlobCfgDownPower,
+                        docsIfMCmtsEqamGlobCfgDownModulation,
+                        docsIfMCmtsEqamGlobCfgDownInterleave,
+                        docsIfMCmtsEqamGlogCfgDownAnnex,
+                        docsIfMCmtsEqamGlobCfgDownSymbolRateM,
+                        docsIfMCmtsEqamGlobCfgDownSymbolRateN,
+                        docsIfMCmtsEqamGlobCfgDownLockParams,
+                        docsIfMCmtsEqamGlobCfgDownExecutionCode,
+                        docsIfMCmtsEqamGlobCfgDownErrorsCount,
+                        docsIfMCmtsEqamGlobCfgDownRowStatus,
+                        docsIfMCmtsChannelBlockNumberChannels,
+                        docsIfMCmtsChannelBlockCfgNumberChannels,
+                        docsIfMCmtsChannelBlockMute,
+                        docsIfMCmtsChannelBlockTestType,
+                        docsIfMCmtsChannelBlockTestIfIndex
+                    }
+    STATUS          current
+    DESCRIPTION
+        "Group of objects implemented in M-CMTS EQAM compliant
+        devices."
+    ::= { docsIfMCmtsGroups 3 }
+
+END
+
+
+

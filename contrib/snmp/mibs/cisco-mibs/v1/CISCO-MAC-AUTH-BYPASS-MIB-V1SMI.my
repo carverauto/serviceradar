@@ -1,0 +1,254 @@
+-- MIB file created 12-Nov-2008 15:14:52, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-MAC-AUTH-BYPASS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-MAC-AUTH-BYPASS-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    MacAddress, TruthValue
+            FROM SNMPv2-TC-v1
+    ifIndex
+            FROM IF-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoMabMIB OBJECT IDENTIFIER ::= { ciscoMgmt 654 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200804180000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    Postal: 170 W Tasman Drive
+--    San Jose, CA  95134
+--    USA
+--    Tel: +1 800 553 -NETS
+--    E-mail: cs-ibns@cisco.com,
+--            cs-lan-switch-snmp@cisco.com
+--  Descr
+--    MIB module for monitoring and configuring MAC
+--    Authentication Bypass (MAB) feature in the system.
+--    
+--    MAC Auth Bypass feature provides controlled access
+--    to devices based on their MAC addresses.
+--    
+--    MAB allows non-dot1x compliant end devices controlled
+--    access to network and also provides a replacement
+--    technology for VLAN Management Policy Server (VMPS)
+--    environments.
+--    
+--    MAB is also an intergal part of the Network Access
+--    Control (NAC) program which enables network access for
+--    the clients and subsequently carry out a posture
+--    assessment of these clients.
+--    
+--    MAC Authentication Bypass feature provides a mechanism
+--    that uses the MAC address of the connecting device to
+--    grant or deny network access for it.
+--  RevDate
+--    200804180000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+cmabNotification OBJECT IDENTIFIER ::= { ciscoMabMIB 0 }
+cmabMIBObjects  OBJECT IDENTIFIER ::= { ciscoMabMIB 1 }
+cmabMIBConformance OBJECT IDENTIFIER ::= { ciscoMabMIB 2 }
+cmabInterfaceConfig OBJECT IDENTIFIER ::= { cmabMIBObjects 1 }
+cmabSession     OBJECT IDENTIFIER ::= { cmabMIBObjects 2 }
+cmabMIBCompliances OBJECT IDENTIFIER ::= { cmabMIBConformance 1 }
+cmabMIBGroups   OBJECT IDENTIFIER ::= { cmabMIBConformance 2 }
+
+cmabIfConfigTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmabIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of interfaces which supports MAC Authentication
+        Bypass."
+    ::= { cmabInterfaceConfig 1 }
+
+cmabIfConfigEntry OBJECT-TYPE
+    SYNTAX CmabIfConfigEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry containing Mac Authentication Bypass configuration for
+        a particular interface."
+    INDEX { ifIndex }
+    ::= { cmabIfConfigTable 1 }
+
+CmabIfConfigEntry ::= SEQUENCE {
+    cmabIfAuthEnabled TruthValue,
+    cmabIfAuthMethod INTEGER
+    }
+
+cmabIfAuthEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies if MAC Authentication Bypass feature is enabled on
+        the interface."
+    ::= { cmabIfConfigEntry 1 }
+
+cmabIfAuthMethod OBJECT-TYPE
+    SYNTAX INTEGER {
+        radius(1),
+        eap(2)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the authentication method used by
+        MAC Authentication Bypass.
+        
+        radius(1) : communication with authentication server
+                    is performed via RADIUS messages.
+        
+        eap(2)    : communication with authentication server
+                    is performed via EAP messages."
+    ::= { cmabIfConfigEntry 2 }
+
+cmabClientInfoTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CmabClientInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A list of active MAC Authentication Bypass clients
+        in the system.
+        
+        An entry exists for each MAC Authentication Bypass
+        session in the system.
+        
+        An entry is deleted if the MAC Authentication Bypass
+        session is removed from the system."
+    ::= { cmabSession 1 }
+
+cmabClientInfoEntry OBJECT-TYPE
+    SYNTAX CmabClientInfoEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "Entry containing management information of MAC
+        Authentication Bypass for a particular session."
+    INDEX { ifIndex, --?? IMPLIED may cause problems
+            IMPLIED cmabClientSessionId }
+    ::= { cmabClientInfoTable 1 }
+
+CmabClientInfoEntry ::= SEQUENCE {
+    cmabClientSessionId OCTET STRING,
+    cmabClientMacAddress MacAddress,
+    cmabClientMabState INTEGER,
+    cmabClientAuthStatus INTEGER
+    }
+
+cmabClientSessionId OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..64))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A unique identifier of the MAC Authentication Bypass session."
+    ::= { cmabClientInfoEntry 1 }
+
+cmabClientMacAddress OBJECT-TYPE
+    SYNTAX MacAddress
+--    Rsyntax OCTET STRING(SIZE(6))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The MAC address of the MAB client."
+    ::= { cmabClientInfoEntry 2 }
+
+cmabClientMabState OBJECT-TYPE
+    SYNTAX INTEGER {
+        other(1),
+        initialize(2),
+        acquiring(3),
+        authorizing(4),
+        terminate(5)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates the session state of the MAB state machine
+        for the MAB client.
+        
+           other      : None of the below.
+        
+           initialize : Initializing the authentication session.
+        
+           acquiring  : Acquiring client's MAC address for the
+                        authentication process.
+        
+           authorizing: Authorization is in progress.
+        
+           terminate  : Authorization is completed."
+    ::= { cmabClientInfoEntry 3 }
+
+cmabClientAuthStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        authorized(1),
+        unauthorized(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates whether the MAB client is authorized.
+        
+        authorized  : the session is authorized.
+        
+        unauthorized: the session is not authorized."
+    ::= { cmabClientInfoEntry 4 }
+
+cmabIfConfigGroup OBJECT IDENTIFIER ::= { cmabMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides per interface
+--    configuration of MAC Authentication Bypass feature.
+--  objects
+--    cmabIfAuthEnabled, cmabIfAuthMethod
+
+cmabClientInfoGroup OBJECT IDENTIFIER ::= { cmabMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects that provides information of
+--    MAC Authentication Bypass sessions in the devices.
+--  objects
+--    cmabClientMacAddress, cmabClientMabState, 
+--    cmabClientAuthStatus
+
+cmabCompliance OBJECT IDENTIFIER ::= { cmabMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for entities which implement
+--    CISCO-MAB-MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cmabIfConfigGroup
+--   MandGroup
+--    cmabClientInfoGroup
+--   ObjVar
+--    cmabIfAuthEnabled
+--   ObjVar
+--    cmabIfAuthMethod
+
+
+END
+

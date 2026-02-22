@@ -1,0 +1,294 @@
+-- MIB file created 03-Apr-2003 13:33:21, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WAN-SRM-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WAN-SRM-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    cardSpecific
+            FROM BASIS-MIB
+    ciscoWan
+            FROM CISCOWAN-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWanSrmMIB OBJECT IDENTIFIER ::= { ciscoWan 30 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200208260000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--            Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    The MIB module for configuration of bulk distribution
+--     (de-multiplexing of traffic from higher-bandwidth to
+--     lower-bandwidth interfaces).
+--     This is used for configuring bulk distribution of
+--     T3 interfaces on T1 modules supported in MGX82xx series.
+--     Some of the T1 modules are AUSM, FRSM,CESM.
+--     This MIB module also contains info. on configuring
+--     bulk distribution of SONET interfaces(VT interfaces)
+--     on T1 Modules.
+--    
+--     SRM  - Service Resource Module
+--     SRME - Service Resource Module Enhanced.
+--  RevDate
+--    200208260000Z
+--  RevDescr
+--    Initial version of the MIB.
+--    
+--    The content of this MIB was originally available
+--    in CISCO-WAN-AXIPOP-MIB defined using SMIv1.
+--    The applicable objects from CISCO-WAN-AXIPOP-MIB
+--    are defined using SMIv2 in this MIB. Also the
+--    descriptions of some of the objects have been 
+--    modified.
+
+srm3T3CnfGrp    OBJECT IDENTIFIER ::= { cardSpecific 10 }
+srmeCnfGrp      OBJECT IDENTIFIER ::= { cardSpecific 22 }
+ciscoWanSrmMIBConformance OBJECT IDENTIFIER ::= { ciscoWanSrmMIB 2 }
+ciscoWanSrmMIBGroups OBJECT IDENTIFIER ::= { ciscoWanSrmMIBConformance 1 }
+ciscoWanSrmMIBCompliances OBJECT IDENTIFIER ::= { ciscoWanSrmMIBConformance 2 }
+
+srm3T3CnfGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF Srm3T3CnfGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The SRM 3T3 configuration table, it is the
+         distribution of a T3 line."
+    ::= { srm3T3CnfGrp 1 }
+
+srm3T3CnfGrpEntry OBJECT-TYPE
+    SYNTAX Srm3T3CnfGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "an entry in the T3 configuration table"
+    INDEX { srmT3LineNum, srmStartT1LineNum }
+    ::= { srm3T3CnfGrpTable 1 }
+
+Srm3T3CnfGrpEntry ::= SEQUENCE {
+    srmT3LineNum INTEGER,
+    srmStartT1LineNum INTEGER,
+    srmT1RowStatus INTEGER,
+    srmTargetSlotNum INTEGER,
+    srmTargetSlotLineNum INTEGER
+    }
+
+srmT3LineNum OBJECT-TYPE
+    SYNTAX INTEGER(1..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Select T3 line number.
+         There is no default value for this object."
+    ::= { srm3T3CnfGrpEntry 1 }
+
+srmStartT1LineNum OBJECT-TYPE
+    SYNTAX INTEGER(1..28)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The start T1 number to be affected.
+         There is no default value for this object."
+    ::= { srm3T3CnfGrpEntry 2 }
+
+srmT1RowStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        add(1),
+        delete(2),
+        modify(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "a command is used to add, delete, or modify
+         one or more DS1 mapping. 
+         Default value is delete."
+    ::= { srm3T3CnfGrpEntry 3 }
+
+srmTargetSlotNum OBJECT-TYPE
+    SYNTAX INTEGER(1..32)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        " specify the target slot number to be linked.
+         There is no default value for this object.
+         For MGX8850:    SRM01 services slots 1 - 6 and 9 - 14,
+                         SRM02 services slots 17 - 22 and 25 - 30
+         For MGX8220: SYNTAX  Integer32 (5 ..14)
+         "
+    ::= { srm3T3CnfGrpEntry 4 }
+
+srmTargetSlotLineNum OBJECT-TYPE
+    SYNTAX INTEGER(0..8)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "0 means not assigned.
+         There is no default value for this object."
+    ::= { srm3T3CnfGrpEntry 5 }
+
+srmeCnfGrpTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF SrmeCnfGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The SRME configuration table for bulk distribution of
+                SRME lines."
+    ::= { srmeCnfGrp 1 }
+
+srmeCnfGrpEntry OBJECT-TYPE
+    SYNTAX SrmeCnfGrpEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "an entry in the SRME Distribution configuration table"
+    INDEX { srmeLineNum, srmeStartVtNum }
+    ::= { srmeCnfGrpTable 1 }
+
+SrmeCnfGrpEntry ::= SEQUENCE {
+    srmeLineNum INTEGER,
+    srmeStartVtNum INTEGER,
+    srmeRowStatus INTEGER,
+    srmeTargetSlotNum INTEGER,
+    srmeTargetSlotLineNum INTEGER,
+    srmeVtFramingType INTEGER
+    }
+
+srmeLineNum OBJECT-TYPE
+    SYNTAX INTEGER(1..3)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the SRME line number.
+        For OC3/STM1: SYNTAX Integer32 1
+        There is no default value for this object."
+    ::= { srmeCnfGrpEntry 1 }
+
+srmeStartVtNum OBJECT-TYPE
+    SYNTAX INTEGER(1..84)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The start T1 or E1 number (virtual tributary) to be affected.
+        For OC3  with T1 tributaries: SYNTAX Integer32 (1 .. 84)
+        For STM1 with E1 tributaries: SYNTAX Integer32 (1 .. 63) 
+        There is no default value for this object."
+    ::= { srmeCnfGrpEntry 2 }
+
+srmeRowStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        add(1),
+        delete(2),
+        modify(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Command used to add, delete, or modify
+        one or more T1 or E1 mappings. Only the 
+        srmeVtFramingType object can be modified once the
+        distribution link is added. To modify all other
+        objects, user should first delete the link and 
+        add it again.
+        
+        Default value is modify(3)."
+    ::= { srmeCnfGrpEntry 3 }
+
+srmeTargetSlotNum OBJECT-TYPE
+    SYNTAX INTEGER(1..32)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object specifies the target slot number to be linked.
+        There is no default value for this object.
+        For MGX8x50:    SRM01 services slots 1 - 6 and 9 - 14,
+                        SRM02 services slots 17 - 22 and 25 - 30
+        For MGX8x30:    service slots 3-6 and 10-13."
+    ::= { srmeCnfGrpEntry 4 }
+
+srmeTargetSlotLineNum OBJECT-TYPE
+    SYNTAX INTEGER(0..8)
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specify the target slot's line to be linked.
+        The value zero means, the target line number is 
+        not assigned.
+        There is no default value for this object."
+    ::= { srmeCnfGrpEntry 5 }
+
+srmeVtFramingType OBJECT-TYPE
+    SYNTAX INTEGER {
+        notApplicable(1),
+        sf(2),
+        esf(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "Specifies the Framing Type of the target slot line.
+        This is applicable only if the target module is a
+        T1 Service Module and byte sync mapping is used on
+        SRME. Not applicable to E1 Service Modules.
+        
+        sf: Superframe or D4
+        esf: Extended Superframe. 
+        
+        Default is 'esf' if SRME lines are configured for 
+        byte-synchronous mapping, Else, the default is notApplicable."
+    ::= { srmeCnfGrpEntry 6 }
+
+ciscoWanSrmConfGroup OBJECT IDENTIFIER ::= { ciscoWanSrmMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used for
+--    configuring bulk distribution for SRM module.
+--  objects
+--    srmT3LineNum, srmStartT1LineNum, srmT1RowStatus, 
+--    srmTargetSlotNum, srmTargetSlotLineNum
+
+ciscoWanSrmeConfGroup OBJECT IDENTIFIER ::= { ciscoWanSrmMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used for
+--    configuring bulk distribution for SRM-E module.
+--  objects
+--    srmeLineNum, srmeStartVtNum, srmeRowStatus, srmeTargetSlotNum, 
+--    srmeTargetSlotLineNum, srmeVtFramingType
+
+ciscoWanSrmCompliance OBJECT IDENTIFIER ::= { ciscoWanSrmMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for objects related
+--    to SRM MIB.
+--  Module
+--    >>current<<
+--   OptGroup
+--    ciscoWanSrmConfGroup
+--   OptGroup
+--    ciscoWanSrmeConfGroup
+
+
+END
+

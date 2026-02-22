@@ -1,0 +1,494 @@
+-- MIB file created 01-Jul-2003 17:21:11, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-WAN-TRAP-VARS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-WAN-TRAP-VARS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    AutonomousType, DisplayString
+            FROM SNMPv2-TC-v1
+    ciscoWan
+            FROM CISCOWAN-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoWanTrapVarsMIB OBJECT IDENTIFIER ::= { ciscoWan 5 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200211260000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--           Cisco Systems
+--            Customer Service
+--    
+--    Postal: 170 W Tasman Drive
+--            San Jose, CA  95134
+--            USA
+--    
+--       Tel: +1 800 553-NETS
+--    
+--    E-mail: cs-wanatm@cisco.com
+--  Descr
+--    This MIB module is for Supporting Varbinds used only
+--     in trap defintions. The NMS applications should not
+--     depend on the implementation of these objects.The 
+--     SNMP Requests(GET,GET-NEXT) may not be valid for
+--     these objects.
+--  RevDate
+--    200211260000Z
+--  RevDescr
+--    Added following objects:
+--      - cwTrapSecondIndex
+--      - cwTrapThirdIndex
+--  RevDate
+--    200207170000Z
+--  RevDescr
+--    a) Importing Unsigned32 from SNMPv2-SMI.
+--     b) Add cwTrapVarLength, cwTrapAtmAdressType
+--        and cwTrapReference.
+--     c) Add cwTrapSecondIndex and cwTrapThirdIndex
+--  RevDate
+--    200111070000Z
+--  RevDescr
+--    Added following objects:
+--     cwTrapCardRole,
+--     cwTrapSctCardType, cwTrapSctType, cwTrapSctId and
+--     cwTrapSctMajorVersion.
+--  RevDate
+--    200111060000Z
+--  RevDescr
+--    Added following objects:
+--     cwTrapPhysicalContainer,
+--     cwTrapPhysicalUnit.
+--  RevDate
+--    200107260000Z
+--  RevDescr
+--    Add cwTrapDisplayString
+--  RevDate
+--    199905210000Z
+--  RevDescr
+--    Initial version of the MIB
+
+cwTrapVarMIBObjects OBJECT IDENTIFIER ::= { ciscoWanTrapVarsMIB 1 }
+cwTrapVars      OBJECT IDENTIFIER ::= { cwTrapVarMIBObjects 1 }
+cwTrapVarsMIBConformance OBJECT IDENTIFIER ::= { ciscoWanTrapVarsMIB 2 }
+cwTrapVarsMIBCompliances OBJECT IDENTIFIER ::= { cwTrapVarsMIBConformance 1 }
+cwTrapVarsMIBGroups OBJECT IDENTIFIER ::= { cwTrapVarsMIBConformance 2 }
+
+cwTrapIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object containing the value which can be used
+         for indexing to any table."
+    ::= { cwTrapVars 1 }
+
+cwTrapSlotNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..64)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the slot number of the module."
+    ::= { cwTrapVars 2 }
+
+cwTrapPhysicalVendorType OBJECT-TYPE
+    SYNTAX AutonomousType
+--    Rsyntax OBJECT IDENTIFIER
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the entPhysicalVendorType value
+         for the physical entity."
+    ::= { cwTrapVars 3 }
+
+cwTrapLineModuleNumber OBJECT-TYPE
+    SYNTAX INTEGER(1..4)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the value for entPhysicalParentRelPos 
+         object for line modules."
+    ::= { cwTrapVars 4 }
+
+cwTrapOctetString OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(0..1024))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the octet string value."
+    ::= { cwTrapVars 5 }
+
+cwTrapDisplayString OBJECT-TYPE
+    SYNTAX DisplayString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the display string value."
+    ::= { cwTrapVars 6 }
+
+cwTrapPhysicalContainer OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the container(parent unit number) number of 
+        an entity in entPhysicalTable. This object contains the value
+        for the following entities:
+            Fan   Tray
+            Power Supply Tray/Group.
+        If it contains value zero, then this object is not applicable
+        for the entity identified by cwTrapPhysicalUnit."
+    ::= { cwTrapVars 7 }
+
+cwTrapPhysicalUnit OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object contains the physical unit number(Relative Position)
+        of the physical entity. The physical unit number depends upon
+        the value specified in cwTrapPhysicalContainer object."
+    ::= { cwTrapVars 8 }
+
+cwTrapCardRole OBJECT-TYPE
+    SYNTAX INTEGER {
+        t1(1),
+        e1(2),
+        t3(3),
+        e3(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the card role change to
+         T1 from E1, or T3 from E3, vice versa. In case of a card
+         with multiple roles, this object only indicates the changeable
+         role swap between T1 and E1, or T3 and E3."
+    ::= { cwTrapVars 9 }
+
+cwTrapSctCardType OBJECT-TYPE
+    SYNTAX INTEGER {
+        axsm(1),
+        axsme(2),
+        pxm1e(3),
+        hsfr(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used only for traps and represents the 
+         cwSctCardType object in CISCO-WAN-SCT-MGMT-MIB.my."
+    ::= { cwTrapVars 10 }
+
+cwTrapSctType OBJECT-TYPE
+    SYNTAX INTEGER {
+        portSct(1),
+        cardSct(2)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used only for traps and represents the 
+         cwSctType object in CISCO-WAN-SCT-MGMT-MIB.my."
+    ::= { cwTrapVars 11 }
+
+cwTrapSctId OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used only for traps and represents the cwSctId
+         object in CISCO-WAN-SCT-MGMT-MIB.my."
+    ::= { cwTrapVars 12 }
+
+cwTrapSctMajorVersion OBJECT-TYPE
+    SYNTAX Gauge(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used only for traps and represents the 
+         cwSctMajorVersion object in CISCO-WAN-SCT-MGMT-MIB.my."
+    ::= { cwTrapVars 13 }
+
+cwTrapVarLength OBJECT-TYPE
+    SYNTAX Gauge(1..1024)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This is an object used only for traps and contains 
+        a value for the length of another object. 
+        For instance, this can be the length of 
+        an address."
+    ::= { cwTrapVars 14 }
+
+cwTrapAtmAddressType OBJECT-TYPE
+    SYNTAX INTEGER {
+        e164(3),
+        nsap(8)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used only for traps and represents
+        the type of an ATM addresses."
+    ::= { cwTrapVars 15 }
+
+cwTrapReference OBJECT-TYPE
+    SYNTAX INTEGER(1..65535)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used only for traps and represents an object
+        of the same SYNTAX. This object is used in place of:
+           a) 'cwapReference' in CISCO-WAN-ATM-PARTY-MIB.my."
+    ::= { cwTrapVars 16 }
+
+cwTrapSecondIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object containing the value which can be used
+         for indexing to any table."
+    ::= { cwTrapVars 17 }
+
+cwTrapThirdIndex OBJECT-TYPE
+    SYNTAX INTEGER(0..2147483647)
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The object containing the value which can be used
+         for indexing to any table."
+    ::= { cwTrapVars 18 }
+
+cwTrapVarsTrapGroup OBJECT IDENTIFIER ::= { cwTrapVarsMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The collection of objects which are used only
+--     in trap varbinds.
+--  objects
+--    cwTrapIndex, cwTrapSlotNumber, cwTrapPhysicalVendorType, 
+--    cwTrapLineModuleNumber, cwTrapOctetString
+
+cwTrapVarsTrapGroup2 OBJECT IDENTIFIER ::= { cwTrapVarsMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The collection of objects which are used only
+--     in trap varbinds.
+--  objects
+--    cwTrapIndex, cwTrapSlotNumber, cwTrapPhysicalVendorType, 
+--    cwTrapLineModuleNumber, cwTrapOctetString, 
+--    cwTrapDisplayString
+
+cwTrapVarsTrapGroup3 OBJECT IDENTIFIER ::= { cwTrapVarsMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The collection of objects which are used only
+--     in trap varbinds.
+--  objects
+--    cwTrapIndex, cwTrapSlotNumber, cwTrapPhysicalVendorType, 
+--    cwTrapLineModuleNumber, cwTrapOctetString, 
+--    cwTrapDisplayString, cwTrapPhysicalContainer, 
+--    cwTrapPhysicalUnit
+
+cwTrapVarsTrapGroup4 OBJECT IDENTIFIER ::= { cwTrapVarsMIBGroups 4 }
+-- OBJECT-GROUP
+--  Status
+--    deprecated
+--  Descr
+--    The collection of objects which are used only
+--     in trap varbinds.
+--  objects
+--    cwTrapIndex, cwTrapSlotNumber, cwTrapPhysicalVendorType, 
+--    cwTrapLineModuleNumber, cwTrapOctetString, 
+--    cwTrapDisplayString, cwTrapPhysicalContainer, 
+--    cwTrapPhysicalUnit, cwTrapCardRole, cwTrapSctCardType, 
+--    cwTrapSctType, cwTrapSctId, cwTrapSctMajorVersion
+
+cwTrapVarsTrapGroup5 OBJECT IDENTIFIER ::= { cwTrapVarsMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The collection of objects which are used only
+--     in trap varbinds.
+--  objects
+--    cwTrapIndex, cwTrapSlotNumber, cwTrapPhysicalVendorType, 
+--    cwTrapLineModuleNumber, cwTrapOctetString, 
+--    cwTrapDisplayString, cwTrapPhysicalContainer, 
+--    cwTrapPhysicalUnit, cwTrapCardRole, cwTrapSctCardType, 
+--    cwTrapSctType, cwTrapSctId, cwTrapSctMajorVersion, 
+--    cwTrapVarLength, cwTrapAtmAddressType, cwTrapReference, 
+--    cwTrapSecondIndex, cwTrapThirdIndex
+
+cwTrapVarsCompliance OBJECT IDENTIFIER ::= { cwTrapVarsMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for cwTrapVarsGroup.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cwTrapVarsTrapGroup
+--   ObjVar
+--    cwTrapIndex
+--   ObjVar
+--    cwTrapSlotNumber
+--   ObjVar
+--    cwTrapPhysicalVendorType
+--   ObjVar
+--    cwTrapLineModuleNumber
+--   ObjVar
+--    cwTrapOctetString
+
+cwTrapVarsCompliance2 OBJECT IDENTIFIER ::= { cwTrapVarsMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for cwTrapVarsGroup.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cwTrapVarsTrapGroup2
+--   ObjVar
+--    cwTrapIndex
+--   ObjVar
+--    cwTrapSlotNumber
+--   ObjVar
+--    cwTrapPhysicalVendorType
+--   ObjVar
+--    cwTrapLineModuleNumber
+--   ObjVar
+--    cwTrapOctetString
+--   ObjVar
+--    cwTrapDisplayString
+
+cwTrapVarsCompliance3 OBJECT IDENTIFIER ::= { cwTrapVarsMIBCompliances 3 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for cwTrapVarsGroup.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cwTrapVarsTrapGroup3
+--   ObjVar
+--    cwTrapIndex
+--   ObjVar
+--    cwTrapSlotNumber
+--   ObjVar
+--    cwTrapPhysicalVendorType
+--   ObjVar
+--    cwTrapLineModuleNumber
+--   ObjVar
+--    cwTrapOctetString
+--   ObjVar
+--    cwTrapDisplayString
+--   ObjVar
+--    cwTrapPhysicalContainer
+--   ObjVar
+--    cwTrapPhysicalUnit
+
+cwTrapVarsCompliance4 OBJECT IDENTIFIER ::= { cwTrapVarsMIBCompliances 4 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for cwTrapVarsGroup.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cwTrapVarsTrapGroup4
+--   ObjVar
+--    cwTrapIndex
+--   ObjVar
+--    cwTrapSlotNumber
+--   ObjVar
+--    cwTrapPhysicalVendorType
+--   ObjVar
+--    cwTrapLineModuleNumber
+--   ObjVar
+--    cwTrapOctetString
+--   ObjVar
+--    cwTrapDisplayString
+--   ObjVar
+--    cwTrapPhysicalContainer
+--   ObjVar
+--    cwTrapPhysicalUnit
+--   ObjVar
+--    cwTrapCardRole
+--   ObjVar
+--    cwTrapSctCardType
+--   ObjVar
+--    cwTrapSctType
+--   ObjVar
+--    cwTrapSctId
+--   ObjVar
+--    cwTrapSctMajorVersion
+
+cwTrapVarsCompliance5 OBJECT IDENTIFIER ::= { cwTrapVarsMIBCompliances 5 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for cwTrapVarsGroup.
+--  Module
+--    >>current<<
+--   OptGroup
+--    cwTrapVarsTrapGroup5
+--   ObjVar
+--    cwTrapIndex
+--   ObjVar
+--    cwTrapSlotNumber
+--   ObjVar
+--    cwTrapPhysicalVendorType
+--   ObjVar
+--    cwTrapLineModuleNumber
+--   ObjVar
+--    cwTrapOctetString
+--   ObjVar
+--    cwTrapDisplayString
+--   ObjVar
+--    cwTrapPhysicalContainer
+--   ObjVar
+--    cwTrapPhysicalUnit
+--   ObjVar
+--    cwTrapCardRole
+--   ObjVar
+--    cwTrapSctCardType
+--   ObjVar
+--    cwTrapSctType
+--   ObjVar
+--    cwTrapSctId
+--   ObjVar
+--    cwTrapSctMajorVersion
+--   ObjVar
+--    cwTrapVarLength
+--   ObjVar
+--    cwTrapAtmAddressType
+--   ObjVar
+--    cwTrapReference
+--   ObjVar
+--    cwTrapSecondIndex
+--   ObjVar
+--    cwTrapThirdIndex
+
+
+END
+

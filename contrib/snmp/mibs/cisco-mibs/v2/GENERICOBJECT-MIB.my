@@ -1,0 +1,117 @@
+-- *****************************************************************
+-- Generic Object MIB
+--
+-- June 2002
+--
+-- Copyright (c) 1996-2001, 2002 by cisco Systems, Inc.
+-- All rights reserved.
+-- *****************************************************************
+
+-- 
+-- LAST-UPDATED "200206180000Z"
+-- DESCRIPTION 
+--     "This MIB Contains objects used in traps.
+--     These objects are sent in traps with the values
+--     applicable for objects defined elsewhere. The SNMP
+--     operations on these objects may not be meaningful
+--     or SNMP operations may not be supported."
+--
+-- REVISION "200206180000Z"
+-- DESCRIPTION
+--        CONTACT-INFO
+--              "         Cisco Systems
+--                        Customer Service
+--
+--                Postal: 170 W Tasman Drive
+--                        San Jose, CA  95134
+--                        USA
+--
+--                        Tel: +1 800 553-NETS
+--
+--                E-mail: cs-wanatm@cisco.com"
+--    "
+--
+
+GENERICOBJECT-MIB DEFINITIONS ::= BEGIN
+IMPORTS
+    OBJECT-TYPE                         FROM RFC-1212
+    DisplayString                       FROM RFC1213-MIB
+    cardGeneric                         FROM BASIS-MIB;
+
+genericObjects    OBJECT IDENTIFIER ::= { cardGeneric 8}
+
+genericLineNum  OBJECT-TYPE
+    SYNTAX    INTEGER 
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+        "This is the generic line number used in traps. This object
+         cannot be set or read. This object may refer to a T1, T3 
+         or X21 line. (It is a proxy for other objects lineNum,
+         dsx3LineNum and x21LineNum).
+
+         Currently, the ranges are
+         T1/E1    1..56
+         T3/E3    1..3
+         X21      1..4
+        "
+    ::= { genericObjects 1}
+
+genericLineType  OBJECT-TYPE
+    SYNTAX    INTEGER {
+       -- T1/E1 line types. Refer to the MIB object
+       -- lineType for details regarding the types below.
+       dsx1ESF(1),
+       dsx1D4(2),
+       dsx1E1(3),
+       dsx1E1CRC(4),
+       dsx1E1MF(5),
+       dsx1E1CRC-MF(6),
+       dsx1E1clearchannel(7),
+
+       -- T3/E3 line types. Refer to the MIB object
+       -- dsx3LineType for details regarding the types below.
+       dsx3CbitParity(51),
+       dsx3g832-g804(52),
+       dsx3m13mode(53),
+       dsx3g751(54),
+       dsx3Unframed(55),
+       e3Unframed(56),
+
+       -- HSSI line types. Refer to the MIB object
+       -- x21LineType for details regarding the types below.
+       x21dte(101),
+       x21dce(102),
+
+       -- Sonet line types. Refer to the MIB object
+       -- sonetLineType for details regarding the types below.
+       sonetSts3c(151),
+       sonetStm1(152),
+       sonetSts12c(153),
+       sonetStm4(154)
+    }
+ 
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+        "This is the generic line type used in traps. This object
+         cannot be set or read. Depending on the value, this object
+         may refer to a T1, T3 or X21 line type.
+
+         It is a proxy for other objects lineType, dsx3LineType and
+         x21LineType.
+        "
+    ::= { genericObjects 2}
+
+genericTimeStamp  OBJECT-TYPE
+    SYNTAX    DisplayString (SIZE (1..30))
+    ACCESS    read-only
+    STATUS    mandatory
+    DESCRIPTION
+        "This is the generic time stamp used in traps. This object
+         cannot be set or read. This object will be used by all new
+         traps to tell the time that a given trap was originated.
+        "
+    ::= { genericObjects 3}
+
+END

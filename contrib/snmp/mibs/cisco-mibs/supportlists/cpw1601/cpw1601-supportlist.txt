@@ -1,0 +1,61 @@
+MIBs supported by the CPW1601 (CiscoPro 1601 Ethernet Switching System)
+-----------------------------------------------------------------------
+
+MIBs supported since version 2.1 of the switch software:
+
+        VIPER-MIB                 (Rel 2.1)
+        CISCO-CDP-MIB
+        CISCO-VTP-MIB             (Revision 9607171230Z)
+        RFC1213-MIB               (MIB-II)
+        BRIDGE-MIB                (RFC 1493)
+        IF-MIB                    (RFC 1573)
+        ETHERLIKE-MIB             (RFC 1643)
+        RMON-MIB                  (RFC 1757)
+        LAN-EMULATION-CLIENT-MIB  (LEC MIB)
+
+MIBs supported since version 2.0 of the switch software:
+
+        VIPER-R20-MIB             (Rel 2.0)
+        CISCO-CDP-MIB
+        CISCO-VTP-MIB             (Revision 9609161230Z)
+        RFC1213-MIB               (MIB-II)
+        BRIDGE-MIB                (RFC 1493)
+        IF-MIB                    (RFC 1573)
+        ETHERLIKE-MIB             (RFC 1643)
+        RMON-MIB                  (RFC 1757)
+        LAN-EMULATION-CLIENT-MIB  (LEC MIB)
+
+MIBs supported in initial version (9.1.0) of the switch software:
+
+        VIPER-R12-MIB             (Kalpana enterprise)
+        RFC1213-MIB               (MIB-II)
+        BRIDGE-MIB                (RFC 1493)
+        IF-MIB                    (RFC 1573)
+        ETHERLIKE-MIB             (RFC 1643)
+
+Note: The enterprise mibs for the earlier releases (VIPER-Rnn-MIB) are 
+      available under ftp/pub/mibs/archive/v1. The location /ftp/pub/mibs/v1, 
+      always contain the mib (VIPER-MIB) for the latest release of the 
+      CiscoPro 1601 switch software.
+
+
+Traps supported by the CPW1601 (CiscoPro 1601 Ethernet Switching System)
+------------------------------------------------------------------------
+
+Traps supported since version 2.0 of the switch software:
+
+        coldStart                            RFC1157-SNMP
+        warmStart                            RFC1157-SNMP
+        authenticationFailure                RFC1157-SNMP
+        linkDown                             IF-MIB
+        linkUp                               IF-MIB
+        risingAlarm                          RMON-MIB
+        fallingAlarm                         RMON-MIB
+        ciscoEsVLANNewRoot                   BRIDGE-MIB/VIPER-R20-MIB
+        ciscoESVLANTopologyChange            BRIDGE-MIB/VIPER-R20-MIB
+        ciscoEsStackCfgChange                VIPER-R20-MIB
+        ciscoEsStackProStackMatrixChange     VIPER-R20-MIB
+        ciscoEsStackTempChange               VIPER-R20-MIB
+        ciscoEsPortStrNFwdEntry              VIPER-R20-MIB
+        ciscoEsEtherChannelFailed            VIPER-R20-MIB
+

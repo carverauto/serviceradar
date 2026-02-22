@@ -1,0 +1,739 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-MOREF-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- MOREF management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-MOREF-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsConditionRemoteInvRslt,
+    CucsFsmCompletion,
+    CucsFsmFlags,
+    CucsFsmFsmStageStatus,
+    CucsMorefAdminState,
+    CucsMorefImportRootFsmCurrentFsm,
+    CucsMorefImportRootFsmStageName,
+    CucsMorefImportRootFsmTaskItem
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsMorefObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        MOREF management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 92 }
+
+cucsMorefFruRefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMorefFruRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS moref:FruRef managed object table"
+    ::= { cucsMorefObjects 1 }
+
+cucsMorefFruRefEntry OBJECT-TYPE
+    SYNTAX           CucsMorefFruRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMorefFruRefTable table."
+    INDEX { cucsMorefFruRefInstanceId }
+    ::= { cucsMorefFruRefTable 1 }
+
+CucsMorefFruRefEntry ::= SEQUENCE {
+    cucsMorefFruRefInstanceId                                        CucsManagedObjectId,
+    cucsMorefFruRefDn                                                CucsManagedObjectDn,
+    cucsMorefFruRefRn                                                SnmpAdminString,
+    cucsMorefFruRefClassName                                         SnmpAdminString,
+    cucsMorefFruRefModel                                             SnmpAdminString,
+    cucsMorefFruRefSerial                                            SnmpAdminString,
+    cucsMorefFruRefVendor                                            SnmpAdminString
+}
+
+cucsMorefFruRefInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMorefFruRefEntry 1 }
+
+cucsMorefFruRefDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:FruRef:dn managed object property"
+    ::= { cucsMorefFruRefEntry 2 }
+
+cucsMorefFruRefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:FruRef:rn managed object property"
+    ::= { cucsMorefFruRefEntry 3 }
+
+cucsMorefFruRefClassName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:FruRef:className managed object property"
+    ::= { cucsMorefFruRefEntry 4 }
+
+cucsMorefFruRefModel OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:FruRef:model managed object property"
+    ::= { cucsMorefFruRefEntry 5 }
+
+cucsMorefFruRefSerial OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:FruRef:serial managed object property"
+    ::= { cucsMorefFruRefEntry 6 }
+
+cucsMorefFruRefVendor OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:FruRef:vendor managed object property"
+    ::= { cucsMorefFruRefEntry 7 }
+
+cucsMorefImportRootTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMorefImportRootEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot managed object table"
+    ::= { cucsMorefObjects 2 }
+
+cucsMorefImportRootEntry OBJECT-TYPE
+    SYNTAX           CucsMorefImportRootEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMorefImportRootTable table."
+    INDEX { cucsMorefImportRootInstanceId }
+    ::= { cucsMorefImportRootTable 1 }
+
+CucsMorefImportRootEntry ::= SEQUENCE {
+    cucsMorefImportRootInstanceId                                    CucsManagedObjectId,
+    cucsMorefImportRootDn                                            CucsManagedObjectDn,
+    cucsMorefImportRootRn                                            SnmpAdminString,
+    cucsMorefImportRootFsmDescr                                      SnmpAdminString,
+    cucsMorefImportRootFsmPrev                                       SnmpAdminString,
+    cucsMorefImportRootFsmProgr                                      Gauge32,
+    cucsMorefImportRootFsmRmtInvErrCode                              Gauge32,
+    cucsMorefImportRootFsmRmtInvErrDescr                             SnmpAdminString,
+    cucsMorefImportRootFsmRmtInvRslt                                 CucsConditionRemoteInvRslt,
+    cucsMorefImportRootFsmStageDescr                                 SnmpAdminString,
+    cucsMorefImportRootFsmStamp                                      DateAndTime,
+    cucsMorefImportRootFsmStatus                                     SnmpAdminString,
+    cucsMorefImportRootFsmTry                                        Gauge32
+}
+
+cucsMorefImportRootInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMorefImportRootEntry 1 }
+
+cucsMorefImportRootDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:dn managed object property"
+    ::= { cucsMorefImportRootEntry 2 }
+
+cucsMorefImportRootRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:rn managed object property"
+    ::= { cucsMorefImportRootEntry 3 }
+
+cucsMorefImportRootFsmDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:fsmDescr managed object property"
+    ::= { cucsMorefImportRootEntry 4 }
+
+cucsMorefImportRootFsmPrev OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:fsmPrev managed object property"
+    ::= { cucsMorefImportRootEntry 5 }
+
+cucsMorefImportRootFsmProgr OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:fsmProgr managed object property"
+    ::= { cucsMorefImportRootEntry 6 }
+
+cucsMorefImportRootFsmRmtInvErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:fsmRmtInvErrCode managed
+        object property"
+    ::= { cucsMorefImportRootEntry 7 }
+
+cucsMorefImportRootFsmRmtInvErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:fsmRmtInvErrDescr managed
+        object property"
+    ::= { cucsMorefImportRootEntry 8 }
+
+cucsMorefImportRootFsmRmtInvRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:fsmRmtInvRslt managed object property"
+    ::= { cucsMorefImportRootEntry 9 }
+
+cucsMorefImportRootFsmStageDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:fsmStageDescr managed object property"
+    ::= { cucsMorefImportRootEntry 10 }
+
+cucsMorefImportRootFsmStamp OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:fsmStamp managed object property"
+    ::= { cucsMorefImportRootEntry 11 }
+
+cucsMorefImportRootFsmStatus OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:fsmStatus managed object property"
+    ::= { cucsMorefImportRootEntry 12 }
+
+cucsMorefImportRootFsmTry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRoot:fsmTry managed object property"
+    ::= { cucsMorefImportRootEntry 13 }
+
+cucsMorefImportRootFsmTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMorefImportRootFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm managed object table"
+    ::= { cucsMorefObjects 3 }
+
+cucsMorefImportRootFsmEntry OBJECT-TYPE
+    SYNTAX           CucsMorefImportRootFsmEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMorefImportRootFsmTable table."
+    INDEX { cucsMorefImportRootFsmInstanceId }
+    ::= { cucsMorefImportRootFsmTable 1 }
+
+CucsMorefImportRootFsmEntry ::= SEQUENCE {
+    cucsMorefImportRootFsmInstanceId                                 CucsManagedObjectId,
+    cucsMorefImportRootFsmDn                                         CucsManagedObjectDn,
+    cucsMorefImportRootFsmRn                                         SnmpAdminString,
+    cucsMorefImportRootFsmCompletionTime                             DateAndTime,
+    cucsMorefImportRootFsmCurrentFsm                                 CucsMorefImportRootFsmCurrentFsm,
+    cucsMorefImportRootFsmDescrData                                  SnmpAdminString,
+    cucsMorefImportRootFsmFsmStatus                                  CucsFsmFsmStageStatus,
+    cucsMorefImportRootFsmProgress                                   Gauge32,
+    cucsMorefImportRootFsmRmtErrCode                                 Gauge32,
+    cucsMorefImportRootFsmRmtErrDescr                                SnmpAdminString,
+    cucsMorefImportRootFsmRmtRslt                                    CucsConditionRemoteInvRslt
+}
+
+cucsMorefImportRootFsmInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMorefImportRootFsmEntry 1 }
+
+cucsMorefImportRootFsmDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm:dn managed object property"
+    ::= { cucsMorefImportRootFsmEntry 2 }
+
+cucsMorefImportRootFsmRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm:rn managed object property"
+    ::= { cucsMorefImportRootFsmEntry 3 }
+
+cucsMorefImportRootFsmCompletionTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm:completionTime managed
+        object property"
+    ::= { cucsMorefImportRootFsmEntry 4 }
+
+cucsMorefImportRootFsmCurrentFsm OBJECT-TYPE
+    SYNTAX       CucsMorefImportRootFsmCurrentFsm
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm:currentFsm managed object property"
+    ::= { cucsMorefImportRootFsmEntry 5 }
+
+cucsMorefImportRootFsmDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm:descr managed object property"
+    ::= { cucsMorefImportRootFsmEntry 6 }
+
+cucsMorefImportRootFsmFsmStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm:fsmStatus managed object property"
+    ::= { cucsMorefImportRootFsmEntry 7 }
+
+cucsMorefImportRootFsmProgress OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm:progress managed object property"
+    ::= { cucsMorefImportRootFsmEntry 8 }
+
+cucsMorefImportRootFsmRmtErrCode OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm:rmtErrCode managed object property"
+    ::= { cucsMorefImportRootFsmEntry 9 }
+
+cucsMorefImportRootFsmRmtErrDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm:rmtErrDescr managed
+        object property"
+    ::= { cucsMorefImportRootFsmEntry 10 }
+
+cucsMorefImportRootFsmRmtRslt OBJECT-TYPE
+    SYNTAX       CucsConditionRemoteInvRslt
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsm:rmtRslt managed object property"
+    ::= { cucsMorefImportRootFsmEntry 11 }
+
+cucsMorefImportRootFsmStageTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMorefImportRootFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmStage managed object table"
+    ::= { cucsMorefObjects 4 }
+
+cucsMorefImportRootFsmStageEntry OBJECT-TYPE
+    SYNTAX           CucsMorefImportRootFsmStageEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMorefImportRootFsmStageTable table."
+    INDEX { cucsMorefImportRootFsmStageInstanceId }
+    ::= { cucsMorefImportRootFsmStageTable 1 }
+
+CucsMorefImportRootFsmStageEntry ::= SEQUENCE {
+    cucsMorefImportRootFsmStageInstanceId                            CucsManagedObjectId,
+    cucsMorefImportRootFsmStageDn                                    CucsManagedObjectDn,
+    cucsMorefImportRootFsmStageRn                                    SnmpAdminString,
+    cucsMorefImportRootFsmStageDescrData                             SnmpAdminString,
+    cucsMorefImportRootFsmStageLastUpdateTime                        DateAndTime,
+    cucsMorefImportRootFsmStageName                                  CucsMorefImportRootFsmStageName,
+    cucsMorefImportRootFsmStageOrder                                 Gauge32,
+    cucsMorefImportRootFsmStageRetry                                 Gauge32,
+    cucsMorefImportRootFsmStageStageStatus                           CucsFsmFsmStageStatus
+}
+
+cucsMorefImportRootFsmStageInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMorefImportRootFsmStageEntry 1 }
+
+cucsMorefImportRootFsmStageDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmStage:dn managed object property"
+    ::= { cucsMorefImportRootFsmStageEntry 2 }
+
+cucsMorefImportRootFsmStageRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmStage:rn managed object property"
+    ::= { cucsMorefImportRootFsmStageEntry 3 }
+
+cucsMorefImportRootFsmStageDescrData OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmStage:descr managed object property"
+    ::= { cucsMorefImportRootFsmStageEntry 4 }
+
+cucsMorefImportRootFsmStageLastUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmStage:lastUpdateTime
+        managed object property"
+    ::= { cucsMorefImportRootFsmStageEntry 5 }
+
+cucsMorefImportRootFsmStageName OBJECT-TYPE
+    SYNTAX       CucsMorefImportRootFsmStageName
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmStage:name managed object property"
+    ::= { cucsMorefImportRootFsmStageEntry 6 }
+
+cucsMorefImportRootFsmStageOrder OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmStage:order managed object property"
+    ::= { cucsMorefImportRootFsmStageEntry 7 }
+
+cucsMorefImportRootFsmStageRetry OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmStage:retry managed object property"
+    ::= { cucsMorefImportRootFsmStageEntry 8 }
+
+cucsMorefImportRootFsmStageStageStatus OBJECT-TYPE
+    SYNTAX       CucsFsmFsmStageStatus
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmStage:stageStatus
+        managed object property"
+    ::= { cucsMorefImportRootFsmStageEntry 9 }
+
+cucsMorefImportRootFsmTaskTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMorefImportRootFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmTask managed object table"
+    ::= { cucsMorefObjects 5 }
+
+cucsMorefImportRootFsmTaskEntry OBJECT-TYPE
+    SYNTAX           CucsMorefImportRootFsmTaskEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMorefImportRootFsmTaskTable table."
+    INDEX { cucsMorefImportRootFsmTaskInstanceId }
+    ::= { cucsMorefImportRootFsmTaskTable 1 }
+
+CucsMorefImportRootFsmTaskEntry ::= SEQUENCE {
+    cucsMorefImportRootFsmTaskInstanceId                             CucsManagedObjectId,
+    cucsMorefImportRootFsmTaskDn                                     CucsManagedObjectDn,
+    cucsMorefImportRootFsmTaskRn                                     SnmpAdminString,
+    cucsMorefImportRootFsmTaskCompletion                             CucsFsmCompletion,
+    cucsMorefImportRootFsmTaskFlags                                  CucsFsmFlags,
+    cucsMorefImportRootFsmTaskItem                                   CucsMorefImportRootFsmTaskItem,
+    cucsMorefImportRootFsmTaskSeqId                                  Gauge32
+}
+
+cucsMorefImportRootFsmTaskInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMorefImportRootFsmTaskEntry 1 }
+
+cucsMorefImportRootFsmTaskDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmTask:dn managed object property"
+    ::= { cucsMorefImportRootFsmTaskEntry 2 }
+
+cucsMorefImportRootFsmTaskRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmTask:rn managed object property"
+    ::= { cucsMorefImportRootFsmTaskEntry 3 }
+
+cucsMorefImportRootFsmTaskCompletion OBJECT-TYPE
+    SYNTAX       CucsFsmCompletion
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmTask:completion managed
+        object property"
+    ::= { cucsMorefImportRootFsmTaskEntry 4 }
+
+cucsMorefImportRootFsmTaskFlags OBJECT-TYPE
+    SYNTAX       CucsFsmFlags
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmTask:flags managed object property"
+    ::= { cucsMorefImportRootFsmTaskEntry 5 }
+
+cucsMorefImportRootFsmTaskItem OBJECT-TYPE
+    SYNTAX       CucsMorefImportRootFsmTaskItem
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmTask:item managed object property"
+    ::= { cucsMorefImportRootFsmTaskEntry 6 }
+
+cucsMorefImportRootFsmTaskSeqId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:ImportRootFsmTask:seqId managed object property"
+    ::= { cucsMorefImportRootFsmTaskEntry 7 }
+
+cucsMorefPropTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMorefPropEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS moref:Prop managed object table"
+    ::= { cucsMorefObjects 6 }
+
+cucsMorefPropEntry OBJECT-TYPE
+    SYNTAX           CucsMorefPropEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMorefPropTable table."
+    INDEX { cucsMorefPropInstanceId }
+    ::= { cucsMorefPropTable 1 }
+
+CucsMorefPropEntry ::= SEQUENCE {
+    cucsMorefPropInstanceId                                          CucsManagedObjectId,
+    cucsMorefPropDn                                                  CucsManagedObjectDn,
+    cucsMorefPropRn                                                  SnmpAdminString,
+    cucsMorefPropAdminState                                          CucsMorefAdminState,
+    cucsMorefPropName                                                SnmpAdminString,
+    cucsMorefPropValue                                               SnmpAdminString
+}
+
+cucsMorefPropInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMorefPropEntry 1 }
+
+cucsMorefPropDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:Prop:dn managed object property"
+    ::= { cucsMorefPropEntry 2 }
+
+cucsMorefPropRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:Prop:rn managed object property"
+    ::= { cucsMorefPropEntry 3 }
+
+cucsMorefPropAdminState OBJECT-TYPE
+    SYNTAX       CucsMorefAdminState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:Prop:adminState managed object property"
+    ::= { cucsMorefPropEntry 4 }
+
+cucsMorefPropName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:Prop:name managed object property"
+    ::= { cucsMorefPropEntry 5 }
+
+cucsMorefPropValue OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:Prop:value managed object property"
+    ::= { cucsMorefPropEntry 6 }
+
+cucsMorefRefTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsMorefRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS moref:Ref managed object table"
+    ::= { cucsMorefObjects 7 }
+
+cucsMorefRefEntry OBJECT-TYPE
+    SYNTAX           CucsMorefRefEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsMorefRefTable table."
+    INDEX { cucsMorefRefInstanceId }
+    ::= { cucsMorefRefTable 1 }
+
+CucsMorefRefEntry ::= SEQUENCE {
+    cucsMorefRefInstanceId                                           CucsManagedObjectId,
+    cucsMorefRefDn                                                   CucsManagedObjectDn,
+    cucsMorefRefRn                                                   SnmpAdminString,
+    cucsMorefRefMoRn                                                 SnmpAdminString
+}
+
+cucsMorefRefInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsMorefRefEntry 1 }
+
+cucsMorefRefDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:Ref:dn managed object property"
+    ::= { cucsMorefRefEntry 2 }
+
+cucsMorefRefRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:Ref:rn managed object property"
+    ::= { cucsMorefRefEntry 3 }
+
+cucsMorefRefMoRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS moref:Ref:moRn managed object property"
+    ::= { cucsMorefRefEntry 6 }
+
+END

@@ -1,0 +1,131 @@
+-- MIB file created 29-Nov-2010 07:35:06, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-UBE-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-UBE-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue
+            FROM SNMPv2-TC-v1
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoUbeMIB OBJECT IDENTIFIER ::= { ciscoMgmt 764 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    201011290000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems
+--    Customer Service
+--    
+--    
+--    Postal: 170 W Tasman Drive
+--    
+--    San Jose, CA  95134
+--    
+--    USA
+--    
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    
+--    E-mail: cs-cube@cisco.com
+--  Descr
+--    This MIB describes objects used for managing Cisco
+--    Unified Border Element (CUBE).
+--    
+--    The Cisco Unified Border Element (CUBE) is a Cisco 
+--    IOS Session Border Controller (SBC) that interconnects
+--    independent voice over IP (VoIP) and video over IP 
+--    networks for data, voice, and video transport
+--  RevDate
+--    201011290000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+ciscoUbeMIBObjects OBJECT IDENTIFIER ::= { ciscoUbeMIB 0 }
+ciscoUbeMIBConform OBJECT IDENTIFIER ::= { ciscoUbeMIB 1 }
+ciscoUbeMIBCompliances OBJECT IDENTIFIER ::= { ciscoUbeMIBConform 1 }
+ciscoUbeMIBGroups OBJECT IDENTIFIER ::= { ciscoUbeMIBConform 2 }
+
+cubeEnabled OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents, whether the Cisco
+        Unified Border Element (CUBE) is enabled 
+        on the device or not.
+        
+        The value 'true' means that the CUBE feature 
+        is enabled on the device.
+        
+        The value 'false' means that the CUBE feature 
+        is disabled."
+    ::= { ciscoUbeMIBObjects 1 }
+
+cubeVersion OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "This object represents the version of Cisco
+        Unified Border Element on the device."
+    ::= { ciscoUbeMIBObjects 2 }
+
+cubeTotalSessionAllowed OBJECT-TYPE
+    SYNTAX Gauge(0..999999)
+--  Units
+--    session
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object provides the total number of CUBE
+        session allowed on the device. The value zero 
+        means no sessions are allowed with CUBE."
+    ::= { ciscoUbeMIBObjects 3 }
+
+ciscoUbeMIBGroup OBJECT IDENTIFIER ::= { ciscoUbeMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    A collection of objects which provides the
+--    capabilities of the CUBE feature.
+--  objects
+--    cubeEnabled, cubeVersion, cubeTotalSessionAllowed
+
+ciscoCubeMIBCompliance OBJECT IDENTIFIER ::= { ciscoUbeMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for Cisco
+--    Unified Border Element (CUBE) MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoUbeMIBGroup
+--   ObjVar
+--    cubeEnabled
+--   ObjVar
+--    cubeTotalSessionAllowed
+
+
+END
+

@@ -1,0 +1,258 @@
+-- *****************************************************************
+-- SYSUTIL-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-SYSUTIL-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    TruthValue FROM SNMPv2-TC
+    Unsigned32 FROM SNMPv2-SMI
+    Integer32 FROM SNMPv2-SMI
+    ME1200DisplayString FROM ME1200-TC
+    ;
+
+me1200SysutilMib MODULE-IDENTITY
+    LAST-UPDATED "201404280000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of SysUtil"
+    REVISION    "201404280000Z"
+    DESCRIPTION
+        "add PSU"
+    REVISION    "201401220000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 24 }
+
+
+ME1200SysutilPowerSupplyStateType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of power supply state."
+    SYNTAX      INTEGER { active(0), standby(1), notPresent(2) }
+
+ME1200SysutilRebootType ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration defines the type of reboot."
+    SYNTAX      INTEGER { noReboot(0), coldReboot(1), warmReboot(2) }
+
+me1200SysutilMibObjects OBJECT IDENTIFIER
+    ::= { me1200SysutilMib 1 }
+
+me1200SysutilCapabilities OBJECT IDENTIFIER
+    ::= { me1200SysutilMibObjects 1 }
+
+me1200SysutilCapabilitiesWarmRebootSupported OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Indicate if warm restart is supported or not. true(1) means it is
+         supported. false(2) means it is not supported."
+    ::= { me1200SysutilCapabilities 1 }
+
+me1200SysutilStatus OBJECT IDENTIFIER
+    ::= { me1200SysutilMibObjects 3 }
+
+me1200SysutilStatusCpuLoad OBJECT IDENTIFIER
+    ::= { me1200SysutilStatus 1 }
+
+me1200SysutilStatusCpuLoadAverage100msec OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 100 milli-seconds."
+    ::= { me1200SysutilStatusCpuLoad 1 }
+
+me1200SysutilStatusCpuLoadAverage1sec OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 1 second."
+    ::= { me1200SysutilStatusCpuLoad 2 }
+
+me1200SysutilStatusCpuLoadAverage10sec OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Average CPU load (%) in 10 seconds."
+    ::= { me1200SysutilStatusCpuLoad 3 }
+
+me1200SysutilStatusPowerSupplyTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SysutilStatusPowerSupplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Table of power supply status."
+    ::= { me1200SysutilStatus 2 }
+
+me1200SysutilStatusPowerSupplyEntry OBJECT-TYPE
+    SYNTAX      ME1200SysutilStatusPowerSupplyEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each row contains the power supply status."
+    INDEX       { me1200SysutilStatusPowerSupplySwitchId, me1200SysutilStatusPowerSupplyPsuId }
+    ::= { me1200SysutilStatusPowerSupplyTable 1 }
+
+ME1200SysutilStatusPowerSupplyEntry ::= SEQUENCE {
+    me1200SysutilStatusPowerSupplySwitchId    Integer32,
+    me1200SysutilStatusPowerSupplyPsuId   Integer32,
+    me1200SysutilStatusPowerSupplyState   ME1200SysutilPowerSupplyStateType,
+    me1200SysutilStatusPowerSupplyDescription     ME1200DisplayString
+}
+
+me1200SysutilStatusPowerSupplySwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch."
+    ::= { me1200SysutilStatusPowerSupplyEntry 1 }
+
+me1200SysutilStatusPowerSupplyPsuId OBJECT-TYPE
+    SYNTAX      Integer32 (1..2)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of power supply."
+    ::= { me1200SysutilStatusPowerSupplyEntry 2 }
+
+me1200SysutilStatusPowerSupplyState OBJECT-TYPE
+    SYNTAX      ME1200SysutilPowerSupplyStateType
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The state of power supply."
+    ::= { me1200SysutilStatusPowerSupplyEntry 3 }
+
+me1200SysutilStatusPowerSupplyDescription OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..30))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The description of power supply."
+    ::= { me1200SysutilStatusPowerSupplyEntry 4 }
+
+me1200SysutilControl OBJECT IDENTIFIER
+    ::= { me1200SysutilMibObjects 4 }
+
+me1200SysutilControlRebootTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200SysutilControlRebootEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to reboot a swicth"
+    ::= { me1200SysutilControl 1 }
+
+me1200SysutilControlRebootEntry OBJECT-TYPE
+    SYNTAX      ME1200SysutilControlRebootEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each switch has a set of parameters"
+    INDEX       { me1200SysutilControlRebootSwitchId }
+    ::= { me1200SysutilControlRebootTable 1 }
+
+ME1200SysutilControlRebootEntry ::= SEQUENCE {
+    me1200SysutilControlRebootSwitchId    Integer32,
+    me1200SysutilControlRebootType    ME1200SysutilRebootType
+}
+
+me1200SysutilControlRebootSwitchId OBJECT-TYPE
+    SYNTAX      Integer32 (1..16)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "The identification of switch."
+    ::= { me1200SysutilControlRebootEntry 1 }
+
+me1200SysutilControlRebootType OBJECT-TYPE
+    SYNTAX      ME1200SysutilRebootType
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Type of reboot. noReboot(0) does not reboot. coldReboot(1) is to do
+         cold reboot. warmReboot(2) is to do warm reboot, but this is optional.
+         The OID of vtssSysutilCapabilitiesWarmRebootSupported tells if warm
+         reboot is supported or not."
+    ::= { me1200SysutilControlRebootEntry 2 }
+
+me1200SysutilMibConformance OBJECT IDENTIFIER
+    ::= { me1200SysutilMib 2 }
+
+me1200SysutilMibCompliances OBJECT IDENTIFIER
+    ::= { me1200SysutilMibConformance 1 }
+
+me1200SysutilMibGroups OBJECT IDENTIFIER
+    ::= { me1200SysutilMibConformance 2 }
+
+me1200SysutilCapabilitiesInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilCapabilitiesWarmRebootSupported }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 1 }
+
+me1200SysutilStatusCpuLoadInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilStatusCpuLoadAverage100msec, 
+                  me1200SysutilStatusCpuLoadAverage1sec, 
+                  me1200SysutilStatusCpuLoadAverage10sec }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 2 }
+
+me1200SysutilStatusPowerSupplyInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilStatusPowerSupplyState, 
+                  me1200SysutilStatusPowerSupplyDescription }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 3 }
+
+me1200SysutilControlRebootInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200SysutilControlRebootType }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200SysutilMibGroups 4 }
+
+me1200SysutilMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200SysutilCapabilitiesInfoGroup, 
+                  me1200SysutilStatusCpuLoadInfoGroup, 
+                  me1200SysutilStatusPowerSupplyInfoGroup, 
+                  me1200SysutilControlRebootInfoGroup }
+
+    ::= { me1200SysutilMibCompliances 1 }
+
+END

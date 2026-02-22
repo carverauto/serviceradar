@@ -1,0 +1,560 @@
+-- MIB file created 20-Jun-2007 17:13:18, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-LWAPP-WEBAUTH-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-LWAPP-WEBAUTH-MIB.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    TruthValue, RowStatus
+            FROM SNMPv2-TC-v1
+    InetAddressType, InetAddress
+            FROM INET-ADDRESS-MIB
+    SnmpAdminString
+            FROM SNMP-FRAMEWORK-MIB
+    CiscoURLString
+            FROM CISCO-TC
+    ciscoMgmt
+            FROM CISCO-SMI
+    Gauge
+            FROM RFC1155-SMI
+    OBJECT-TYPE
+            FROM RFC-1212
+    TRAP-TYPE
+            FROM RFC-1215;
+
+ciscoLwappWebAuthMIB OBJECT IDENTIFIER ::= { ciscoMgmt 515 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200703040000Z
+--  OrgName
+--    Cisco Systems Inc.
+--  ContactInfo
+--    Cisco Systems,
+--    Customer Service
+--    
+--    Postal: 170 West Tasman Drive
+--    
+--    San Jose, CA  95134
+--    
+--    USA
+--    
+--    Tel: +1 800 553-NETS
+--    
+--    
+--    Email: cs-wnbu-snmp@cisco.com
+--  Descr
+--    This MIB is intended to be implemented on all those
+--    devices operating as Central controllers, that
+--    terminate the Light Weight Access Point Protocol
+--    tunnel from Cisco Light-weight LWAPP Access Points.
+--    
+--    This MIB is used to configure web authentication
+--    parameters in the controller to manage clients'
+--    authentication.  The mobile nodes are 
+--    web-authenticated if they select the WLAN that
+--    has web security enabled.
+--    
+--    
+--    The relationship between CC and the LWAPP APs
+--    can be depicted as follows:
+--    
+--    +......+     +......+     +......+           +......+
+--    +      +     +      +     +      +           +      +
+--    +  CC  +     +  CC  +     +  CC  +           +  CC  +
+--    +      +     +      +     +      +           +      +
+--    +......+     +......+     +......+           +......+
+--    ..            .             .                 .
+--    ..            .             .                 .
+--    .  .            .             .                 .
+--    .    .            .             .                 .
+--    .      .            .             .                 .
+--    .        .            .             .                 .
+--    +......+ +......+     +......+      +......+          +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  AP  + +  AP  +     +  AP  +      +  AP  +          +  AP  +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    .              .             .                 .
+--    .  .              .             .                 .
+--    .    .              .             .                 .
+--    .      .              .             .                 .
+--    .        .              .             .                 .
+--    +......+ +......+     +......+      +......+          +......+
+--    +      + +      +     +      +      +      +          +      +
+--    +  MN  + +  MN  +     +  MN  +      +  MN  +          +  MN  +
+--    +      + +      +     +      +      +      +          +      +
+--    +......+ +......+     +......+      +......+          +......+
+--    
+--    
+--    The LWAPP tunnel exists between the controller and
+--    the APs.  The MNs communicate with the APs through
+--    the protocol defined by the 802.11 standard.
+--    
+--    LWAPP APs, upon bootup, discover and join one of the
+--    controllers and the controller pushes the configuration,
+--    that includes the WLAN parameters, to the LWAPP APs.
+--    The APs then encapsulate all the 802.11 frames from
+--    wireless clients inside LWAPP frames and forward
+--    the LWAPP frames to the controller.
+--    
+--                       GLOSSARY
+--    
+--    Access Point ( AP )
+--    
+--    An entity that contains an 802.11 medium access
+--    control ( MAC ) and physical layer ( PHY ) interface
+--    and provides access to the distribution services via
+--    the wireless medium for associated clients.  
+--    
+--    LWAPP APs encapsulate all the 802.11 frames in
+--    LWAPP frames and sends them to the controller to which
+--    it is logically connected.
+--    
+--    Central Controller ( CC )
+--    
+--    The central entity that terminates the LWAPP protocol
+--    tunnel from the LWAPP APs.  Throughout this MIB,
+--    this entity also referred to as 'controller'. 
+--    
+--    Guest User
+--    
+--    A guest user is a temporary user with access
+--    privileges for configuring the wireless network
+--    for a finite life time.  The wireless networks 
+--    are configured on the controller. The method of
+--    authentication to the controller can be configured
+--    using this MIB instrumentation.
+--    
+--    Light Weight Access Point Protocol ( LWAPP ) 
+--    
+--    This is a generic protocol that defines the 
+--    communication between the Access Points and the
+--    Central Controller.
+--    
+--    Mobile Node ( MN )
+--    
+--    A roaming 802.11 wireless device in a wireless
+--    network associated with an access point. Mobile Node,
+--    Mobile Station(Ms) and client are used interchangeably. 
+--    
+--    Web-Authentication 
+--    
+--    Clients are web authenticated, when clients open the 
+--    web-browser and send HTTP packets. Then user is asked
+--    to enter login and password. This is known as Web 
+--    Authentication. 
+--    
+--    REFERENCE
+--    
+--    [1] Wireless LAN Medium Access Control ( MAC ) and
+--    Physical Layer ( PHY ) Specifications.
+--    
+--    [2] Draft-obara-capwap-lwapp-00.txt, IETF Light 
+--    Weight Access Point Protocol
+--  RevDate
+--    200703040000Z
+--  RevDescr
+--    This is the second revision of this MIB to accomodate 
+--     enhanced guest access changes .
+--  RevDate
+--    200604051150Z
+--  RevDescr
+--    Initial version of this MIB module. 
+
+ciscoLwappWebAuthMIBNotifs OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIB 0 }
+ciscoLwappWebAuthMIBNotifObjs OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIB 1 }
+ciscoLwappWebAuthMIBObjects OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIB 2 }
+ciscoLwappWebAuthMIBConform OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIB 3 }
+ciscoLwappWebAuthConfig OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBObjects 1 }
+ciscoLwappWebAuthExtConfig OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBObjects 2 }
+ciscoLwappLocalNetUserConfig OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBObjects 3 }
+ciscoLwappWebAuthMIBCompliances OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBConform 1 }
+ciscoLwappWebAuthMIBGroups OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBConform 2 }
+
+cLWAWebAuthType OBJECT-TYPE
+    SYNTAX INTEGER {
+        internalDefault(1),
+        internalCustom(2),
+        external(3)
+        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of web authentication for the clients.
+        
+        Web Authentication can be of three types;
+        
+        internalDefault - The default login page will be 
+        presented to the client for authentication.
+        
+        internalCustom -  The administrator has created and 
+        uploaded a custom login page and it will be
+        presented to the clients for authentication.
+        
+        external  - This value indicates that the login page
+        will be served from the external web server.  Note
+        that cLWAWebAuthType can be successfully set to this
+        value when the cLWAExternalWebAuthURL object has been
+        set to string with non-zero length."
+    DEFVAL { internalDefault }
+    ::= { ciscoLwappWebAuthConfig 1 }
+
+cLWAManufacturerLogo OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to control the display of the
+        Manufacturer Logo on the login page.
+        
+        A value of 'true' indicates that the Manufacturer
+        logo will be displayed on the login page. 
+        
+        A value of 'false' indicates that the Manufacturer
+        logo won't be displayed on the login page."
+    DEFVAL { true }
+    ::= { ciscoLwappWebAuthConfig 2 }
+
+cLWACustomLogoFileName OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "The name of the custom logo file.  The logo
+        in this file will appear on the login page
+        when the value of cLWebAuthType is
+        'internalDefault'."
+    ::= { ciscoLwappWebAuthConfig 3 }
+
+cLWACustomWebTitle OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(0..128))
+--    Rsyntax OCTET STRING(SIZE(0..128))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The title text that appears on the login page
+        of the clients when the value of cLWebAuthType
+        is 'internalDefault'."
+    DEFVAL { "" }
+    ::= { ciscoLwappWebAuthConfig 4 }
+
+cLWACustomWebMessage OBJECT-TYPE
+    SYNTAX SnmpAdminString
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The message that appears on the login page of
+        clients when the value of cLWebAuthType is
+        'internalDefault'."
+    DEFVAL { "" }
+    ::= { ciscoLwappWebAuthConfig 5 }
+
+cLWACustomWebRedirectURL OBJECT-TYPE
+    SYNTAX CiscoURLString
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The URL used to load client web page after
+        successful authentication."
+    ::= { ciscoLwappWebAuthConfig 6 }
+
+cLWAExternalWebAuthURL OBJECT-TYPE
+    SYNTAX CiscoURLString
+--    Rsyntax OCTET STRING(SIZE(1..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The URL to which the client web page will be
+        directed for authentication.   This object will
+        be used when the cLWebAuthType object is set to 
+        'external'.  The configured URL should resolve to
+        one of the Web Server IP addresses configured 
+        through cLWAExternalWebServerTable."
+    ::= { ciscoLwappWebAuthConfig 7 }
+
+cLWAExternalWebServerTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLWAExternalWebServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This table provides the list of external web
+        servers used for external web authentication.
+        These are the addresses from which the
+        controller will allow traffic before client
+        authentication to show the login page.
+        The controller is expected to use the services
+        of these web servers for performing the
+        authentication.  The user is expected to provide
+        correct Internet addresses of those servers
+        available for authentication through this table.
+        The web authentication is done with the help of
+        only those Web Servers configured through this
+        table only when the cLWAWebAuthType is
+        configured as 'external'."
+    ::= { ciscoLwappWebAuthExtConfig 1 }
+
+cLWAExternalWebServerEntry OBJECT-TYPE
+    SYNTAX CLWAExternalWebServerEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "A conceptual row in cLWAExternalWebServerTable.  Each
+        entry corresponds to one external web authentication
+        server whose address is represented by 
+        cLWAExternalWebServerAddr."
+    INDEX { cLWAExternalWebServerIndex }
+    ::= { cLWAExternalWebServerTable 1 }
+
+CLWAExternalWebServerEntry ::= SEQUENCE {
+    cLWAExternalWebServerIndex Gauge,
+    cLWAExternalWebServerAddrType InetAddressType,
+    cLWAExternalWebServerAddr InetAddress,
+    cLWAExternalWebServerRowStatus RowStatus
+    }
+
+cLWAExternalWebServerIndex OBJECT-TYPE
+    SYNTAX Gauge(1..32)
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object uniquely identifies one specific entry
+        in this table."
+    ::= { cLWAExternalWebServerEntry 1 }
+
+cLWAExternalWebServerAddrType OBJECT-TYPE
+    SYNTAX InetAddressType
+--    Rsyntax INTEGER {
+--        ?? enum value of zero may cause problems
+--        unknown(0),
+--        ipv4(1),
+--        ipv6(2),
+--        ipv4z(3),
+--        ipv6z(4),
+--        dns(16)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The type of the Web Server address as represented
+        by the value of the corresponding instance of 
+        'cLWAExternalWebServerAddr'."
+    ::= { cLWAExternalWebServerEntry 2 }
+
+cLWAExternalWebServerAddr OBJECT-TYPE
+    SYNTAX InetAddress
+--    Rsyntax OCTET STRING(SIZE(0..255))
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The Internet address of the Web Server from which
+        traffic is allowed before client's authentication.
+        Please note that the row creation will be
+        successful only if the address of the Web Server
+        represented by the values of
+        cLWAExternalWebServerAddrType and
+        cLWAExternalWebServerAddr is unique across all
+        the entries."
+    ::= { cLWAExternalWebServerEntry 3 }
+
+cLWAExternalWebServerRowStatus OBJECT-TYPE
+    SYNTAX RowStatus
+--    Rsyntax INTEGER {
+--        active(1),
+--        notInService(2),
+--        notReady(3),
+--        createAndGo(4),
+--        createAndWait(5),
+--        destroy(6)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "The status of the conceptual row used to create and
+        delete specific instances of rows in this table.
+        
+        This object can not be set to 'active' unless the
+        values of the corresponding instances of
+        cLWAExternalWebServerAddr and 
+        cLWAExternalWebServerAddrType are set."
+    ::= { cLWAExternalWebServerEntry 4 }
+
+cLWALocalNetUserTable OBJECT-TYPE
+    SYNTAX SEQUENCE OF CLWALocalNetUserEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "The table lists the user type for each user present
+        in the controller. The user type can be guest or
+        permanent."
+    ::= { ciscoLwappLocalNetUserConfig 1 }
+
+cLWALocalNetUserEntry OBJECT-TYPE
+    SYNTAX CLWALocalNetUserEntry
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This is a row in the cLWALocalNetUserTable.
+        Each entry corresponds to a guest/permanent user present 
+        in the controller."
+    INDEX { cLWALocalNetUserName }
+    ::= { cLWALocalNetUserTable 1 }
+
+CLWALocalNetUserEntry ::= SEQUENCE {
+    cLWALocalNetUserName SnmpAdminString,
+    cLWALocalNetUserIsGuest TruthValue
+    }
+
+cLWALocalNetUserName OBJECT-TYPE
+    SYNTAX SnmpAdminString(SIZE(1..50))
+--    Rsyntax OCTET STRING(SIZE(1..50))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object identifies the user name of the guest
+        user or the permanent user in the controller."
+    ::= { cLWALocalNetUserEntry 1 }
+
+cLWALocalNetUserIsGuest OBJECT-TYPE
+    SYNTAX TruthValue
+--    Rsyntax INTEGER {
+--        true(1),
+--        false(2)
+--        }
+    ACCESS read-write
+    STATUS mandatory
+    DESCRIPTION
+        "This object is used to specify the type of user in
+        the controller. A value of 'true' is used to specify
+        a guest user and a value of 'false' is used to specify
+        a permanent user."
+    ::= { cLWALocalNetUserEntry 2 }
+
+cLWAGuestUserName OBJECT-TYPE
+    SYNTAX OCTET STRING(SIZE(1..24))
+    ACCESS not-accessible
+    STATUS mandatory
+    DESCRIPTION
+        "This object indicates the name of the guest user."
+    ::= { ciscoLwappWebAuthMIBNotifObjs 1 }
+
+cLWAGuestUserRemoved TRAP-TYPE
+-- Reverse mappable trap
+    ENTERPRISE ciscoLwappWebAuthMIB
+    VARIABLES {
+        cLWAGuestUserName }
+--  Status
+--    mandatory
+    DESCRIPTION
+        "This notification is generated when the lifetime of the
+        guest-user expires and the guest-user's accounts are
+        removed."
+    ::= 1
+
+cLWACustomWebAuthGroup OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects is used for internal-
+--    default and internal-custom web-authentication.
+--  objects
+--    cLWAWebAuthType, cLWAManufacturerLogo, cLWACustomLogoFileName, 
+--    cLWACustomWebTitle, cLWACustomWebMessage, 
+--    cLWACustomWebRedirectURL, cLWAExternalWebAuthURL
+
+cLWAExternalWebAuthGroup OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBGroups 2 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects is used for configuring
+--    Web servers for external web-authentication.
+--  objects
+--    cLWAExternalWebServerAddrType, cLWAExternalWebServerAddr, 
+--    cLWAExternalWebServerRowStatus
+
+cLWAGuestAccessNotifObjGroup OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBGroups 3 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects are part of the Guest
+--    Access related notifications by the controller.
+--  objects
+--    cLWAGuestUserName
+
+cLWAGuestUserConfigGroup OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBGroups 5 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    This collection of objects is used for configuring
+--    guest user parameters.
+--  objects
+--    cLWALocalNetUserIsGuest
+
+cLWAGuestAccessNotifGroup OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBGroups 4 }
+-- NOTIFICATION-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    These notifications are sent to the network
+--    management station to indicate the access status
+--    of guest users.
+--  notifications
+--    cLWAGuestUserRemoved
+
+cLWebAuthMIBCompliance OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    deprecated
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappWebAuthMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cLWACustomWebAuthGroup
+--   MandGroup
+--    cLWAExternalWebAuthGroup
+--   MandGroup
+--    cLWAGuestAccessNotifObjGroup
+--   MandGroup
+--    cLWAGuestAccessNotifGroup
+--   ObjVar
+--    cLWAExternalWebServerRowStatus
+
+cLWebAuthMIBComplianceRev1 OBJECT IDENTIFIER ::= { ciscoLwappWebAuthMIBCompliances 2 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for the SNMP entities that
+--    implement the ciscoLwappWebAuthMIB module.
+--  Module
+--    >>current<<
+--   MandGroup
+--    cLWACustomWebAuthGroup
+--   MandGroup
+--    cLWAExternalWebAuthGroup
+--   MandGroup
+--    cLWAGuestAccessNotifObjGroup
+--   MandGroup
+--    cLWAGuestAccessNotifGroup
+--   MandGroup
+--    cLWAGuestUserConfigGroup
+--   ObjVar
+--    cLWAExternalWebServerRowStatus
+
+
+END
+

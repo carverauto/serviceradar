@@ -1,0 +1,335 @@
+module viptela-app-route {
+  namespace "http://viptela.com/app-route";
+  prefix viptela-app-route;
+
+    prefix tailf;
+  }
+  import ietf-inet-types {
+    prefix inet;
+  }
+  import ietf-yang-types {
+    prefix yang;
+  }
+  import viptela-common {
+    prefix viptela;
+  }
+  import viptela-system {
+    prefix viptela-system;
+  }
+
+  organization "Viptela, Inc.";
+  contact
+    "Viptela, Inc.
+     Email:support@viptela.com";
+  description
+    "This module defines the data model for application-aware routing operational data";
+
+  revision 2019-08-15 {
+    description
+      "Release version: 19.2";
+  }
+  revision 2018-11-01 {
+    description
+      "Release version: 18.4";
+  }
+  revision 2018-08-20 {
+    description
+      "Release version: 18.3.1";
+  }
+  revision 2018-06-25 {
+    description
+      "Release version: 18.3";
+  }
+  revision 2018-04-25 {
+    description
+      "Release version: 18.2";
+  }
+  revision 2018-03-15 {
+    description
+      "Release version: 18.1.1";
+  }
+  revision 2018-01-16 {
+    description
+      "Release version: 17.2.3";
+  }
+  revision 2017-11-01 {
+    description
+      "Release version: 17.2.1";
+  }
+  revision 2017-08-01 {
+    description
+      "Release version: 17.2";
+  }
+  revision 2017-05-25 {
+    description
+      "Release version: 17.1.1";
+  }
+  revision 2017-04-06 {
+    description
+      "Release version: 17.1";
+  }
+  revision 2017-02-15 {
+    description
+      "Release version: 16.3.2";
+  }
+  revision 2017-02-06 {
+    description
+      "Release version: 16.3.1";
+  }
+  revision 2016-11-16 {
+    description
+      "Release version: 16.3";
+  }
+  revision 2016-10-25 {
+    description
+      "Release version: 16.2.10";
+  }
+  revision 2016-10-24 {
+    description
+      "Release version: 16.2.4";
+  }
+  revision 2016-08-10 {
+    description
+      "Release version: 16.2.2";
+  }
+  revision 2016-08-01 {
+    description
+      "Release version: 16.2.1";
+  }
+  revision 2016-06-09 {
+    description
+      "Release version: 16.2";
+  }
+  revision 2016-04-22 {
+    description
+      "Release version: 16.1.1";
+  }
+  revision 2016-03-15 {
+    description
+      "Release version: 16.1";
+  }
+  revision 2016-01-30 {
+    description
+      "Release version: 15.4.3";
+  }
+  revision 2015-12-28 {
+    description
+      "Release version: 15.4.1";
+  }
+  revision 2015-12-01 {
+    description
+      "Release version: 15.4.0";
+  }
+  revision 2015-10-31 {
+    description
+      "Release version: 15.3.5";
+  }
+  revision 2015-09-27 {
+    description
+      "Release version: 15.3.3";
+  }
+  revision 2015-09-01 {
+    description
+      "Release version: 15.3.1";
+  }
+  revision 2015-07-01 {
+    description
+      "Release version: 15.3";
+  }
+  revision 2015-06-01 {
+    description
+      "Release version: 15.2.8";
+  }
+  revision 2015-05-01 {
+    description
+      "Release version: 15.2";
+  }
+  revision 2015-02-01 {
+    description
+      "Release version: 15.1";
+  }
+  revision 2014-12-01 {
+    description
+      "Release version: 14.3";
+  }
+  revision 2014-07-01 {
+    description
+      "Release version: 14.2";
+  }
+  revision 2013-02-12 {
+    description
+      "Initial revision";
+  }
+
+  container app-route {
+    when "/viptela-system:system/viptela-system:personality = 'vedge'";
+    config false;
+    list statistics {
+      key "src-ip dst-ip proto src-port dst-port";
+      leaf src-ip {
+        description "Local TLOC IP address";
+        type inet:ip-address;
+      }
+      leaf dst-ip {
+        description "Remote TLOC IP address";
+        type inet:ip-address;
+      }
+      leaf proto {
+        type viptela:encap-enum;
+      }
+      leaf src-port {
+        description "Local port number";
+        type uint16;
+      }
+      leaf dst-port {
+        description "Remote port number";
+        type uint16;
+      }
+      leaf remote-system-ip {
+        description "Remote system IP address";
+        type inet:ipv4-address;
+      }
+      leaf local-color {
+        description "Local TLOC color";
+        type viptela:color-enum;
+      }
+      leaf remote-color {
+        description "Remote TLOC color";
+        type viptela:color-enum;
+      }
+      leaf mean-loss {
+        description "Average loss in percentage across all polling intervals";
+        type uint8;
+      }
+      leaf mean-latency {
+        description "Average latency across all polling intervals";
+        type uint32;
+      }
+      leaf mean-jitter {
+        description "Average jitter across all polling intervals";
+        type uint32;
+      }
+      leaf sla-class-index {
+        description "SLA classes (indexes) that this session satisfies";
+        type string;
+      }
+      list interval {
+        key "index";
+        leaf index {
+          description "Polling interval index";
+          type uint8 {
+            description "Polling interval index";
+          }
+        }
+        leaf total-packets {
+          description "Total packets sent";
+          type int32 {
+            description "Total packets sent";
+          }
+        }
+        leaf loss {
+          description "Packets lost";
+          type int32 {
+            description "Packets lost";
+          }
+        }
+        leaf average-latency {
+          description "Average latency";
+          type yang:gauge64 {
+            description "Average latency";
+          }
+        }
+        leaf average-jitter {
+          description "Average jitter";
+          type yang:gauge64 {
+            description "Average jitter";
+          }
+        }
+        leaf tx-data-pkts {
+          description "Data packets transmitted";
+          type yang:counter64 {
+            description "Data packets transmitted";
+          }
+        }
+        leaf rx-data-pkts {
+          description "Data packets received";
+          type yang:counter64 {
+            description "Data packets received";
+          }
+        }
+      }
+    }
+    list sla-class {
+      key "index";
+      leaf index {
+        description "SLA class index";
+        type uint8 {
+          description "<0..4>";
+        }
+      }
+      leaf name {
+        description "Name of the SLA class";
+        type viptela:named-type;
+      }
+      leaf loss {
+        description "Configured loss, in percentage";
+        type uint8 {
+          description "<0..100>";
+        }
+      }
+      leaf latency {
+        description "Configured latency, in milliseconds";
+        type uint32;
+      }
+      leaf jitter {
+        description "Configured jitter, in milliseconds";
+        type uint32;
+      }
+    }
+  }
+  notification sla-change {
+    uses viptela:common-notification-header;
+    leaf src-ip {
+      type inet:ip-address;
+    }
+    leaf dst-ip {
+      type inet:ip-address;
+    }
+    leaf proto {
+      type viptela:encap-enum;
+    }
+    leaf src-port {
+      type uint16;
+    }
+    leaf dst-port {
+      type uint16;
+    }
+    leaf local-system-ip {
+      type inet:ip-address;
+    }
+    leaf local-color {
+      type string;
+    }
+    leaf remote-system-ip {
+      type inet:ip-address;
+    }
+    leaf remote-color {
+      type string;
+    }
+    leaf mean-loss {
+      type uint8;
+    }
+    leaf mean-latency {
+      type uint32;
+    }
+    leaf mean-jitter {
+      type uint32;
+    }
+    leaf sla-classes {
+      type string;
+    }
+    leaf old-sla-classes {
+      type string;
+    }
+  }
+}

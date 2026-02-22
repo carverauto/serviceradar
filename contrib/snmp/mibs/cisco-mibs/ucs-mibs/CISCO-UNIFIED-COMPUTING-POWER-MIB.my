@@ -1,0 +1,2012 @@
+-- *********************************************************************
+-- CISCO-UNIFIED-COMPUTING-POWER-MIB.my
+-- 
+-- MIB representation of the Cisco Unified Computing System
+-- POWER management information model package
+-- 
+-- Created July 2018 by Charles Bullis
+-- 
+-- Copyright (c) 2005-2018 Cisco Systems, Inc. All rights reserved.
+-- 
+-- *********************************************************************
+
+CISCO-UNIFIED-COMPUTING-POWER-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-IDENTITY,
+    OBJECT-TYPE,
+    Counter32,
+    Gauge32,
+    TimeTicks,
+    Counter64,
+    Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION,
+    RowPointer,
+    DateAndTime,
+    DisplayString,
+    MacAddress,
+    TimeInterval,
+    TimeStamp,
+    TruthValue
+        FROM SNMPv2-TC
+    SnmpAdminString
+        FROM SNMP-FRAMEWORK-MIB
+    InetAddressIPv4,
+    InetAddressIPv6
+        FROM INET-ADDRESS-MIB
+    ciscoMgmt
+        FROM CISCO-SMI
+    CiscoNetworkAddress,
+    Unsigned64,
+    CiscoInetAddressMask,
+    CiscoAlarmSeverity,
+    TimeIntervalSec
+        FROM CISCO-TC
+    ciscoUnifiedComputingMIBObjects,
+    CucsManagedObjectId,
+    CucsManagedObjectDn
+        FROM CISCO-UNIFIED-COMPUTING-MIB
+    CucsNetworkSwitchId,
+    CucsPolicyPolicyOwner,
+    CucsPowerBudgetFanSpeed,
+    CucsPowerCapAction,
+    CucsPowerChThrAction,
+    CucsPowerGroupState,
+    CucsPowerGroupStatsHistThresholded,
+    CucsPowerGroupStatsThresholded,
+    CucsPowerLockState,
+    CucsPowerMemberState,
+    CucsPowerMgmtStyle,
+    CucsPowerOperState,
+    CucsPowerPolicyFanSpeed,
+    CucsPowerPowerAvailState,
+    CucsPowerPowerDeployState,
+    CucsPowerPrioritySharing,
+    CucsPowerProfilingMethod,
+    CucsPowerPsuLineMode,
+    CucsPowerPsuState,
+    CucsPowerReallocation,
+    CucsPowerReqConflict
+        FROM CISCO-UNIFIED-COMPUTING-TC-MIB;
+
+cucsPowerObjects MODULE-IDENTITY
+    LAST-UPDATED    "201807260000Z"
+    ORGANIZATION    "Cisco Systems Inc."
+    CONTACT-INFO
+        "Cisco Systems
+        Customer Service
+        
+        Postal: 170 W Tasman Drive
+        San Jose, CA  95134
+        USA
+        
+        Tel: +1 800 553 -NETS
+        
+        E-mail: cs-san@cisco.com, cs-lan-switch-snmp@cisco.com"
+    DESCRIPTION
+        "MIB representation of the Cisco Unified Computing System
+        POWER management information model package"
+    ::= { ciscoUnifiedComputingMIBObjects 39 }
+
+cucsPowerBudgetTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerBudgetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:Budget managed object table"
+    ::= { cucsPowerObjects 1 }
+
+cucsPowerBudgetEntry OBJECT-TYPE
+    SYNTAX           CucsPowerBudgetEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerBudgetTable table."
+    INDEX { cucsPowerBudgetInstanceId }
+    ::= { cucsPowerBudgetTable 1 }
+
+CucsPowerBudgetEntry ::= SEQUENCE {
+    cucsPowerBudgetInstanceId                                        CucsManagedObjectId,
+    cucsPowerBudgetDn                                                CucsManagedObjectDn,
+    cucsPowerBudgetRn                                                SnmpAdminString,
+    cucsPowerBudgetAdminCommitted                                    Gauge32,
+    cucsPowerBudgetAdminPeak                                         Gauge32,
+    cucsPowerBudgetCurrentPower                                      Gauge32,
+    cucsPowerBudgetGroupName                                         SnmpAdminString,
+    cucsPowerBudgetIdlePower                                         Gauge32,
+    cucsPowerBudgetMaxPower                                          Gauge32,
+    cucsPowerBudgetMinPower                                          Gauge32,
+    cucsPowerBudgetOperCommitted                                     Gauge32,
+    cucsPowerBudgetOperMin                                           Gauge32,
+    cucsPowerBudgetOperPeak                                          Gauge32,
+    cucsPowerBudgetScaledWt                                          Gauge32,
+    cucsPowerBudgetOperState                                         CucsPowerOperState,
+    cucsPowerBudgetDynRealloc                                        CucsPowerReallocation,
+    cucsPowerBudgetPrio                                              Gauge32,
+    cucsPowerBudgetCatalogPower                                      Gauge32,
+    cucsPowerBudgetUpdateTime                                        DateAndTime,
+    cucsPowerBudgetCapAction                                         CucsPowerCapAction,
+    cucsPowerBudgetWeight                                            Gauge32,
+    cucsPowerBudgetPsuCapacity                                       Gauge32,
+    cucsPowerBudgetPsuState                                          CucsPowerPsuState,
+    cucsPowerBudgetStyle                                             CucsPowerMgmtStyle,
+    cucsPowerBudgetAdminFPLockState                                  CucsPowerLockState,
+    cucsPowerBudgetAdminPeakNew                                      Gauge32,
+    cucsPowerBudgetBootPower                                         Gauge32,
+    cucsPowerBudgetChRsrvdPower                                      Gauge32,
+    cucsPowerBudgetOperFPLockState                                   CucsPowerLockState,
+    cucsPowerBudgetOperProfMethod                                    CucsPowerProfilingMethod,
+    cucsPowerBudgetProfMethod                                        CucsPowerProfilingMethod,
+    cucsPowerBudgetProfiling                                         TruthValue,
+    cucsPowerBudgetPsuLineMode                                       CucsPowerPsuLineMode,
+    cucsPowerBudgetPowerAvailState                                   CucsPowerPowerAvailState,
+    cucsPowerBudgetPowerDeployState                                  CucsPowerPowerDeployState,
+    cucsPowerBudgetPowerOnDeploy                                     TruthValue,
+    cucsPowerBudgetFanSpeed                                          CucsPowerBudgetFanSpeed,
+    cucsPowerBudgetPowerCapSupportEnabled                            TruthValue
+}
+
+cucsPowerBudgetInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerBudgetEntry 1 }
+
+cucsPowerBudgetDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:dn managed object property"
+    ::= { cucsPowerBudgetEntry 2 }
+
+cucsPowerBudgetRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:rn managed object property"
+    ::= { cucsPowerBudgetEntry 3 }
+
+cucsPowerBudgetAdminCommitted OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:adminCommitted managed object property"
+    ::= { cucsPowerBudgetEntry 4 }
+
+cucsPowerBudgetAdminPeak OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:adminPeak managed object property"
+    ::= { cucsPowerBudgetEntry 5 }
+
+cucsPowerBudgetCurrentPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:currentPower managed object property"
+    ::= { cucsPowerBudgetEntry 6 }
+
+cucsPowerBudgetGroupName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:groupName managed object property"
+    ::= { cucsPowerBudgetEntry 7 }
+
+cucsPowerBudgetIdlePower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:idlePower managed object property"
+    ::= { cucsPowerBudgetEntry 8 }
+
+cucsPowerBudgetMaxPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:maxPower managed object property"
+    ::= { cucsPowerBudgetEntry 9 }
+
+cucsPowerBudgetMinPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:minPower managed object property"
+    ::= { cucsPowerBudgetEntry 10 }
+
+cucsPowerBudgetOperCommitted OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:operCommitted managed object property"
+    ::= { cucsPowerBudgetEntry 11 }
+
+cucsPowerBudgetOperMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:operMin managed object property"
+    ::= { cucsPowerBudgetEntry 12 }
+
+cucsPowerBudgetOperPeak OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:operPeak managed object property"
+    ::= { cucsPowerBudgetEntry 13 }
+
+cucsPowerBudgetScaledWt OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:scaledWt managed object property"
+    ::= { cucsPowerBudgetEntry 14 }
+
+cucsPowerBudgetOperState OBJECT-TYPE
+    SYNTAX       CucsPowerOperState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:operState managed object property"
+    ::= { cucsPowerBudgetEntry 15 }
+
+cucsPowerBudgetDynRealloc OBJECT-TYPE
+    SYNTAX       CucsPowerReallocation
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:dynRealloc managed object property"
+    ::= { cucsPowerBudgetEntry 16 }
+
+cucsPowerBudgetPrio OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:prio managed object property"
+    ::= { cucsPowerBudgetEntry 17 }
+
+cucsPowerBudgetCatalogPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:catalogPower managed object property"
+    ::= { cucsPowerBudgetEntry 18 }
+
+cucsPowerBudgetUpdateTime OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:updateTime managed object property"
+    ::= { cucsPowerBudgetEntry 19 }
+
+cucsPowerBudgetCapAction OBJECT-TYPE
+    SYNTAX       CucsPowerCapAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:capAction managed object property"
+    ::= { cucsPowerBudgetEntry 20 }
+
+cucsPowerBudgetWeight OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:weight managed object property"
+    ::= { cucsPowerBudgetEntry 21 }
+
+cucsPowerBudgetPsuCapacity OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:psuCapacity managed object property"
+    ::= { cucsPowerBudgetEntry 22 }
+
+cucsPowerBudgetPsuState OBJECT-TYPE
+    SYNTAX       CucsPowerPsuState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:psuState managed object property"
+    ::= { cucsPowerBudgetEntry 23 }
+
+cucsPowerBudgetStyle OBJECT-TYPE
+    SYNTAX       CucsPowerMgmtStyle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:style managed object property"
+    ::= { cucsPowerBudgetEntry 24 }
+
+cucsPowerBudgetAdminFPLockState OBJECT-TYPE
+    SYNTAX       CucsPowerLockState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:adminFPLockState managed object property"
+    ::= { cucsPowerBudgetEntry 25 }
+
+cucsPowerBudgetAdminPeakNew OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:adminPeakNew managed object property"
+    ::= { cucsPowerBudgetEntry 26 }
+
+cucsPowerBudgetBootPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:bootPower managed object property"
+    ::= { cucsPowerBudgetEntry 27 }
+
+cucsPowerBudgetChRsrvdPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:chRsrvdPower managed object property"
+    ::= { cucsPowerBudgetEntry 28 }
+
+cucsPowerBudgetOperFPLockState OBJECT-TYPE
+    SYNTAX       CucsPowerLockState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:operFPLockState managed object property"
+    ::= { cucsPowerBudgetEntry 29 }
+
+cucsPowerBudgetOperProfMethod OBJECT-TYPE
+    SYNTAX       CucsPowerProfilingMethod
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:operProfMethod managed object property"
+    ::= { cucsPowerBudgetEntry 30 }
+
+cucsPowerBudgetProfMethod OBJECT-TYPE
+    SYNTAX       CucsPowerProfilingMethod
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:profMethod managed object property"
+    ::= { cucsPowerBudgetEntry 31 }
+
+cucsPowerBudgetProfiling OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:profiling managed object property"
+    ::= { cucsPowerBudgetEntry 32 }
+
+cucsPowerBudgetPsuLineMode OBJECT-TYPE
+    SYNTAX       CucsPowerPsuLineMode
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:psuLineMode managed object property"
+    ::= { cucsPowerBudgetEntry 33 }
+
+cucsPowerBudgetPowerAvailState OBJECT-TYPE
+    SYNTAX       CucsPowerPowerAvailState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:powerAvailState managed object property"
+    ::= { cucsPowerBudgetEntry 34 }
+
+cucsPowerBudgetPowerDeployState OBJECT-TYPE
+    SYNTAX       CucsPowerPowerDeployState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:powerDeployState managed object property"
+    ::= { cucsPowerBudgetEntry 35 }
+
+cucsPowerBudgetPowerOnDeploy OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:powerOnDeploy managed object property"
+    ::= { cucsPowerBudgetEntry 36 }
+
+cucsPowerBudgetFanSpeed OBJECT-TYPE
+    SYNTAX       CucsPowerBudgetFanSpeed
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:fanSpeed managed object property"
+    ::= { cucsPowerBudgetEntry 37 }
+
+cucsPowerBudgetPowerCapSupportEnabled OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Budget:powerCapSupportEnabled
+        managed object property"
+    ::= { cucsPowerBudgetEntry 38 }
+
+cucsPowerChassisMemberTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerChassisMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:ChassisMember managed object table"
+    ::= { cucsPowerObjects 2 }
+
+cucsPowerChassisMemberEntry OBJECT-TYPE
+    SYNTAX           CucsPowerChassisMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerChassisMemberTable table."
+    INDEX { cucsPowerChassisMemberInstanceId }
+    ::= { cucsPowerChassisMemberTable 1 }
+
+CucsPowerChassisMemberEntry ::= SEQUENCE {
+    cucsPowerChassisMemberInstanceId                                 CucsManagedObjectId,
+    cucsPowerChassisMemberDn                                         CucsManagedObjectDn,
+    cucsPowerChassisMemberRn                                         SnmpAdminString,
+    cucsPowerChassisMemberId                                         Gauge32,
+    cucsPowerChassisMemberOperState                                  CucsPowerMemberState
+}
+
+cucsPowerChassisMemberInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerChassisMemberEntry 1 }
+
+cucsPowerChassisMemberDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ChassisMember:dn managed object property"
+    ::= { cucsPowerChassisMemberEntry 2 }
+
+cucsPowerChassisMemberRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ChassisMember:rn managed object property"
+    ::= { cucsPowerChassisMemberEntry 3 }
+
+cucsPowerChassisMemberId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ChassisMember:id managed object property"
+    ::= { cucsPowerChassisMemberEntry 4 }
+
+cucsPowerChassisMemberOperState OBJECT-TYPE
+    SYNTAX       CucsPowerMemberState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ChassisMember:operState managed object property"
+    ::= { cucsPowerChassisMemberEntry 5 }
+
+cucsPowerEpTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:Ep managed object table"
+    ::= { cucsPowerObjects 3 }
+
+cucsPowerEpEntry OBJECT-TYPE
+    SYNTAX           CucsPowerEpEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerEpTable table."
+    INDEX { cucsPowerEpInstanceId }
+    ::= { cucsPowerEpTable 1 }
+
+CucsPowerEpEntry ::= SEQUENCE {
+    cucsPowerEpInstanceId                                            CucsManagedObjectId,
+    cucsPowerEpDn                                                    CucsManagedObjectDn,
+    cucsPowerEpRn                                                    SnmpAdminString
+}
+
+cucsPowerEpInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerEpEntry 1 }
+
+cucsPowerEpDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Ep:dn managed object property"
+    ::= { cucsPowerEpEntry 2 }
+
+cucsPowerEpRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Ep:rn managed object property"
+    ::= { cucsPowerEpEntry 3 }
+
+cucsPowerFIMemberTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerFIMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:FIMember managed object table"
+    ::= { cucsPowerObjects 15 }
+
+cucsPowerFIMemberEntry OBJECT-TYPE
+    SYNTAX           CucsPowerFIMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerFIMemberTable table."
+    INDEX { cucsPowerFIMemberInstanceId }
+    ::= { cucsPowerFIMemberTable 1 }
+
+CucsPowerFIMemberEntry ::= SEQUENCE {
+    cucsPowerFIMemberInstanceId                                      CucsManagedObjectId,
+    cucsPowerFIMemberDn                                              CucsManagedObjectDn,
+    cucsPowerFIMemberRn                                              SnmpAdminString,
+    cucsPowerFIMemberFiId                                            CucsNetworkSwitchId,
+    cucsPowerFIMemberId                                              Gauge32,
+    cucsPowerFIMemberOperState                                       CucsPowerMemberState
+}
+
+cucsPowerFIMemberInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerFIMemberEntry 1 }
+
+cucsPowerFIMemberDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:FIMember:dn managed object property"
+    ::= { cucsPowerFIMemberEntry 2 }
+
+cucsPowerFIMemberRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:FIMember:rn managed object property"
+    ::= { cucsPowerFIMemberEntry 3 }
+
+cucsPowerFIMemberFiId OBJECT-TYPE
+    SYNTAX       CucsNetworkSwitchId
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:FIMember:fiId managed object property"
+    ::= { cucsPowerFIMemberEntry 4 }
+
+cucsPowerFIMemberId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:FIMember:id managed object property"
+    ::= { cucsPowerFIMemberEntry 5 }
+
+cucsPowerFIMemberOperState OBJECT-TYPE
+    SYNTAX       CucsPowerMemberState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:FIMember:operState managed object property"
+    ::= { cucsPowerFIMemberEntry 6 }
+
+cucsPowerFexMemberTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerFexMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:FexMember managed object table"
+    ::= { cucsPowerObjects 16 }
+
+cucsPowerFexMemberEntry OBJECT-TYPE
+    SYNTAX           CucsPowerFexMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerFexMemberTable table."
+    INDEX { cucsPowerFexMemberInstanceId }
+    ::= { cucsPowerFexMemberTable 1 }
+
+CucsPowerFexMemberEntry ::= SEQUENCE {
+    cucsPowerFexMemberInstanceId                                     CucsManagedObjectId,
+    cucsPowerFexMemberDn                                             CucsManagedObjectDn,
+    cucsPowerFexMemberRn                                             SnmpAdminString,
+    cucsPowerFexMemberId                                             Gauge32,
+    cucsPowerFexMemberOperState                                      CucsPowerMemberState
+}
+
+cucsPowerFexMemberInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerFexMemberEntry 1 }
+
+cucsPowerFexMemberDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:FexMember:dn managed object property"
+    ::= { cucsPowerFexMemberEntry 2 }
+
+cucsPowerFexMemberRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:FexMember:rn managed object property"
+    ::= { cucsPowerFexMemberEntry 3 }
+
+cucsPowerFexMemberId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:FexMember:id managed object property"
+    ::= { cucsPowerFexMemberEntry 4 }
+
+cucsPowerFexMemberOperState OBJECT-TYPE
+    SYNTAX       CucsPowerMemberState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:FexMember:operState managed object property"
+    ::= { cucsPowerFexMemberEntry 5 }
+
+cucsPowerGroupTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerGroupEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:Group managed object table"
+    ::= { cucsPowerObjects 4 }
+
+cucsPowerGroupEntry OBJECT-TYPE
+    SYNTAX           CucsPowerGroupEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerGroupTable table."
+    INDEX { cucsPowerGroupInstanceId }
+    ::= { cucsPowerGroupTable 1 }
+
+CucsPowerGroupEntry ::= SEQUENCE {
+    cucsPowerGroupInstanceId                                         CucsManagedObjectId,
+    cucsPowerGroupDn                                                 CucsManagedObjectDn,
+    cucsPowerGroupRn                                                 SnmpAdminString,
+    cucsPowerGroupRealloc                                            CucsPowerReallocation,
+    cucsPowerGroupAdminCommitted                                     Gauge32,
+    cucsPowerGroupAdminPeak                                          Gauge32,
+    cucsPowerGroupCurrentPower                                       Gauge32,
+    cucsPowerGroupDescr                                              SnmpAdminString,
+    cucsPowerGroupFltAggr                                            Unsigned64,
+    cucsPowerGroupCurReqPower                                        Gauge32,
+    cucsPowerGroupMinReqPower                                        Gauge32,
+    cucsPowerGroupIntId                                              SnmpAdminString,
+    cucsPowerGroupName                                               SnmpAdminString,
+    cucsPowerGroupQualifier                                          SnmpAdminString,
+    cucsPowerGroupOperCommitted                                      Gauge32,
+    cucsPowerGroupOperPeak                                           Gauge32,
+    cucsPowerGroupOperState                                          CucsPowerGroupState,
+    cucsPowerGroupPolicyLevel                                        Gauge32,
+    cucsPowerGroupPolicyOwner                                        CucsPolicyPolicyOwner,
+    cucsPowerGroupMaxReqPower                                        Gauge32
+}
+
+cucsPowerGroupInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerGroupEntry 1 }
+
+cucsPowerGroupDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:dn managed object property"
+    ::= { cucsPowerGroupEntry 2 }
+
+cucsPowerGroupRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:rn managed object property"
+    ::= { cucsPowerGroupEntry 3 }
+
+cucsPowerGroupRealloc OBJECT-TYPE
+    SYNTAX       CucsPowerReallocation
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:realloc managed object property"
+    ::= { cucsPowerGroupEntry 4 }
+
+cucsPowerGroupAdminCommitted OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:adminCommitted managed object property"
+    ::= { cucsPowerGroupEntry 5 }
+
+cucsPowerGroupAdminPeak OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:adminPeak managed object property"
+    ::= { cucsPowerGroupEntry 6 }
+
+cucsPowerGroupCurrentPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:currentPower managed object property"
+    ::= { cucsPowerGroupEntry 7 }
+
+cucsPowerGroupDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:descr managed object property"
+    ::= { cucsPowerGroupEntry 8 }
+
+cucsPowerGroupFltAggr OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:fltAggr managed object property"
+    ::= { cucsPowerGroupEntry 9 }
+
+cucsPowerGroupCurReqPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:curReqPower managed object property"
+    ::= { cucsPowerGroupEntry 10 }
+
+cucsPowerGroupMinReqPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:minReqPower managed object property"
+    ::= { cucsPowerGroupEntry 11 }
+
+cucsPowerGroupIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:intId managed object property"
+    ::= { cucsPowerGroupEntry 12 }
+
+cucsPowerGroupName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:name managed object property"
+    ::= { cucsPowerGroupEntry 13 }
+
+cucsPowerGroupQualifier OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:qualifier managed object property"
+    ::= { cucsPowerGroupEntry 14 }
+
+cucsPowerGroupOperCommitted OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:operCommitted managed object property"
+    ::= { cucsPowerGroupEntry 15 }
+
+cucsPowerGroupOperPeak OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:operPeak managed object property"
+    ::= { cucsPowerGroupEntry 16 }
+
+cucsPowerGroupOperState OBJECT-TYPE
+    SYNTAX       CucsPowerGroupState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:operState managed object property"
+    ::= { cucsPowerGroupEntry 17 }
+
+cucsPowerGroupPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:policyLevel managed object property"
+    ::= { cucsPowerGroupEntry 18 }
+
+cucsPowerGroupPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:policyOwner managed object property"
+    ::= { cucsPowerGroupEntry 19 }
+
+cucsPowerGroupMaxReqPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Group:maxReqPower managed object property"
+    ::= { cucsPowerGroupEntry 20 }
+
+cucsPowerGroupAdditionPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerGroupAdditionPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:GroupAdditionPolicy managed object table"
+    ::= { cucsPowerObjects 5 }
+
+cucsPowerGroupAdditionPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsPowerGroupAdditionPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerGroupAdditionPolicyTable table."
+    INDEX { cucsPowerGroupAdditionPolicyInstanceId }
+    ::= { cucsPowerGroupAdditionPolicyTable 1 }
+
+CucsPowerGroupAdditionPolicyEntry ::= SEQUENCE {
+    cucsPowerGroupAdditionPolicyInstanceId                           CucsManagedObjectId,
+    cucsPowerGroupAdditionPolicyDn                                   CucsManagedObjectDn,
+    cucsPowerGroupAdditionPolicyRn                                   SnmpAdminString,
+    cucsPowerGroupAdditionPolicyAction                               CucsPowerChThrAction,
+    cucsPowerGroupAdditionPolicyDescr                                SnmpAdminString,
+    cucsPowerGroupAdditionPolicyIntId                                SnmpAdminString,
+    cucsPowerGroupAdditionPolicyName                                 SnmpAdminString,
+    cucsPowerGroupAdditionPolicyPolicyLevel                          Gauge32,
+    cucsPowerGroupAdditionPolicyPolicyOwner                          CucsPolicyPolicyOwner
+}
+
+cucsPowerGroupAdditionPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerGroupAdditionPolicyEntry 1 }
+
+cucsPowerGroupAdditionPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupAdditionPolicy:dn managed object property"
+    ::= { cucsPowerGroupAdditionPolicyEntry 2 }
+
+cucsPowerGroupAdditionPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupAdditionPolicy:rn managed object property"
+    ::= { cucsPowerGroupAdditionPolicyEntry 3 }
+
+cucsPowerGroupAdditionPolicyAction OBJECT-TYPE
+    SYNTAX       CucsPowerChThrAction
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupAdditionPolicy:action managed
+        object property"
+    ::= { cucsPowerGroupAdditionPolicyEntry 4 }
+
+cucsPowerGroupAdditionPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupAdditionPolicy:descr managed
+        object property"
+    ::= { cucsPowerGroupAdditionPolicyEntry 5 }
+
+cucsPowerGroupAdditionPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupAdditionPolicy:intId managed
+        object property"
+    ::= { cucsPowerGroupAdditionPolicyEntry 6 }
+
+cucsPowerGroupAdditionPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupAdditionPolicy:name managed object property"
+    ::= { cucsPowerGroupAdditionPolicyEntry 7 }
+
+cucsPowerGroupAdditionPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupAdditionPolicy:policyLevel
+        managed object property"
+    ::= { cucsPowerGroupAdditionPolicyEntry 8 }
+
+cucsPowerGroupAdditionPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupAdditionPolicy:policyOwner
+        managed object property"
+    ::= { cucsPowerGroupAdditionPolicyEntry 9 }
+
+cucsPowerGroupQualTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerGroupQualEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:GroupQual managed object table"
+    ::= { cucsPowerObjects 6 }
+
+cucsPowerGroupQualEntry OBJECT-TYPE
+    SYNTAX           CucsPowerGroupQualEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerGroupQualTable table."
+    INDEX { cucsPowerGroupQualInstanceId }
+    ::= { cucsPowerGroupQualTable 1 }
+
+CucsPowerGroupQualEntry ::= SEQUENCE {
+    cucsPowerGroupQualInstanceId                                     CucsManagedObjectId,
+    cucsPowerGroupQualDn                                             CucsManagedObjectDn,
+    cucsPowerGroupQualRn                                             SnmpAdminString,
+    cucsPowerGroupQualGroupName                                      SnmpAdminString
+}
+
+cucsPowerGroupQualInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerGroupQualEntry 1 }
+
+cucsPowerGroupQualDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupQual:dn managed object property"
+    ::= { cucsPowerGroupQualEntry 2 }
+
+cucsPowerGroupQualRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupQual:rn managed object property"
+    ::= { cucsPowerGroupQualEntry 3 }
+
+cucsPowerGroupQualGroupName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupQual:groupName managed object property"
+    ::= { cucsPowerGroupQualEntry 4 }
+
+cucsPowerGroupStatsTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerGroupStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats managed object table"
+    ::= { cucsPowerObjects 7 }
+
+cucsPowerGroupStatsEntry OBJECT-TYPE
+    SYNTAX           CucsPowerGroupStatsEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerGroupStatsTable table."
+    INDEX { cucsPowerGroupStatsInstanceId }
+    ::= { cucsPowerGroupStatsTable 1 }
+
+CucsPowerGroupStatsEntry ::= SEQUENCE {
+    cucsPowerGroupStatsInstanceId                                    CucsManagedObjectId,
+    cucsPowerGroupStatsDn                                            CucsManagedObjectDn,
+    cucsPowerGroupStatsRn                                            SnmpAdminString,
+    cucsPowerGroupStatsIntervals                                     Gauge32,
+    cucsPowerGroupStatsPower                                         INTEGER,
+    cucsPowerGroupStatsPowerAvg                                      INTEGER,
+    cucsPowerGroupStatsPowerMax                                      INTEGER,
+    cucsPowerGroupStatsPowerMin                                      INTEGER,
+    cucsPowerGroupStatsSuspect                                       TruthValue,
+    cucsPowerGroupStatsThresholded                                   CucsPowerGroupStatsThresholded,
+    cucsPowerGroupStatsTimeCollected                                 DateAndTime,
+    cucsPowerGroupStatsUpdate                                        Gauge32
+}
+
+cucsPowerGroupStatsInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerGroupStatsEntry 1 }
+
+cucsPowerGroupStatsDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:dn managed object property"
+    ::= { cucsPowerGroupStatsEntry 2 }
+
+cucsPowerGroupStatsRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:rn managed object property"
+    ::= { cucsPowerGroupStatsEntry 3 }
+
+cucsPowerGroupStatsIntervals OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:intervals managed object property"
+    ::= { cucsPowerGroupStatsEntry 4 }
+
+cucsPowerGroupStatsPower OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:power managed object property"
+    ::= { cucsPowerGroupStatsEntry 5 }
+
+cucsPowerGroupStatsPowerAvg OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:powerAvg managed object property"
+    ::= { cucsPowerGroupStatsEntry 6 }
+
+cucsPowerGroupStatsPowerMax OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:powerMax managed object property"
+    ::= { cucsPowerGroupStatsEntry 7 }
+
+cucsPowerGroupStatsPowerMin OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:powerMin managed object property"
+    ::= { cucsPowerGroupStatsEntry 8 }
+
+cucsPowerGroupStatsSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:suspect managed object property"
+    ::= { cucsPowerGroupStatsEntry 9 }
+
+cucsPowerGroupStatsThresholded OBJECT-TYPE
+    SYNTAX       CucsPowerGroupStatsThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:thresholded managed object property"
+    ::= { cucsPowerGroupStatsEntry 10 }
+
+cucsPowerGroupStatsTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:timeCollected managed object property"
+    ::= { cucsPowerGroupStatsEntry 11 }
+
+cucsPowerGroupStatsUpdate OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStats:update managed object property"
+    ::= { cucsPowerGroupStatsEntry 12 }
+
+cucsPowerGroupStatsHistTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerGroupStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist managed object table"
+    ::= { cucsPowerObjects 8 }
+
+cucsPowerGroupStatsHistEntry OBJECT-TYPE
+    SYNTAX           CucsPowerGroupStatsHistEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerGroupStatsHistTable table."
+    INDEX { cucsPowerGroupStatsHistInstanceId }
+    ::= { cucsPowerGroupStatsHistTable 1 }
+
+CucsPowerGroupStatsHistEntry ::= SEQUENCE {
+    cucsPowerGroupStatsHistInstanceId                                CucsManagedObjectId,
+    cucsPowerGroupStatsHistDn                                        CucsManagedObjectDn,
+    cucsPowerGroupStatsHistRn                                        SnmpAdminString,
+    cucsPowerGroupStatsHistId                                        Unsigned64,
+    cucsPowerGroupStatsHistMostRecent                                TruthValue,
+    cucsPowerGroupStatsHistPower                                     INTEGER,
+    cucsPowerGroupStatsHistPowerAvg                                  INTEGER,
+    cucsPowerGroupStatsHistPowerMax                                  INTEGER,
+    cucsPowerGroupStatsHistPowerMin                                  INTEGER,
+    cucsPowerGroupStatsHistSuspect                                   TruthValue,
+    cucsPowerGroupStatsHistThresholded                               CucsPowerGroupStatsHistThresholded,
+    cucsPowerGroupStatsHistTimeCollected                             DateAndTime
+}
+
+cucsPowerGroupStatsHistInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerGroupStatsHistEntry 1 }
+
+cucsPowerGroupStatsHistDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:dn managed object property"
+    ::= { cucsPowerGroupStatsHistEntry 2 }
+
+cucsPowerGroupStatsHistRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:rn managed object property"
+    ::= { cucsPowerGroupStatsHistEntry 3 }
+
+cucsPowerGroupStatsHistId OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:id managed object property"
+    ::= { cucsPowerGroupStatsHistEntry 4 }
+
+cucsPowerGroupStatsHistMostRecent OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:mostRecent managed
+        object property"
+    ::= { cucsPowerGroupStatsHistEntry 5 }
+
+cucsPowerGroupStatsHistPower OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:power managed object property"
+    ::= { cucsPowerGroupStatsHistEntry 6 }
+
+cucsPowerGroupStatsHistPowerAvg OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:powerAvg managed object property"
+    ::= { cucsPowerGroupStatsHistEntry 7 }
+
+cucsPowerGroupStatsHistPowerMax OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:powerMax managed object property"
+    ::= { cucsPowerGroupStatsHistEntry 8 }
+
+cucsPowerGroupStatsHistPowerMin OBJECT-TYPE
+    SYNTAX       INTEGER
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:powerMin managed object property"
+    ::= { cucsPowerGroupStatsHistEntry 9 }
+
+cucsPowerGroupStatsHistSuspect OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:suspect managed object property"
+    ::= { cucsPowerGroupStatsHistEntry 10 }
+
+cucsPowerGroupStatsHistThresholded OBJECT-TYPE
+    SYNTAX       CucsPowerGroupStatsHistThresholded
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:thresholded managed
+        object property"
+    ::= { cucsPowerGroupStatsHistEntry 11 }
+
+cucsPowerGroupStatsHistTimeCollected OBJECT-TYPE
+    SYNTAX       DateAndTime
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:GroupStatsHist:timeCollected managed
+        object property"
+    ::= { cucsPowerGroupStatsHistEntry 12 }
+
+cucsPowerMgmtPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerMgmtPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy managed object table"
+    ::= { cucsPowerObjects 13 }
+
+cucsPowerMgmtPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsPowerMgmtPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerMgmtPolicyTable table."
+    INDEX { cucsPowerMgmtPolicyInstanceId }
+    ::= { cucsPowerMgmtPolicyTable 1 }
+
+CucsPowerMgmtPolicyEntry ::= SEQUENCE {
+    cucsPowerMgmtPolicyInstanceId                                    CucsManagedObjectId,
+    cucsPowerMgmtPolicyDn                                            CucsManagedObjectDn,
+    cucsPowerMgmtPolicyRn                                            SnmpAdminString,
+    cucsPowerMgmtPolicyDescr                                         SnmpAdminString,
+    cucsPowerMgmtPolicyIntId                                         SnmpAdminString,
+    cucsPowerMgmtPolicyName                                          SnmpAdminString,
+    cucsPowerMgmtPolicyStyle                                         CucsPowerMgmtStyle,
+    cucsPowerMgmtPolicyPolicyLevel                                   Gauge32,
+    cucsPowerMgmtPolicyPolicyOwner                                   CucsPolicyPolicyOwner,
+    cucsPowerMgmtPolicyProfiling                                     TruthValue,
+    cucsPowerMgmtPolicySkipPowerCheck                                TruthValue,
+    cucsPowerMgmtPolicySkipPowerDeployCheck                          TruthValue
+}
+
+cucsPowerMgmtPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerMgmtPolicyEntry 1 }
+
+cucsPowerMgmtPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:dn managed object property"
+    ::= { cucsPowerMgmtPolicyEntry 2 }
+
+cucsPowerMgmtPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:rn managed object property"
+    ::= { cucsPowerMgmtPolicyEntry 3 }
+
+cucsPowerMgmtPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:descr managed object property"
+    ::= { cucsPowerMgmtPolicyEntry 4 }
+
+cucsPowerMgmtPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:intId managed object property"
+    ::= { cucsPowerMgmtPolicyEntry 5 }
+
+cucsPowerMgmtPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:name managed object property"
+    ::= { cucsPowerMgmtPolicyEntry 6 }
+
+cucsPowerMgmtPolicyStyle OBJECT-TYPE
+    SYNTAX       CucsPowerMgmtStyle
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:style managed object property"
+    ::= { cucsPowerMgmtPolicyEntry 7 }
+
+cucsPowerMgmtPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:policyLevel managed object property"
+    ::= { cucsPowerMgmtPolicyEntry 8 }
+
+cucsPowerMgmtPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:policyOwner managed object property"
+    ::= { cucsPowerMgmtPolicyEntry 9 }
+
+cucsPowerMgmtPolicyProfiling OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:profiling managed object property"
+    ::= { cucsPowerMgmtPolicyEntry 10 }
+
+cucsPowerMgmtPolicySkipPowerCheck OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:skipPowerCheck managed
+        object property"
+    ::= { cucsPowerMgmtPolicyEntry 11 }
+
+cucsPowerMgmtPolicySkipPowerDeployCheck OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:MgmtPolicy:skipPowerDeployCheck
+        managed object property"
+    ::= { cucsPowerMgmtPolicyEntry 12 }
+
+cucsPowerPlacementTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerPlacementEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:Placement managed object table"
+    ::= { cucsPowerObjects 9 }
+
+cucsPowerPlacementEntry OBJECT-TYPE
+    SYNTAX           CucsPowerPlacementEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerPlacementTable table."
+    INDEX { cucsPowerPlacementInstanceId }
+    ::= { cucsPowerPlacementTable 1 }
+
+CucsPowerPlacementEntry ::= SEQUENCE {
+    cucsPowerPlacementInstanceId                                     CucsManagedObjectId,
+    cucsPowerPlacementDn                                             CucsManagedObjectDn,
+    cucsPowerPlacementRn                                             SnmpAdminString,
+    cucsPowerPlacementDescr                                          SnmpAdminString,
+    cucsPowerPlacementIntId                                          SnmpAdminString,
+    cucsPowerPlacementName                                           SnmpAdminString,
+    cucsPowerPlacementPeerReqConflict                                CucsPowerReqConflict,
+    cucsPowerPlacementPgName                                         SnmpAdminString,
+    cucsPowerPlacementPrioShare                                      CucsPowerPrioritySharing,
+    cucsPowerPlacementSelfReqConflict                                CucsPowerReqConflict,
+    cucsPowerPlacementPolicyLevel                                    Gauge32,
+    cucsPowerPlacementPolicyOwner                                    CucsPolicyPolicyOwner
+}
+
+cucsPowerPlacementInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerPlacementEntry 1 }
+
+cucsPowerPlacementDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:dn managed object property"
+    ::= { cucsPowerPlacementEntry 2 }
+
+cucsPowerPlacementRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:rn managed object property"
+    ::= { cucsPowerPlacementEntry 3 }
+
+cucsPowerPlacementDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:descr managed object property"
+    ::= { cucsPowerPlacementEntry 4 }
+
+cucsPowerPlacementIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:intId managed object property"
+    ::= { cucsPowerPlacementEntry 5 }
+
+cucsPowerPlacementName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:name managed object property"
+    ::= { cucsPowerPlacementEntry 6 }
+
+cucsPowerPlacementPeerReqConflict OBJECT-TYPE
+    SYNTAX       CucsPowerReqConflict
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:peerReqConflict managed
+        object property"
+    ::= { cucsPowerPlacementEntry 7 }
+
+cucsPowerPlacementPgName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:pgName managed object property"
+    ::= { cucsPowerPlacementEntry 8 }
+
+cucsPowerPlacementPrioShare OBJECT-TYPE
+    SYNTAX       CucsPowerPrioritySharing
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:prioShare managed object property"
+    ::= { cucsPowerPlacementEntry 9 }
+
+cucsPowerPlacementSelfReqConflict OBJECT-TYPE
+    SYNTAX       CucsPowerReqConflict
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:selfReqConflict managed
+        object property"
+    ::= { cucsPowerPlacementEntry 10 }
+
+cucsPowerPlacementPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:policyLevel managed object property"
+    ::= { cucsPowerPlacementEntry 11 }
+
+cucsPowerPlacementPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Placement:policyOwner managed object property"
+    ::= { cucsPowerPlacementEntry 12 }
+
+cucsPowerPolicyTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:Policy managed object table"
+    ::= { cucsPowerObjects 10 }
+
+cucsPowerPolicyEntry OBJECT-TYPE
+    SYNTAX           CucsPowerPolicyEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerPolicyTable table."
+    INDEX { cucsPowerPolicyInstanceId }
+    ::= { cucsPowerPolicyTable 1 }
+
+CucsPowerPolicyEntry ::= SEQUENCE {
+    cucsPowerPolicyInstanceId                                        CucsManagedObjectId,
+    cucsPowerPolicyDn                                                CucsManagedObjectDn,
+    cucsPowerPolicyRn                                                SnmpAdminString,
+    cucsPowerPolicyDescr                                             SnmpAdminString,
+    cucsPowerPolicyIntId                                             SnmpAdminString,
+    cucsPowerPolicyName                                              SnmpAdminString,
+    cucsPowerPolicyOperPrio                                          Gauge32,
+    cucsPowerPolicyPrio                                              Gauge32,
+    cucsPowerPolicyPolicyLevel                                       Gauge32,
+    cucsPowerPolicyPolicyOwner                                       CucsPolicyPolicyOwner,
+    cucsPowerPolicyPropAcl                                           Unsigned64,
+    cucsPowerPolicyFanSpeed                                          CucsPowerPolicyFanSpeed
+}
+
+cucsPowerPolicyInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerPolicyEntry 1 }
+
+cucsPowerPolicyDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:dn managed object property"
+    ::= { cucsPowerPolicyEntry 2 }
+
+cucsPowerPolicyRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:rn managed object property"
+    ::= { cucsPowerPolicyEntry 3 }
+
+cucsPowerPolicyDescr OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:descr managed object property"
+    ::= { cucsPowerPolicyEntry 4 }
+
+cucsPowerPolicyIntId OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:intId managed object property"
+    ::= { cucsPowerPolicyEntry 5 }
+
+cucsPowerPolicyName OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:name managed object property"
+    ::= { cucsPowerPolicyEntry 6 }
+
+cucsPowerPolicyOperPrio OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:operPrio managed object property"
+    ::= { cucsPowerPolicyEntry 7 }
+
+cucsPowerPolicyPrio OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:prio managed object property"
+    ::= { cucsPowerPolicyEntry 8 }
+
+cucsPowerPolicyPolicyLevel OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:policyLevel managed object property"
+    ::= { cucsPowerPolicyEntry 9 }
+
+cucsPowerPolicyPolicyOwner OBJECT-TYPE
+    SYNTAX       CucsPolicyPolicyOwner
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:policyOwner managed object property"
+    ::= { cucsPowerPolicyEntry 10 }
+
+cucsPowerPolicyPropAcl OBJECT-TYPE
+    SYNTAX       Unsigned64
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:propAcl managed object property"
+    ::= { cucsPowerPolicyEntry 11 }
+
+cucsPowerPolicyFanSpeed OBJECT-TYPE
+    SYNTAX       CucsPowerPolicyFanSpeed
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:Policy:fanSpeed managed object property"
+    ::= { cucsPowerPolicyEntry 12 }
+
+cucsPowerPrioWghtTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerPrioWghtEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:PrioWght managed object table"
+    ::= { cucsPowerObjects 11 }
+
+cucsPowerPrioWghtEntry OBJECT-TYPE
+    SYNTAX           CucsPowerPrioWghtEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerPrioWghtTable table."
+    INDEX { cucsPowerPrioWghtInstanceId }
+    ::= { cucsPowerPrioWghtTable 1 }
+
+CucsPowerPrioWghtEntry ::= SEQUENCE {
+    cucsPowerPrioWghtInstanceId                                      CucsManagedObjectId,
+    cucsPowerPrioWghtDn                                              CucsManagedObjectDn,
+    cucsPowerPrioWghtRn                                              SnmpAdminString,
+    cucsPowerPrioWghtPrio                                            Gauge32,
+    cucsPowerPrioWghtWeight                                          Gauge32
+}
+
+cucsPowerPrioWghtInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerPrioWghtEntry 1 }
+
+cucsPowerPrioWghtDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:PrioWght:dn managed object property"
+    ::= { cucsPowerPrioWghtEntry 2 }
+
+cucsPowerPrioWghtRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:PrioWght:rn managed object property"
+    ::= { cucsPowerPrioWghtEntry 3 }
+
+cucsPowerPrioWghtPrio OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:PrioWght:prio managed object property"
+    ::= { cucsPowerPrioWghtEntry 4 }
+
+cucsPowerPrioWghtWeight OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:PrioWght:weight managed object property"
+    ::= { cucsPowerPrioWghtEntry 5 }
+
+cucsPowerProfiledPowerTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerProfiledPowerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower managed object table"
+    ::= { cucsPowerObjects 14 }
+
+cucsPowerProfiledPowerEntry OBJECT-TYPE
+    SYNTAX           CucsPowerProfiledPowerEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerProfiledPowerTable table."
+    INDEX { cucsPowerProfiledPowerInstanceId }
+    ::= { cucsPowerProfiledPowerTable 1 }
+
+CucsPowerProfiledPowerEntry ::= SEQUENCE {
+    cucsPowerProfiledPowerInstanceId                                 CucsManagedObjectId,
+    cucsPowerProfiledPowerDn                                         CucsManagedObjectDn,
+    cucsPowerProfiledPowerRn                                         SnmpAdminString,
+    cucsPowerProfiledPowerAbsMinPostPower                            Gauge32,
+    cucsPowerProfiledPowerMaxAppPower                                Gauge32,
+    cucsPowerProfiledPowerMaxPostPower                               Gauge32,
+    cucsPowerProfiledPowerMinAppPower                                Gauge32,
+    cucsPowerProfiledPowerMinNormPostPower                           Gauge32,
+    cucsPowerProfiledPowerMinPostPower                               Gauge32,
+    cucsPowerProfiledPowerPreDiscoveryPower                          Gauge32,
+    cucsPowerProfiledPowerProfileRunTime                             Gauge32,
+    cucsPowerProfiledPowerProfiledBoot                               Gauge32,
+    cucsPowerProfiledPowerProfiledMax                                Gauge32,
+    cucsPowerProfiledPowerProfiledMin                                Gauge32,
+    cucsPowerProfiledPowerSkipProfiling                              TruthValue
+}
+
+cucsPowerProfiledPowerInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerProfiledPowerEntry 1 }
+
+cucsPowerProfiledPowerDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:dn managed object property"
+    ::= { cucsPowerProfiledPowerEntry 2 }
+
+cucsPowerProfiledPowerRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:rn managed object property"
+    ::= { cucsPowerProfiledPowerEntry 3 }
+
+cucsPowerProfiledPowerAbsMinPostPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:absMinPostPower
+        managed object property"
+    ::= { cucsPowerProfiledPowerEntry 4 }
+
+cucsPowerProfiledPowerMaxAppPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:maxAppPower managed
+        object property"
+    ::= { cucsPowerProfiledPowerEntry 5 }
+
+cucsPowerProfiledPowerMaxPostPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:maxPostPower managed
+        object property"
+    ::= { cucsPowerProfiledPowerEntry 6 }
+
+cucsPowerProfiledPowerMinAppPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:minAppPower managed
+        object property"
+    ::= { cucsPowerProfiledPowerEntry 7 }
+
+cucsPowerProfiledPowerMinNormPostPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:minNormPostPower
+        managed object property"
+    ::= { cucsPowerProfiledPowerEntry 8 }
+
+cucsPowerProfiledPowerMinPostPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:minPostPower managed
+        object property"
+    ::= { cucsPowerProfiledPowerEntry 9 }
+
+cucsPowerProfiledPowerPreDiscoveryPower OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:preDiscoveryPower
+        managed object property"
+    ::= { cucsPowerProfiledPowerEntry 10 }
+
+cucsPowerProfiledPowerProfileRunTime OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:profileRunTime managed
+        object property"
+    ::= { cucsPowerProfiledPowerEntry 11 }
+
+cucsPowerProfiledPowerProfiledBoot OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:profiledBoot managed
+        object property"
+    ::= { cucsPowerProfiledPowerEntry 12 }
+
+cucsPowerProfiledPowerProfiledMax OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:profiledMax managed
+        object property"
+    ::= { cucsPowerProfiledPowerEntry 13 }
+
+cucsPowerProfiledPowerProfiledMin OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:profiledMin managed
+        object property"
+    ::= { cucsPowerProfiledPowerEntry 14 }
+
+cucsPowerProfiledPowerSkipProfiling OBJECT-TYPE
+    SYNTAX       TruthValue
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:ProfiledPower:skipProfiling managed
+        object property"
+    ::= { cucsPowerProfiledPowerEntry 15 }
+
+cucsPowerRackUnitMemberTable OBJECT-TYPE
+    SYNTAX           SEQUENCE OF CucsPowerRackUnitMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Cisco UCS power:RackUnitMember managed object table"
+    ::= { cucsPowerObjects 12 }
+
+cucsPowerRackUnitMemberEntry OBJECT-TYPE
+    SYNTAX           CucsPowerRackUnitMemberEntry
+    MAX-ACCESS       not-accessible
+    STATUS           current
+    DESCRIPTION
+        "Entry for the cucsPowerRackUnitMemberTable table."
+    INDEX { cucsPowerRackUnitMemberInstanceId }
+    ::= { cucsPowerRackUnitMemberTable 1 }
+
+CucsPowerRackUnitMemberEntry ::= SEQUENCE {
+    cucsPowerRackUnitMemberInstanceId                                CucsManagedObjectId,
+    cucsPowerRackUnitMemberDn                                        CucsManagedObjectDn,
+    cucsPowerRackUnitMemberRn                                        SnmpAdminString,
+    cucsPowerRackUnitMemberId                                        Gauge32,
+    cucsPowerRackUnitMemberOperState                                 CucsPowerMemberState
+}
+
+cucsPowerRackUnitMemberInstanceId OBJECT-TYPE
+    SYNTAX       CucsManagedObjectId
+    MAX-ACCESS   not-accessible
+    STATUS       current
+    DESCRIPTION
+        "Instance identifier of the managed object."
+    ::= { cucsPowerRackUnitMemberEntry 1 }
+
+cucsPowerRackUnitMemberDn OBJECT-TYPE
+    SYNTAX       CucsManagedObjectDn
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:RackUnitMember:dn managed object property"
+    ::= { cucsPowerRackUnitMemberEntry 2 }
+
+cucsPowerRackUnitMemberRn OBJECT-TYPE
+    SYNTAX       SnmpAdminString
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:RackUnitMember:rn managed object property"
+    ::= { cucsPowerRackUnitMemberEntry 3 }
+
+cucsPowerRackUnitMemberId OBJECT-TYPE
+    SYNTAX       Gauge32
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:RackUnitMember:id managed object property"
+    ::= { cucsPowerRackUnitMemberEntry 4 }
+
+cucsPowerRackUnitMemberOperState OBJECT-TYPE
+    SYNTAX       CucsPowerMemberState
+    MAX-ACCESS   read-only
+    STATUS       current
+    DESCRIPTION
+        "Cisco UCS power:RackUnitMember:operState managed object property"
+    ::= { cucsPowerRackUnitMemberEntry 5 }
+
+END

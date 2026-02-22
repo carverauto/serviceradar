@@ -1,0 +1,45 @@
+-- MIB file created 31-May-2006 16:39:47, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+PCUBE-PRODUCTS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "PCUBE-PRODUCTS.my"
+-- Compile options "4 7 F H N O W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    pcubeProducts, pcubeModules
+            FROM PCUBE-SMI;
+
+pcubeProductsMIB OBJECT IDENTIFIER ::= { pcubeModules 2 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200201142000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--        Customer Service 
+--    
+--        Postal: 170 W Tasman Drive 
+--                San Jose, CA  95134 
+--                USA 
+--    
+--         Tel: +1 800 553-NETS 
+--    
+--        E-mail: cs-sce@cisco.com
+--  Descr
+--    This module defines the object identifiers that are 
+--    assigned to various hardware platforms, and hence are 
+--    returned as values for sysObjectID.
+--  RevDate
+--    200201142000Z
+--  RevDescr
+--    Initial version of this MIB module.
+
+sce100          OBJECT IDENTIFIER ::= { pcubeProducts 1 }
+sce1000         OBJECT IDENTIFIER ::= { pcubeProducts 2 }
+sce2000         OBJECT IDENTIFIER ::= { pcubeProducts 3 }
+
+
+END
+

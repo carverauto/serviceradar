@@ -1,0 +1,212 @@
+
+MIB compilers ...  What are they?  Why do you care?  What issues might
+you encounter and how can you workaround those issues?
+
+Most Network Management Systems (NMSs) provide a way for the user to
+"load" MIBs.  Loading a MIB is a way that an NMS can learn about new
+MIB objects - what their names are, what their object identifiers are,
+what kind of datatype (e.g. Counter) they are, etc, etc.
+
+Somewhere along the way, these loaded MIBs will need to be parsed.
+This may happen at the same time a MIB is loaded.  It may happen later,
+e.g. when an NMS application runs.  The software that performs the
+parsing is typically referred to as a "MIB compiler".
+
+In a perfect world, any syntactically correct MIB could be
+successfully parsed by any vendor's MIB compiler.  Unfortunately we
+do not live in a perfect world.  Different MIB compilers may exhibit
+different "quirks".
+
+Cisco makes continuous efforts to ensure that the MIBs published to
+customers are syntactically correct.  Cisco also attempts to avoid
+certain MIB constructs which may be legal, but have proven to be
+problematic in some of the more popular NMS products.  Despite these
+efforts it is not possible to satisfy the "quirks" one might find in
+all of the MIB compilers in the field - at least not with one set of
+MIB files.
+
+Below are some of the more common problems and how you might work
+around them.  It should be noted that if you encounter any of these
+problems with your vendor's MIB compiler (with the exception of the
+RFC 14xx vs RFC 19xx issue) it is due to a deficiency in that MIB
+compiler.  It is suggested that you urge your vendor(s) to fix their
+compiler(s).
+
+1) Mismatches on datatype definitions
+
+   For example:
+        MIB mumble defines
+                SomeDatatype ::= INTEGER(0..100)
+        MIB bumble defines
+                SomeDatatype ::= INTEGER(1..50)
+
+   or:
+        MIB mumble defines
+                SomeDatatype ::= DisplayString
+        MIB bumble defines
+                SomeDatatype ::= OCTET STRING (SIZE(0..255))
+
+   While this should (hopefully) never be the case for any Cisco MIBs,
+   these situations have been observed in several standard RFC MIBs.
+
+   Many times the former example is considered to be a trivial error
+   and the MIB will load successfully with a warning message.
+
+   Many times the latter example is considered to be a non-trivial
+   error (even though the two definitions are essentially equivalent)
+   and the MIB will not be successfully parsed
+
+   If your mib compiler treats these as an error and/or you wish to
+   get rid of the warning messages, pick one of the definitions and
+   edit the other MIBs that define this same datatype so that their
+   definition matches.
+
+2) Object Identifier redefinitions
+
+   You will likely encounter this is you load OLD-CISCO-CPU-MIB.my,
+   OLD-CISCO-ENV-MIB.my, OLD-CISCO-MEMORY-MIB.my and
+   OLD-CISCO-SYSTEM-MIB.my.  Although there certainly may be other
+   instances which cause this error.
+
+   The problem is that, for example:
+        OLD-CISCO-CPU-MIB.my defines
+                lcpu    OBJECT IDENTIFIER ::= { local 1 }
+        OLD-CISCO-ENV-MIB.my defines
+                lenv    OBJECT IDENTIFIER ::= { local 1 }
+
+   When loading these two MIBs, the MIB compiler may complain about
+   the lcpu OBJECT IDENTIFIER being redefined with a new name: lenv.
+   The OLD-CISCO-MEMORY-MIB.my and OLD-CISCO-SYSTEM-MIB.my similiarly
+   give new names to { local 1 }.
+
+   Often this is treated as a trivial error and the MIB will load
+   successfully with a warning message.
+
+   If the MIB will not load successfully, or you wish to get rid of
+   the warning message, pick one of the names and edit the other MIBs
+   so that all of the MIBs are using the same name.
+
+3) Definitions of built-in datatypes
+
+   Many MIB compilers have some built-in knowledge of some datatypes -
+   e.g. DisplayString.  Some of these compilers will complain if they
+   see a definition for these datatypes in a MIB - e.g. DisplayString
+   is defined in SNMPv2-TC.
+
+   The workaround is to remove or comment out the offending definition
+   in the MIB file.
+
+4) Alternate SIZEs
+
+   The following is a perfectly valid (syntactically) example:
+        MyDatatype ::= OCTET STRING (SIZE(0 | 5 | 20))
+   indicating that a value of type MyDatatype will either be 0, 5 or
+   20 octets in length.
+
+   Some MIB compilers do not like this syntax.  Usually a sufficient
+   workaround is to pick one of the sizes and remove the others.  It
+   is suggested that you keep the largest size.  For example, the
+   above example would be changed to:
+        MyDatatype ::= OCTET STRING (SIZE(20))
+
+5) "Odd" OBJECT IDENTIFIERs
+
+   I refer to these as "odd" because they do not refer to a node in
+   the SMI (like most OBJECT IDENTIFIERs do).  however they are
+   perfectly valid (syntactically).  A common example is the "null
+   object identifier" - i.e. "{ 0 0 }".  Some MIB compilers do not
+   care for OBJECT IDENTIFIERS which do not correspond to a node in
+   the SMI.  The following are examples of MIB syntax which could
+   cause problems for these compilers:
+
+        zeroDotZero OBJECT IDENTIFIER ::= { 0 0 }
+
+        myMIBObject OBJECT-TYPE
+            DEFVAL { {0 0} }
+
+   The workaround is to remove or comment out these types of
+   references in the MIB file.
+
+6) Trap definitions
+
+   In SNMPv1 MIBs, traps are defined via the TRAP-TYPE macro.  In
+   SNMPv2 MIBs, traps are defined via the NOTIFICATION-TYPE macro.
+
+   Some MIB compilers don't like to see these definitions in the MIB
+   files they are parsing (i.e. they do not support these macros).
+
+   If this is the case, you can remove the offending trap definitions,
+   or comment out the offending definitions (i.e. put the MIB comment
+   delimiter '--' at the beginning of the offensive lines).
+
+7) RFC 14xx based compilers vs RFC 19xx based compilers
+
+   RFCs 1442-52 define the "party-based SNMPv2".  These RFCs are
+   obsoleted by the newer Draft Standard RFCs 1902-08.
+   MIB-syntax-wise there are very few differences between these two
+   versions of SNMPv2.  However, there are some differences.
+
+   Cisco's MIBs are currently using the RFC 14xx rules.  It is
+   expected that the move to RFC 19xx will be made in the
+   not-too-distant future.
+
+   If your MIB compiler supports SNMPv2-style MIBs, it probably
+   supports one of these two versions of SNMPv2.  You should not have
+   any problems if your compiler is RFC 14xx based, however there is a
+   known problem with CISCO-TC.my if your compiler is RFC 19xx based.
+
+   If you don't know which version of SNMPv2 your compiler is based
+   on, try to load the CISCO-TC.my MIB.  If it loads successfully,
+   then you're fine.  If your compiler is RFC 19xx based it might
+   complain about the following line:
+
+        Unsigned32 ::= TEXTUAL-CONVENTION
+
+   Unsigned32 is a predefined datatype in RFC 19xx.  For this reason,
+   we provide an alternate version of CISCO-TC.my - namely
+   CISCO-TC-NO-U32.my, which, as the name implies, does not include a
+   definition for Unsigned32 (since the compiler already knows about
+   this datatype).  Load this MIB instead of CISCO-TC.my.
+
+   We now also have a PNNI-MIB-NO-U32.my. This is the same as
+   PNNI-MIB.my except that it does not include a definition for
+   Unsigned32. If you need the PNNI-MIB and are using an RFC 19xx
+   based compiler, load the NO-U32 version of this MIB.
+
+8) Load ordering
+
+   Many MIBs use definitions that are defined in other MIBs.  These
+   definitions are listed in the IMPORTS clause near the top of the
+   MIB.
+
+   If MIB mumble imports a definition from MIB bumble, some MIB
+   compilers require you to load MIB bumble prior to loading MIB
+   mumble.  If you get the load order wrong, the compiler will
+   probably complain about the things that were imported - claiming
+   that they are "undefined".
+
+   The following is a list of MIBs that many other MIBs import from,
+   and the order that these MIBs should be loaded.  This will probably
+   take care of 95% of your load order issues (i.e. most of the other
+   MIBs can be loaded in any order).
+
+        SNMPv2-SMI.my
+        SNMPv2-TC.my
+        SNMPv2-MIB.my
+        RFC1213-MIB.my
+        IF-MIB.my
+        CISCO-SMI.my
+        CISCO-PRODUCTS-MIB.my
+        CISCO-TC.my
+
+   NOTE: If you are loading the v1 versions of these MIBs, the MIB
+   filename will actually look like "IF-MIB-V1SMI.my" - i.e. a
+   "-V1SMI" is added to the name of MIBs that have been converted from
+   v2 to v1.  The exception to this is the RFC1213-MIB.my MIB, which
+   only exists as a v1 version (i.e. there is no
+   RFC1213-MIB-V1SMI.my).
+
+   If you attempt to load some other MIB and get complaints about
+   "undefined" items, look at what MIBs this MIB is importing from.
+   make sure that you have loaded all of these other MIBs first.
+

@@ -1,0 +1,1399 @@
+-- *****************************************************************
+-- PORT-MIB:  ME1200 Private MIB
+--
+--
+-- ****************************************************************
+
+ME1200-PORT-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION
+        FROM SNMPv2-TC
+    me1200SwitchMgmt
+        FROM CISCOME1200-MIB
+    ME1200DisplayString FROM ME1200-TC
+    ME1200InterfaceIndex FROM ME1200-TC
+    ME1200Unsigned8 FROM ME1200-TC
+    Counter64 FROM SNMPv2-SMI
+    Integer32 FROM SNMPv2-SMI
+    Unsigned32 FROM SNMPv2-SMI
+    TruthValue FROM SNMPv2-TC
+    ;
+
+me1200PortMib MODULE-IDENTITY
+    LAST-UPDATED "201605230000Z"
+    ORGANIZATION
+        "Cisco Systems, Inc"
+    CONTACT-INFO
+        "Cisco Systems, Inc
+        Customer Service
+        Postal: 170 W Tasman Drive
+        San Jose, CA 95134
+        USA
+        Tel: +1 800 553-NETS
+        E-mail: cs-me1200@cisco.com"
+    DESCRIPTION
+        "This is a private version of the PORT MIB"
+    REVISION    "201605230000Z"
+    DESCRIPTION
+        "Add SFP port speed information missing notification"
+    REVISION    "201605180000Z"
+    DESCRIPTION
+        "Add Ethernet admin speed incompatible notification"
+    REVISION    "201403110000Z"
+    DESCRIPTION
+        "Definition of type InterfaceIndex changed from Unsigned32 to Integer32
+         as it is used as index in some tables"
+    REVISION    "201402180000Z"
+    DESCRIPTION
+        "Do no use Unsigned32 for indexes"
+    REVISION    "201401290000Z"
+    DESCRIPTION
+        "Locate all objects under ciscoME1200MIB"
+    REVISION    "201310080000Z"
+    DESCRIPTION
+        "Initial version"
+    ::= { me1200SwitchMgmt 11 }
+
+
+ME1200PortDuplex ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration controls the interface duplex mode."
+    SYNTAX      INTEGER { forceFullDuplex(0), forceHalfDuplex(1), autoNegAdvertiseFdx(2), autoNegAdvertiseHdx(3), autoNegAdvertiseBoth(4) }
+
+ME1200PortFc ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration controls the interface flow control."
+    SYNTAX      INTEGER { off(0), on(1) }
+
+ME1200PortMedia ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration controls the interface media type."
+    SYNTAX      INTEGER { rj45(0), sfp(1), dual(2) }
+
+ME1200PortPhyVeriPhyStatus ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumerations show the VeriPhy status."
+    SYNTAX      INTEGER { correctlyTerminatedPair(0), openPair(1), shortPair(2), abnormalTermination(4), crossPairShortToPairA(8), crossPairShortToPairB(9), crossPairShortToPairC(10), crossPairShortToPairD(11), abnormalCrossPairCouplingToPairA(12), abnormalCrossPairCouplingToPairB(13), abnormalCrossPairCouplingToPairC(14), abnormalCrossPairCouplingToPairD(15), unknownResult(16), veriPhyRunning(17) }
+
+ME1200PortSFPTransceiver ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumerations show the SFP transceiver type."
+    SYNTAX      INTEGER { none(0), notSupported(1), sfp100FX(2), sfp1000BaseT(7), sfp1000BaseCx(8), sfp1000BaseSx(9), sfp1000BaseLx(10), sfp1000BaseX(11), sfp2G5(12), sfp5G(13), sfp10G(14) }
+
+ME1200PortSpeed ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumeration controls the interface speed."
+    SYNTAX      INTEGER { force10Mode(0), force100Mode(1), force1GMode(2), autoNegMode(3) }
+
+ME1200PortStatusSpeed ::= TEXTUAL-CONVENTION
+    STATUS      current
+    DESCRIPTION
+        "This enumerations show the current interface speed."
+    SYNTAX      INTEGER { undefined(0), speed10M(1), speed100M(2), speed1G(3), speed2G5(4), speed5G(5), speed10G(6), speed12G(7) }
+
+me1200PortObjects OBJECT IDENTIFIER
+    ::= { me1200PortMib 1 }
+
+me1200PortConfig OBJECT IDENTIFIER
+    ::= { me1200PortObjects 2 }
+
+me1200PortConfigTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PortConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table of the port interface parameters"
+    ::= { me1200PortConfig 1 }
+
+me1200PortConfigEntry OBJECT-TYPE
+    SYNTAX      ME1200PortConfigEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port interface has a set of parameters"
+    INDEX       { me1200PortConfigIfIndex }
+    ::= { me1200PortConfigTable 1 }
+
+ME1200PortConfigEntry ::= SEQUENCE {
+    me1200PortConfigIfIndex   ME1200InterfaceIndex,
+    me1200PortConfigShutdown      TruthValue,
+    me1200PortConfigSpeed     ME1200PortSpeed,
+    me1200PortConfigMediaType     ME1200PortMedia,
+    me1200PortConfigDuplex    ME1200PortDuplex,
+    me1200PortConfigFC    ME1200PortFc,
+    me1200PortConfigMTU   Unsigned32,
+    me1200PortConfigExcessiveRestart      TruthValue
+}
+
+me1200PortConfigIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200PortConfigEntry 1 }
+
+me1200PortConfigShutdown OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls whether interface is shutdown or powered up. Set to TRUE in
+         order to power down the interface."
+    ::= { me1200PortConfigEntry 2 }
+
+me1200PortConfigSpeed OBJECT-TYPE
+    SYNTAX      ME1200PortSpeed
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls the port speed."
+    ::= { me1200PortConfigEntry 3 }
+
+me1200PortConfigMediaType OBJECT-TYPE
+    SYNTAX      ME1200PortMedia
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls the port media type."
+    ::= { me1200PortConfigEntry 4 }
+
+me1200PortConfigDuplex OBJECT-TYPE
+    SYNTAX      ME1200PortDuplex
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls the port duplex. For setting duplex auto-negotiation it is
+         require that the port speed is set in auto-negotiation mode first. It
+         is only possible to set duplex to half duplex if the port speed is
+         either set to 10Mbit or 100Mbit forced speed."
+    ::= { me1200PortConfigEntry 5 }
+
+me1200PortConfigFC OBJECT-TYPE
+    SYNTAX      ME1200PortFc
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls the port flow control mode."
+    ::= { me1200PortConfigEntry 6 }
+
+me1200PortConfigMTU OBJECT-TYPE
+    SYNTAX      Unsigned32
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Controls the port's Maximum Transmission Unit."
+    ::= { me1200PortConfigEntry 7 }
+
+me1200PortConfigExcessiveRestart OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "TRUE to restart half-duplex back-off algorithm after 16 collisions.
+         FALSE to discard frame after 16 collisions"
+    ::= { me1200PortConfigEntry 8 }
+
+me1200PortStatus OBJECT IDENTIFIER
+    ::= { me1200PortObjects 3 }
+
+me1200PortInformationTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PortInformationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represents the status of the ports"
+    ::= { me1200PortStatus 1 }
+
+me1200PortInformationEntry OBJECT-TYPE
+    SYNTAX      ME1200PortInformationEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port interface has a set of status parameters"
+    INDEX       { me1200PortInformationIfIndex }
+    ::= { me1200PortInformationTable 1 }
+
+ME1200PortInformationEntry ::= SEQUENCE {
+    me1200PortInformationIfIndex      ME1200InterfaceIndex,
+    me1200PortInformationLink     TruthValue,
+    me1200PortInformationFdx      TruthValue,
+    me1200PortInformationFiber    TruthValue,
+    me1200PortInformationSpeed    ME1200PortStatusSpeed,
+    me1200PortInformationSFPType      ME1200PortSFPTransceiver,
+    me1200PortInformationSFPVendorName    ME1200DisplayString,
+    me1200PortInformationSFPVendorPN      ME1200DisplayString,
+    me1200PortInformationSFPVendorRev     ME1200DisplayString
+}
+
+me1200PortInformationIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200PortInformationEntry 1 }
+
+me1200PortInformationLink OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows whether interface has link."
+    ::= { me1200PortInformationEntry 2 }
+
+me1200PortInformationFdx OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows whether interface is running in full duplex."
+    ::= { me1200PortInformationEntry 3 }
+
+me1200PortInformationFiber OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows whether interface is a fiber link (fiber SFP or cu SFP)."
+    ::= { me1200PortInformationEntry 4 }
+
+me1200PortInformationSpeed OBJECT-TYPE
+    SYNTAX      ME1200PortStatusSpeed
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the current interface speed."
+    ::= { me1200PortInformationEntry 5 }
+
+me1200PortInformationSFPType OBJECT-TYPE
+    SYNTAX      ME1200PortSFPTransceiver
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the current interface SFP type."
+    ::= { me1200PortInformationEntry 6 }
+
+me1200PortInformationSFPVendorName OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..19))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the SFP vendor name."
+    ::= { me1200PortInformationEntry 7 }
+
+me1200PortInformationSFPVendorPN OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..19))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the SFP vendor Product Number."
+    ::= { me1200PortInformationEntry 8 }
+
+me1200PortInformationSFPVendorRev OBJECT-TYPE
+    SYNTAX      ME1200DisplayString (SIZE(0..5))
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the SFP vendor Revision."
+    ::= { me1200PortInformationEntry 9 }
+
+me1200PortStatistics OBJECT IDENTIFIER
+    ::= { me1200PortStatus 2 }
+
+me1200PortRmonStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PortRmonStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represents the port interface RMON statistics counters"
+    ::= { me1200PortStatistics 1 }
+
+me1200PortRmonStatisticsEntry OBJECT-TYPE
+    SYNTAX      ME1200PortRmonStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port interface has a set of statistics counters"
+    INDEX       { me1200PortRmonStatisticsIfIndex }
+    ::= { me1200PortRmonStatisticsTable 1 }
+
+ME1200PortRmonStatisticsEntry ::= SEQUENCE {
+    me1200PortRmonStatisticsIfIndex   ME1200InterfaceIndex,
+    me1200PortRmonStatisticsRxDropEvents      Counter64,
+    me1200PortRmonStatisticsRxOctects     Counter64,
+    me1200PortRmonStatisticsRxPkts    Counter64,
+    me1200PortRmonStatisticsRxBroadcastPkts   Counter64,
+    me1200PortRmonStatisticsRxMulticastPkts   Counter64,
+    me1200PortRmonStatisticsRxCrcAlignErrPkts     Counter64,
+    me1200PortRmonStatisticsRxUndersizePkts   Counter64,
+    me1200PortRmonStatisticsRxOverizePkts     Counter64,
+    me1200PortRmonStatisticsRxFragmentsPkts   Counter64,
+    me1200PortRmonStatisticsRxJabbersPkts     Counter64,
+    me1200PortRmonStatisticsRx64Pkts      Counter64,
+    me1200PortRmonStatisticsRx65to127Pkts     Counter64,
+    me1200PortRmonStatisticsRx128to255Pkts    Counter64,
+    me1200PortRmonStatisticsRx256to511Pkts    Counter64,
+    me1200PortRmonStatisticsRx512to1023Pkts   Counter64,
+    me1200PortRmonStatisticsRx1024to1518Pkts      Counter64,
+    me1200PortRmonStatisticsRx1519PktsToMax   Counter64,
+    me1200PortRmonStatisticsTxDropEvents      Counter64,
+    me1200PortRmonStatisticsTxOctects     Counter64,
+    me1200PortRmonStatisticsTxPkts    Counter64,
+    me1200PortRmonStatisticsTxBroadcastPkts   Counter64,
+    me1200PortRmonStatisticsTxMulticastPkts   Counter64,
+    me1200PortRmonStatisticsTx64Pkts      Counter64,
+    me1200PortRmonStatisticsTx65to127Pkts     Counter64,
+    me1200PortRmonStatisticsTx128to255Pkts    Counter64,
+    me1200PortRmonStatisticsTx256to511Pkts    Counter64,
+    me1200PortRmonStatisticsTx512to1023Pkts   Counter64,
+    me1200PortRmonStatisticsTx1024to1518Pkts      Counter64,
+    me1200PortRmonStatisticsTx1519PktsToMax   Counter64
+}
+
+me1200PortRmonStatisticsIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200PortRmonStatisticsEntry 1 }
+
+me1200PortRmonStatisticsRxDropEvents OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of frames discarded due to ingress congestion."
+    ::= { me1200PortRmonStatisticsEntry 2 }
+
+me1200PortRmonStatisticsRxOctects OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of received (good and bad) bytes. Includes FCS, but
+         excludes framing bits."
+    ::= { me1200PortRmonStatisticsEntry 3 }
+
+me1200PortRmonStatisticsRxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of received (good and bad) packets."
+    ::= { me1200PortRmonStatisticsEntry 4 }
+
+me1200PortRmonStatisticsRxBroadcastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of received (good and bad) broadcast packets."
+    ::= { me1200PortRmonStatisticsEntry 5 }
+
+me1200PortRmonStatisticsRxMulticastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of received (good and bad) multicast packets."
+    ::= { me1200PortRmonStatisticsEntry 6 }
+
+me1200PortRmonStatisticsRxCrcAlignErrPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of frames received with CRC or alignment errors."
+    ::= { me1200PortRmonStatisticsEntry 7 }
+
+me1200PortRmonStatisticsRxUndersizePkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of short frames (frames that are smaller than 64
+         bytes) received with valid CRC."
+    ::= { me1200PortRmonStatisticsEntry 8 }
+
+me1200PortRmonStatisticsRxOverizePkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of long frames received with valid CRC."
+    ::= { me1200PortRmonStatisticsEntry 9 }
+
+me1200PortRmonStatisticsRxFragmentsPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of short frames (frames that are smaller than 64
+         bytes) received with invalid CRC."
+    ::= { me1200PortRmonStatisticsEntry 10 }
+
+me1200PortRmonStatisticsRxJabbersPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of long frames (frames that are longer than the configured
+         maximum frame length for this interface) received with invalid CRC."
+    ::= { me1200PortRmonStatisticsEntry 11 }
+
+me1200PortRmonStatisticsRx64Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of 64 bytes frames received."
+    ::= { me1200PortRmonStatisticsEntry 12 }
+
+me1200PortRmonStatisticsRx65to127Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of received frames with size within 65 to 127 bytes."
+    ::= { me1200PortRmonStatisticsEntry 13 }
+
+me1200PortRmonStatisticsRx128to255Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of received frames with size within 128 to 255 bytes."
+    ::= { me1200PortRmonStatisticsEntry 14 }
+
+me1200PortRmonStatisticsRx256to511Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of received frames with size within 256 to 511 bytes."
+    ::= { me1200PortRmonStatisticsEntry 15 }
+
+me1200PortRmonStatisticsRx512to1023Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of received frames with size within 512 to 1023 bytes."
+    ::= { me1200PortRmonStatisticsEntry 16 }
+
+me1200PortRmonStatisticsRx1024to1518Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of received frames with size within 1024 to 1518 bytes."
+    ::= { me1200PortRmonStatisticsEntry 17 }
+
+me1200PortRmonStatisticsRx1519PktsToMax OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of received frames with size larger than 1518 bytes."
+    ::= { me1200PortRmonStatisticsEntry 18 }
+
+me1200PortRmonStatisticsTxDropEvents OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of frames discarded due to egress congestion."
+    ::= { me1200PortRmonStatisticsEntry 19 }
+
+me1200PortRmonStatisticsTxOctects OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of transmitted (good and bad) bytes. Includes FCS, but
+         excludes framing bits."
+    ::= { me1200PortRmonStatisticsEntry 20 }
+
+me1200PortRmonStatisticsTxPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of transmitted (good and bad) packets."
+    ::= { me1200PortRmonStatisticsEntry 21 }
+
+me1200PortRmonStatisticsTxBroadcastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of transmitted (good and bad) broadcast packets."
+    ::= { me1200PortRmonStatisticsEntry 22 }
+
+me1200PortRmonStatisticsTxMulticastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of transmitted (good and bad) multicast packets."
+    ::= { me1200PortRmonStatisticsEntry 23 }
+
+me1200PortRmonStatisticsTx64Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of 64 bytes frames transmitted."
+    ::= { me1200PortRmonStatisticsEntry 24 }
+
+me1200PortRmonStatisticsTx65to127Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of transmitted frames with size within 65 to 127 bytes."
+    ::= { me1200PortRmonStatisticsEntry 25 }
+
+me1200PortRmonStatisticsTx128to255Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of transmitted frames with size within 128 to 255 bytes."
+    ::= { me1200PortRmonStatisticsEntry 26 }
+
+me1200PortRmonStatisticsTx256to511Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of transmitted frames with size within 256 to 511 bytes."
+    ::= { me1200PortRmonStatisticsEntry 27 }
+
+me1200PortRmonStatisticsTx512to1023Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of transmitted frames with size within 512 to 1023 bytes."
+    ::= { me1200PortRmonStatisticsEntry 28 }
+
+me1200PortRmonStatisticsTx1024to1518Pkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of transmitted frames with size within 1024 to 1518 bytes."
+    ::= { me1200PortRmonStatisticsEntry 29 }
+
+me1200PortRmonStatisticsTx1519PktsToMax OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of transmitted frames with size larger than 1518 bytes."
+    ::= { me1200PortRmonStatisticsEntry 30 }
+
+me1200PortIfGroupStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PortIfGroupStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represents the port interfaces group (RFC 2863) counters"
+    ::= { me1200PortStatistics 2 }
+
+me1200PortIfGroupStatisticsEntry OBJECT-TYPE
+    SYNTAX      ME1200PortIfGroupStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port interface has a set of statistics counters"
+    INDEX       { me1200PortIfGroupStatisticsIfIndex }
+    ::= { me1200PortIfGroupStatisticsTable 1 }
+
+ME1200PortIfGroupStatisticsEntry ::= SEQUENCE {
+    me1200PortIfGroupStatisticsIfIndex    ME1200InterfaceIndex,
+    me1200PortIfGroupStatisticsRxOctets   Counter64,
+    me1200PortIfGroupStatisticsRxUnicastPkts      Counter64,
+    me1200PortIfGroupStatisticsRxMulticastPkts    Counter64,
+    me1200PortIfGroupStatisticsRxBroadcastPkts    Counter64,
+    me1200PortIfGroupStatisticsRxNonUnicastPkts   Counter64,
+    me1200PortIfGroupStatisticsRxDiscards     Counter64,
+    me1200PortIfGroupStatisticsRxErrors   Counter64,
+    me1200PortIfGroupStatisticsTxOctets   Counter64,
+    me1200PortIfGroupStatisticsTxUnicastPkts      Counter64,
+    me1200PortIfGroupStatisticsTxMulticastPkts    Counter64,
+    me1200PortIfGroupStatisticsTxBroadcastPkts    Counter64,
+    me1200PortIfGroupStatisticsTxNonUnicastPkts   Counter64,
+    me1200PortIfGroupStatisticsTxDiscardPkts      Counter64,
+    me1200PortIfGroupStatisticsTxErrorPkts    Counter64
+}
+
+me1200PortIfGroupStatisticsIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200PortIfGroupStatisticsEntry 1 }
+
+me1200PortIfGroupStatisticsRxOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of bytes received."
+    ::= { me1200PortIfGroupStatisticsEntry 2 }
+
+me1200PortIfGroupStatisticsRxUnicastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of uni-cast frames received."
+    ::= { me1200PortIfGroupStatisticsEntry 3 }
+
+me1200PortIfGroupStatisticsRxMulticastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of multi-cast frames received."
+    ::= { me1200PortIfGroupStatisticsEntry 4 }
+
+me1200PortIfGroupStatisticsRxBroadcastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of broad-cast frames received."
+    ::= { me1200PortIfGroupStatisticsEntry 5 }
+
+me1200PortIfGroupStatisticsRxNonUnicastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of non uni-cast frames received."
+    ::= { me1200PortIfGroupStatisticsEntry 6 }
+
+me1200PortIfGroupStatisticsRxDiscards OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of received frames discarded."
+    ::= { me1200PortIfGroupStatisticsEntry 7 }
+
+me1200PortIfGroupStatisticsRxErrors OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of frames with errors received."
+    ::= { me1200PortIfGroupStatisticsEntry 8 }
+
+me1200PortIfGroupStatisticsTxOctets OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of bytes transmitted."
+    ::= { me1200PortIfGroupStatisticsEntry 9 }
+
+me1200PortIfGroupStatisticsTxUnicastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of uni-cast frames transmitted."
+    ::= { me1200PortIfGroupStatisticsEntry 10 }
+
+me1200PortIfGroupStatisticsTxMulticastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of multi-cast frames transmitted."
+    ::= { me1200PortIfGroupStatisticsEntry 11 }
+
+me1200PortIfGroupStatisticsTxBroadcastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of broad-cast frames transmitted."
+    ::= { me1200PortIfGroupStatisticsEntry 12 }
+
+me1200PortIfGroupStatisticsTxNonUnicastPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of non uni-cast frames transmitted."
+    ::= { me1200PortIfGroupStatisticsEntry 13 }
+
+me1200PortIfGroupStatisticsTxDiscardPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of discard frames which should been transmitted."
+    ::= { me1200PortIfGroupStatisticsEntry 14 }
+
+me1200PortIfGroupStatisticsTxErrorPkts OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "Shows the number of frames transmit with error."
+    ::= { me1200PortIfGroupStatisticsEntry 15 }
+
+me1200PortEthernetLikeStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PortEthernetLikeStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represents the port Ethernet-like interfaces counters"
+    ::= { me1200PortStatistics 3 }
+
+me1200PortEthernetLikeStatisticsEntry OBJECT-TYPE
+    SYNTAX      ME1200PortEthernetLikeStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port interface has a set of statistics counters"
+    INDEX       { me1200PortEthernetLikeStatisticsIfIndex }
+    ::= { me1200PortEthernetLikeStatisticsTable 1 }
+
+ME1200PortEthernetLikeStatisticsEntry ::= SEQUENCE {
+    me1200PortEthernetLikeStatisticsIfIndex   ME1200InterfaceIndex,
+    me1200PortEthernetLikeStatisticsRxPauseFrames     Counter64,
+    me1200PortEthernetLikeStatisticsTxPauseFrames     Counter64
+}
+
+me1200PortEthernetLikeStatisticsIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200PortEthernetLikeStatisticsEntry 1 }
+
+me1200PortEthernetLikeStatisticsRxPauseFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of pause frames received."
+    ::= { me1200PortEthernetLikeStatisticsEntry 2 }
+
+me1200PortEthernetLikeStatisticsTxPauseFrames OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of pause frames transmitted."
+    ::= { me1200PortEthernetLikeStatisticsEntry 3 }
+
+me1200PortQueuesStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PortQueuesStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represents the port interfaces queues counters"
+    ::= { me1200PortStatistics 4 }
+
+me1200PortQueuesStatisticsEntry OBJECT-TYPE
+    SYNTAX      ME1200PortQueuesStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port interface has a set of statistics counters"
+    INDEX       { me1200PortQueuesStatisticsIfIndex, me1200PortQueuesStatisticsQueue }
+    ::= { me1200PortQueuesStatisticsTable 1 }
+
+ME1200PortQueuesStatisticsEntry ::= SEQUENCE {
+    me1200PortQueuesStatisticsIfIndex     ME1200InterfaceIndex,
+    me1200PortQueuesStatisticsQueue   Integer32,
+    me1200PortQueuesStatisticsRxPrio      Counter64,
+    me1200PortQueuesStatisticsTxPrio      Counter64
+}
+
+me1200PortQueuesStatisticsIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200PortQueuesStatisticsEntry 1 }
+
+me1200PortQueuesStatisticsQueue OBJECT-TYPE
+    SYNTAX      Integer32 (0..7)
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Queue index."
+    ::= { me1200PortQueuesStatisticsEntry 2 }
+
+me1200PortQueuesStatisticsRxPrio OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of frames received for the queue."
+    ::= { me1200PortQueuesStatisticsEntry 3 }
+
+me1200PortQueuesStatisticsTxPrio OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of frames transmitted for the queue."
+    ::= { me1200PortQueuesStatisticsEntry 4 }
+
+me1200PortBridgeStatisticsTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PortBridgeStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represents the port interface bridge counters"
+    ::= { me1200PortStatistics 5 }
+
+me1200PortBridgeStatisticsEntry OBJECT-TYPE
+    SYNTAX      ME1200PortBridgeStatisticsEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port interface has a set of statistics counters"
+    INDEX       { me1200PortBridgeStatisticsIfIndex }
+    ::= { me1200PortBridgeStatisticsTable 1 }
+
+ME1200PortBridgeStatisticsEntry ::= SEQUENCE {
+    me1200PortBridgeStatisticsIfIndex     ME1200InterfaceIndex,
+    me1200PortBridgeStatisticsRxBridgeDiscard     Counter64
+}
+
+me1200PortBridgeStatisticsIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200PortBridgeStatisticsEntry 1 }
+
+me1200PortBridgeStatisticsRxBridgeDiscard OBJECT-TYPE
+    SYNTAX      Counter64
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "The number of bridge frames discarded."
+    ::= { me1200PortBridgeStatisticsEntry 2 }
+
+me1200PortVeriPhyResult OBJECT IDENTIFIER
+    ::= { me1200PortStatus 3 }
+
+me1200PortVeriPhyResultTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PortVeriPhyResultEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This table represents the VeriPhy result from the last VeriPhy run for
+         the interface"
+    ::= { me1200PortVeriPhyResult 1 }
+
+me1200PortVeriPhyResultEntry OBJECT-TYPE
+    SYNTAX      ME1200PortVeriPhyResultEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of VeriPhy results"
+    INDEX       { me1200PortVeriPhyResultIfIndex }
+    ::= { me1200PortVeriPhyResultTable 1 }
+
+ME1200PortVeriPhyResultEntry ::= SEQUENCE {
+    me1200PortVeriPhyResultIfIndex    ME1200InterfaceIndex,
+    me1200PortVeriPhyResultVeriPhyStatusPairA     ME1200PortPhyVeriPhyStatus,
+    me1200PortVeriPhyResultVeriPhyStatusPairB     ME1200PortPhyVeriPhyStatus,
+    me1200PortVeriPhyResultVeriPhyStatusPairC     ME1200PortPhyVeriPhyStatus,
+    me1200PortVeriPhyResultVeriPhyStatusPairD     ME1200PortPhyVeriPhyStatus,
+    me1200PortVeriPhyResultVeriPhyLengthStatusPairA   ME1200Unsigned8,
+    me1200PortVeriPhyResultVeriPhyLengthStatusPairB   ME1200Unsigned8,
+    me1200PortVeriPhyResultVeriPhyLengthStatusPairC   ME1200Unsigned8,
+    me1200PortVeriPhyResultVeriPhyLengthStatusPairD   ME1200Unsigned8
+}
+
+me1200PortVeriPhyResultIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200PortVeriPhyResultEntry 1 }
+
+me1200PortVeriPhyResultVeriPhyStatusPairA OBJECT-TYPE
+    SYNTAX      ME1200PortPhyVeriPhyStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "VeriPhy status for the cable pair
+         
+         0 - Cable is Correctly terminated pair
+         
+         1 - Open pair
+         
+         2 - Shorted pair
+         
+         4 - Abnormal termination
+         
+         8 - Cross-pair short to pair A
+         
+         9 - Cross-pair short to pair B
+         
+         10 - Cross-pair short to pair C
+         
+         11 - Cross-pair short to pair D
+         
+         12 - Abnormal cross-pair coupling - pair A
+         
+         13 - Abnormal cross-pair coupling - pair B
+         
+         14 - Abnormal cross-pair coupling - pair C
+         
+         15 - Abnormal cross-pair coupling - pair D"
+    ::= { me1200PortVeriPhyResultEntry 2 }
+
+me1200PortVeriPhyResultVeriPhyStatusPairB OBJECT-TYPE
+    SYNTAX      ME1200PortPhyVeriPhyStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "VeriPhy status for the cable pair
+         
+         0 - Cable is Correctly terminated pair
+         
+         1 - Open pair
+         
+         2 - Shorted pair
+         
+         4 - Abnormal termination
+         
+         8 - Cross-pair short to pair A
+         
+         9 - Cross-pair short to pair B
+         
+         10 - Cross-pair short to pair C
+         
+         11 - Cross-pair short to pair D
+         
+         12 - Abnormal cross-pair coupling - pair A
+         
+         13 - Abnormal cross-pair coupling - pair B
+         
+         14 - Abnormal cross-pair coupling - pair C
+         
+         15 - Abnormal cross-pair coupling - pair D"
+    ::= { me1200PortVeriPhyResultEntry 3 }
+
+me1200PortVeriPhyResultVeriPhyStatusPairC OBJECT-TYPE
+    SYNTAX      ME1200PortPhyVeriPhyStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "VeriPhy status for the cable pair
+         
+         0 - Cable is Correctly terminated pair
+         
+         1 - Open pair
+         
+         2 - Shorted pair
+         
+         4 - Abnormal termination
+         
+         8 - Cross-pair short to pair A
+         
+         9 - Cross-pair short to pair B
+         
+         10 - Cross-pair short to pair C
+         
+         11 - Cross-pair short to pair D
+         
+         12 - Abnormal cross-pair coupling - pair A
+         
+         13 - Abnormal cross-pair coupling - pair B
+         
+         14 - Abnormal cross-pair coupling - pair C
+         
+         15 - Abnormal cross-pair coupling - pair D"
+    ::= { me1200PortVeriPhyResultEntry 4 }
+
+me1200PortVeriPhyResultVeriPhyStatusPairD OBJECT-TYPE
+    SYNTAX      ME1200PortPhyVeriPhyStatus
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "VeriPhy status for the cable pair
+         
+         0 - Cable is Correctly terminated pair
+         
+         1 - Open pair
+         
+         2 - Shorted pair
+         
+         4 - Abnormal termination
+         
+         8 - Cross-pair short to pair A
+         
+         9 - Cross-pair short to pair B
+         
+         10 - Cross-pair short to pair C
+         
+         11 - Cross-pair short to pair D
+         
+         12 - Abnormal cross-pair coupling - pair A
+         
+         13 - Abnormal cross-pair coupling - pair B
+         
+         14 - Abnormal cross-pair coupling - pair C
+         
+         15 - Abnormal cross-pair coupling - pair D"
+    ::= { me1200PortVeriPhyResultEntry 5 }
+
+me1200PortVeriPhyResultVeriPhyLengthStatusPairA OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "VeriPhy status cable length i meters for the cable pair. When VeriPhy
+         is completed, the cable diagnostics results is shown in the VeriPhy
+         status table. Note that VeriPHY is only accurate for cables of length 7
+         - 140 meters.
+         
+         The resolution is 3 meters"
+    ::= { me1200PortVeriPhyResultEntry 6 }
+
+me1200PortVeriPhyResultVeriPhyLengthStatusPairB OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "VeriPhy status cable length i meters for the cable pair. When VeriPhy
+         is completed, the cable diagnostics results is shown in the VeriPhy
+         status table. Note that VeriPHY is only accurate for cables of length 7
+         - 140 meters.
+         
+         The resolution is 3 meters"
+    ::= { me1200PortVeriPhyResultEntry 7 }
+
+me1200PortVeriPhyResultVeriPhyLengthStatusPairC OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "VeriPhy status cable length i meters for the cable pair. When VeriPhy
+         is completed, the cable diagnostics results is shown in the VeriPhy
+         status table. Note that VeriPHY is only accurate for cables of length 7
+         - 140 meters.
+         
+         The resolution is 3 meters"
+    ::= { me1200PortVeriPhyResultEntry 8 }
+
+me1200PortVeriPhyResultVeriPhyLengthStatusPairD OBJECT-TYPE
+    SYNTAX      ME1200Unsigned8
+    MAX-ACCESS  read-only
+    STATUS      current
+    DESCRIPTION 
+        "VeriPhy status cable length i meters for the cable pair. When VeriPhy
+         is completed, the cable diagnostics results is shown in the VeriPhy
+         status table. Note that VeriPHY is only accurate for cables of length 7
+         - 140 meters.
+         
+         The resolution is 3 meters"
+    ::= { me1200PortVeriPhyResultEntry 9 }
+
+me1200PortControl OBJECT IDENTIFIER
+    ::= { me1200PortObjects 4 }
+
+me1200PortStatisticsClear OBJECT IDENTIFIER
+    ::= { me1200PortControl 1 }
+
+me1200PortStatsClearTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PortStatsClearEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to clear port Interface statistics"
+    ::= { me1200PortStatisticsClear 1 }
+
+me1200PortStatsClearEntry OBJECT-TYPE
+    SYNTAX      ME1200PortStatsClearEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of control parameters"
+    INDEX       { me1200PortStatsClearIfIndex }
+    ::= { me1200PortStatsClearTable 1 }
+
+ME1200PortStatsClearEntry ::= SEQUENCE {
+    me1200PortStatsClearIfIndex   ME1200InterfaceIndex,
+    me1200PortStatsClearStatisticsClear   TruthValue
+}
+
+me1200PortStatsClearIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200PortStatsClearEntry 1 }
+
+me1200PortStatsClearStatisticsClear OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to TRUE to clear the statistics of an interface."
+    ::= { me1200PortStatsClearEntry 2 }
+
+me1200PortVeriPhyStart OBJECT IDENTIFIER
+    ::= { me1200PortControl 2 }
+
+me1200PortVeriPhyStartTable OBJECT-TYPE
+    SYNTAX      SEQUENCE OF ME1200PortVeriPhyStartEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "This is a table to start VeriPhy for the interface"
+    ::= { me1200PortVeriPhyStart 1 }
+
+me1200PortVeriPhyStartEntry OBJECT-TYPE
+    SYNTAX      ME1200PortVeriPhyStartEntry
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Each port has a set of control parameters"
+    INDEX       { me1200PortVeriPhyStartIfIndex }
+    ::= { me1200PortVeriPhyStartTable 1 }
+
+ME1200PortVeriPhyStartEntry ::= SEQUENCE {
+    me1200PortVeriPhyStartIfIndex     ME1200InterfaceIndex,
+    me1200PortVeriPhyStartStart   TruthValue
+}
+
+me1200PortVeriPhyStartIfIndex OBJECT-TYPE
+    SYNTAX      ME1200InterfaceIndex
+    MAX-ACCESS  not-accessible
+    STATUS      current
+    DESCRIPTION 
+        "Logical interface number."
+    ::= { me1200PortVeriPhyStartEntry 1 }
+
+me1200PortVeriPhyStartStart OBJECT-TYPE
+    SYNTAX      TruthValue
+    MAX-ACCESS  read-write
+    STATUS      current
+    DESCRIPTION 
+        "Set to TRUE to start VeriPHy for the interface.
+         
+         When running 10 and 100 Mbps, ports will be linked down while running
+         VeriPHY. Therefore, running VeriPHY on a 10 or 100 Mbps management port
+         will cause the switch to stop responding until VeriPHY is complete."
+    ::= { me1200PortVeriPhyStartEntry 2 }
+
+me1200PortNotificationPrefix OBJECT IDENTIFIER
+    ::= { me1200PortObjects 5 }
+
+me1200PortNotification OBJECT IDENTIFIER
+    ::= { me1200PortNotificationPrefix 0 }
+
+me1200PortNotificationEthAmdinSpeedIncompatible NOTIFICATION-TYPE
+    OBJECTS { me1200PortConfigSpeed,
+              me1200PortInformationSpeed,
+              me1200PortInformationSFPType }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the Ethernet port administrative speed doesn't match the speed of the SFP transceiver installed."
+   ::= { me1200PortNotification 1 }
+
+me1200PortNotificationSFPSpeedInfoMissing NOTIFICATION-TYPE
+    OBJECTS { me1200PortInformationSFPType }
+    STATUS        current
+    DESCRIPTION
+            "Notification is sent when the SFP transceiver type is unsupported."
+   ::= { me1200PortNotification 2 }
+
+me1200PortMibConformance OBJECT IDENTIFIER
+    ::= { me1200PortMib 3 }
+
+me1200PortMibCompliances OBJECT IDENTIFIER
+    ::= { me1200PortMibConformance 1 }
+
+me1200PortMibGroups OBJECT IDENTIFIER
+    ::= { me1200PortMibConformance 2 }
+
+me1200PortConfigInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PortConfigShutdown, me1200PortConfigSpeed, 
+                  me1200PortConfigMediaType, me1200PortConfigDuplex, me1200PortConfigFC, 
+                  me1200PortConfigMTU, me1200PortConfigExcessiveRestart }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 1 }
+
+me1200PortInformationTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PortInformationLink, me1200PortInformationFdx, 
+                  me1200PortInformationFiber, me1200PortInformationSpeed, 
+                  me1200PortInformationSFPType, me1200PortInformationSFPVendorName, 
+                  me1200PortInformationSFPVendorPN, 
+                  me1200PortInformationSFPVendorRev }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 2 }
+
+me1200PortRmonStatisticsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PortRmonStatisticsRxDropEvents, 
+                  me1200PortRmonStatisticsRxOctects, me1200PortRmonStatisticsRxPkts, 
+                  me1200PortRmonStatisticsRxBroadcastPkts, 
+                  me1200PortRmonStatisticsRxMulticastPkts, 
+                  me1200PortRmonStatisticsRxCrcAlignErrPkts, 
+                  me1200PortRmonStatisticsRxUndersizePkts, 
+                  me1200PortRmonStatisticsRxOverizePkts, 
+                  me1200PortRmonStatisticsRxFragmentsPkts, 
+                  me1200PortRmonStatisticsRxJabbersPkts, 
+                  me1200PortRmonStatisticsRx64Pkts, 
+                  me1200PortRmonStatisticsRx65to127Pkts, 
+                  me1200PortRmonStatisticsRx128to255Pkts, 
+                  me1200PortRmonStatisticsRx256to511Pkts, 
+                  me1200PortRmonStatisticsRx512to1023Pkts, 
+                  me1200PortRmonStatisticsRx1024to1518Pkts, 
+                  me1200PortRmonStatisticsRx1519PktsToMax, 
+                  me1200PortRmonStatisticsTxDropEvents, 
+                  me1200PortRmonStatisticsTxOctects, me1200PortRmonStatisticsTxPkts, 
+                  me1200PortRmonStatisticsTxBroadcastPkts, 
+                  me1200PortRmonStatisticsTxMulticastPkts, 
+                  me1200PortRmonStatisticsTx64Pkts, 
+                  me1200PortRmonStatisticsTx65to127Pkts, 
+                  me1200PortRmonStatisticsTx128to255Pkts, 
+                  me1200PortRmonStatisticsTx256to511Pkts, 
+                  me1200PortRmonStatisticsTx512to1023Pkts, 
+                  me1200PortRmonStatisticsTx1024to1518Pkts, 
+                  me1200PortRmonStatisticsTx1519PktsToMax }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 3 }
+
+me1200PortIfGroupStatisticsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PortIfGroupStatisticsRxOctets, 
+                  me1200PortIfGroupStatisticsRxUnicastPkts, 
+                  me1200PortIfGroupStatisticsRxMulticastPkts, 
+                  me1200PortIfGroupStatisticsRxBroadcastPkts, 
+                  me1200PortIfGroupStatisticsRxNonUnicastPkts, 
+                  me1200PortIfGroupStatisticsRxDiscards, 
+                  me1200PortIfGroupStatisticsRxErrors, 
+                  me1200PortIfGroupStatisticsTxOctets, 
+                  me1200PortIfGroupStatisticsTxUnicastPkts, 
+                  me1200PortIfGroupStatisticsTxMulticastPkts, 
+                  me1200PortIfGroupStatisticsTxBroadcastPkts, 
+                  me1200PortIfGroupStatisticsTxNonUnicastPkts, 
+                  me1200PortIfGroupStatisticsTxDiscardPkts, 
+                  me1200PortIfGroupStatisticsTxErrorPkts }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 4 }
+
+me1200PortEthernetLikeStatisticsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PortEthernetLikeStatisticsRxPauseFrames, 
+                  me1200PortEthernetLikeStatisticsTxPauseFrames }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 5 }
+
+me1200PortQueuesStatisticsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PortQueuesStatisticsRxPrio, me1200PortQueuesStatisticsTxPrio }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 6 }
+
+me1200PortBridgeStatisticsTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PortBridgeStatisticsRxBridgeDiscard }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 7 }
+
+me1200PortVeriPhyResultTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PortVeriPhyResultVeriPhyStatusPairA, 
+                  me1200PortVeriPhyResultVeriPhyStatusPairB, 
+                  me1200PortVeriPhyResultVeriPhyStatusPairC, 
+                  me1200PortVeriPhyResultVeriPhyStatusPairD, 
+                  me1200PortVeriPhyResultVeriPhyLengthStatusPairA, 
+                  me1200PortVeriPhyResultVeriPhyLengthStatusPairB, 
+                  me1200PortVeriPhyResultVeriPhyLengthStatusPairC, 
+                  me1200PortVeriPhyResultVeriPhyLengthStatusPairD }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 8 }
+
+me1200PortStatsClearTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PortStatsClearStatisticsClear }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 9 }
+
+me1200PortVeriPhyStartTableInfoGroup OBJECT-GROUP
+    OBJECTS     { me1200PortVeriPhyStartStart }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 10 }
+
+me1200PortNotificationInfoGroup NOTIFICATION-GROUP
+    NOTIFICATIONS { me1200PortNotificationEthAmdinSpeedIncompatible,
+                    me1200PortNotificationSFPSpeedInfoMissing }
+    STATUS      current
+    DESCRIPTION
+        "A collection of objects suitable for bulk operations."
+    ::= { me1200PortMibGroups 11 }
+
+me1200PortMibCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION
+        "The compliance statement for the implementation."
+
+    MODULE      -- this module
+
+        MANDATORY-GROUPS        { me1200PortConfigInfoGroup, 
+                  me1200PortInformationTableInfoGroup, 
+                  me1200PortRmonStatisticsTableInfoGroup, 
+                  me1200PortIfGroupStatisticsTableInfoGroup, 
+                  me1200PortEthernetLikeStatisticsTableInfoGroup, 
+                  me1200PortQueuesStatisticsTableInfoGroup, 
+                  me1200PortBridgeStatisticsTableInfoGroup, 
+                  me1200PortVeriPhyResultTableInfoGroup, 
+                  me1200PortStatsClearTableInfoGroup, 
+                  me1200PortVeriPhyStartTableInfoGroup,
+                  me1200PortNotificationInfoGroup }
+
+    ::= { me1200PortMibCompliances 1 }
+
+END

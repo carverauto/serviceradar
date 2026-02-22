@@ -1,0 +1,395 @@
+-- *****************************************************************
+-- OLD-CISCO-NOVELL-MIB.my:  Cisco Novell MIB file
+--
+-- May 1994, Jeffrey T. Johnson
+--
+-- Copyright (c) 1994-1996 by cisco Systems, Inc.
+-- All rights reserved.
+-- 
+-- *****************************************************************
+--
+
+               OLD-CISCO-NOVELL-MIB DEFINITIONS ::= BEGIN
+
+               IMPORTS
+			Counter,
+			TimeTicks
+				FROM RFC1155-SMI
+			OBJECT-TYPE
+				FROM RFC-1212
+			temporary
+				FROM CISCO-SMI;
+          
+               -- textual convention
+               IPXaddress ::= OCTET STRING (SIZE(10))
+
+               tmpnovell              OBJECT IDENTIFIER ::= { temporary 4 }
+
+               -- Temporary Novell Section
+          -- This group is present in all router based products.
+
+               novellInput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total input count of number of NOVELL
+                           packets."
+                   ::= { tmpnovell 1 }
+
+               novellBcastin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL input
+                           broadcast packets."
+                   ::= { tmpnovell 2 }
+
+               novellForward OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL packets
+                           forwarded."
+                   ::= { tmpnovell 3 }
+
+               novellBcastout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL output
+                           broadcast packets."
+                   ::= { tmpnovell 4 }
+
+               novellFormerr OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL input
+                           packets with header errors."
+                   ::= { tmpnovell 5 }
+
+               novellChksum OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL input
+                           packets with checksum errors."
+                   ::= { tmpnovell 6 }
+
+               novellHopcnt OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL input
+                           packets that have exceeded the maximum hop
+                           count."
+                   ::= { tmpnovell 7 }
+
+               novellNoroute OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL packets
+                           dropped due to no route."
+                   ::= { tmpnovell 8 }
+
+               novellNoencap OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL packets
+                           dropped due to output encapsulation failure."
+                   ::= { tmpnovell 9 }
+
+               novellOutput OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL output
+                           packets."
+                   ::= { tmpnovell 10 }
+
+               novellInmult OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL input
+                           multicast packets."
+                   ::= { tmpnovell 11 }
+
+               novellLocal OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of NOVELL input packets for this
+                           host."
+                   ::= { tmpnovell 12 }
+
+               novellUnknown OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of unknown NOVELL
+                           input packets."
+                   ::= { tmpnovell 13 }
+
+               novellSapreqin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL SAP request
+                           packets received."
+                   ::= { tmpnovell 14 }
+
+               novellSapresin OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL SAP response
+                           packets received."
+                   ::= { tmpnovell 15 }
+
+               novellSapout OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL SAP request
+                           packets sent."
+                   ::= { tmpnovell 16 }
+
+               novellSapreply OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total count of number of NOVELL SAP reply
+                           packets sent."
+                   ::= { tmpnovell 17 }
+
+               ipxActThresh OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Threshold of IPX accounting records in use
+                           before IPX traffic will be unaccounted."
+                   ::= { tmpnovell 18 }
+
+               ipxActLostPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Lost IPX packets due to memory limitations."
+                   ::= { tmpnovell 19 }
+
+               ipxActLostByts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total bytes of lost IPX packets."
+                   ::= { tmpnovell 20 }
+
+
+               -- Local IPX Accounting Table
+
+          -- This group provides access to the cisco IPX accounting
+          -- support.
+
+               lipxAccountingTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LipxAccountingEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of IPX accounting entries."
+                   ::= { tmpnovell 21 }
+
+               lipxAccountingEntry OBJECT-TYPE
+                   SYNTAX LipxAccountingEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION "something"
+                   INDEX { ipxActSrc, ipxActDst }
+               ::= { lipxAccountingTable 1 }
+
+               LipxAccountingEntry ::=
+                   SEQUENCE {
+                       ipxActSrc
+                           IPXaddress,
+                       ipxActDst
+                           IPXaddress,
+                       ipxActPkts
+                           INTEGER,
+                       ipxActByts
+                           INTEGER
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               ipxActSrc OBJECT-TYPE
+                   SYNTAX  IPXaddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IPX Source address for host traffic matrix."
+                   ::= { lipxAccountingEntry 1 }
+
+               ipxActDst OBJECT-TYPE
+                   SYNTAX  IPXaddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IPX Destination address for host traffic
+                           matrix."
+                   ::= { lipxAccountingEntry 2 }
+
+               ipxActPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of IPX packets sent from source to
+                           destination."
+                   ::= { lipxAccountingEntry 3 }
+
+               ipxActByts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of bytes in IPX packets from
+                           source to destination."
+                   ::= { lipxAccountingEntry 4 }
+
+               -- End of table
+
+
+               ipxActAge OBJECT-TYPE
+                   SYNTAX  TimeTicks
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "The age of the data in the current IPX data
+                           matrix."
+                   ::= { tmpnovell 22 }
+
+
+               -- Local IPX Checkpoint Accounting Table
+
+          -- Local IPX Checkpoint Accounting Table
+
+               lipxCkAccountingTable OBJECT-TYPE
+                   SYNTAX  SEQUENCE OF LipxCkAccountingEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION
+                            "A list of IPX checkpoint accounting
+                            entries."
+                   ::= { tmpnovell 23 }
+
+               lipxCkAccountingEntry OBJECT-TYPE
+                   SYNTAX LipxCkAccountingEntry
+                   ACCESS  not-accessible
+                   STATUS  mandatory
+                   DESCRIPTION "something"
+                   INDEX { ipxCkactSrc, ipxCkactDst }
+               ::= { lipxCkAccountingTable 1 }
+
+               LipxCkAccountingEntry ::=
+                   SEQUENCE {
+                       ipxCkactSrc
+                           IPXaddress,
+                       ipxCkactDst
+                           IPXaddress,
+                       ipxCkactPkts
+                           INTEGER,
+                       ipxCkactByts
+                           Counter
+                   }
+
+
+          -- The following section describes the components of the
+          -- table.
+
+               ipxCkactSrc OBJECT-TYPE
+                   SYNTAX  IPXaddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IPX Source address for host in checkpoint
+                           traffic matrix."
+                   ::= { lipxCkAccountingEntry 1 }
+
+               ipxCkactDst OBJECT-TYPE
+                   SYNTAX  IPXaddress
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "IPX Destination address for host in
+                           checkpoint traffic matrix."
+                   ::= { lipxCkAccountingEntry 2 }
+
+               ipxCkactPkts OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Number of IPX packets sent from source to
+                           destination in checkpoint matrix."
+                   ::= { lipxCkAccountingEntry 3 }
+
+               ipxCkactByts OBJECT-TYPE
+                   SYNTAX  Counter
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Total number of bytes in IPX packets from
+                           source to destination in checkpoint matrix."
+                   ::= { lipxCkAccountingEntry 4 }
+
+               -- End of table
+
+
+               ipxCkactAge OBJECT-TYPE
+                   SYNTAX  TimeTicks
+                   ACCESS  read-only
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Age of data in the IPX checkpoint matrix."
+                   ::= { tmpnovell 24 }
+
+               ipxActCheckPoint OBJECT-TYPE
+                   SYNTAX  INTEGER
+                   ACCESS  read-write
+                   STATUS  mandatory
+                   DESCRIPTION
+                           "Check points the IPX accounting database.
+                           This mib variable must be read and then set
+                           with the same value for the check point to
+                           succeed. The value read and then set will be
+                           incremented after a successful set request"
+                   ::= { tmpnovell 25 }
+
+
+
+END
+

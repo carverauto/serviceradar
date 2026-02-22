@@ -1,0 +1,82 @@
+-- MIB file created 25-Apr-2003 16:22:20, by
+--   SMICng version 2.2.11-beta(PRO)(Solaris), January 20, 2001. Enterprise key cisco.com
+
+CISCO-FIPS-STATS-MIB DEFINITIONS ::= BEGIN
+
+-- From file: "CISCO-FIPS-STATS-MIB.my"
+-- Compile options "4 7 F H N W 03 06 0B 0G 0N 0T"
+
+IMPORTS
+    ciscoMgmt
+            FROM CISCO-SMI
+    OBJECT-TYPE
+            FROM RFC-1212;
+
+ciscoFipsStatsMIB OBJECT IDENTIFIER ::= { ciscoMgmt 999999 }
+-- MODULE-IDENTITY
+--  LastUpdated
+--    200303100000Z
+--  OrgName
+--    Cisco Systems, Inc.
+--  ContactInfo
+--    Cisco Systems 
+--            170 W Tasman Drive 
+--            San Jose, CA  95134 
+--            USA 
+--    
+--            Tel: +1 800 553-NETS 
+--            E-mail: cs-fips-stats-mib@cisco.com
+--  Descr
+--    The Federal Information Processing Standards (FIPS)  
+--            power-up self-test status MIB module
+--  RevDate
+--    200303100000Z
+--  RevDescr
+--    The initial version of this MIB.
+
+ciscoFipsStatsMIBNotifs OBJECT IDENTIFIER ::= { ciscoFipsStatsMIB 0 }
+ciscoFipsStatsMIBObjects OBJECT IDENTIFIER ::= { ciscoFipsStatsMIB 1 }
+ciscoFipsStatsMIBConform OBJECT IDENTIFIER ::= { ciscoFipsStatsMIB 2 }
+cfipsStats      OBJECT IDENTIFIER ::= { ciscoFipsStatsMIBObjects 1 }
+cfipsStatsGlobal OBJECT IDENTIFIER ::= { cfipsStats 1 }
+ciscoFipsStatsMIBCompliances OBJECT IDENTIFIER ::= { ciscoFipsStatsMIBConform 1 }
+ciscoFipsStatsMIBGroups OBJECT IDENTIFIER ::= { ciscoFipsStatsMIBConform 2 }
+
+cfipsPostStatus OBJECT-TYPE
+    SYNTAX INTEGER {
+        running(1),
+        passed(2),
+        failed(3),
+        notAvailable(4)
+        }
+    ACCESS read-only
+    STATUS mandatory
+    DESCRIPTION
+        "Indicates whether or not the FIPS power-up self-test passed."
+    DEFVAL { notAvailable }
+    ::= { cfipsStatsGlobal 1 }
+
+ciscoFipsStatsMIBGroup OBJECT IDENTIFIER ::= { ciscoFipsStatsMIBGroups 1 }
+-- OBJECT-GROUP
+--  Status
+--    mandatory
+--  Descr
+--    The objects for FIPS configuration.
+--  objects
+--    cfipsPostStatus
+
+ciscoFipsStatsMIBCompliance OBJECT IDENTIFIER ::= { ciscoFipsStatsMIBCompliances 1 }
+-- MODULE-COMPLIANCE
+--  Status
+--    mandatory
+--  Descr
+--    The compliance statement for agents which  
+--     implement the CISCO FIPs Status MIB.
+--  Module
+--    >>current<<
+--   MandGroup
+--    ciscoFipsStatsMIBGroup
+
+
+END
+
