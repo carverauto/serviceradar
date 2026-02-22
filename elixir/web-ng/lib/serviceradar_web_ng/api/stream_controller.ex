@@ -11,9 +11,9 @@ defmodule ServiceRadarWebNG.Api.StreamController do
     # At this point, the API authentication pipeline has already validated 
     # the OAuth2 Bearer token in the request headers and attached the user to conn.assigns.
     user = conn.assigns[:current_user]
-    
+
     Logger.info("Upgrading God-View Arrow stream for user #{user.id}, session: #{session_id}")
-    
+
     conn
     |> WebSockAdapter.upgrade(
       ServiceRadarWebNGWeb.Channels.ArrowStreamHandler,
