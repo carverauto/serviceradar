@@ -63,29 +63,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
       case PluginInputPayloadBuilder.build_payloads(base_payload, inputs_for_agent, builder_opts) do
         {:ok, payloads} ->
           assignment_specs =
-            Enum.map(payloads, fn payload ->
-              input = hd(payload["inputs"])
-              assignment_key = assignment_key(policy.policy_id, agent_id, input)
-
-              %{
-                assignment_key: assignment_key,
-                agent_uid: agent_id,
-                plugin_package_id: policy.plugin_package_id,
-                enabled: policy.enabled,
-                interval_seconds: policy.interval_seconds,
-                timeout_seconds: policy.timeout_seconds,
-                params: payload,
-                metadata: %{
-                  "source" => "policy",
-                  "policy_id" => policy.policy_id,
-                  "input_name" => input["name"],
-                  "input_entity" => input["entity"],
-                  "chunk_index" => input["chunk_index"],
-                  "chunk_total" => input["chunk_total"],
-                  "chunk_hash" => input["chunk_hash"]
-                }
-              }
-            end)
+            Enum.map(payloads, &assignment_spec(policy, agent_id, &1))
 
           {:cont, {:ok, acc ++ assignment_specs}}
 
@@ -122,25 +100,51 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentPlanner do
       rows = list_value(input, [:rows, "rows"]) || []
 
       Enum.reduce(rows, acc, fn row, input_acc ->
-        row = stringify_keys(row)
-
-        case agent_id_from_row(row) do
-          nil ->
-            input_acc
-
-          agent_id ->
-            item =
-              input_acc.by_agent
-              |> Map.get(agent_id, [])
-              |> ensure_input(name, entity, query, row)
-
-            %{
-              by_agent: Map.put(input_acc.by_agent, agent_id, item),
-              total_rows: input_acc.total_rows + 1
-            }
-        end
+        accumulate_agent_row(input_acc, name, entity, query, stringify_keys(row))
       end)
     end)
+  end
+
+  defp accumulate_agent_row(acc, name, entity, query, row) do
+    case agent_id_from_row(row) do
+      nil ->
+        acc
+
+      agent_id ->
+        item =
+          acc.by_agent
+          |> Map.get(agent_id, [])
+          |> ensure_input(name, entity, query, row)
+
+        %{
+          by_agent: Map.put(acc.by_agent, agent_id, item),
+          total_rows: acc.total_rows + 1
+        }
+    end
+  end
+
+  defp assignment_spec(policy, agent_id, payload) do
+    input = hd(payload["inputs"])
+    key = assignment_key(policy.policy_id, agent_id, input)
+
+    %{
+      assignment_key: key,
+      agent_uid: agent_id,
+      plugin_package_id: policy.plugin_package_id,
+      enabled: policy.enabled,
+      interval_seconds: policy.interval_seconds,
+      timeout_seconds: policy.timeout_seconds,
+      params: payload,
+      metadata: %{
+        "source" => "policy",
+        "policy_id" => policy.policy_id,
+        "input_name" => input["name"],
+        "input_entity" => input["entity"],
+        "chunk_index" => input["chunk_index"],
+        "chunk_total" => input["chunk_total"],
+        "chunk_hash" => input["chunk_hash"]
+      }
+    }
   end
 
   defp ensure_input(existing_inputs, name, entity, query, row) do

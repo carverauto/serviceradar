@@ -53,21 +53,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker do
 
     case policies do
       {:ok, rows} ->
-        Enum.each(rows, fn policy ->
-          case PluginTargetPolicyOps.reconcile_policy(policy, actor: actor) do
-            {:ok, summary} ->
-              Logger.info("Reconciled plugin target policy",
-                policy_id: policy.id,
-                summary: inspect(summary)
-              )
-
-            {:error, reason} ->
-              Logger.warning("Failed to reconcile plugin target policy",
-                policy_id: policy.id,
-                reason: inspect(reason)
-              )
-          end
-        end)
+        Enum.each(rows, &reconcile_one_policy(&1, actor))
 
         schedule_next()
         :ok
@@ -76,6 +62,22 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker do
         Logger.warning("Failed to load enabled plugin target policies", reason: inspect(reason))
         schedule_next()
         {:error, reason}
+    end
+  end
+
+  defp reconcile_one_policy(policy, actor) do
+    case PluginTargetPolicyOps.reconcile_policy(policy, actor: actor) do
+      {:ok, summary} ->
+        Logger.info("Reconciled plugin target policy",
+          policy_id: policy.id,
+          summary: inspect(summary)
+        )
+
+      {:error, reason} ->
+        Logger.warning("Failed to reconcile plugin target policy",
+          policy_id: policy.id,
+          reason: inspect(reason)
+        )
     end
   end
 

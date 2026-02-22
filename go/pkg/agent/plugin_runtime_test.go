@@ -2,7 +2,6 @@ package agent
 
 import (
 	"encoding/json"
-	"net/http"
 	"net/netip"
 	"testing"
 	"time"
@@ -314,11 +313,7 @@ func TestParseWebSocketConnectPayloadSkipsBlankHeaders(t *testing.T) {
 	if wsURL == "" {
 		t.Fatalf("expected non-empty URL")
 	}
-	if headers != nil && len(headers) != 0 {
+	if len(headers) != 0 {
 		t.Fatalf("expected blank headers to be omitted")
 	}
-
-	// Keep type assertion usage explicit to avoid future regressions where
-	// header container type changes.
-	var _ http.Header = headers
 }

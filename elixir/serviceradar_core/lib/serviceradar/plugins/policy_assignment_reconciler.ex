@@ -93,23 +93,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   defp upsert_desired(desired_by_key, existing_by_key, actor, store) do
     desired_by_key
     |> Enum.reduce_while({:ok, %{upserted: 0, unchanged: 0}}, fn {key, spec}, {:ok, stats} ->
-      case Map.get(existing_by_key, key) do
-        nil ->
-          case store.create_assignment(spec, actor) do
-            {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
-
-        existing ->
-          if assignment_matches_spec?(existing, spec) do
-            {:cont, {:ok, %{stats | unchanged: stats.unchanged + 1}}}
-          else
-            case store.update_assignment(existing, spec, actor) do
-              {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
-              {:error, reason} -> {:halt, {:error, reason}}
-            end
-          end
-      end
+      existing = Map.get(existing_by_key, key)
+      upsert_one(spec, existing, stats, actor, store)
     end)
   end
 
@@ -117,15 +102,37 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     existing_by_key
     |> Enum.reject(fn {key, _} -> Map.has_key?(desired_by_key, key) end)
     |> Enum.reduce_while({:ok, 0}, fn {_key, assignment}, {:ok, count} ->
-      if assignment.enabled do
-        case store.disable_assignment(assignment, actor) do
-          {:ok, _} -> {:cont, {:ok, count + 1}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      else
-        {:cont, {:ok, count}}
-      end
+      disable_one(assignment, count, actor, store)
     end)
+  end
+
+  defp upsert_one(spec, nil, stats, actor, store) do
+    case store.create_assignment(spec, actor) do
+      {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp upsert_one(spec, existing, stats, actor, store) do
+    if assignment_matches_spec?(existing, spec) do
+      {:cont, {:ok, %{stats | unchanged: stats.unchanged + 1}}}
+    else
+      case store.update_assignment(existing, spec, actor) do
+        {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end
+  end
+
+  defp disable_one(assignment, count, _actor, _store) when not assignment.enabled do
+    {:cont, {:ok, count}}
+  end
+
+  defp disable_one(assignment, count, actor, store) do
+    case store.disable_assignment(assignment, actor) do
+      {:ok, _} -> {:cont, {:ok, count + 1}}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
   end
 
   defp assignment_matches_spec?(existing, spec) do

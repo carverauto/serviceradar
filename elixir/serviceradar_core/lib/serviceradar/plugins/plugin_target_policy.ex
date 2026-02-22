@@ -12,6 +12,8 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Plugins.PluginTargetPolicyOps
+
   postgres do
     table "plugin_target_policies"
     repo ServiceRadar.Repo
@@ -79,7 +81,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
       argument :sample_limit, :integer, allow_nil?: true, default: 10
 
       run fn input, context ->
-        ServiceRadar.Plugins.PluginTargetPolicyOps.preview_by_id(
+        PluginTargetPolicyOps.preview_by_id(
           input.arguments.id,
           sample_limit: input.arguments.sample_limit,
           actor: context[:actor]
@@ -91,7 +93,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
       argument :id, :uuid, allow_nil?: false
 
       run fn input, context ->
-        ServiceRadar.Plugins.PluginTargetPolicyOps.reconcile_by_id(
+        PluginTargetPolicyOps.reconcile_by_id(
           input.arguments.id,
           actor: context[:actor]
         )
